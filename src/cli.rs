@@ -10,7 +10,7 @@ use std::path::PathBuf;
 use clap::Parser;
 
 use crate::agent::brains::trace::{AgentFilter, TraceConfig, TraceFormat};
-use crate::headless::HeadlessConfig;
+use crate::headless::{HeadlessConfig, InspectConfig, InspectQuery};
 
 /// Command-line arguments accepted by the worldsim binary.
 #[derive(Parser, Debug, Clone)]
@@ -75,6 +75,28 @@ pub struct CliArgs {
     /// writes to stdout.
     #[arg(long)]
     pub trace_file: Option<PathBuf>,
+
+    /// Print a full agent state snapshot at --at-tick. Format: agent:<name>.
+    /// Can be repeated to inspect multiple agents.
+    #[arg(long)]
+    pub inspect: Vec<String>,
+
+    /// Print an agent's full MindGraph at --at-tick. Format: agent:<name>.
+    /// Can be repeated.
+    #[arg(long = "dump-mind")]
+    pub dump_mind: Vec<String>,
+
+    /// Search an agent's MindGraph by text at --at-tick.
+    /// Format: "<agent-name> <query-text>" (first word is the agent name).
+    /// Can be repeated.
+    #[arg(long)]
+    pub query: Vec<String>,
+
+    /// Tick at which to perform inspection. If not specified, inspects at the
+    /// final tick (after --ticks). If specified, the simulation stops at this
+    /// tick regardless of --ticks.
+    #[arg(long)]
+    pub at_tick: Option<u64>,
 }
 
 impl CliArgs {
@@ -88,6 +110,42 @@ impl CliArgs {
             apple_trees: self.apple_trees,
             deer: self.deer,
             trace: self.build_trace_config(),
+            inspect: self.build_inspect_config(),
+        }
+    }
+
+    fn build_inspect_config(&self) -> InspectConfig {
+        let at_tick = self.at_tick;
+
+        let inspect_agents: Vec<String> = self
+            .inspect
+            .iter()
+            .filter_map(|s| s.strip_prefix("agent:").map(|n| n.to_string()))
+            .collect();
+
+        let dump_mind_agents: Vec<String> = self
+            .dump_mind
+            .iter()
+            .filter_map(|s| s.strip_prefix("agent:").map(|n| n.to_string()))
+            .collect();
+
+        let queries: Vec<InspectQuery> = self
+            .query
+            .iter()
+            .filter_map(|s| {
+                let (agent, query) = s.split_once(' ')?;
+                Some(InspectQuery {
+                    agent: agent.to_string(),
+                    text: query.to_string(),
+                })
+            })
+            .collect();
+
+        InspectConfig {
+            at_tick,
+            inspect_agents,
+            dump_mind_agents,
+            queries,
         }
     }
 
