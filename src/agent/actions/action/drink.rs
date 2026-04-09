@@ -85,9 +85,63 @@ impl Action for DrinkAction {
 
 #[cfg(test)]
 mod tests {
+    use super::is_adjacent_to_water;
     use crate::testing::{AgentConfig, TestWorld};
-    use crate::world::map::TileType;
-    use bevy::math::Vec2;
+    use crate::world::map::{TILE_SIZE, TileType, WorldMap};
+    use bevy::math::{IVec2, Vec2};
+
+    fn grass_map(width: u32, height: u32) -> WorldMap {
+        use crate::world::map::{CHUNK_SIZE, Chunk};
+        let mut map = WorldMap::new(width, height);
+        let chunks_x = width.div_ceil(CHUNK_SIZE);
+        let chunks_y = height.div_ceil(CHUNK_SIZE);
+        for cy in 0..chunks_y as i32 {
+            for cx in 0..chunks_x as i32 {
+                map.chunks.insert(IVec2::new(cx, cy), Chunk::new(cx, cy));
+            }
+        }
+        map
+    }
+
+    fn tile_center(tx: i32, ty: i32) -> Vec2 {
+        Vec2::new(
+            tx as f32 * TILE_SIZE + TILE_SIZE / 2.0,
+            ty as f32 * TILE_SIZE + TILE_SIZE / 2.0,
+        )
+    }
+
+    #[test]
+    fn water_directly_adjacent_is_detected() {
+        let mut map = grass_map(16, 16);
+        map.set_tile(5, 5, TileType::ShallowWater);
+        assert!(is_adjacent_to_water(tile_center(4, 5), &map));
+    }
+
+    #[test]
+    fn water_diagonally_adjacent_is_detected() {
+        let mut map = grass_map(16, 16);
+        map.set_tile(5, 5, TileType::Water);
+        assert!(is_adjacent_to_water(tile_center(4, 4), &map));
+    }
+
+    #[test]
+    fn water_two_tiles_away_is_not_detected() {
+        let mut map = grass_map(16, 16);
+        map.set_tile(7, 5, TileType::ShallowWater);
+        assert!(!is_adjacent_to_water(tile_center(4, 5), &map));
+    }
+
+    #[test]
+    fn agent_at_map_origin_does_not_panic_on_negative_neighbors() {
+        let map = grass_map(16, 16);
+        assert!(!is_adjacent_to_water(tile_center(0, 0), &map));
+    }
+
+    #[test]
+    fn no_water_anywhere_returns_false() {
+        let map = grass_map(16, 16);
+        assert!(!is_adjacent_to_water(tile_center(8, 8), &map));
+    }
 
     #[test]
     fn thirsty_agent_near_water_drinks() {
