@@ -252,8 +252,10 @@ mod tests {
     #[test]
     fn test_survival_hunger_response() {
         let ontology = setup_ontology();
-        let mut physical = PhysicalNeeds::default();
-        physical.hunger = 90.0;
+        let physical = PhysicalNeeds {
+            hunger: 90.0,
+            ..Default::default()
+        };
         let consciousness = Consciousness::default();
         let emotions = EmotionalState::default();
 

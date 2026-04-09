@@ -67,7 +67,7 @@ impl Action for AttackAction {
     fn to_template(
         &self,
         target_entity: Option<Entity>,
-        target_position: Option<Vec2>,
+        _target_position: Option<Vec2>,
     ) -> crate::agent::brains::thinking::ActionTemplate {
         use crate::agent::brains::thinking::ActionTemplate;
 
