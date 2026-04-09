@@ -309,6 +309,15 @@ impl TestWorld {
 
     /// Creates a new TestWorld with the given RNG seed.
     pub fn with_seed(seed: u64) -> Self {
+        Self::with_seed_and_map(
+            seed,
+            make_walkable_map(DEFAULT_MAP_TILES, DEFAULT_MAP_TILES),
+        )
+    }
+
+    /// Creates a new TestWorld with the given seed and a pre-built `WorldMap`.
+    /// Used by `ScenarioBuilder::build()` to inject a custom map.
+    pub(super) fn with_seed_and_map(seed: u64, map: WorldMap) -> Self {
         let mut app = App::new();
 
         // MinimalPlugins gives us TaskPool, Time, ScheduleRunner — no rendering.
@@ -320,7 +329,7 @@ impl TestWorld {
         // - EnvironmentPlugin (LightLevel, plus ClearColor manipulation)
         // - CorePlugin (TickCount/GameLog/GameTime, plus keyboard time controls)
         app.insert_resource(setup_ontology());
-        app.insert_resource(make_walkable_map(DEFAULT_MAP_TILES, DEFAULT_MAP_TILES));
+        app.insert_resource(map);
         app.insert_resource(LightLevel(1.0));
         app.insert_resource(TickCount::new(60.0));
         app.insert_resource(GameLog::new(100));
@@ -340,6 +349,53 @@ impl TestWorld {
         app.add_plugins(AgentPlugin);
 
         Self { app, seed }
+    }
+
+    /// Begin building a composable test scenario. Returns a `ScenarioBuilder`
+    /// that lets you configure the map, agents, groups, relationships, and
+    /// resources before calling `.build()`.
+    ///
+    /// ```ignore
+    /// let (mut world, agents) = TestWorld::scenario(42)
+    ///     .map_size(32, 32)
+    ///     .noise_biomes(false)
+    ///     .agent("alice").pos(Vec2::new(50.0, 50.0)).hunger(80.0).done()
+    ///     .berry_bushes(2, Vec2::new(60.0, 50.0))
+    ///     .build();
+    /// let alice = agents["alice"];
+    /// ```
+    pub fn scenario(seed: u64) -> crate::testing::scenario::ScenarioBuilder {
+        crate::testing::scenario::ScenarioBuilder::new(seed)
+    }
+
+    /// Convenience preset: one agent on a small flat map with two nearby berry bushes.
+    pub fn solo_agent(seed: u64) -> (Self, Entity) {
+        let (world, agents) = Self::scenario(seed)
+            .map_size(32, 32)
+            .noise_biomes(false)
+            .agent("agent")
+            .pos(Vec2::new(50.0, 50.0))
+            .done()
+            .berry_bushes(2, Vec2::new(60.0, 50.0))
+            .build();
+        (world, agents["agent"])
+    }
+
+    /// Convenience preset: two socially-driven strangers on a small flat map.
+    pub fn two_strangers(seed: u64) -> (Self, Entity, Entity) {
+        let (world, agents) = Self::scenario(seed)
+            .map_size(32, 32)
+            .noise_biomes(false)
+            .agent("a")
+            .pos(Vec2::new(50.0, 50.0))
+            .social_drive(0.8)
+            .done()
+            .agent("b")
+            .pos(Vec2::new(52.0, 50.0))
+            .social_drive(0.8)
+            .done()
+            .build();
+        (world, agents["a"], agents["b"])
     }
 
     /// The seed this TestWorld was created with.
@@ -982,7 +1038,7 @@ impl Default for TestWorld {
 
 /// Builds a fully walkable WorldMap of the given dimensions in tiles. Initializes
 /// every chunk with grass so `is_walkable` returns true everywhere.
-fn make_walkable_map(width: u32, height: u32) -> WorldMap {
+pub(super) fn make_walkable_map(width: u32, height: u32) -> WorldMap {
     let mut map = WorldMap::new(width, height);
     let chunks_x = width.div_ceil(CHUNK_SIZE);
     let chunks_y = height.div_ceil(CHUNK_SIZE);
