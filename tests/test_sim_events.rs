@@ -5,6 +5,8 @@
 
 use bevy::prelude::*;
 use worldsim::agent::events::SimEvent;
+use worldsim::agent::inventory::Inventory;
+use worldsim::agent::mind::knowledge::Concept;
 use worldsim::testing::{AgentConfig, TestWorld};
 
 /// Resource that collects SimEvents across ticks for test inspection.
@@ -96,17 +98,23 @@ fn stranger_detected_when_two_agents_meet() {
 #[test]
 fn brain_and_action_lifecycle_events_emitted() {
     let mut world = test_world_with_collector();
-    // Agent on top of food with high hunger — will decide to eat quickly.
-    world.spawn_agent(AgentConfig {
+    // Hungry agent with food already in inventory — will eat without needing to
+    // walk or harvest, guaranteeing a short Eat action (20 ticks) completes.
+    let agent = world.spawn_agent(AgentConfig {
         hunger: 90.0,
         pos: Vec2::new(20.0, 20.0),
         ..Default::default()
     });
-    world.spawn_berry_bush(Vec2::new(20.0, 20.0), 5);
+    world
+        .app_mut()
+        .world_mut()
+        .get_mut::<Inventory>(agent)
+        .unwrap()
+        .add(Concept::Berry, 5);
 
-    // Brain thinking_interval is 60 ticks. Run for 500 ticks to give multiple
-    // brain cycles, action starts, and action completions time to happen.
-    world.tick(500);
+    // Brain thinking_interval is 60 ticks. 300 ticks gives ~5 brain cycles,
+    // plenty for Decision → ActionStarted → ActionCompleted (Eat = 20 ticks).
+    world.tick(300);
 
     let collector = world.app().world().resource::<SimEventCollector>();
 
@@ -123,13 +131,13 @@ fn brain_and_action_lifecycle_events_emitted() {
         .iter()
         .any(|e| matches!(e, SimEvent::ActionCompleted { .. }));
 
-    assert!(has_decision, "expected Decision events after 500 ticks");
+    assert!(has_decision, "expected Decision events after 300 ticks");
     assert!(
         has_action_started,
-        "expected ActionStarted events after 500 ticks"
+        "expected ActionStarted events after 300 ticks"
     );
     assert!(
         has_action_completed,
-        "expected ActionCompleted events after 500 ticks"
+        "expected ActionCompleted events after 300 ticks"
     );
 }
