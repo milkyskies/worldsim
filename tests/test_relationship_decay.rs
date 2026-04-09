@@ -50,8 +50,12 @@ fn trust_decays_toward_neutral_without_contact() {
     // Set trust well above neutral at tick 0.
     set_trust(&mut world, agent, other, 0.8, 0);
 
-    // Tick past a full decay period so decay fires.
-    world.tick(DECAY_PERIOD);
+    // Tick one past the decay period boundary. decay_relationships and
+    // deterministic_tick have no explicit ordering, so decay may read
+    // tick.current before it is incremented in a given update. Ticking
+    // DECAY_PERIOD + 1 guarantees tick 300 is visible to the decay system
+    // regardless of which system runs first within the Update schedule.
+    world.tick(DECAY_PERIOD + 1);
 
     let trust = get_trust(&world, agent, other).expect("trust should still exist");
     assert!(
