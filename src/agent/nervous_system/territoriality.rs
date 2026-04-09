@@ -129,8 +129,6 @@ pub fn update_territoriality(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     fn run_no_intruder(baseline: f32) -> f32 {
         // Simulate one "no intruder" tick starting from baseline.
         let decayed = baseline * 0.85 + baseline * 0.15;
