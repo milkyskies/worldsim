@@ -358,33 +358,29 @@ pub fn tick_actions(
 
             action_def.on_complete(&mut ctx);
 
-            // Compute how much each need changed.
+            // Only emit a success outcome when something observable changed.
+            // Walk/Idle/Wander complete with no effects — skip the allocation.
             let hunger_reduced = pre_hunger - physical.hunger;
             let thirst_reduced = pre_thirst - physical.thirst;
             let energy_gained = physical.energy - pre_energy;
-            let need_satisfaction =
-                if hunger_reduced > 0.0 || thirst_reduced > 0.0 || energy_gained > 0.0 {
-                    Some(NeedSatisfaction {
-                        hunger_reduced,
-                        thirst_reduced,
-                        energy_gained,
-                        pre_hunger,
-                        pre_thirst,
-                    })
-                } else {
-                    None
-                };
-
-            outcome_events.write(ActionOutcomeEvent {
-                actor: entity,
-                outcome: ActionOutcome::Success {
-                    action: *action_type,
-                    target: snapshot.target_entity,
-                    gained: None,
-                    consumed: None,
-                    need_satisfaction,
-                },
-            });
+            if hunger_reduced > 0.0 || thirst_reduced > 0.0 || energy_gained > 0.0 {
+                outcome_events.write(ActionOutcomeEvent {
+                    actor: entity,
+                    outcome: ActionOutcome::Success {
+                        action: *action_type,
+                        target: snapshot.target_entity,
+                        gained: None,
+                        consumed: None,
+                        need_satisfaction: Some(NeedSatisfaction {
+                            hunger_reduced,
+                            thirst_reduced,
+                            energy_gained,
+                            pre_hunger,
+                            pre_thirst,
+                        }),
+                    },
+                });
+            }
 
             sim_events.write(crate::agent::events::SimEvent::ActionCompleted {
                 agent: entity,

@@ -10,7 +10,9 @@
 use crate::agent::body::needs::PhysicalNeeds;
 use crate::agent::events::{ActionOutcome, ActionOutcomeEvent, FailureReason};
 use crate::agent::mind::knowledge::{Concept, Metadata, MindGraph, Node, Predicate, Triple, Value};
-use crate::agent::psyche::emotions::{Emotion, EmotionType, EmotionalState};
+use crate::agent::psyche::emotions::{
+    Emotion, EmotionType, EmotionalState, add_emotion_with_event,
+};
 use bevy::prelude::*;
 
 pub fn process_action_outcomes(
@@ -150,13 +152,13 @@ fn generate_satisfaction_joy(
     let joy_intensity = (hunger_joy + thirst_joy).clamp(0.0, 1.0);
 
     if joy_intensity > 0.01 {
-        sim_events.write(crate::agent::events::SimEvent::EmotionTriggered {
+        add_emotion_with_event(
+            state,
+            sim_events,
             agent,
             tick,
-            emotion: EmotionType::Joy,
-            intensity: joy_intensity,
-        });
-        state.add_emotion(Emotion::new(EmotionType::Joy, joy_intensity));
+            Emotion::new(EmotionType::Joy, joy_intensity),
+        );
     }
 }
 
@@ -176,14 +178,13 @@ fn generate_failure_frustration(
     };
 
     if urgency > 0.1 {
-        let frustration = urgency * 0.6;
-        sim_events.write(crate::agent::events::SimEvent::EmotionTriggered {
+        add_emotion_with_event(
+            state,
+            sim_events,
             agent,
             tick,
-            emotion: EmotionType::Anger,
-            intensity: frustration,
-        });
-        state.add_emotion(Emotion::new(EmotionType::Anger, frustration));
+            Emotion::new(EmotionType::Anger, urgency * 0.6),
+        );
     }
 }
 
