@@ -179,4 +179,20 @@ mod tests {
         assert_eq!(config.berry_bushes, 1);
         assert_eq!(config.apple_trees, 0);
     }
+
+    #[test]
+    fn parse_tick_range_parses_valid_range() {
+        assert_eq!(parse_tick_range("10-20"), Some((10, 20)));
+        assert_eq!(parse_tick_range("0-0"), Some((0, 0)));
+        assert_eq!(parse_tick_range("4500-4600"), Some((4500, 4600)));
+    }
+
+    #[test]
+    fn parse_tick_range_returns_none_for_invalid_input() {
+        assert_eq!(parse_tick_range("abc-def"), None);
+        assert_eq!(parse_tick_range("10_20"), None);
+        assert_eq!(parse_tick_range("10"), None);
+        assert_eq!(parse_tick_range(""), None);
+        assert_eq!(parse_tick_range("-10"), None); // empty start
+    }
 }
