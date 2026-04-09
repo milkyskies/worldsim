@@ -9,6 +9,7 @@ use crate::agent::brains::thinking::{ActionTemplate, TriplePattern};
 use crate::agent::events::FailureReason;
 use crate::agent::inventory::Inventory;
 use crate::agent::mind::knowledge::{MindGraph, Triple};
+use crate::world::map::TILE_SIZE;
 use bevy::prelude::*;
 use std::collections::HashMap;
 
@@ -206,7 +207,6 @@ pub trait Action: Send + Sync + 'static {
         if self.requires_proximity()
             && let Some(pos) = target_position
         {
-            const TILE_SIZE: f32 = 16.0;
             let tile = (
                 (pos.x / TILE_SIZE).floor() as i32,
                 (pos.y / TILE_SIZE).floor() as i32,
