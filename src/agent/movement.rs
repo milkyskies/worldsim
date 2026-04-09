@@ -56,7 +56,8 @@ pub fn move_toward(
     }
 
     // Terrain at the agent's current tile slows movement (forest, sand, rock, etc.).
-    // Falling back to 1.0 when off-map keeps the agent moving toward bounds rather than freezing.
+    // If the agent is off-map or somehow stuck on an impassable tile (multiplier 0),
+    // fall back to full speed so they can escape rather than freeze in place.
     let terrain_mult = map
         .tile_at(current_pos)
         .map(|t| t.speed_multiplier())

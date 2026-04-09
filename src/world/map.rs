@@ -245,20 +245,30 @@ impl TerrainNoise {
     }
 }
 
+/// Elevation/moisture thresholds (in noise output space, roughly [-1.0, 1.0])
+/// that decide which biome a tile belongs to. Tuned by eye for the default seed.
+mod biome {
+    pub const DEEP_WATER_MAX: f64 = -0.32;
+    pub const SHALLOW_WATER_MAX: f64 = -0.22;
+    pub const SAND_MAX: f64 = -0.10;
+    pub const ROCK_MIN: f64 = 0.45;
+    pub const FOREST_MOISTURE_MIN: f64 = 0.10;
+}
+
 /// Classify a tile from elevation/moisture noise values.
 ///
 /// Elevation drives the dominant biome (water -> sand -> land -> rock).
 /// Moisture decides whether mid-elevation land is grass or forest.
 fn classify_tile(elevation: f64, moisture: f64) -> TileType {
-    if elevation < -0.32 {
+    if elevation < biome::DEEP_WATER_MAX {
         TileType::Water
-    } else if elevation < -0.22 {
+    } else if elevation < biome::SHALLOW_WATER_MAX {
         TileType::ShallowWater
-    } else if elevation < -0.10 {
+    } else if elevation < biome::SAND_MAX {
         TileType::Sand
-    } else if elevation > 0.45 {
+    } else if elevation > biome::ROCK_MIN {
         TileType::Rock
-    } else if moisture > 0.10 {
+    } else if moisture > biome::FOREST_MOISTURE_MIN {
         TileType::Forest
     } else {
         TileType::Grass
