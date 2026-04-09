@@ -231,13 +231,12 @@ pub fn decay_relationships(
             })
             .collect();
 
-        // Decay toward neutral (0.5), but skip if the agent interacted within
-        // the last decay period (frequent contact maintains closeness).
+        // Skip if the agent interacted recently — frequent contact maintains closeness.
         for (entity, current, last_updated) in trust_entries {
             if current_time.saturating_sub(last_updated) < 300 {
                 continue;
             }
-            let target = 0.5; // Neutral
+            let target = 0.5;
             let new_value = current + (target - current) * decay;
 
             mind.assert(Triple::with_meta(
@@ -248,7 +247,7 @@ pub fn decay_relationships(
             ));
         }
 
-        // Same for affection
+        // Same guard for affection.
         let affection_entries: Vec<_> = mind
             .query(None, Some(Predicate::Affection), None)
             .into_iter()
