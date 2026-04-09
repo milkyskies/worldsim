@@ -8,7 +8,9 @@
 //! Fix: snap position to the exact target when arriving within threshold.
 
 use bevy::prelude::*;
+use worldsim::agent::TargetPosition;
 use worldsim::agent::actions::{ActionState, ActionType, ActiveActions};
+use worldsim::agent::brains::proposal::BrainState;
 use worldsim::testing::{AgentConfig, TestWorld};
 use worldsim::world::map::TILE_SIZE;
 
@@ -38,21 +40,28 @@ fn walk_snaps_to_target_when_arriving_near_tile_boundary() {
     let mut world = TestWorld::with_seed(42);
     let agent = world.spawn_agent(AgentConfig::at(start));
 
-    // Advance past tick 0 before injecting the Walk action. At tick 0,
-    // entity_id 0 satisfies (0 + 0) % 60 == 0, so the brain fires and
-    // proposes Explore, which would preempt the injected Walk via start_actions.
-    // After tick 1, the next brain fire is at tick 60 — well outside our window.
+    // At tick 0, entity_id 0 satisfies (0+0)%60==0 so the brain always fires,
+    // starts Explore, and sets TargetPosition to a random direction. Advance
+    // one tick first to exhaust that firing, then clear all actions and the
+    // brain's chosen_actions so start_actions doesn't restart Explore.
     world.tick(1);
-
-    // Inject the Walk action directly into ActiveActions so we don't need to wait
-    // for the 60-tick thinking interval before the brain proposes it.
     {
-        let mut active = world.get_mut::<ActiveActions>(agent);
-        active.insert(ActionState {
-            action_type: ActionType::Walk,
-            target_position: Some(target),
-            ..Default::default()
-        });
+        let w = world.app_mut().world_mut();
+        w.get_mut::<ActiveActions>(agent).unwrap().clear();
+        w.get_mut::<BrainState>(agent)
+            .unwrap()
+            .chosen_actions
+            .clear();
+        // Inject Walk with explicit target and update TargetPosition directly so
+        // the movement system tracks the right destination this tick.
+        w.get_mut::<ActiveActions>(agent)
+            .unwrap()
+            .insert(ActionState {
+                action_type: ActionType::Walk,
+                target_position: Some(target),
+                ..Default::default()
+            });
+        w.get_mut::<TargetPosition>(agent).unwrap().0 = Some(target);
     }
 
     world.tick(5);
