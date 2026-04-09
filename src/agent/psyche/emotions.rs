@@ -1,3 +1,10 @@
+//! Emotional state: active emotions, mood, stress, and event-driven emotion triggers.
+//!
+//! Reads: GameEvent, PhysicalNeeds, Body, Personality, MindGraph, TickCount
+//! Writes: EmotionalState, SimEvent
+//! Upstream: events (GameEvent), nervous_system::urgency (stress inputs)
+//! Downstream: brains::arbitration (mood/stress influence), nervous_system::urgency
+
 use crate::agent::actions::ActionType;
 use bevy::prelude::*;
 
@@ -43,8 +50,6 @@ pub struct EmotionConfig {
     pub stress_emotion_weight: f32,
     pub stress_recovery_bonus: f32,
     pub stress_decay_base: f32,
-    pub introversion_penalty: f32,
-    pub neuroticism_amplifier: f32,
 }
 
 impl Default for EmotionConfig {
@@ -60,8 +65,6 @@ impl Default for EmotionConfig {
             stress_emotion_weight: 0.15,
             stress_recovery_bonus: 2.0,
             stress_decay_base: 0.5,
-            introversion_penalty: 0.3,
-            neuroticism_amplifier: 0.5,
         }
     }
 }
@@ -120,14 +123,12 @@ pub enum ObserverRole {
     Witness, // I saw it happen
 }
 
-/// Interpret what emotions an event triggers based on personality AND associations
+/// Interpret what emotions an event triggers based on associations in the agent's mind.
 pub fn interpret_emotion(
     action: ActionType,
     role: ObserverRole,
     actor_entity: Option<Entity>,
-    personality: &crate::agent::psyche::personality::Personality,
     mind: Option<&crate::agent::mind::knowledge::MindGraph>,
-    config: &EmotionConfig,
 ) -> Vec<Emotion> {
     let mut emotions = Vec::new();
 
@@ -187,44 +188,16 @@ pub fn interpret_emotion(
         }
     }
 
-    // Apply Personality Modifiers
-    let traits = &personality.traits;
-    let mut final_emotions = Vec::new();
-
-    for mut emotion in emotions {
-        if role == ObserverRole::Witness {
-            emotion.intensity *= 0.5;
-            emotion.fuel *= 0.5;
-        }
-
-        // Introvert penalty (using config)
-        if action == ActionType::Wave
-            && emotion.emotion_type == EmotionType::Joy
-            && traits.extraversion < 0.3
-        {
-            emotion.intensity *= config.introversion_penalty;
-        }
-
-        // Neurotic amplification (using config)
-        if matches!(
-            emotion.emotion_type,
-            EmotionType::Fear | EmotionType::Sadness | EmotionType::Anger
-        ) {
-            emotion.intensity *= 1.0 + (traits.neuroticism * config.neuroticism_amplifier);
-        }
-
-        if emotion.emotion_type == EmotionType::Fear && traits.agreeableness < 0.3 {
-            final_emotions.push(Emotion {
-                emotion_type: EmotionType::Anger,
-                intensity: emotion.intensity * 0.5,
-                fuel: emotion.intensity * 0.5,
-            });
-        }
-
-        final_emotions.push(emotion);
-    }
-
-    final_emotions
+    emotions
+        .into_iter()
+        .map(|mut emotion| {
+            if role == ObserverRole::Witness {
+                emotion.intensity *= 0.5;
+                emotion.fuel *= 0.5;
+            }
+            emotion
+        })
+        .collect()
 }
 
 pub fn decay_emotions(
@@ -380,12 +353,10 @@ pub fn react_to_events(
         (
             Entity,
             &mut EmotionalState,
-            &crate::agent::psyche::personality::Personality,
             &crate::agent::mind::knowledge::MindGraph,
         ),
         With<crate::agent::Agent>,
     >,
-    config: Res<EmotionConfig>,
     tick: Res<crate::core::tick::TickCount>,
     mut sim_events: MessageWriter<crate::agent::events::SimEvent>,
 ) {
@@ -399,15 +370,9 @@ pub fn react_to_events(
                 target,
                 ..
             } => {
-                if let Ok((_, mut state, personality, mind)) = agents.get_mut(*actor) {
-                    let emotions = interpret_emotion(
-                        *action,
-                        ObserverRole::Actor,
-                        Some(*actor),
-                        personality,
-                        Some(mind),
-                        &config,
-                    );
+                if let Ok((_, mut state, mind)) = agents.get_mut(*actor) {
+                    let emotions =
+                        interpret_emotion(*action, ObserverRole::Actor, Some(*actor), Some(mind));
                     for e in emotions {
                         add_emotion_with_event(
                             &mut state,
@@ -420,16 +385,10 @@ pub fn react_to_events(
                 }
 
                 if let Some(target_entity) = target
-                    && let Ok((_, mut state, personality, mind)) = agents.get_mut(*target_entity)
+                    && let Ok((_, mut state, mind)) = agents.get_mut(*target_entity)
                 {
-                    let emotions = interpret_emotion(
-                        *action,
-                        ObserverRole::Target,
-                        Some(*actor),
-                        personality,
-                        Some(mind),
-                        &config,
-                    );
+                    let emotions =
+                        interpret_emotion(*action, ObserverRole::Target, Some(*actor), Some(mind));
                     for e in emotions {
                         add_emotion_with_event(
                             &mut state,
@@ -449,7 +408,7 @@ pub fn react_to_events(
                 ..
             } => {
                 if *valence > 0.0 {
-                    if let Ok((_, mut state, _personality, _mind)) = agents.get_mut(*actor) {
+                    if let Ok((_, mut state, _mind)) = agents.get_mut(*actor) {
                         add_emotion_with_event(
                             &mut state,
                             &mut sim_events,
@@ -458,7 +417,7 @@ pub fn react_to_events(
                             Emotion::new(EmotionType::Joy, *valence * 0.3),
                         );
                     }
-                    if let Ok((_, mut state, _personality, _mind)) = agents.get_mut(*target) {
+                    if let Ok((_, mut state, _mind)) = agents.get_mut(*target) {
                         add_emotion_with_event(
                             &mut state,
                             &mut sim_events,
@@ -468,7 +427,7 @@ pub fn react_to_events(
                         );
                     }
                 } else if *valence < 0.0 {
-                    if let Ok((_, mut state, _personality, _mind)) = agents.get_mut(*actor) {
+                    if let Ok((_, mut state, _mind)) = agents.get_mut(*actor) {
                         add_emotion_with_event(
                             &mut state,
                             &mut sim_events,
@@ -477,7 +436,7 @@ pub fn react_to_events(
                             Emotion::new(EmotionType::Anger, valence.abs() * 0.3),
                         );
                     }
-                    if let Ok((_, mut state, _personality, _mind)) = agents.get_mut(*target) {
+                    if let Ok((_, mut state, _mind)) = agents.get_mut(*target) {
                         add_emotion_with_event(
                             &mut state,
                             &mut sim_events,
