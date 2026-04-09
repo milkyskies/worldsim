@@ -1,6 +1,6 @@
 //! Three-brains orchestration: runs all brain systems and arbitrates between their proposals each tick.
 //!
-//! Reads: PhysicalNeeds, Consciousness, PsychologicalDrives, EmotionalState, Body, Personality, Inventory, VisibleObjects, MindGraph, ActiveActions, WorldMap
+//! Reads: PhysicalNeeds, Consciousness, PsychologicalDrives, EmotionalState, Body, Personality, ItemSlots, VisibleObjects, MindGraph, ActiveActions, WorldMap
 //! Writes: BrainState (chosen action, winner, proposals, powers), SimEvent::Decision
 //! Upstream: survival/emotional/rational brain modules, arbitration, perception, knowledge
 //! Downstream: nervous_system::cns (executes the chosen action), SimEvent consumers
@@ -40,7 +40,7 @@ pub fn three_brains_system(
                 &EmotionalState,
                 Option<&Body>,
                 &Personality,
-                &crate::agent::inventory::Inventory,
+                &crate::agent::item_slots::ItemSlots,
             ),
             // Context
             (

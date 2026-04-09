@@ -1,15 +1,15 @@
 //! Survival brain: reflexive responses to physical threats and urgent needs.
 //!
-//! Reads: PhysicalNeeds, Consciousness, EmotionalState, Body, Inventory, VisibleObjects
+//! Reads: PhysicalNeeds, Consciousness, EmotionalState, Body, ItemSlots, VisibleObjects
 //! Writes: BrainProposal
-//! Upstream: body (needs, body), psyche (emotions), inventory
+//! Upstream: body (needs, body), psyche (emotions), item_slots
 //! Downstream: brains::proposal (winner selection)
 
 use super::proposal::{BrainProposal, BrainType};
 use crate::agent::actions::{ActionType, ActiveActions};
 use crate::agent::biology::body::Body;
 use crate::agent::body::needs::{Consciousness, PhysicalNeeds};
-use crate::agent::inventory::Inventory;
+use crate::agent::item_slots::ItemSlots;
 use crate::agent::mind::knowledge::Ontology;
 use crate::agent::mind::perception::VisibleObjects;
 use crate::agent::psyche::emotions::{EmotionType, EmotionalState};
@@ -34,7 +34,7 @@ pub struct SurvivalBrainContext<'a> {
 
 pub fn survival_brain_propose(
     context: SurvivalBrainContext,
-    inventory: &Inventory,
+    inventory: &ItemSlots,
     _visible: &VisibleObjects,
     previous_winner: Option<BrainType>,
     active: &ActiveActions,
@@ -290,7 +290,7 @@ mod tests {
         let emotions = EmotionalState::default();
 
         let context = mock_context(&physical, &consciousness, &emotions);
-        let mut inventory = Inventory::default();
+        let mut inventory = ItemSlots::agent_carry();
         inventory.add(Concept::Apple, 1);
         let visible = VisibleObjects::default();
         let active = ActiveActions::default();

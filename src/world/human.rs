@@ -3,10 +3,7 @@
 use crate::agent::affordance;
 use crate::agent::body::species::SpeciesProfile;
 use crate::agent::mind::knowledge::{Concept, MindGraph, Ontology};
-use crate::agent::{
-    Agent, Person,
-    inventory::{EntityType, Inventory},
-};
+use crate::agent::{Agent, Person, inventory::EntityType, item_slots::ItemSlots};
 use bevy::prelude::*;
 
 /// Spawns a Person (Human Agent)
@@ -23,7 +20,7 @@ pub fn spawn_person(
 
     let mut rng = rand::rng();
     let species_profile = SpeciesProfile::human();
-    let inventory = Inventory::default();
+    let inventory = ItemSlots::agent_carry();
     let personality = Personality::random();
 
     // Initialize Mind with Ontology (Zero-copy clone)

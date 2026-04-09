@@ -9,6 +9,7 @@ pub mod culture;
 pub mod events;
 pub mod invariants;
 pub mod inventory;
+pub mod item_slots;
 pub mod mind;
 pub mod movement;
 pub mod nervous_system;
@@ -45,7 +46,7 @@ impl Plugin for AgentPlugin {
             .register_type::<TargetPosition>()
             .register_type::<movement::MovementState>()
             .register_type::<affordance::Affordance>()
-            .register_type::<inventory::Inventory>()
+            .register_type::<item_slots::ItemSlots>()
             .register_type::<inventory::EntityType>()
             .register_type::<psyche::personality::Personality>()
             .register_type::<body::species::SpeciesProfile>()

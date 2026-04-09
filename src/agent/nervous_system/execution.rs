@@ -15,7 +15,7 @@ use crate::agent::biology::body::Body;
 use crate::agent::body::needs::{Consciousness, PhysicalNeeds};
 use crate::agent::brains::proposal::BrainState;
 use crate::agent::events::{ActionOutcome, ActionOutcomeEvent, NeedSatisfaction};
-use crate::agent::inventory::Inventory;
+use crate::agent::item_slots::ItemSlots;
 use crate::agent::mind::knowledge::{MindGraph, Node, Predicate, Value};
 use crate::agent::movement::{ARRIVAL_THRESHOLD, MoveResult, calculate_speed, move_toward};
 use crate::core::tick::TickCount;
@@ -48,7 +48,7 @@ pub fn start_actions(
         &mut ActiveActions,
         &BrainState,
         &MindGraph,
-        &Inventory,
+        &ItemSlots,
         Option<&Body>,
         Option<&PhysicalNeeds>,
     )>,
@@ -221,11 +221,11 @@ pub fn tick_actions(
         &mut TargetPosition,
         &mut ActiveActions,
         &mut PhysicalNeeds,
-        &mut Inventory,
+        &mut ItemSlots,
         Option<&mut crate::agent::body::needs::PsychologicalDrives>,
         Option<&Body>,
     )>,
-    mut target_inventories: Query<&mut Inventory, Without<PhysicalNeeds>>,
+    mut target_inventories: Query<&mut ItemSlots, Without<PhysicalNeeds>>,
 ) {
     let current_tick = tick.current;
 
