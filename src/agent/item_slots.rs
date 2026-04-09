@@ -204,14 +204,14 @@ impl ItemSlots {
     /// Returns `true` if the removal succeeded.
     pub fn remove(&mut self, concept: Concept, quantity: u32) -> bool {
         for slot in &mut self.slots {
-            if let Some(stack) = slot.contents.iter_mut().find(|s| s.concept == concept) {
-                if stack.quantity >= quantity {
-                    stack.quantity -= quantity;
-                    if stack.quantity == 0 {
-                        slot.contents.retain(|s| s.concept != concept);
-                    }
-                    return true;
+            if let Some(stack) = slot.contents.iter_mut().find(|s| s.concept == concept)
+                && stack.quantity >= quantity
+            {
+                stack.quantity -= quantity;
+                if stack.quantity == 0 {
+                    slot.contents.retain(|s| s.concept != concept);
                 }
+                return true;
             }
         }
         false
