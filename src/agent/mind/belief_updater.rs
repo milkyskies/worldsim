@@ -1,10 +1,8 @@
-//! Belief updater: processes action outcome events and updates MindGraph triples to reflect results.
-//! Also generates emotions from need satisfaction — joy when needs are relieved, frustration when
-//! goals fail while the underlying need is urgent.
+//! Belief updater: updates MindGraph from action outcomes; generates need-satisfaction emotions.
 //!
-//! Reads: ActionOutcomeEvent (success/failure, need satisfaction, items, targets), Time
-//! Writes: MindGraph (inventory counts, resource depletion, location beliefs), EmotionalState, SimEvent
-//! Upstream: agent::events (ActionOutcomeEvent emitted by action execution systems)
+//! Reads: ActionOutcomeEvent (success/failure, need satisfaction, items, targets), Time, PhysicalNeeds
+//! Writes: MindGraph (inventory counts, resource depletion), EmotionalState (joy/frustration), SimEvent
+//! Upstream: agent::events (ActionOutcomeEvent emitted by execution systems)
 //! Downstream: mind::knowledge (MindGraph updated), psyche::emotions (EmotionalState updated)
 
 use crate::agent::body::needs::PhysicalNeeds;

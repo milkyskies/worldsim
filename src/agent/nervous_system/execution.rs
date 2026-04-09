@@ -1,12 +1,9 @@
 //! Parallel action execution - ticks every running action independently.
 //!
-//! Each agent owns an [`ActiveActions`] component holding a set of actions
-//! whose body channels coexist (per [`channel`](crate::agent::actions::channel)).
-//! `start_actions` admits the brain's chosen action set, preempting on hard
-//! conflict and allowing soft conflicts. `tick_actions` advances every running
-//! action and removes completed ones, scaling speed by channel saturation.
-//! `apply_action_effects` sums per-tick effects across all running actions.
-//! Emits SimEvent (ActionStarted, ActionCompleted, ActionPreempted, ActionFailed).
+//! Reads: BrainState (chosen actions), PhysicalNeeds, Inventory, WorldMap, Body
+//! Writes: ActiveActions, PhysicalNeeds, Inventory, TargetPosition, ActionOutcomeEvent, SimEvent
+//! Upstream: brains::arbitration (BrainState), actions::registry (Action definitions)
+//! Downstream: mind::belief_updater (ActionOutcomeEvent), ui (GameLog), SimEvent consumers
 
 use crate::agent::TargetPosition;
 use crate::agent::actions::ActionType;
