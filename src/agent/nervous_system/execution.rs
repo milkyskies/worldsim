@@ -6,6 +6,7 @@
 //! conflict and allowing soft conflicts. `tick_actions` advances every running
 //! action and removes completed ones, scaling speed by channel saturation.
 //! `apply_action_effects` sums per-tick effects across all running actions.
+//! Emits SimEvent (ActionStarted, ActionCompleted, ActionPreempted, ActionFailed).
 
 use crate::agent::TargetPosition;
 use crate::agent::actions::ActionType;
@@ -56,6 +57,7 @@ pub fn start_actions(
     )>,
     entity_transforms: Query<&GlobalTransform>,
     mut outcome_events: MessageWriter<ActionOutcomeEvent>,
+    mut sim_events: MessageWriter<crate::agent::events::SimEvent>,
 ) {
     for (
         entity,
@@ -102,6 +104,12 @@ pub fn start_actions(
                     wanted_action,
                     reason
                 ));
+                sim_events.write(crate::agent::events::SimEvent::ActionFailed {
+                    agent: entity,
+                    tick: tick.current,
+                    action: wanted_action,
+                    reason: reason.clone(),
+                });
                 outcome_events.write(ActionOutcomeEvent {
                     actor: entity,
                     outcome: ActionOutcome::Failed {
@@ -115,6 +123,7 @@ pub fn start_actions(
 
             // Resolve hard conflicts by preempting interruptible actions.
             let requirements = action_def.body_channels();
+            let before_preempt: Vec<ActionType> = active.iter().map(|a| a.action_type).collect();
             if !preempt_to_make_room(
                 &mut active,
                 &registry,
@@ -128,6 +137,17 @@ pub fn start_actions(
                     wanted_action
                 ));
                 continue;
+            }
+
+            // Emit preemption events for any actions that were removed.
+            for preempted in &before_preempt {
+                if !active.contains(*preempted) {
+                    sim_events.write(crate::agent::events::SimEvent::ActionPreempted {
+                        agent: entity,
+                        tick: tick.current,
+                        preempted_action: *preempted,
+                    });
+                }
             }
 
             // Build the new ActionState for this slot.
@@ -172,6 +192,13 @@ pub fn start_actions(
                 }
             }
 
+            sim_events.write(crate::agent::events::SimEvent::ActionStarted {
+                agent: entity,
+                tick: tick.current,
+                action: wanted_action,
+                target: action_template.target_entity,
+            });
+
             active.insert(new_state);
 
             if let Some(msg) = action_def.start_log() {
@@ -187,6 +214,7 @@ pub fn tick_actions(
     tick: Res<TickCount>,
     world_map: Res<WorldMap>,
     mut game_log: ResMut<GameLog>,
+    mut sim_events: MessageWriter<crate::agent::events::SimEvent>,
     mut agents: Query<(
         Entity,
         &Name,
@@ -322,6 +350,12 @@ pub fn tick_actions(
             };
 
             action_def.on_complete(&mut ctx);
+
+            sim_events.write(crate::agent::events::SimEvent::ActionCompleted {
+                agent: entity,
+                tick: current_tick,
+                action: *action_type,
+            });
 
             if let Some(msg) = action_def.complete_log() {
                 game_log.action(name.as_str(), msg, None, Some(entity));

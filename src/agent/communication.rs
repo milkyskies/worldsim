@@ -35,7 +35,7 @@ use crate::agent::Agent;
 use crate::agent::actions::registry::{ActionState, ActiveActions};
 use crate::agent::actions::types::ActionType;
 use crate::agent::body::needs::PsychologicalDrives;
-use crate::agent::events::{ConversationTopic, GameEvent};
+use crate::agent::events::{ConversationTopic, GameEvent, SimEvent};
 use crate::agent::mind::conversation::{
     Conversation, ConversationAbandoned, ConversationManager, ConversationState, InConversation,
     Intent, Topic, Turn,
@@ -113,6 +113,7 @@ pub fn auto_initiate_conversations(
     mut commands: Commands,
     mut manager: ResMut<ConversationManager>,
     tick: Res<TickCount>,
+    mut sim_events: MessageWriter<SimEvent>,
     agents: Query<
         (
             Entity,
@@ -168,6 +169,11 @@ pub fn auto_initiate_conversations(
             commands
                 .entity(b)
                 .queue(InsertConverseMarker { tick: tick.current });
+            sim_events.write(SimEvent::ConversationStarted {
+                participants: vec![a, b],
+                tick: tick.current,
+                conversation_id: id,
+            });
         }
     }
 }
@@ -368,6 +374,7 @@ pub fn evaluate_conversation_continuation(
     mut commands: Commands,
     mut manager: ResMut<ConversationManager>,
     mut events: MessageWriter<ConversationAbandoned>,
+    mut sim_events: MessageWriter<SimEvent>,
     tick: Res<TickCount>,
     transforms: Query<&Transform>,
     actives: Query<&ActiveActions>,
@@ -421,6 +428,11 @@ pub fn evaluate_conversation_continuation(
                     abandoned,
                     conversation_state: conv.state,
                 });
+                sim_events.write(SimEvent::ConversationAbandoned {
+                    abandoner,
+                    abandoned,
+                    tick: tick.current,
+                });
             }
             conv.state = ConversationState::Ended;
             to_finalize.push(*id);
@@ -431,6 +443,11 @@ pub fn evaluate_conversation_continuation(
     // entry from the manager so it doesn't grow unbounded.
     for id in to_finalize {
         if let Some(conv) = manager.conversations.get(&id) {
+            sim_events.write(SimEvent::ConversationEnded {
+                participants: vec![conv.participants[0], conv.participants[1]],
+                tick: tick.current,
+                conversation_id: id,
+            });
             for entity in conv.participants {
                 commands.entity(entity).remove::<InConversation>();
                 commands.entity(entity).queue(RemoveConverseMarker);

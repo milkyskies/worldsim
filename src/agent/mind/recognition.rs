@@ -4,6 +4,8 @@
 //! 1. Checks if we've met them before (Knows predicate)
 //! 2. Marks strangers so the social brain can propose introductions
 //! 3. Tracks familiarity levels
+//!
+//! Emits SimEvent::StrangerDetected on first encounter.
 
 use crate::agent::Agent;
 use crate::agent::mind::knowledge::{Concept, Metadata, MindGraph, Node, Predicate, Triple, Value};
@@ -16,6 +18,7 @@ pub fn check_recognition(
     mut observers: Query<(Entity, &VisibleObjects, &mut MindGraph), With<Agent>>,
     agents: Query<Entity, With<Agent>>,
     tick: Res<TickCount>,
+    mut sim_events: MessageWriter<crate::agent::events::SimEvent>,
 ) {
     let current_time = tick.current;
 
@@ -43,6 +46,11 @@ pub fn check_recognition(
             if knows_triples.is_empty() {
                 // This is a stranger! Mark them as such
                 // The social brain will see this and propose introduction
+                sim_events.write(crate::agent::events::SimEvent::StrangerDetected {
+                    agent: observer_entity,
+                    tick: current_time,
+                    stranger: visible_entity,
+                });
                 mind.assert(Triple::with_meta(
                     target_node.clone(),
                     Predicate::IsA,

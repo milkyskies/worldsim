@@ -15,6 +15,8 @@ use bevy::math::Vec2;
 pub struct AgentConfig {
     /// World position the agent spawns at.
     pub pos: Vec2,
+    /// Optional display name for the agent. Defaults to "TestPerson" if `None`.
+    pub name: Option<String>,
     /// Hunger value (0.0 = full, 100.0 = starving).
     pub hunger: f32,
     /// Energy value (0.0 = exhausted, 100.0 = fully rested).
@@ -31,6 +33,7 @@ impl Default for AgentConfig {
     fn default() -> Self {
         Self {
             pos: Vec2::ZERO,
+            name: None,
             hunger: 0.0,
             energy: 100.0,
             social_drive: 0.5,

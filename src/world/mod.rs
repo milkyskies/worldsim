@@ -4,6 +4,7 @@ pub mod deer;
 pub mod environment;
 pub mod human;
 pub mod map;
+pub mod spawn_placement;
 pub mod spawner;
 
 use bevy::prelude::*;

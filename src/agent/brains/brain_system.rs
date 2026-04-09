@@ -1,9 +1,9 @@
 //! Three-brains orchestration: runs all brain systems and arbitrates between their proposals each tick.
 //!
 //! Reads: PhysicalNeeds, Consciousness, PsychologicalDrives, EmotionalState, Body, Personality, Inventory, VisibleObjects, MindGraph, ActiveActions, WorldMap
-//! Writes: BrainState (chosen action, winner, proposals, powers)
+//! Writes: BrainState (chosen action, winner, proposals, powers), SimEvent::Decision
 //! Upstream: survival/emotional/rational brain modules, arbitration, perception, knowledge
-//! Downstream: nervous_system::cns (executes the chosen action)
+//! Downstream: nervous_system::cns (executes the chosen action), SimEvent consumers
 
 use super::arbitration::{arbitrate_parallel, calculate_brain_powers};
 use super::emotional::emotional_brain_propose;
@@ -60,6 +60,7 @@ pub fn three_brains_system(
     )>,
     mut game_log: ResMut<crate::core::GameLog>,
     ontology: Res<crate::agent::mind::knowledge::Ontology>,
+    mut sim_events: MessageWriter<crate::agent::events::SimEvent>,
 ) {
     for (
         entity,
@@ -147,5 +148,18 @@ pub fn three_brains_system(
             brain_state.winner = None;
             brain_state.chosen_actions.clear();
         }
+
+        sim_events.write(crate::agent::events::SimEvent::Decision {
+            agent: entity,
+            tick: tick.current,
+            winner: brain_state.winner,
+            chosen_actions: brain_state
+                .chosen_actions
+                .iter()
+                .map(|a| a.action_type)
+                .collect(),
+            powers,
+            proposals: std::sync::Arc::new(brain_state.proposals.clone()),
+        });
     }
 }

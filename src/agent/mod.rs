@@ -64,6 +64,7 @@ impl Plugin for AgentPlugin {
             .insert_resource(actions::ActionRegistry::new())
             .add_message::<events::GameEvent>()
             .add_message::<events::ActionOutcomeEvent>()
+            .add_message::<events::SimEvent>()
             .add_plugins(biology::BiologyPlugin)
             .add_plugins(brains::BrainPlugin)
             .add_plugins(nervous_system::NervousSystemPlugin)
