@@ -432,19 +432,14 @@ fn compute_interaction_valence(
         })
         .unwrap_or(0.5);
 
-    let speaker_mood = agents
+    let (speaker_mood, speaker_agreeableness) = agents
         .get(speaker)
-        .map(|(_, e, _)| e.current_mood)
-        .unwrap_or(0.0);
+        .map(|(_, e, p)| (e.current_mood, p.traits.agreeableness))
+        .unwrap_or((0.0, 0.5));
     let listener_mood = agents
         .get(listener)
         .map(|(_, e, _)| e.current_mood)
         .unwrap_or(0.0);
-
-    let speaker_agreeableness = agents
-        .get(speaker)
-        .map(|(_, _, p)| p.traits.agreeableness)
-        .unwrap_or(0.5);
 
     valence_from_parts(
         base,
