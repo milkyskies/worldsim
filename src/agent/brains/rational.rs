@@ -80,6 +80,7 @@ pub fn update_rational_brain(
     mut query: Query<(
         Entity,
         &mut RationalBrain,
+        &mut crate::agent::brains::proposal::BrainState,
         &Consciousness,
         &ItemSlots,
         &Transform,
@@ -105,8 +106,17 @@ pub fn update_rational_brain(
     };
     let mut plan_attempts = 0;
 
-    for (entity, mut brain, consciousness, _inventory, _transform, _visible, cns, mind) in
-        query.iter_mut()
+    for (
+        entity,
+        mut brain,
+        mut brain_state,
+        consciousness,
+        _inventory,
+        _transform,
+        _visible,
+        cns,
+        mind,
+    ) in query.iter_mut()
     {
         // 1. Plan Verification
         let mut plan_finished = false;
@@ -163,10 +173,19 @@ pub fn update_rational_brain(
             } else {
                 brain.current_goal.take()
             };
+            if plan_invalid {
+                // Stop the execution system from re-starting stale actions immediately.
+                // Without this, chosen_actions persists until the next thinking interval
+                // (up to 60 ticks), causing agents to keep executing an action whose
+                // preconditions are no longer met.
+                brain_state.chosen_actions.clear();
+            }
         }
 
         // 2. Heavy Thinking (Replanning)
-        if !tick.should_run(entity, ns_config.thinking_interval) {
+        // Bypass the stagger gate when the plan was just invalidated so a fresh plan
+        // is formed in the same tick rather than after the full thinking interval.
+        if !tick.should_run(entity, ns_config.thinking_interval) && !plan_invalid {
             continue;
         }
 

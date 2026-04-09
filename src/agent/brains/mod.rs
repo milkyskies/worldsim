@@ -33,6 +33,7 @@ impl Plugin for BrainPlugin {
                     brain_system::three_brains_system,
                     // Note: start_actions is now in AgentPlugin to run after brain decides
                 )
+                    .chain() // update_rational_brain runs before three_brains_system
                     .run_if(not_paused), // ALL brain systems pause together
             )
             // Trace system runs in Last to read all SimEvents emitted during Update.
