@@ -1,6 +1,7 @@
 use super::thinking::{ActionTemplate, Goal, TriplePattern};
 use crate::agent::actions::ActionType;
 use crate::agent::mind::knowledge::{MindGraph, Node as MindNode, Predicate, Triple, Value};
+use crate::world::map::TILE_SIZE;
 use bevy::prelude::*;
 use std::cmp::Ordering;
 use std::collections::{BinaryHeap, HashMap};
@@ -296,9 +297,9 @@ pub fn regressive_plan(
     available_actions: &[ActionTemplate],
     action_registry: &crate::agent::actions::ActionRegistry,
 ) -> Option<Vec<ActionTemplate>> {
+    use crate::constants::brains::planner::{HEURISTIC_MULTIPLIER, MAX_ITERATIONS};
     let start_time = std::time::Instant::now();
     let mut iterations = 0;
-    const MAX_ITERATIONS: usize = 200;
 
     let mut open_set = BinaryHeap::new();
     let mut came_from: HashMap<RegressiveState, (ActionTemplate, RegressiveState)> = HashMap::new();
@@ -408,7 +409,8 @@ pub fn regressive_plan(
                     came_from.insert(next_state.clone(), (action.clone(), current_state.clone()));
                     g_score.insert(next_state.clone(), new_cost);
                     open_set.push(RegressiveSearchNode {
-                        f_score: new_cost + next_state.unmet_goals.len() as f32 * 5.0,
+                        f_score: new_cost
+                            + next_state.unmet_goals.len() as f32 * HEURISTIC_MULTIPLIER,
                         state: next_state,
                     });
                 }
@@ -429,9 +431,6 @@ pub fn regressive_plan(
                     && let Value::Tile((cx, cy)) = current_pos_val
                 {
                     let dist = (((cx - tile.0).pow(2) + (cy - tile.1).pow(2)) as f32).sqrt();
-                    // FIX: Convert Tile Coords to World Coords
-                    // Assuming TILE_SIZE = 16.0 (Default)
-                    const TILE_SIZE: f32 = 16.0;
                     let world_pos = Vec2::new(
                         tile.0 as f32 * TILE_SIZE + TILE_SIZE / 2.0,
                         tile.1 as f32 * TILE_SIZE + TILE_SIZE / 2.0,
@@ -451,7 +450,8 @@ pub fn regressive_plan(
                         came_from.insert(next_state.clone(), (walk_action, current_state.clone()));
                         g_score.insert(next_state.clone(), new_cost);
                         open_set.push(RegressiveSearchNode {
-                            f_score: new_cost + next_state.unmet_goals.len() as f32 * 5.0,
+                            f_score: new_cost
+                                + next_state.unmet_goals.len() as f32 * HEURISTIC_MULTIPLIER,
                             state: next_state,
                         });
                     }
@@ -483,7 +483,6 @@ pub fn regressive_plan(
                         && let Value::Tile((cx, cy)) = current_pos_val
                     {
                         let dist = (((cx - tx).pow(2) + (cy - ty).pow(2)) as f32).sqrt();
-                        const TILE_SIZE: f32 = 16.0;
                         let world_pos = Vec2::new(
                             *tx as f32 * TILE_SIZE + TILE_SIZE / 2.0,
                             *ty as f32 * TILE_SIZE + TILE_SIZE / 2.0,
@@ -502,7 +501,8 @@ pub fn regressive_plan(
                                 .insert(next_state.clone(), (walk_action, current_state.clone()));
                             g_score.insert(next_state.clone(), new_cost);
                             open_set.push(RegressiveSearchNode {
-                                f_score: new_cost + next_state.unmet_goals.len() as f32 * 5.0,
+                                f_score: new_cost
+                                    + next_state.unmet_goals.len() as f32 * HEURISTIC_MULTIPLIER,
                                 state: next_state,
                             });
                         }

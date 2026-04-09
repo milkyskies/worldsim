@@ -1,7 +1,7 @@
-use crate::agent::psyche::emotions::EmotionType;
 use crate::agent::mind::knowledge::{
     MemoryType, Metadata, MindGraph, Node, Predicate, Source, Triple, Value,
 };
+use crate::agent::psyche::emotions::EmotionType;
 use bevy::prelude::*;
 use std::collections::HashMap;
 
@@ -37,10 +37,11 @@ pub fn consolidate_knowledge(
                 match triple.predicate {
                     Predicate::Actor => {
                         if let Value::Entity(actor) = triple.object
-                            && actor != entity {
-                                // Don't judge self yet
-                                event_actors.insert(eid, actor);
-                            }
+                            && actor != entity
+                        {
+                            // Don't judge self yet
+                            event_actors.insert(eid, actor);
+                        }
                     }
                     Predicate::FeltEmotion => {
                         if let Value::Emotion(emph, _intensity) = triple.object {

@@ -5,6 +5,7 @@ use crate::agent::actions::registry::{Action, ActionContext, ActionKind, Complet
 use crate::agent::brains::thinking::TriplePattern;
 use crate::agent::events::FailureReason;
 use crate::agent::mind::knowledge::{Node, Predicate, Triple, Value};
+use crate::constants::actions::eat::{DURATION_TICKS, ENERGY_GAIN, HUNGER_REDUCTION};
 
 pub struct EatAction;
 
@@ -18,7 +19,9 @@ impl Action for EatAction {
     }
 
     fn kind(&self) -> ActionKind {
-        ActionKind::Timed { duration_ticks: 20 }
+        ActionKind::Timed {
+            duration_ticks: DURATION_TICKS,
+        }
     }
 
     // Planning: Need to have food to eat
@@ -46,10 +49,10 @@ impl Action for EatAction {
     // Execution: What happens when we finish eating
     fn on_complete(&self, ctx: &mut CompletionContext) {
         // Reduce hunger
-        ctx.physical.hunger = (ctx.physical.hunger - 50.0).max(0.0);
+        ctx.physical.hunger = (ctx.physical.hunger - HUNGER_REDUCTION).max(0.0);
 
         // Gain energy
-        ctx.physical.energy = (ctx.physical.energy + 10.0).min(100.0);
+        ctx.physical.energy = (ctx.physical.energy + ENERGY_GAIN).min(100.0);
 
         // Consume first edible item from inventory
         if let Some(item) = ctx.inventory.items.iter().find(|i| i.quantity > 0) {

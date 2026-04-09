@@ -8,6 +8,9 @@
 //! - `deer.rs` - Deer spawning
 
 use crate::agent::mind::knowledge::Ontology;
+use crate::constants::world::{
+    APPLE_TREE_SPAWN_COUNT, BERRY_BUSH_SPAWN_COUNT, HUMAN_SPAWN_COUNT, MAX_SPAWN_ATTEMPTS,
+};
 use bevy::prelude::*;
 
 // Re-export spawning functions for convenience
@@ -63,10 +66,10 @@ fn spawn_initial_population(
     }
 
     // Spawn human agents
-    for i in 0..32 {
+    for i in 0..HUMAN_SPAWN_COUNT {
         // Find a valid spawn location
         let mut spawn_pos = None;
-        for _ in 0..50 {
+        for _ in 0..MAX_SPAWN_ATTEMPTS {
             let x = rng.random_range(0.0..(map.width as f32 * crate::world::map::TILE_SIZE));
             let y = rng.random_range(0.0..(map.height as f32 * crate::world::map::TILE_SIZE));
             let test_pos = Vec2::new(x, y);
@@ -87,14 +90,14 @@ fn spawn_initial_population(
     }
 
     // Spawn Apple Trees
-    for _ in 0..24 {
+    for _ in 0..APPLE_TREE_SPAWN_COUNT {
         if let Some(pos) = find_spawn_location(&map, &mut rng) {
             spawn_apple_tree(&mut commands, pos, 5);
         }
     }
 
     // Spawn Berry Bushes
-    for _ in 0..32 {
+    for _ in 0..BERRY_BUSH_SPAWN_COUNT {
         if let Some(pos) = find_spawn_location(&map, &mut rng) {
             spawn_berry_bush(&mut commands, pos, 4);
         }
@@ -113,7 +116,7 @@ fn find_spawn_location(
     map: &crate::world::map::WorldMap,
     rng: &mut impl rand::Rng,
 ) -> Option<Vec2> {
-    for _ in 0..50 {
+    for _ in 0..MAX_SPAWN_ATTEMPTS {
         let x = rng.random_range(0.0..(map.width as f32 * crate::world::map::TILE_SIZE));
         let y = rng.random_range(0.0..(map.height as f32 * crate::world::map::TILE_SIZE));
         let test_pos = Vec2::new(x, y);

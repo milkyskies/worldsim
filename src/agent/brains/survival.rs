@@ -6,6 +6,11 @@ use crate::agent::inventory::Inventory;
 use crate::agent::mind::knowledge::Ontology;
 use crate::agent::mind::perception::VisibleObjects;
 use crate::agent::psyche::emotions::{EmotionType, EmotionalState};
+use crate::constants::brains::survival::{
+    EXHAUSTION_RELEASE, EXHAUSTION_TRIGGER, FEAR_HIGH, FEAR_LOW, HUNGER_HIGH, HUNGER_LOW,
+    PAIN_HIGH, PAIN_LOW, SNAP_EXHAUSTION_ENERGY_THRESHOLD, SNAP_HUNGER_THRESHOLD,
+    SNAP_SEARCH_HUNGER_THRESHOLD, STRESS_SNAP_HIGH, STRESS_SNAP_LOW, WAKE_ENERGY_THRESHOLD,
+};
 use bevy::prelude::*;
 
 // ============================================================================
@@ -36,49 +41,54 @@ pub fn survival_brain_propose(
     }
 
     // --- THE SNAP (Extreme Stress) ---
-    // Threshold hysteresis: Needs 90 to start, drops to 70 to stop
+    // Threshold hysteresis: Needs STRESS_SNAP_HIGH to start, drops to STRESS_SNAP_LOW to stop
     let stress = context.emotions.stress_level;
-    let snap_threshold = if was_survival { 70.0 } else { 90.0 };
+    let snap_threshold = if was_survival {
+        STRESS_SNAP_LOW
+    } else {
+        STRESS_SNAP_HIGH
+    };
 
     if stress > snap_threshold {
         // 1. Extreme Hunger Snap
-        if context.physical.hunger > 30.0 && inventory.has_edible(ontology)
-            && let Some(action) = action_registry.get(ActionType::Eat) {
-                return Some(BrainProposal {
-                    brain: BrainType::Survival,
-                    action: action.to_template(None, None),
-                    urgency: 100.0,
-                    reasoning: format!("THE SNAP! Stress {:.0} - desperately eating!", stress),
-                });
-            }
+        if context.physical.hunger > SNAP_HUNGER_THRESHOLD
+            && inventory.has_edible(ontology)
+            && let Some(action) = action_registry.get(ActionType::Eat)
+        {
+            return Some(BrainProposal {
+                brain: BrainType::Survival,
+                action: action.to_template(None, None),
+                urgency: 100.0,
+                reasoning: format!("THE SNAP! Stress {:.0} - desperately eating!", stress),
+            });
+        }
 
         // 2. Extreme Hunger Search Snap
-        if context.physical.hunger > 50.0
-            && let Some(action) = action_registry.get(ActionType::Explore) {
-                return Some(BrainProposal {
-                    brain: BrainType::Survival,
-                    action: action.to_template(None, None),
-                    urgency: 95.0,
-                    reasoning: format!(
-                        "THE SNAP! Stress {:.0} - desperately seeking food!",
-                        stress
-                    ),
-                });
-            }
+        if context.physical.hunger > SNAP_SEARCH_HUNGER_THRESHOLD
+            && let Some(action) = action_registry.get(ActionType::Explore)
+        {
+            return Some(BrainProposal {
+                brain: BrainType::Survival,
+                action: action.to_template(None, None),
+                urgency: 95.0,
+                reasoning: format!("THE SNAP! Stress {:.0} - desperately seeking food!", stress),
+            });
+        }
 
         // 3. Exhaustion Snap
-        if context.physical.energy < 50.0
-            && let Some(action) = action_registry.get(ActionType::Sleep) {
-                return Some(BrainProposal {
-                    brain: BrainType::Survival,
-                    action: action.to_template(None, None),
-                    urgency: 100.0,
-                    reasoning: format!(
-                        "THE SNAP! Stress {:.0} - collapsing from exhaustion!",
-                        stress
-                    ),
-                });
-            }
+        if context.physical.energy < SNAP_EXHAUSTION_ENERGY_THRESHOLD
+            && let Some(action) = action_registry.get(ActionType::Sleep)
+        {
+            return Some(BrainProposal {
+                brain: BrainType::Survival,
+                action: action.to_template(None, None),
+                urgency: 100.0,
+                reasoning: format!(
+                    "THE SNAP! Stress {:.0} - collapsing from exhaustion!",
+                    stress
+                ),
+            });
+        }
 
         // 4. Panic Hide Snap (Default if others don't fire)
         // Seek safety usually implies Walk to safety or Flee
@@ -98,8 +108,7 @@ pub fn survival_brain_propose(
 
     // 1. Pain Response
     let pain = context.body.map(|b| b.total_pain()).unwrap_or(0.0);
-    let pain_threshold = if was_survival { 50.0 } else { 70.0 };
-    let pain_threshold = if was_survival { 50.0 } else { 70.0 };
+    let pain_threshold = if was_survival { PAIN_LOW } else { PAIN_HIGH };
     if pain > pain_threshold {
         // Idle/CurlUp
         if let Some(action) = action_registry.get(ActionType::Idle) {
@@ -113,55 +122,64 @@ pub fn survival_brain_propose(
     }
 
     // 2. Starvation Response
-    let hunger_threshold = if was_survival { 60.0 } else { 80.0 };
+    let hunger_threshold = if was_survival {
+        HUNGER_LOW
+    } else {
+        HUNGER_HIGH
+    };
     if context.physical.hunger > hunger_threshold
         && inventory.has_edible(ontology)
-            && let Some(action) = action_registry.get(ActionType::Eat) {
-                return Some(BrainProposal {
-                    brain: BrainType::Survival,
-                    action: action.to_template(None, None), // Target will be found by execution or planner?
-                    // Wait, EatAction to_template might need a target if we want specific target.
-                    // But standard Survival Eat response was "Eat Nearest".
-                    // Generic EatAction usually implies finding food.
-                    // Let's assume generic template is fine or check if EatAction supports None.
-                    // EatAction::to_template implementation (checked earlier) supports None for "find something".
-                    urgency: context.physical.hunger,
-                    reasoning: format!("STARVING! {:.0} - must eat!", context.physical.hunger),
-                });
-            }
-        // If no food, survival brain might panic search?
-        // For now, let Rational handle searching unless it's a "Snap".
+        && let Some(action) = action_registry.get(ActionType::Eat)
+    {
+        return Some(BrainProposal {
+            brain: BrainType::Survival,
+            action: action.to_template(None, None), // Target will be found by execution or planner?
+            // Wait, EatAction to_template might need a target if we want specific target.
+            // But standard Survival Eat response was "Eat Nearest".
+            // Generic EatAction usually implies finding food.
+            // Let's assume generic template is fine or check if EatAction supports None.
+            // EatAction::to_template implementation (checked earlier) supports None for "find something".
+            urgency: context.physical.hunger,
+            reasoning: format!("STARVING! {:.0} - must eat!", context.physical.hunger),
+        });
+    }
+    // If no food, survival brain might panic search?
+    // For now, let Rational handle searching unless it's a "Snap".
 
     // 3. Exhaustion Response
-    // Low energy triggers sleep. Hysteresis: Stop working at 15, resume at 30?
-    // Actually Logic: If < 15, Sleep. Keep Sleeping until > 30? Or handled by SleepWake check.
-    // The Standard reflex initiates sleep if very tired.
-    let exhaustion_threshold = if was_survival { 30.0 } else { 15.0 };
+    // Low energy triggers sleep. Hysteresis: sleep until EXHAUSTION_RELEASE, triggered below EXHAUSTION_TRIGGER.
+    let exhaustion_threshold = if was_survival {
+        EXHAUSTION_RELEASE
+    } else {
+        EXHAUSTION_TRIGGER
+    };
     if context.physical.energy < exhaustion_threshold
-        && let Some(action) = action_registry.get(ActionType::Sleep) {
-            return Some(BrainProposal {
-                brain: BrainType::Survival,
-                action: action.to_template(None, None), // Sleep here
-                urgency: 100.0 - context.physical.energy,
-                reasoning: format!(
-                    "EXHAUSTED! {:.0} energy - collapsing!",
-                    context.physical.energy
-                ),
-            });
-        }
+        && let Some(action) = action_registry.get(ActionType::Sleep)
+    {
+        return Some(BrainProposal {
+            brain: BrainType::Survival,
+            action: action.to_template(None, None), // Sleep here
+            urgency: 100.0 - context.physical.energy,
+            reasoning: format!(
+                "EXHAUSTED! {:.0} energy - collapsing!",
+                context.physical.energy
+            ),
+        });
+    }
 
     // 4. Fear Response
     let fear = context.emotions.get_emotion_intensity(EmotionType::Fear);
-    let fear_threshold = if was_survival { 0.5 } else { 0.8 };
+    let fear_threshold = if was_survival { FEAR_LOW } else { FEAR_HIGH };
     if fear > fear_threshold
-        && let Some(action) = action_registry.get(ActionType::Flee) {
-            return Some(BrainProposal {
-                brain: BrainType::Survival,
-                action: action.to_template(None, None),
-                urgency: fear * 100.0,
-                reasoning: format!("TERROR! {:.2} - must hide!", fear),
-            });
-        }
+        && let Some(action) = action_registry.get(ActionType::Flee)
+    {
+        return Some(BrainProposal {
+            brain: BrainType::Survival,
+            action: action.to_template(None, None),
+            urgency: fear * 100.0,
+            reasoning: format!("TERROR! {:.2} - must hide!", fear),
+        });
+    }
 
     None
 }
@@ -175,7 +193,7 @@ fn check_sleep_wake(
     let is_sleeping = activity.action_type == ActionType::Sleep;
 
     if is_sleeping {
-        if energy >= 90.0 {
+        if energy >= WAKE_ENERGY_THRESHOLD {
             let wake_action = action_registry
                 .get(ActionType::WakeUp)
                 .map(|a| a.to_template(None, None))

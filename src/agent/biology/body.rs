@@ -144,9 +144,10 @@ pub fn process_healing(mut query: Query<(&mut Body, Option<&PhysicalNeeds>)>, ti
 
         // Healing Bonus for being well rested
         if let Some(physical) = needs
-            && physical.energy > 80.0 {
-                healing_speed *= 2.0; // Double healing speed when rested
-            }
+            && physical.energy > 80.0
+        {
+            healing_speed *= 2.0; // Double healing speed when rested
+        }
 
         // Destructure to convince borrow checker of disjointness
         let Body {
