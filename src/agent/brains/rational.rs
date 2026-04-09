@@ -344,9 +344,7 @@ pub fn rational_brain_propose(
         }
 
         // Fallback: Explore to find resources ourselves
-        // (Epistemic ask was removed alongside the old Talk action; the
-        // CommunicationPlugin will reintroduce information-seeking via
-        // conversation goals once intent selection lands in #46.)
+        // TODO(#46): reintroduce epistemic ask via CommunicationPlugin
         let explore_action = action_registry
             .get(ActionType::Explore)
             .map(|a| a.to_template(None, None))

@@ -297,12 +297,7 @@ pub fn process_received_communication(
         if turn.content.is_empty() {
             continue;
         }
-        // The listener is whichever participant didn't speak.
-        let listener = if conv.participants[0] == turn.speaker {
-            conv.participants[1]
-        } else {
-            conv.participants[0]
-        };
+        let listener = conv.other_participant(turn.speaker);
         let Ok(mut mind) = minds.get_mut(listener) else {
             continue;
         };
@@ -334,11 +329,7 @@ pub fn emit_communication_events(
         if turn.timestamp != tick.current {
             continue;
         }
-        let listener = if conv.participants[0] == turn.speaker {
-            conv.participants[1]
-        } else {
-            conv.participants[0]
-        };
+        let listener = conv.other_participant(turn.speaker);
         events.write(GameEvent::SocialInteraction {
             actor: turn.speaker,
             target: listener,

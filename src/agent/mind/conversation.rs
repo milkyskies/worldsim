@@ -108,6 +108,15 @@ impl Conversation {
         self.participants[1 - self.turn]
     }
 
+    /// Returns the other participant given one of the two.
+    pub fn other_participant(&self, speaker: Entity) -> Entity {
+        if self.participants[0] == speaker {
+            self.participants[1]
+        } else {
+            self.participants[0]
+        }
+    }
+
     /// True if the most recent turn was a question expecting a response.
     pub fn last_turn_expects_response(&self) -> bool {
         self.turns
