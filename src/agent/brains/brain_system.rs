@@ -48,6 +48,7 @@ pub fn three_brains_system(
                 &VisibleObjects,
                 &crate::agent::mind::knowledge::MindGraph,
                 &crate::agent::actions::ActiveActions,
+                Option<&crate::agent::mind::conversation::InConversation>,
             ),
         ),
         With<crate::agent::Agent>,
@@ -67,9 +68,9 @@ pub fn three_brains_system(
         name,
         mut brain_state,
         (rational_brain, cns),
-        (physical, consciousness, _drives),
+        (physical, consciousness, drives),
         (emotions, body, personality, inventory),
-        (transform, visible, mind, active_actions),
+        (transform, visible, mind, active_actions, in_conversation),
     ) in query.iter_mut()
     {
         // Staggered: heavy thinking runs every N ticks, offset by entity ID
@@ -96,7 +97,14 @@ pub fn three_brains_system(
             &action_registry,
         );
 
-        let emotional_proposal = emotional_brain_propose(emotions, mind, visible, &action_registry);
+        let emotional_proposal = emotional_brain_propose(
+            emotions,
+            mind,
+            visible,
+            drives,
+            in_conversation,
+            &action_registry,
+        );
 
         // Pass None for state since RationalBrain doesn't use it anymore
         // or update rational_brain_propose to strictly take only what it needs

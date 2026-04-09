@@ -445,7 +445,7 @@ impl ActiveActions {
 
 use super::action::{
     ConverseAction, DrinkAction, EatAction, ExploreAction, FleeAction, HarvestAction, IdleAction,
-    SleepAction, WakeUpAction, WalkAction, WanderAction,
+    InitiateConversationAction, SleepAction, WakeUpAction, WalkAction, WanderAction,
 };
 
 #[derive(Resource, Default)]
@@ -468,7 +468,8 @@ impl ActionRegistry {
         registry.register(AttackAction);
         registry.register(HarvestAction);
         registry.register(WanderAction);
-        // Conversation channel marker — owned by the CommunicationPlugin.
+        // Conversation actions — owned by the CommunicationPlugin.
+        registry.register(InitiateConversationAction);
         registry.register(ConverseAction);
         registry
     }

@@ -24,6 +24,10 @@ pub enum ActionType {
 
     // Social / Combat
     Wave,
+    /// Walk-to-target marker proposed by brains to start a conversation.
+    /// Owned by the CommunicationPlugin — on arrival within CONVERSATION_RANGE
+    /// the plugin swaps this for `Converse` and registers a Conversation.
+    InitiateConversation,
     /// Body-channel marker for being in a conversation. Inserted and removed
     /// by the CommunicationPlugin — never proposed by brains directly.
     Converse,

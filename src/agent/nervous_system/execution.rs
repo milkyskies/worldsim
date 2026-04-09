@@ -181,6 +181,18 @@ pub fn start_actions(
                         }
                     }
                     ActionType::Walk => action_template.target_position,
+                    ActionType::InitiateConversation => {
+                        // Walk toward the partner's current position. The
+                        // CommunicationPlugin intercepts arrival at
+                        // CONVERSATION_RANGE before the standard 2px arrival
+                        // check fires.
+                        action_template.target_entity.and_then(|partner| {
+                            entity_transforms
+                                .get(partner)
+                                .ok()
+                                .map(|t| t.translation().truncate())
+                        })
+                    }
                     _ => None,
                 };
 

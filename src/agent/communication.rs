@@ -34,7 +34,6 @@ use bevy::prelude::*;
 use crate::agent::Agent;
 use crate::agent::actions::registry::{ActionState, ActiveActions};
 use crate::agent::actions::types::ActionType;
-use crate::agent::body::needs::PsychologicalDrives;
 use crate::agent::events::{ConversationTopic, GameEvent, SimEvent};
 use crate::agent::mind::conversation::{
     Conversation, ConversationAbandoned, ConversationManager, ConversationState, InConversation,
@@ -48,14 +47,6 @@ use crate::core::tick::TickCount;
 // ============================================================================
 // Tunables
 // ============================================================================
-
-/// Both agents must have at least this much social drive for the
-/// CommunicationPlugin to auto-start a conversation between them.
-///
-/// This is **interim** behavior — when #45 (`InitiateConversation` action)
-/// lands, that action will be the canonical entry point and this auto-init
-/// path will be removed.
-pub const AUTO_INITIATE_SOCIAL_THRESHOLD: f32 = 0.55;
 
 /// Number of ticks since the last turn after which a conversation is
 /// considered abandoned and ended.
@@ -88,8 +79,8 @@ impl Plugin for CommunicationPlugin {
             .add_systems(
                 Update,
                 (
-                    auto_initiate_conversations,
-                    select_turn_intent.after(auto_initiate_conversations),
+                    process_initiate_conversation,
+                    select_turn_intent.after(process_initiate_conversation),
                     process_received_communication.after(select_turn_intent),
                     emit_communication_events.after(process_received_communication),
                     evaluate_conversation_continuation.after(emit_communication_events),
@@ -100,100 +91,130 @@ impl Plugin for CommunicationPlugin {
 }
 
 // ============================================================================
-// 1. Auto-initiation (interim entry point — replaced by #45)
+// 1. InitiateConversation lifecycle (entry point owned by this plugin)
 // ============================================================================
 
-/// Pair up nearby agents who both want to socialize and start a conversation.
+/// Watches agents with `InitiateConversation` running. Each tick:
 ///
-/// **Interim**: this is the temporary entry point until issue #45 introduces
-/// the `InitiateConversation` action. The auto-init policy is intentionally
-/// conservative (high social-drive threshold, in-range only, neither already
-/// in a conversation) so it doesn't fire spuriously in unrelated tests.
-pub fn auto_initiate_conversations(
+/// 1. Re-syncs the agent's movement target to the partner's *current*
+///    position so the agent tracks a moving partner instead of walking to a
+///    stale fixed point.
+/// 2. If the agent has reached `CONVERSATION_RANGE`, registers a new
+///    `Conversation`, swaps `InitiateConversation` for `Converse` in both
+///    agents' `ActiveActions` **in-place** (no command queue), inserts
+///    `InConversation` on both, and emits `SimEvent::ConversationStarted`.
+///
+/// All `ActiveActions` mutations happen in-place via `Query<&mut>` rather
+/// than queued commands. Otherwise [`evaluate_conversation_continuation`]
+/// runs later in the same Update, sees no `Converse` marker yet (commands
+/// haven't flushed), and abandons the just-created conversation.
+pub fn process_initiate_conversation(
     mut commands: Commands,
     mut manager: ResMut<ConversationManager>,
     tick: Res<TickCount>,
     mut sim_events: MessageWriter<SimEvent>,
-    agents: Query<
-        (
-            Entity,
-            &Transform,
-            &PsychologicalDrives,
-            Option<&InConversation>,
-            &ActiveActions,
-        ),
-        With<Agent>,
-    >,
+    transforms: Query<&Transform, With<Agent>>,
+    in_conversations: Query<&InConversation, With<Agent>>,
+    mut active_actions: Query<(Entity, &mut ActiveActions), With<Agent>>,
+    mut target_positions: Query<&mut crate::agent::TargetPosition>,
 ) {
-    let mut candidates: Vec<(Entity, Vec2, f32)> = Vec::new();
-    for (entity, transform, drives, in_conv, active) in agents.iter() {
-        if in_conv.is_some() {
+    // Pass 1: snapshot which initiators want what partner. Doing this in a
+    // separate pass releases the active_actions borrow before mutation.
+    let pairs: Vec<(Entity, Option<Entity>)> = active_actions
+        .iter()
+        .filter_map(|(entity, active)| {
+            active
+                .get(ActionType::InitiateConversation)
+                .map(|state| (entity, state.target_entity))
+        })
+        .collect();
+
+    for (initiator, partner) in pairs {
+        // No target → drop the action.
+        let Some(partner) = partner else {
+            if let Ok((_, mut active)) = active_actions.get_mut(initiator) {
+                active.remove(ActionType::InitiateConversation);
+            }
+            continue;
+        };
+        // Partner missing or already busy talking → drop the action.
+        let Ok(partner_transform) = transforms.get(partner) else {
+            if let Ok((_, mut active)) = active_actions.get_mut(initiator) {
+                active.remove(ActionType::InitiateConversation);
+            }
+            continue;
+        };
+        if in_conversations.get(partner).is_ok() {
+            if let Ok((_, mut active)) = active_actions.get_mut(initiator) {
+                active.remove(ActionType::InitiateConversation);
+            }
             continue;
         }
-        if drives.social < AUTO_INITIATE_SOCIAL_THRESHOLD {
+        let Ok(initiator_transform) = transforms.get(initiator) else {
             continue;
-        }
-        // Don't yank agents out of high-priority body work just to chat.
-        if active.contains(ActionType::Sleep)
-            || active.contains(ActionType::Flee)
-            || active.contains(ActionType::Attack)
+        };
+        let initiator_pos = initiator_transform.translation.truncate();
+        let partner_pos = partner_transform.translation.truncate();
+        let distance = initiator_pos.distance(partner_pos);
+
+        // Re-sync target_position so the movement system tracks the partner.
+        if let Ok((_, mut active)) = active_actions.get_mut(initiator)
+            && let Some(state) = active.get_mut(ActionType::InitiateConversation)
         {
+            state.target_position = Some(partner_pos);
+        }
+        if let Ok(mut tp) = target_positions.get_mut(initiator) {
+            tp.0 = Some(partner_pos);
+        }
+
+        if distance > CONVERSATION_RANGE {
+            // Still walking — let the movement system advance position.
             continue;
         }
-        candidates.push((entity, transform.translation.truncate(), drives.social));
-    }
 
-    for i in 0..candidates.len() {
-        for j in (i + 1)..candidates.len() {
-            let (a, pa, _) = candidates[i];
-            let (b, pb, _) = candidates[j];
-            if pa.distance(pb) > CONVERSATION_RANGE {
-                continue;
+        // In range! Register the conversation if one doesn't exist yet.
+        if manager.find_active(initiator, partner).is_some() {
+            if let Ok((_, mut active)) = active_actions.get_mut(initiator) {
+                active.remove(ActionType::InitiateConversation);
             }
-            // Check neither was paired up earlier in the same tick.
-            if manager.find_active(a, b).is_some() {
-                continue;
-            }
-            let id = manager.start_conversation([a, b], tick.current);
-            commands.entity(a).insert(InConversation {
-                conversation_id: id,
-                partner: b,
-            });
-            commands.entity(b).insert(InConversation {
-                conversation_id: id,
-                partner: a,
-            });
-            commands
-                .entity(a)
-                .queue(InsertConverseMarker { tick: tick.current });
-            commands
-                .entity(b)
-                .queue(InsertConverseMarker { tick: tick.current });
-            sim_events.write(SimEvent::ConversationStarted {
-                participants: vec![a, b],
-                tick: tick.current,
-                conversation_id: id,
-            });
+            continue;
         }
-    }
-}
 
-/// `EntityCommand` that adds a [`ConverseAction`] marker to an entity's
-/// [`ActiveActions`]. Inserted via `commands.queue` so the change happens at
-/// the next sync point — the borrow checker can't see two systems mutating
-/// `ActiveActions` if we go through commands.
-struct InsertConverseMarker {
-    tick: u64,
-}
+        let id = manager.start_conversation([initiator, partner], tick.current);
+        commands.entity(initiator).insert(InConversation {
+            conversation_id: id,
+            partner,
+        });
+        commands.entity(partner).insert(InConversation {
+            conversation_id: id,
+            partner: initiator,
+        });
 
-impl EntityCommand for InsertConverseMarker {
-    fn apply(self, mut entity: EntityWorldMut) {
-        let tick = self.tick;
-        if let Some(mut active) = entity.get_mut::<ActiveActions>()
+        // Swap InitiateConversation -> Converse in-place on the initiator,
+        // and add Converse to the partner. Both happen this tick so
+        // evaluate_conversation_continuation sees the Mouth channel held.
+        let now = tick.current;
+        if let Ok((_, mut active)) = active_actions.get_mut(initiator) {
+            active.remove(ActionType::InitiateConversation);
+            if !active.contains(ActionType::Converse) {
+                active.insert(ActionState::new(ActionType::Converse, now));
+            }
+        }
+        if let Ok((_, mut active)) = active_actions.get_mut(partner)
             && !active.contains(ActionType::Converse)
         {
-            active.insert(ActionState::new(ActionType::Converse, tick));
+            active.insert(ActionState::new(ActionType::Converse, now));
         }
+        // Clear the movement target so we stop walking once paired.
+        if let Ok(mut tp) = target_positions.get_mut(initiator) {
+            tp.0 = None;
+        }
+
+        sim_events.write(SimEvent::ConversationStarted {
+            participants: vec![initiator, partner],
+            tick: tick.current,
+            conversation_id: id,
+        });
     }
 }
 
