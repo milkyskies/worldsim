@@ -17,7 +17,7 @@ use crate::agent::actions::registry::{
 use crate::agent::biology::body::Body;
 use crate::agent::body::needs::{Consciousness, PhysicalNeeds};
 use crate::agent::brains::proposal::BrainState;
-use crate::agent::events::{ActionOutcome, ActionOutcomeEvent};
+use crate::agent::events::{ActionOutcome, ActionOutcomeEvent, NeedSatisfaction};
 use crate::agent::inventory::Inventory;
 use crate::agent::mind::knowledge::{MindGraph, Node, Predicate, Value};
 use crate::agent::movement::{ARRIVAL_THRESHOLD, MoveResult, calculate_speed, move_toward};
@@ -216,6 +216,7 @@ pub fn tick_actions(
     world_map: Res<WorldMap>,
     mut game_log: ResMut<GameLog>,
     mut sim_events: MessageWriter<crate::agent::events::SimEvent>,
+    mut outcome_events: MessageWriter<ActionOutcomeEvent>,
     mut agents: Query<(
         Entity,
         &Name,
@@ -341,6 +342,11 @@ pub fn tick_actions(
                 .and_then(|e| target_inventories.get_mut(e).ok());
             let target_inv_ptr = target_inv.as_deref_mut();
 
+            // Snapshot needs before on_complete so we can compute the delta.
+            let pre_hunger = physical.hunger;
+            let pre_thirst = physical.thirst;
+            let pre_energy = physical.energy;
+
             let mut ctx = crate::agent::actions::registry::CompletionContext {
                 physical: &mut physical,
                 inventory: &mut inventory,
@@ -351,6 +357,34 @@ pub fn tick_actions(
             };
 
             action_def.on_complete(&mut ctx);
+
+            // Compute how much each need changed.
+            let hunger_reduced = pre_hunger - physical.hunger;
+            let thirst_reduced = pre_thirst - physical.thirst;
+            let energy_gained = physical.energy - pre_energy;
+            let need_satisfaction =
+                if hunger_reduced > 0.0 || thirst_reduced > 0.0 || energy_gained > 0.0 {
+                    Some(NeedSatisfaction {
+                        hunger_reduced,
+                        thirst_reduced,
+                        energy_gained,
+                        pre_hunger,
+                        pre_thirst,
+                    })
+                } else {
+                    None
+                };
+
+            outcome_events.write(ActionOutcomeEvent {
+                actor: entity,
+                outcome: ActionOutcome::Success {
+                    action: *action_type,
+                    target: snapshot.target_entity,
+                    gained: None,
+                    consumed: None,
+                    need_satisfaction,
+                },
+            });
 
             sim_events.write(crate::agent::events::SimEvent::ActionCompleted {
                 agent: entity,

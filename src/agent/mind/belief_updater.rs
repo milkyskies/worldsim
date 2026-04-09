@@ -1,34 +1,64 @@
 //! Belief updater: processes action outcome events and updates MindGraph triples to reflect results.
+//! Also generates emotions from need satisfaction — joy when needs are relieved, frustration when
+//! goals fail while the underlying need is urgent.
 //!
-//! Reads: ActionOutcomeEvent (success/failure, gained/consumed items, targets), Time
-//! Writes: MindGraph (inventory counts, resource depletion, location beliefs)
+//! Reads: ActionOutcomeEvent (success/failure, need satisfaction, items, targets), Time
+//! Writes: MindGraph (inventory counts, resource depletion, location beliefs), EmotionalState, SimEvent
 //! Upstream: agent::events (ActionOutcomeEvent emitted by action execution systems)
-//! Downstream: mind::knowledge (MindGraph updated), brains (read updated beliefs next tick)
+//! Downstream: mind::knowledge (MindGraph updated), psyche::emotions (EmotionalState updated)
 
+use crate::agent::body::needs::PhysicalNeeds;
 use crate::agent::events::{ActionOutcome, ActionOutcomeEvent, FailureReason};
 use crate::agent::mind::knowledge::{Concept, Metadata, MindGraph, Node, Predicate, Triple, Value};
+use crate::agent::psyche::emotions::{Emotion, EmotionType, EmotionalState};
 use bevy::prelude::*;
 
-/// Processes action outcomes and updates agent beliefs accordingly
 pub fn process_action_outcomes(
-    mut agents: Query<&mut MindGraph, With<crate::agent::Agent>>,
+    mut agents: Query<
+        (&mut MindGraph, &mut EmotionalState, Option<&PhysicalNeeds>),
+        With<crate::agent::Agent>,
+    >,
     mut outcome_events: MessageReader<ActionOutcomeEvent>,
     time: Res<Time>,
+    tick: Res<crate::core::tick::TickCount>,
+    mut sim_events: MessageWriter<crate::agent::events::SimEvent>,
 ) {
     let current_time = time.elapsed().as_millis() as u64;
 
     for event in outcome_events.read() {
-        if let Ok(mut mind) = agents.get_mut(event.actor) {
+        if let Ok((mut mind, mut emotional_state, physical)) = agents.get_mut(event.actor) {
             match &event.outcome {
                 ActionOutcome::Success {
                     target,
                     gained,
                     consumed,
+                    need_satisfaction,
                     ..
-                } => handle_success_outcome(&mut mind, target, gained, consumed, current_time),
+                } => {
+                    handle_success_outcome(&mut mind, target, gained, consumed, current_time);
+                    if let Some(sat) = need_satisfaction {
+                        generate_satisfaction_joy(
+                            sat,
+                            &mut emotional_state,
+                            event.actor,
+                            tick.current,
+                            &mut sim_events,
+                        );
+                    }
+                }
 
                 ActionOutcome::Failed { target, reason, .. } => {
-                    handle_failure_outcome(&mut mind, target, reason, current_time)
+                    handle_failure_outcome(&mut mind, target, reason, current_time);
+                    if let Some(needs) = physical {
+                        generate_failure_frustration(
+                            reason,
+                            needs,
+                            &mut emotional_state,
+                            event.actor,
+                            tick.current,
+                            &mut sim_events,
+                        );
+                    }
                 }
             }
         }
@@ -103,5 +133,133 @@ fn handle_failure_outcome(
             }
         }
         _ => {}
+    }
+}
+
+/// Joy proportional to need relief, scaled by how urgent the need was.
+/// Eating when starving (hunger=90) produces much more joy than eating when barely hungry (hunger=10).
+fn generate_satisfaction_joy(
+    sat: &crate::agent::events::NeedSatisfaction,
+    state: &mut EmotionalState,
+    agent: Entity,
+    tick: u64,
+    sim_events: &mut MessageWriter<crate::agent::events::SimEvent>,
+) {
+    let hunger_joy = (sat.hunger_reduced / 100.0) * (sat.pre_hunger / 100.0);
+    let thirst_joy = (sat.thirst_reduced / 100.0) * (sat.pre_thirst / 100.0);
+    let joy_intensity = (hunger_joy + thirst_joy).clamp(0.0, 1.0);
+
+    if joy_intensity > 0.01 {
+        sim_events.write(crate::agent::events::SimEvent::EmotionTriggered {
+            agent,
+            tick,
+            emotion: EmotionType::Joy,
+            intensity: joy_intensity,
+        });
+        state.add_emotion(Emotion::new(EmotionType::Joy, joy_intensity));
+    }
+}
+
+/// Frustration when a goal fails, proportional to how urgently that need was felt.
+fn generate_failure_frustration(
+    reason: &FailureReason,
+    needs: &PhysicalNeeds,
+    state: &mut EmotionalState,
+    agent: Entity,
+    tick: u64,
+    sim_events: &mut MessageWriter<crate::agent::events::SimEvent>,
+) {
+    let urgency = match reason {
+        FailureReason::NoEdibleFood | FailureReason::MissingItem(_) => needs.hunger / 100.0,
+        FailureReason::NoWaterNearby => needs.thirst / 100.0,
+        _ => 0.0,
+    };
+
+    if urgency > 0.1 {
+        let frustration = urgency * 0.6;
+        sim_events.write(crate::agent::events::SimEvent::EmotionTriggered {
+            agent,
+            tick,
+            emotion: EmotionType::Anger,
+            intensity: frustration,
+        });
+        state.add_emotion(Emotion::new(EmotionType::Anger, frustration));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::agent::events::NeedSatisfaction;
+
+    #[test]
+    fn starving_agent_gets_high_joy_from_eating() {
+        let sat = NeedSatisfaction {
+            hunger_reduced: 50.0,
+            pre_hunger: 90.0,
+            ..Default::default()
+        };
+        let joy = (sat.hunger_reduced / 100.0) * (sat.pre_hunger / 100.0);
+        assert!(
+            joy > 0.3,
+            "starving agent should get high joy from eating (got {joy})"
+        );
+    }
+
+    #[test]
+    fn barely_hungry_agent_gets_low_joy_from_eating() {
+        let sat = NeedSatisfaction {
+            hunger_reduced: 50.0,
+            pre_hunger: 15.0,
+            ..Default::default()
+        };
+        let joy = (sat.hunger_reduced / 100.0) * (sat.pre_hunger / 100.0);
+        assert!(
+            joy < 0.1,
+            "barely hungry agent should get low joy from eating (got {joy})"
+        );
+    }
+
+    #[test]
+    fn starving_joy_exceeds_barely_hungry_joy() {
+        let starving = NeedSatisfaction {
+            hunger_reduced: 50.0,
+            pre_hunger: 90.0,
+            ..Default::default()
+        };
+        let barely = NeedSatisfaction {
+            hunger_reduced: 50.0,
+            pre_hunger: 15.0,
+            ..Default::default()
+        };
+        let starving_joy = (starving.hunger_reduced / 100.0) * (starving.pre_hunger / 100.0);
+        let barely_joy = (barely.hunger_reduced / 100.0) * (barely.pre_hunger / 100.0);
+        assert!(
+            starving_joy > barely_joy * 4.0,
+            "starving joy ({starving_joy}) should be much greater than barely-hungry joy ({barely_joy})"
+        );
+    }
+
+    #[test]
+    fn high_urgency_failure_generates_frustration() {
+        let needs = PhysicalNeeds {
+            hunger: 85.0,
+            ..Default::default()
+        };
+        let urgency = needs.hunger / 100.0;
+        let frustration = urgency * 0.6;
+        assert!(
+            frustration > 0.4,
+            "high hunger failure should produce significant frustration (got {frustration})"
+        );
+    }
+
+    #[test]
+    fn low_urgency_failure_produces_no_frustration() {
+        let urgency = 8.0_f32 / 100.0; // hunger=8, below 0.1 threshold
+        assert!(
+            urgency <= 0.1,
+            "low urgency ({urgency}) should not trigger frustration"
+        );
     }
 }
