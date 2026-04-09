@@ -500,7 +500,7 @@ mod threat_tests {
 
         let unarmed = assess_threat(&personality, &needs, None);
 
-        let mut slots = ItemSlots::default();
+        let mut slots = ItemSlots::agent_carry();
         slots.add(Concept::Stick, 1);
         let armed = assess_threat(&personality, &needs, Some(&slots));
 
