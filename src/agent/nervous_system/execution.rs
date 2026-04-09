@@ -9,6 +9,7 @@
 
 use crate::agent::TargetPosition;
 use crate::agent::actions::ActionType;
+use crate::agent::actions::channel::ChannelCapacities;
 use crate::agent::actions::registry::{
     ActionContext, ActionKind, ActionRegistry, ActionState, ActiveActions,
 };
@@ -69,6 +70,10 @@ pub fn start_actions(
         physical,
     ) in agents.iter_mut()
     {
+        // Snapshot capacities once per agent so the channel methods don't
+        // recompute incapacitation/exhaustion math per requirement check.
+        let capacities = ChannelCapacities::compute(body, physical);
+
         for action_template in &brain_state.chosen_actions {
             let wanted_action = action_template.action_type;
 
@@ -114,8 +119,7 @@ pub fn start_actions(
                 &mut active,
                 &registry,
                 requirements,
-                body,
-                physical,
+                &capacities,
                 &mut target,
             ) {
                 game_log.log_debug(format!(
@@ -216,9 +220,11 @@ pub fn tick_actions(
         body,
     ) in agents.iter_mut()
     {
-        // Snapshot the load now so each action's degradation factor is computed
-        // against this tick's full set, not against itself after removal.
+        // Snapshot the load and capacities at the start of the tick. Capacities
+        // freeze the start-of-tick energy so degradation doesn't compound as
+        // physical needs are mutated by per-action effects.
         let load = active.channel_load(&registry);
+        let capacities = ChannelCapacities::compute(body, Some(&*physical));
 
         let mut completed_types: Vec<ActionType> = Vec::new();
 
@@ -229,7 +235,7 @@ pub fn tick_actions(
             };
 
             let channels = action_def.body_channels();
-            let degradation = load.degradation_factor(channels, body, Some(&*physical));
+            let degradation = load.degradation_factor(channels, &capacities);
 
             let completed = match action_def.kind() {
                 ActionKind::Instant => true,
@@ -378,17 +384,16 @@ pub fn apply_action_effects(
 
     for (active, mut physical, mut consciousness, body) in agents.iter_mut() {
         let load = active.channel_load(&registry);
-        // Snapshot energy before applying effects so degradation reflects the
-        // start-of-tick state and doesn't compound mid-iteration.
-        let physical_snapshot = physical.clone();
+        // Capacities freeze the start-of-tick energy so degradation doesn't
+        // compound as the loop mutates physical.energy mid-iteration.
+        let capacities = ChannelCapacities::compute(body, Some(&*physical));
 
         for action_state in active.iter() {
             let Some(action_def) = registry.get(action_state.action_type) else {
                 continue;
             };
             let effects = action_def.runtime_effects();
-            let degradation =
-                load.degradation_factor(action_def.body_channels(), body, Some(&physical_snapshot));
+            let degradation = load.degradation_factor(action_def.body_channels(), &capacities);
 
             physical.energy =
                 (physical.energy + effects.energy_per_sec * dt * degradation).clamp(0.0, 100.0);
@@ -415,18 +420,17 @@ fn preempt_to_make_room(
     active: &mut ActiveActions,
     registry: &ActionRegistry,
     requirements: &[crate::agent::actions::channel::ChannelUsage],
-    body: Option<&Body>,
-    physical: Option<&PhysicalNeeds>,
+    capacities: &ChannelCapacities,
     target: &mut TargetPosition,
 ) -> bool {
     let mut load = active.channel_load(registry);
 
-    while load.would_hard_conflict(requirements, body, physical) {
+    while load.would_hard_conflict(requirements, capacities) {
         // Which channels are over the hard threshold given the new requirements?
         let saturated: [bool; crate::agent::actions::channel::CHANNEL_COUNT] = {
             let mut s = [false; crate::agent::actions::channel::CHANNEL_COUNT];
             for usage in requirements {
-                let cap = usage.channel.max_capacity(body, physical);
+                let cap = capacities.get(usage.channel);
                 let projected = load.saturation(usage.channel) + usage.intensity;
                 if projected > crate::agent::actions::channel::HARD_CONFLICT_THRESHOLD * cap {
                     s[usage.channel.idx()] = true;
@@ -605,7 +609,7 @@ mod tests {
 
         let load = active.channel_load(&registry);
         // Walk(Legs 0.4) + Eat(Hands 0.5, Mouth 0.7) - no overlap
-        assert!(!load.would_hard_conflict(&[], None, None));
+        assert!(!load.would_hard_conflict(&[], &ChannelCapacities::full()));
         assert_eq!(active.len(), 2);
     }
 
@@ -621,8 +625,7 @@ mod tests {
             &mut active,
             &registry,
             flee_def.body_channels(),
-            None,
-            None,
+            &ChannelCapacities::full(),
             &mut target,
         );
 
@@ -643,8 +646,7 @@ mod tests {
             &mut active,
             &registry,
             sleep_def.body_channels(),
-            None,
-            None,
+            &ChannelCapacities::full(),
             &mut target,
         );
 
@@ -665,8 +667,7 @@ mod tests {
             &mut active,
             &registry,
             sleep_def.body_channels(),
-            None,
-            None,
+            &ChannelCapacities::full(),
             &mut target,
         );
 
@@ -683,7 +684,7 @@ mod tests {
 
         let load = active.channel_load(&registry);
         let eat_channels = registry.get(ActionType::Eat).unwrap().body_channels();
-        let factor = load.degradation_factor(eat_channels, None, None);
+        let factor = load.degradation_factor(eat_channels, &ChannelCapacities::full());
         let expected = 1.0 / 1.3;
         assert!((factor - expected).abs() < 1e-4);
     }
@@ -697,8 +698,6 @@ mod tests {
         active.insert(ActionState::new(ActionType::Walk, 0));
         active.insert(ActionState::new(ActionType::Sleep, 0));
 
-        // Walk is interruptible but doesn't touch FullBody. Sleep is uninterruptible.
-        // Trying to start another FullBody-heavy action can't succeed by removing Walk.
         let mut target = TargetPosition::default();
         let admitted = preempt_to_make_room(
             &mut active,
@@ -707,8 +706,7 @@ mod tests {
                 crate::agent::actions::channel::BodyChannel::FullBody,
                 1.0,
             )],
-            None,
-            None,
+            &ChannelCapacities::full(),
             &mut target,
         );
 

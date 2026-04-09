@@ -8,7 +8,7 @@ pub mod channel;
 pub mod registry;
 pub mod types;
 
-pub use channel::{BodyChannel, ChannelLoad, ChannelUsage};
+pub use channel::{BodyChannel, ChannelCapacities, ChannelLoad, ChannelUsage};
 pub use registry::{
     Action, ActionContext, ActionKind, ActionRegistry, ActionState, ActiveActions, RuntimeEffects,
     TargetType,

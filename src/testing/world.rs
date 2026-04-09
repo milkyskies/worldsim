@@ -265,7 +265,12 @@ impl TestWorld {
         let world = self.app.world();
         let active = world.get::<crate::agent::actions::ActiveActions>(agent)?;
         let registry = world.resource::<crate::agent::actions::ActionRegistry>();
-        active.primary(registry).map(|s| s.action_type)
+        Some(
+            active
+                .primary(registry)
+                .map(|s| s.action_type)
+                .unwrap_or(ActionType::Idle),
+        )
     }
 
     /// Returns true if the action registry contains an entry for the given action.

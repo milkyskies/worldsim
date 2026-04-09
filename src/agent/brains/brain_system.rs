@@ -124,8 +124,8 @@ pub fn three_brains_system(
 
         // 3. Arbitrate - greedy multi-action admission across body channels
         let proposals = [survival_proposal, emotional_proposal, rational_proposal];
-        let admitted =
-            arbitrate_parallel(&proposals, &powers, body, Some(physical), &action_registry);
+        let capacities = crate::agent::actions::ChannelCapacities::compute(body, Some(physical));
+        let admitted = arbitrate_parallel(&proposals, &powers, &capacities, &action_registry);
 
         // 4. Store for debugging/UI and execution
         brain_state.proposals = proposals.into_iter().flatten().collect();

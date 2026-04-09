@@ -7,8 +7,7 @@
 
 use bevy::prelude::*;
 
-use crate::agent::actions::ActionType;
-use crate::agent::actions::ActiveActions;
+use crate::agent::actions::{ActionType, ActiveActions};
 use crate::agent::affordance::Affordance;
 use crate::agent::biology::body::Body;
 use crate::agent::body::needs::{Consciousness, PhysicalNeeds, PsychologicalDrives};

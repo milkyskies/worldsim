@@ -6,6 +6,7 @@
 //! Downstream: brain_system (consumes arbitrated BrainState), nervous_system execution
 
 use super::proposal::{BrainPowers, BrainProposal, BrainType};
+use crate::agent::actions::channel::ChannelCapacities;
 use crate::agent::biology::body::Body;
 use crate::agent::body::needs::{Consciousness, PhysicalNeeds};
 use crate::agent::psyche::emotions::EmotionalState;
@@ -98,8 +99,7 @@ pub fn calculate_brain_powers(
 pub fn arbitrate_parallel(
     proposals: &[Option<BrainProposal>],
     powers: &BrainPowers,
-    body: Option<&Body>,
-    physical: Option<&PhysicalNeeds>,
+    capacities: &ChannelCapacities,
     registry: &crate::agent::actions::ActionRegistry,
 ) -> Vec<BrainProposal> {
     use crate::agent::actions::channel::ChannelLoad;
@@ -129,7 +129,7 @@ pub fn arbitrate_parallel(
 
         let requirements = action_def.body_channels();
 
-        if load.would_hard_conflict(requirements, body, physical) {
+        if load.would_hard_conflict(requirements, capacities) {
             continue;
         }
 

@@ -14,6 +14,7 @@
 
 use crate::agent::biology::body::Body;
 use crate::agent::body::needs::PhysicalNeeds;
+use crate::constants::movement::{TIRED_ENERGY_THRESHOLD, TIRED_SPEED_MULTIPLIER};
 use bevy::prelude::*;
 
 /// Saturation at which a channel begins degrading actions but still permits parallel use.
@@ -24,13 +25,6 @@ pub const HARD_CONFLICT_THRESHOLD: f32 = 1.4;
 
 /// Number of distinct body channels - used for fixed-size load arrays.
 pub const CHANNEL_COUNT: usize = 5;
-
-/// Energy threshold below which exhaustion starts scaling channel capacities.
-pub const EXHAUSTION_ENERGY_THRESHOLD: f32 = 20.0;
-
-/// Floor multiplier when energy hits zero. Capacities are scaled to
-/// `EXHAUSTION_FLOOR + (energy / EXHAUSTION_ENERGY_THRESHOLD) * (1.0 - EXHAUSTION_FLOOR)`.
-pub const EXHAUSTION_FLOOR: f32 = 0.5;
 
 /// A logical body resource that actions occupy.
 ///
@@ -81,14 +75,15 @@ impl BodyChannel {
     /// - **Incapacitation** (`Body::is_incapacitated()`): Legs/Hands/Mouth lock
     ///   to 0.0 so the agent can only run cognitive or full-body (Sleep/Idle)
     ///   actions and recover.
-    /// - **Exhaustion** (`PhysicalNeeds::energy < 20`): scales the active
-    ///   channels (Legs/Hands/Mouth) by `EXHAUSTION_FLOOR..=1.0`. FullBody and
-    ///   Mind are exempt so Sleep is always reachable for recovery.
+    /// - **Exhaustion** (`PhysicalNeeds::energy < TIRED_ENERGY_THRESHOLD`):
+    ///   scales the active channels (Legs/Hands/Mouth) by
+    ///   `TIRED_SPEED_MULTIPLIER..=1.0`. FullBody and Mind are exempt so Sleep
+    ///   is always reachable for recovery.
     ///
-    /// `None` arguments default to full capacity (used by tests and entities
-    /// that lack the corresponding component).
+    /// Per-tick callers should use [`ChannelCapacities::compute`] to evaluate
+    /// every channel once and reuse the array. This direct method is for
+    /// one-shot lookups (tests, debug UI).
     pub fn max_capacity(&self, body: Option<&Body>, physical: Option<&PhysicalNeeds>) -> f32 {
-        // Mind is unaffected by physical state.
         if matches!(self, BodyChannel::Mind) {
             return 1.0;
         }
@@ -98,12 +93,9 @@ impl BodyChannel {
         };
 
         if body.is_incapacitated() {
-            // Lock active channels but leave FullBody open so Sleep can still
-            // run and the agent has a path to recovery.
             return match self {
                 BodyChannel::Legs | BodyChannel::Hands | BodyChannel::Mouth => 0.0,
-                BodyChannel::FullBody => 1.0,
-                BodyChannel::Mind => 1.0,
+                BodyChannel::FullBody | BodyChannel::Mind => 1.0,
             };
         }
 
@@ -115,8 +107,7 @@ impl BodyChannel {
             BodyChannel::Mind => 1.0,
         };
 
-        // Exhaustion scales the active channels only - FullBody is exempt so
-        // Sleep stays accessible even at zero energy.
+        // FullBody is exempt from exhaustion so Sleep stays accessible at zero energy.
         let exhaustion = if matches!(self, BodyChannel::FullBody) {
             1.0
         } else {
@@ -128,16 +119,55 @@ impl BodyChannel {
 }
 
 /// Computes the exhaustion multiplier from physical needs energy.
-/// Returns 1.0 above the threshold; scales to `EXHAUSTION_FLOOR` at zero energy.
+/// Returns 1.0 above the threshold; scales to `TIRED_SPEED_MULTIPLIER` at zero energy.
+/// Reuses the same threshold and floor as `movement::calculate_speed` so the
+/// "exhausted" curve is consistent across the codebase.
 fn exhaustion_factor(physical: Option<&PhysicalNeeds>) -> f32 {
     let Some(p) = physical else {
         return 1.0;
     };
-    if p.energy >= EXHAUSTION_ENERGY_THRESHOLD {
+    if p.energy >= TIRED_ENERGY_THRESHOLD {
         return 1.0;
     }
-    let energy_fraction = (p.energy / EXHAUSTION_ENERGY_THRESHOLD).clamp(0.0, 1.0);
-    EXHAUSTION_FLOOR + energy_fraction * (1.0 - EXHAUSTION_FLOOR)
+    let energy_fraction = (p.energy / TIRED_ENERGY_THRESHOLD).clamp(0.0, 1.0);
+    TIRED_SPEED_MULTIPLIER + energy_fraction * (1.0 - TIRED_SPEED_MULTIPLIER)
+}
+
+/// Per-channel capacity snapshot, computed once per agent per tick.
+///
+/// Built once via [`ChannelCapacities::compute`] from `Body` + `PhysicalNeeds`,
+/// then passed by reference into [`ChannelLoad`] methods. Avoids recomputing
+/// `max_capacity` (which dispatches on incapacitation, exhaustion, and body
+/// part aggregators) for every conflict check or degradation lookup.
+#[derive(Debug, Clone, Copy)]
+pub struct ChannelCapacities([f32; CHANNEL_COUNT]);
+
+impl Default for ChannelCapacities {
+    fn default() -> Self {
+        Self::full()
+    }
+}
+
+impl ChannelCapacities {
+    /// All channels at 1.0 - the default for entities without a body or
+    /// for tests that don't care about biology.
+    pub const fn full() -> Self {
+        Self([1.0; CHANNEL_COUNT])
+    }
+
+    /// Compute the per-channel capacity snapshot for an agent's current state.
+    pub fn compute(body: Option<&Body>, physical: Option<&PhysicalNeeds>) -> Self {
+        let mut caps = [1.0; CHANNEL_COUNT];
+        for ch in BodyChannel::ALL {
+            caps[ch.idx()] = ch.max_capacity(body, physical);
+        }
+        Self(caps)
+    }
+
+    #[inline]
+    pub fn get(&self, channel: BodyChannel) -> f32 {
+        self.0[channel.idx()]
+    }
 }
 
 /// How much of a single body channel an action requires.
@@ -194,11 +224,10 @@ impl ChannelLoad {
     pub fn would_hard_conflict(
         &self,
         requirements: &[ChannelUsage],
-        body: Option<&Body>,
-        physical: Option<&PhysicalNeeds>,
+        capacities: &ChannelCapacities,
     ) -> bool {
         for usage in requirements {
-            let cap = usage.channel.max_capacity(body, physical);
+            let cap = capacities.get(usage.channel);
             let projected = self.saturation(usage.channel) + usage.intensity;
             // Effective threshold scales with capacity, so a half-functioning
             // leg hard-conflicts at 0.7 instead of 1.4.
@@ -214,12 +243,11 @@ impl ChannelLoad {
     pub fn would_soft_conflict(
         &self,
         requirements: &[ChannelUsage],
-        body: Option<&Body>,
-        physical: Option<&PhysicalNeeds>,
+        capacities: &ChannelCapacities,
     ) -> bool {
         let mut soft = false;
         for usage in requirements {
-            let cap = usage.channel.max_capacity(body, physical);
+            let cap = capacities.get(usage.channel);
             let projected = self.saturation(usage.channel) + usage.intensity;
             if projected > HARD_CONFLICT_THRESHOLD * cap {
                 return false;
@@ -237,12 +265,11 @@ impl ChannelLoad {
     pub fn degradation_factor(
         &self,
         requirements: &[ChannelUsage],
-        body: Option<&Body>,
-        physical: Option<&PhysicalNeeds>,
+        capacities: &ChannelCapacities,
     ) -> f32 {
         let mut min_factor: f32 = 1.0;
         for usage in requirements {
-            let cap = usage.channel.max_capacity(body, physical).max(0.001);
+            let cap = capacities.get(usage.channel).max(0.001);
             let saturation = self.saturation(usage.channel) / cap;
             if saturation > SOFT_CONFLICT_THRESHOLD {
                 let factor = 1.0 / saturation;
@@ -273,6 +300,22 @@ mod tests {
         });
     }
 
+    /// Capacities snapshot used by tests that don't care about biology.
+    fn full_caps() -> ChannelCapacities {
+        ChannelCapacities::full()
+    }
+
+    fn caps_for(body: &Body, physical: Option<&PhysicalNeeds>) -> ChannelCapacities {
+        ChannelCapacities::compute(Some(body), physical)
+    }
+
+    /// Push two severe head injuries to cross the 0.2 incapacitation threshold.
+    fn incapacitate(body: &mut Body) {
+        injure(&mut body.head, 1.0);
+        injure(&mut body.head, 1.0);
+        assert!(body.is_incapacitated());
+    }
+
     #[test]
     fn empty_load_has_zero_saturation() {
         let load = ChannelLoad::new();
@@ -295,8 +338,9 @@ mod tests {
         let mut load = ChannelLoad::new();
         load.add(&[req(BodyChannel::Legs, 0.4)]);
         let eat = [req(BodyChannel::Hands, 0.5), req(BodyChannel::Mouth, 0.7)];
-        assert!(!load.would_hard_conflict(&eat, None, None));
-        assert!(!load.would_soft_conflict(&eat, None, None));
+        let caps = full_caps();
+        assert!(!load.would_hard_conflict(&eat, &caps));
+        assert!(!load.would_soft_conflict(&eat, &caps));
     }
 
     #[test]
@@ -304,8 +348,9 @@ mod tests {
         let mut load = ChannelLoad::new();
         load.add(&[req(BodyChannel::Hands, 0.5), req(BodyChannel::Mouth, 0.7)]);
         let talk = [req(BodyChannel::Mouth, 0.6)];
-        assert!(load.would_soft_conflict(&talk, None, None));
-        assert!(!load.would_hard_conflict(&talk, None, None));
+        let caps = full_caps();
+        assert!(load.would_soft_conflict(&talk, &caps));
+        assert!(!load.would_hard_conflict(&talk, &caps));
     }
 
     #[test]
@@ -313,11 +358,11 @@ mod tests {
         let mut load = ChannelLoad::new();
         load.add(&[req(BodyChannel::Legs, 0.4)]);
         let flee = [req(BodyChannel::Legs, 1.0), req(BodyChannel::FullBody, 0.5)];
-        // 0.4 + 1.0 = 1.4, exactly at HARD_CONFLICT_THRESHOLD - not over.
-        assert!(!load.would_hard_conflict(&flee, None, None));
-        // Anything past the threshold trips hard.
+        let caps = full_caps();
+        // 0.4 + 1.0 = 1.4 lands exactly at HARD_CONFLICT_THRESHOLD - still legal.
+        assert!(!load.would_hard_conflict(&flee, &caps));
         load.add(&[req(BodyChannel::Legs, 0.05)]);
-        assert!(load.would_hard_conflict(&flee, None, None));
+        assert!(load.would_hard_conflict(&flee, &caps));
     }
 
     #[test]
@@ -325,7 +370,7 @@ mod tests {
         let mut load = ChannelLoad::new();
         load.add(&[req(BodyChannel::FullBody, 1.0)]);
         let other = [req(BodyChannel::FullBody, 1.0)];
-        assert!(load.would_hard_conflict(&other, None, None));
+        assert!(load.would_hard_conflict(&other, &full_caps()));
     }
 
     #[test]
@@ -333,7 +378,7 @@ mod tests {
         let mut load = ChannelLoad::new();
         load.add(&[req(BodyChannel::Mouth, 0.7), req(BodyChannel::Mouth, 0.6)]);
         let eat = [req(BodyChannel::Mouth, 0.7), req(BodyChannel::Hands, 0.5)];
-        let factor = load.degradation_factor(&eat, None, None);
+        let factor = load.degradation_factor(&eat, &full_caps());
         let expected = 1.0 / 1.3;
         assert!((factor - expected).abs() < 1e-4);
     }
@@ -343,7 +388,7 @@ mod tests {
         let mut load = ChannelLoad::new();
         load.add(&[req(BodyChannel::Mouth, 0.7)]);
         let eat = [req(BodyChannel::Mouth, 0.7)];
-        assert_eq!(load.degradation_factor(&eat, None, None), 1.0);
+        assert_eq!(load.degradation_factor(&eat, &full_caps()), 1.0);
     }
 
     #[test]
@@ -376,11 +421,10 @@ mod tests {
     fn broken_leg_reduces_legs_capacity() {
         let mut body = Body::default();
         injure(&mut body.left_leg, 1.0);
+        // Severity 1.0 fracture takes left leg function_rate to 0; right leg
+        // is unhurt, so mobility() = (0 + 1) / 2 = 0.5.
         let cap = BodyChannel::Legs.max_capacity(Some(&body), None);
-        // mobility() = (left.function_rate + right.function_rate) / 2
-        // left is severely damaged, right is intact.
-        assert!(cap < 1.0);
-        assert!(cap > 0.0);
+        assert!((cap - 0.5).abs() < 1e-4, "expected 0.5, got {cap}");
     }
 
     #[test]
@@ -388,8 +432,7 @@ mod tests {
         let mut body = Body::default();
         injure(&mut body.right_arm, 1.0);
         // manipulation() takes the BEST arm, so left arm still works.
-        let cap = BodyChannel::Hands.max_capacity(Some(&body), None);
-        assert_eq!(cap, 1.0);
+        assert_eq!(BodyChannel::Hands.max_capacity(Some(&body), None), 1.0);
 
         injure(&mut body.left_arm, 1.0);
         let cap_both = BodyChannel::Hands.max_capacity(Some(&body), None);
@@ -399,15 +442,11 @@ mod tests {
     #[test]
     fn incapacitated_body_locks_active_channels_but_keeps_full_body_open() {
         let mut body = Body::default();
-        // Crush the head to incapacitate.
-        injure(&mut body.head, 1.0);
-        injure(&mut body.head, 1.0);
-        assert!(body.is_incapacitated());
+        incapacitate(&mut body);
 
         assert_eq!(BodyChannel::Legs.max_capacity(Some(&body), None), 0.0);
         assert_eq!(BodyChannel::Hands.max_capacity(Some(&body), None), 0.0);
         assert_eq!(BodyChannel::Mouth.max_capacity(Some(&body), None), 0.0);
-        // Sleep and Idle still reachable so the agent can recover.
         assert_eq!(BodyChannel::FullBody.max_capacity(Some(&body), None), 1.0);
         assert_eq!(BodyChannel::Mind.max_capacity(Some(&body), None), 1.0);
     }
@@ -415,25 +454,23 @@ mod tests {
     #[test]
     fn incapacitated_agent_cannot_start_walk_or_harvest() {
         let mut body = Body::default();
-        injure(&mut body.head, 1.0);
-        injure(&mut body.head, 1.0);
+        incapacitate(&mut body);
+        let caps = caps_for(&body, None);
         let load = ChannelLoad::new();
-        // Walk(Legs 0.4)
         let walk = [req(BodyChannel::Legs, 0.4)];
-        assert!(load.would_hard_conflict(&walk, Some(&body), None));
-        // Harvest(Hands 0.9, Legs 0.2)
+        assert!(load.would_hard_conflict(&walk, &caps));
         let harvest = [req(BodyChannel::Hands, 0.9), req(BodyChannel::Legs, 0.2)];
-        assert!(load.would_hard_conflict(&harvest, Some(&body), None));
+        assert!(load.would_hard_conflict(&harvest, &caps));
     }
 
     #[test]
     fn incapacitated_agent_can_still_sleep() {
         let mut body = Body::default();
-        injure(&mut body.head, 1.0);
-        injure(&mut body.head, 1.0);
+        incapacitate(&mut body);
+        let caps = caps_for(&body, None);
         let load = ChannelLoad::new();
         let sleep = [req(BodyChannel::FullBody, 1.0)];
-        assert!(!load.would_hard_conflict(&sleep, Some(&body), None));
+        assert!(!load.would_hard_conflict(&sleep, &caps));
     }
 
     #[test]
@@ -443,17 +480,11 @@ mod tests {
             energy: 0.0,
             ..Default::default()
         };
-        // Active channels are halved at zero energy.
-        assert!(
-            (BodyChannel::Legs.max_capacity(Some(&body), Some(&exhausted)) - EXHAUSTION_FLOOR)
-                .abs()
-                < 1e-4
-        );
-        assert!(
-            (BodyChannel::Hands.max_capacity(Some(&body), Some(&exhausted)) - EXHAUSTION_FLOOR)
-                .abs()
-                < 1e-4
-        );
+        // Active channels collapse to TIRED_SPEED_MULTIPLIER at zero energy.
+        let legs = BodyChannel::Legs.max_capacity(Some(&body), Some(&exhausted));
+        assert!((legs - TIRED_SPEED_MULTIPLIER).abs() < 1e-4);
+        let hands = BodyChannel::Hands.max_capacity(Some(&body), Some(&exhausted));
+        assert!((hands - TIRED_SPEED_MULTIPLIER).abs() < 1e-4);
         // FullBody and Mind are exempt so Sleep is always reachable.
         assert_eq!(
             BodyChannel::FullBody.max_capacity(Some(&body), Some(&exhausted)),
@@ -466,15 +497,32 @@ mod tests {
     }
 
     #[test]
-    fn exhaustion_does_not_kick_in_above_threshold() {
+    fn exhaustion_at_threshold_is_full_capacity() {
         let body = Body::default();
         let rested = PhysicalNeeds {
-            energy: EXHAUSTION_ENERGY_THRESHOLD,
+            energy: TIRED_ENERGY_THRESHOLD,
             ..Default::default()
         };
         for ch in BodyChannel::ALL {
             assert_eq!(ch.max_capacity(Some(&body), Some(&rested)), 1.0);
         }
+    }
+
+    #[test]
+    fn exhaustion_at_midpoint_is_linear() {
+        // At half the threshold, the multiplier is halfway between the floor
+        // and 1.0 - i.e. the linear ramp is honored.
+        let body = Body::default();
+        let half = PhysicalNeeds {
+            energy: TIRED_ENERGY_THRESHOLD / 2.0,
+            ..Default::default()
+        };
+        let expected = TIRED_SPEED_MULTIPLIER + 0.5 * (1.0 - TIRED_SPEED_MULTIPLIER);
+        let cap = BodyChannel::Legs.max_capacity(Some(&body), Some(&half));
+        assert!(
+            (cap - expected).abs() < 1e-4,
+            "expected {expected}, got {cap}"
+        );
     }
 
     #[test]
@@ -484,12 +532,25 @@ mod tests {
             energy: 0.0,
             ..Default::default()
         };
+        let caps = caps_for(&body, Some(&exhausted));
         let load = ChannelLoad::new();
-        // Walk(Legs 0.4) -> 0.4 vs HARD * 0.5 = 0.7 -> ok
         let walk = [req(BodyChannel::Legs, 0.4)];
-        assert!(!load.would_hard_conflict(&walk, Some(&body), Some(&exhausted)));
-        // Flee(Legs 1.0) -> 1.0 vs HARD * 0.5 = 0.7 -> hard conflict
+        assert!(!load.would_hard_conflict(&walk, &caps));
         let flee = [req(BodyChannel::Legs, 1.0), req(BodyChannel::FullBody, 0.5)];
-        assert!(load.would_hard_conflict(&flee, Some(&body), Some(&exhausted)));
+        assert!(load.would_hard_conflict(&flee, &caps));
+    }
+
+    #[test]
+    fn channel_capacities_compute_matches_per_channel_max_capacity() {
+        let mut body = Body::default();
+        injure(&mut body.left_leg, 0.5);
+        let physical = PhysicalNeeds {
+            energy: 10.0,
+            ..Default::default()
+        };
+        let caps = ChannelCapacities::compute(Some(&body), Some(&physical));
+        for ch in BodyChannel::ALL {
+            assert_eq!(caps.get(ch), ch.max_capacity(Some(&body), Some(&physical)));
+        }
     }
 }
