@@ -43,7 +43,9 @@ fn get_trust(world: &TestWorld, agent: Entity, other: Entity) -> Option<f32> {
 fn trust_decays_toward_neutral_without_contact() {
     let mut world = TestWorld::with_seed(42);
     let agent = world.spawn_agent(AgentConfig::default());
-    let other = world.spawn_agent(AgentConfig::default());
+    // Use a bare entity (not an agent) so no social-interaction system can
+    // refresh the trust timestamp during the ticking window.
+    let other = world.app_mut().world_mut().spawn_empty().id();
 
     // Set trust well above neutral at tick 0.
     set_trust(&mut world, agent, other, 0.8, 0);
