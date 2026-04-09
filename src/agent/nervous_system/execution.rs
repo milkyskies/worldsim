@@ -193,7 +193,11 @@ pub fn start_actions(
                                 .map(|t| t.translation().truncate())
                         })
                     }
-                    _ => None,
+                    // For any other movement action, honour the brain's target rather
+                    // than silently discarding it. If the brain left the position
+                    // unspecified, this returns None and the action completes
+                    // immediately (which is the correct degenerate behaviour).
+                    _ => action_template.target_position,
                 };
 
                 if let Some(tp) = new_target {
