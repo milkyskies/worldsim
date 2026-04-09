@@ -21,16 +21,9 @@ use crate::world::map::{TileType, WorldMap};
 // ─── PersonalityBuilder ────────────────────────────────────────────────────
 
 /// Fluent builder for `PersonalityTraits`. All values start at 0.5 (neutral).
+#[derive(Default)]
 pub struct PersonalityBuilder {
     traits: PersonalityTraits,
-}
-
-impl Default for PersonalityBuilder {
-    fn default() -> Self {
-        Self {
-            traits: PersonalityTraits::default(),
-        }
-    }
 }
 
 impl PersonalityBuilder {
@@ -438,10 +431,10 @@ impl ScenarioBuilder {
 
         // Apply knows_each_other within groups.
         for group_spec in &self.groups {
-            if group_spec.knows_each_other {
-                if let Some(members) = groups.get(&group_spec.name) {
-                    apply_mutual_knowledge(&mut world, members);
-                }
+            if group_spec.knows_each_other
+                && let Some(members) = groups.get(&group_spec.name)
+            {
+                apply_mutual_knowledge(&mut world, members);
             }
         }
 
