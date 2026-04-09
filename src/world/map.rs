@@ -43,7 +43,7 @@ pub enum TileType {
 
 impl TileType {
     pub fn is_walkable(&self) -> bool {
-        matches!(self, TileType::Grass | TileType::Water)
+        matches!(self, TileType::Grass)
     }
 }
 
@@ -162,6 +162,34 @@ impl WorldMap {
             self.width as f32 * TILE_SIZE,
             self.height as f32 * TILE_SIZE,
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn grass_is_walkable() {
+        assert!(TileType::Grass.is_walkable());
+    }
+
+    #[test]
+    fn water_is_not_walkable() {
+        assert!(!TileType::Water.is_walkable());
+    }
+
+    #[test]
+    fn world_map_blocks_movement_on_water_tile() {
+        let mut map = WorldMap::new(CHUNK_SIZE, CHUNK_SIZE);
+        map.chunks.insert(IVec2::new(0, 0), Chunk::new(0, 0));
+        map.set_tile(5, 5, TileType::Water);
+
+        let water_pos = map.tile_to_world(5, 5);
+        let grass_pos = map.tile_to_world(0, 0);
+
+        assert!(!map.is_walkable(water_pos));
+        assert!(map.is_walkable(grass_pos));
     }
 }
 
