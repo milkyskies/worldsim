@@ -80,8 +80,10 @@ pub enum Concept {
     Berry,
     BerryBush,
     Wood,
+    WoodLog,
     Water,
     Stone,
+    StoneNode,
     Stick,
 
     // ─── Animal types ───
@@ -1003,6 +1005,13 @@ pub fn setup_ontology() -> Ontology {
 
     add(c(Wood), IsA, v(Resource));
     add(c(Water), IsA, v(Resource));
+    add(c(Stone), IsA, v(Resource));
+
+    add(c(WoodLog), IsA, v(Object));
+    add(c(WoodLog), IsA, v(Resource));
+
+    add(c(StoneNode), IsA, v(Object));
+    add(c(StoneNode), IsA, v(Resource));
 
     // ─── Properties (HasTrait) ───
     add(c(Food), HasTrait, v(Edible));
@@ -1012,6 +1021,8 @@ pub fn setup_ontology() -> Ontology {
     add(c(Plant), HasTrait, v(Harvestable));
     add(c(AppleTree), HasTrait, v(Harvestable));
     add(c(BerryBush), HasTrait, v(Harvestable));
+    add(c(WoodLog), HasTrait, v(Harvestable));
+    add(c(StoneNode), HasTrait, v(Harvestable));
 
     // ─── Action Categorization ───
     use crate::agent::actions::ActionType;

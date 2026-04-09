@@ -25,6 +25,7 @@ use crate::core::{GameLog, GameTime};
 use crate::testing::config::AgentConfig;
 use crate::testing::spawn::{
     spawn_test_apple_tree, spawn_test_berry_bush, spawn_test_deer, spawn_test_person,
+    spawn_test_stone_node, spawn_test_wood_log,
 };
 use crate::world::environment::LightLevel;
 use crate::world::map::{
@@ -485,6 +486,16 @@ impl TestWorld {
         spawn_test_apple_tree(self.app.world_mut(), pos, apples)
     }
 
+    /// Spawns a stone node at the given position with the specified stone count.
+    pub fn spawn_stone_node(&mut self, pos: Vec2, stones: u32) -> Entity {
+        spawn_test_stone_node(self.app.world_mut(), pos, stones)
+    }
+
+    /// Spawns a wood log at the given position with the specified wood count.
+    pub fn spawn_wood_log(&mut self, pos: Vec2, wood: u32) -> Entity {
+        spawn_test_wood_log(self.app.world_mut(), pos, wood)
+    }
+
     /// Spawns all entities from a layout using the test-compatible (logic-only,
     /// no-visuals) spawners. Counterpart to [`crate::world::spawner::apply_layout`]
     /// which uses the full visual spawners.
@@ -500,6 +511,12 @@ impl TestWorld {
         }
         for &(pos, apples) in &layout.apple_tree_positions {
             self.spawn_apple_tree(pos, apples);
+        }
+        for &(pos, stones) in &layout.stone_node_positions {
+            self.spawn_stone_node(pos, stones);
+        }
+        for &(pos, wood) in &layout.wood_log_positions {
+            self.spawn_wood_log(pos, wood);
         }
     }
 
@@ -1240,6 +1257,20 @@ mod tests {
         let mut world = TestWorld::with_seed(42);
         let tree = world.spawn_apple_tree(Vec2::new(20.0, 20.0), 7);
         assert_eq!(world.item_count(tree, Concept::Apple), 7);
+    }
+
+    #[test]
+    fn spawn_stone_node_starts_with_stone_inventory() {
+        let mut world = TestWorld::with_seed(42);
+        let node = world.spawn_stone_node(Vec2::new(30.0, 30.0), 5);
+        assert_eq!(world.item_count(node, Concept::Stone), 5);
+    }
+
+    #[test]
+    fn spawn_wood_log_starts_with_wood_inventory() {
+        let mut world = TestWorld::with_seed(42);
+        let log = world.spawn_wood_log(Vec2::new(40.0, 40.0), 4);
+        assert_eq!(world.item_count(log, Concept::Wood), 4);
     }
 
     #[test]

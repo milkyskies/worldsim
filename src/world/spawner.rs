@@ -11,6 +11,8 @@
 //! - `apple_tree.rs` - Apple Tree spawning
 //! - `berry_bush.rs` - Berry Bush spawning
 //! - `deer.rs` - Deer spawning
+//! - `stone_node.rs` - Stone Node spawning
+//! - `wood_log.rs` - Wood Log spawning
 
 use crate::agent::mind::knowledge::Ontology;
 use crate::world::spawn_config::{SpawnLayout, WorldSpawnConfig};
@@ -24,6 +26,10 @@ pub use super::apple_tree::{
 pub use super::berry_bush::{VisualBerry, VisualBushLeaves, spawn_berry_bush, sync_berry_visuals};
 pub use super::deer::{Deer, spawn_deer};
 pub use super::human::spawn_person;
+pub use super::stone_node::{
+    StoneNodeMarker, VisualStoneChunk, spawn_stone_node, sync_stone_visuals,
+};
+pub use super::wood_log::{VisualWoodPiece, WoodLogMarker, spawn_wood_log, sync_wood_visuals};
 
 pub struct SpawnerPlugin;
 
@@ -40,7 +46,13 @@ impl Plugin for SpawnerPlugin {
             )
             .add_systems(
                 Update,
-                (regenerate_resources, sync_apple_visuals, sync_berry_visuals),
+                (
+                    regenerate_resources,
+                    sync_apple_visuals,
+                    sync_berry_visuals,
+                    sync_stone_visuals,
+                    sync_wood_visuals,
+                ),
             );
     }
 }
@@ -91,5 +103,13 @@ pub fn apply_layout(commands: &mut Commands, ontology: &Ontology, layout: &Spawn
 
     for &(pos, apples) in &layout.apple_tree_positions {
         spawn_apple_tree(commands, pos, apples);
+    }
+
+    for &(pos, stones) in &layout.stone_node_positions {
+        spawn_stone_node(commands, pos, stones);
+    }
+
+    for &(pos, wood) in &layout.wood_log_positions {
+        spawn_wood_log(commands, pos, wood);
     }
 }

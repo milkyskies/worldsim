@@ -52,6 +52,14 @@ pub fn create_cultural_knowledge(culture: Culture) -> Vec<Triple> {
 
     // ─── Universal Cultural Knowledge (All cultures know this) ───
 
+    // Material resources — all cultures know stone and wood can be gathered
+    add(c(WoodLog), Produces, Value::Item(Wood, 1));
+    add(c(WoodLog), HasTrait, v(Harvestable));
+    add(c(StoneNode), Produces, Value::Item(Stone, 1));
+    add(c(StoneNode), HasTrait, v(Harvestable));
+    add(c(Wood), IsA, v(Resource));
+    add(c(Stone), IsA, v(Resource));
+
     // Physiological needs
     add(c(Thing), IsA, v(Physical)); // Basic ontology grounded
     add(
