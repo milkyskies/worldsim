@@ -91,6 +91,7 @@ pub enum Concept {
     Edible,    // Items that can be eaten (Apple, Berry, Meat)
     Drinkable, // Tiles/items that can provide water (ShallowWater, Water)
     Prey,      // Creatures that can be hunted (Deer, Rabbit) → yields Meat
+    Territory, // A tile the agent claims as its own (marked intrinsically at spawn)
     Dangerous,
     Safe,
     Friendly,

@@ -63,7 +63,10 @@ pub fn formulate_goals(
                 }
                 // Placeholder for logic not yet fully implemented
                 // For now, map others to empty conditions which implicitly means "do nothing specific" or "satisfied"
-                UrgencySource::Fun | UrgencySource::Boredom | UrgencySource::Fear => vec![],
+                UrgencySource::Fun
+                | UrgencySource::Boredom
+                | UrgencySource::Fear
+                | UrgencySource::Territoriality => vec![],
             };
 
             // Set the new goal
