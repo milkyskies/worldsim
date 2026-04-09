@@ -27,7 +27,11 @@ use crate::testing::spawn::{
     spawn_test_apple_tree, spawn_test_berry_bush, spawn_test_deer, spawn_test_person,
 };
 use crate::world::environment::LightLevel;
-use crate::world::map::{CHUNK_SIZE, Chunk, WorldMap};
+use crate::world::map::{
+    CHUNK_SIZE, Chunk, DEFAULT_TERRAIN_SEED, MAP_CHUNKS_X, MAP_CHUNKS_Y, WORLD_HEIGHT, WORLD_WIDTH,
+    WorldMap, generate_terrain,
+};
+use crate::world::spawn_config::{SpawnLayout, WorldSpawnConfig};
 
 /// Default test world dimensions in tiles. Large enough for typical scenarios but
 /// small enough that map construction is cheap (a few KB).
@@ -321,6 +325,36 @@ impl TestWorld {
         )
     }
 
+    /// Creates a TestWorld backed by the 128×128 noise terrain used by the normal
+    /// windowed game. Useful when you need realistic biomes for spawn placement
+    /// (e.g. settlement detection, forest biomes for apple trees).
+    ///
+    /// Does **not** populate entities — use [`TestWorld::game_defaults`] for a
+    /// fully-populated world, or call [`TestWorld::apply_spawn_layout`] manually.
+    pub(crate) fn with_game_map(seed: u64) -> Self {
+        Self::with_seed_and_map(seed, make_game_map())
+    }
+
+    /// Creates a TestWorld populated with the same algorithm and entity counts
+    /// as the normal windowed game launch. Identical to running:
+    /// `cargo run -- --headless --game-defaults --seed <seed>`
+    ///
+    /// Uses the 128×128 noise map and the Realistic placement algorithm
+    /// (settlement detection, biome clustering, herd grouping).
+    pub fn game_defaults(seed: u64) -> Self {
+        let mut world = Self::with_game_map(seed);
+        let config = WorldSpawnConfig {
+            seed,
+            ..WorldSpawnConfig::game_defaults()
+        };
+        let layout = {
+            let map = world.app().world().resource::<WorldMap>();
+            config.compute_layout(map)
+        };
+        world.apply_spawn_layout(&layout);
+        world
+    }
+
     /// Creates a new TestWorld with the given seed and a pre-built `WorldMap`.
     /// Used by `ScenarioBuilder::build()` to inject a custom map.
     pub(super) fn with_seed_and_map(seed: u64, map: WorldMap) -> Self {
@@ -449,6 +483,24 @@ impl TestWorld {
     /// Spawns an apple tree at the given position with the specified apple count.
     pub fn spawn_apple_tree(&mut self, pos: Vec2, apples: u32) -> Entity {
         spawn_test_apple_tree(self.app.world_mut(), pos, apples)
+    }
+
+    /// Spawns all entities from a layout using the test-compatible (logic-only,
+    /// no-visuals) spawners. Counterpart to [`crate::world::spawner::apply_layout`]
+    /// which uses the full visual spawners.
+    pub fn apply_spawn_layout(&mut self, layout: &SpawnLayout) {
+        for &pos in &layout.human_positions {
+            self.spawn_agent(AgentConfig::at(pos));
+        }
+        for &pos in &layout.deer_positions {
+            self.spawn_deer(pos);
+        }
+        for &(pos, berries) in &layout.berry_bush_positions {
+            self.spawn_berry_bush(pos, berries);
+        }
+        for &(pos, apples) in &layout.apple_tree_positions {
+            self.spawn_apple_tree(pos, apples);
+        }
     }
 
     /// Sets a tile type at the given tile coordinates.
@@ -1062,6 +1114,26 @@ impl Default for TestWorld {
 
 // ─── Helpers ───────────────────────────────────────────────────────────────
 
+/// Builds the 128×128 noise terrain map used by the normal windowed game.
+/// Applies the same `DEFAULT_TERRAIN_SEED` and `generate_terrain` algorithm,
+/// so settlement detection and biome-based spawning produce identical results
+/// to a real game run.
+fn make_game_map() -> WorldMap {
+    let mut map = WorldMap::new(WORLD_WIDTH, WORLD_HEIGHT);
+    for cy in 0..MAP_CHUNKS_Y as i32 {
+        for cx in 0..MAP_CHUNKS_X as i32 {
+            map.chunks.insert(IVec2::new(cx, cy), Chunk::new(cx, cy));
+        }
+    }
+    let terrain = generate_terrain(WORLD_WIDTH, WORLD_HEIGHT, DEFAULT_TERRAIN_SEED);
+    for y in 0..WORLD_HEIGHT {
+        for x in 0..WORLD_WIDTH {
+            map.set_tile(x, y, terrain[(y * WORLD_WIDTH + x) as usize]);
+        }
+    }
+    map
+}
+
 /// Builds a fully walkable WorldMap of the given dimensions in tiles. Initializes
 /// every chunk with grass so `is_walkable` returns true everywhere.
 pub(super) fn make_walkable_map(width: u32, height: u32) -> WorldMap {
@@ -1405,5 +1477,73 @@ mod tests {
 
         // Should not panic.
         world.print_agent_events(agent_a, 100);
+    }
+
+    // ─── game_defaults tests ──────────────────────────────────────────────
+
+    #[test]
+    fn game_defaults_spawns_correct_agent_count() {
+        let world = TestWorld::game_defaults(42);
+        let game_config = WorldSpawnConfig::game_defaults();
+        assert_eq!(
+            world.all_agents().len(),
+            game_config.humans + game_config.deer
+        );
+    }
+
+    #[test]
+    fn game_defaults_humans_match_game_config() {
+        let world = TestWorld::game_defaults(42);
+        let game_config = WorldSpawnConfig::game_defaults();
+        let all = world.all_agents();
+        let humans: Vec<_> = all
+            .iter()
+            .filter(|&&e| world.app().world().get::<crate::agent::Person>(e).is_some())
+            .collect();
+        assert_eq!(humans.len(), game_config.humans);
+    }
+
+    #[test]
+    fn game_defaults_same_seed_produces_same_positions() {
+        let world_a = TestWorld::game_defaults(42);
+        let world_b = TestWorld::game_defaults(42);
+
+        let agents_a = world_a.all_agents();
+        let agents_b = world_b.all_agents();
+
+        let positions_a: Vec<_> = agents_a
+            .iter()
+            .map(|&e| world_a.get::<Transform>(e).translation)
+            .collect();
+        let positions_b: Vec<_> = agents_b
+            .iter()
+            .map(|&e| world_b.get::<Transform>(e).translation)
+            .collect();
+
+        assert_eq!(positions_a, positions_b);
+    }
+
+    #[test]
+    fn apply_spawn_layout_places_all_entity_types() {
+        use crate::world::spawn_config::{SpawnAlgorithm, WorldSpawnConfig};
+        let mut world = TestWorld::new();
+        let config = WorldSpawnConfig {
+            humans: 2,
+            deer: 1,
+            berry_bushes: 3,
+            apple_trees: 2,
+            seed: 7,
+            spawn_algorithm: SpawnAlgorithm::Uniform,
+            ..WorldSpawnConfig::game_defaults()
+        };
+        let layout = {
+            let map = world.app().world().resource::<WorldMap>();
+            config.compute_layout(map)
+        };
+        world.apply_spawn_layout(&layout);
+
+        let agents = world.all_agents();
+        // 2 humans + 1 deer = 3 agents
+        assert_eq!(agents.len(), 3);
     }
 }
