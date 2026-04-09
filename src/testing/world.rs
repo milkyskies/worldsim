@@ -192,13 +192,10 @@ impl TestWorld {
     }
 
     /// Returns all agent entities currently in the world.
-    pub fn all_agents(&self) -> Vec<Entity> {
-        self.app
-            .world()
-            .iter_entities()
-            .filter(|e| e.contains::<Agent>())
-            .map(|e| e.id())
-            .collect()
+    pub fn all_agents(&mut self) -> Vec<Entity> {
+        let world = self.app.world_mut();
+        let mut query = world.query_filtered::<Entity, With<Agent>>();
+        query.iter(world).collect()
     }
 
     // ─── Convenience queries ───────────────────────────────────────────────
@@ -261,10 +258,10 @@ impl TestWorld {
     /// Returns the action type the agent is currently executing. Returns
     /// `Some(Idle)` when the agent has no active action.
     pub fn current_action(&self, agent: Entity) -> Option<ActionType> {
-        self.app
-            .world()
-            .get::<crate::agent::actions::ActionState>(agent)
-            .map(|s| s.action_type)
+        let world = self.app.world();
+        let active = world.get::<crate::agent::actions::ActiveActions>(agent)?;
+        let registry = world.resource::<ActionRegistry>();
+        active.primary(registry).map(|s| s.action_type)
     }
 
     /// Returns true if the action registry contains an entry for the given action.

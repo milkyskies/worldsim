@@ -1220,11 +1220,6 @@ fn render_social_ui(world: &mut World, ui: &mut egui::Ui, selected_entities: &[E
 
                                     // Show all turns
                                     for turn in &conv.turns {
-                                        let speaker_name = inner_world
-                                            .get::<Name>(turn.speaker)
-                                            .map(|n| n.to_string())
-                                            .unwrap_or_else(|| format!("{:?}", turn.speaker));
-
                                         let intent_icon = match turn.intent {
                                             crate::agent::mind::conversation::Intent::Greet => "👋",
                                             crate::agent::mind::conversation::Intent::Ask => "❓",

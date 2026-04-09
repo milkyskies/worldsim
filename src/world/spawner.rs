@@ -9,7 +9,8 @@
 
 use crate::agent::mind::knowledge::Ontology;
 use crate::constants::world::{
-    APPLE_TREE_SPAWN_COUNT, BERRY_BUSH_SPAWN_COUNT, HUMAN_SPAWN_COUNT, MAX_SPAWN_ATTEMPTS,
+    APPLE_TREE_SPAWN_COUNT, BERRY_BUSH_SPAWN_COUNT, DEER_SPAWN_COUNT, HUMAN_SPAWN_COUNT,
+    MAX_SPAWN_ATTEMPTS,
 };
 use crate::world::map::TileType;
 use bevy::prelude::*;
@@ -105,8 +106,10 @@ fn spawn_initial_population(
     }
 
     // Spawn Deer
-    for i in 0..0 {
-        if let Some(pos) = find_spawn_location(&map, &mut rng, None) {
+    for i in 0..DEER_SPAWN_COUNT {
+        if let Some(pos) =
+            find_spawn_location(&map, &mut rng, Some(&[TileType::Grass, TileType::Forest]))
+        {
             spawn_deer(&mut commands, ontology.clone(), pos, i);
         }
     }

@@ -109,8 +109,6 @@ pub fn process_working_memory(
     >,
     mut game_log: ResMut<crate::core::GameLog>,
 ) {
-    use crate::agent::mind::knowledge::{Concept, Metadata, Node, Predicate, Triple, Value};
-
     for (entity, mut wm, mut mind) in query.iter_mut() {
         for item in wm.buffer.iter_mut() {
             if item.processed {

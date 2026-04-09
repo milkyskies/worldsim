@@ -198,7 +198,7 @@ pub fn generate_urgency(
 
 /// Applies momentum bonus to the currently-active drives and consciousness gating to all others.
 fn apply_momentum_and_gating(
-    urgencies: &mut Vec<Urgency>,
+    urgencies: &mut [Urgency],
     current_sources: &std::collections::HashSet<UrgencySource>,
     alertness: f32,
     ns_config: &NervousSystemConfig,

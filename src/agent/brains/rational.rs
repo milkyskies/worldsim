@@ -89,7 +89,7 @@ pub fn update_rational_brain(
     )>,
     tick: Res<crate::core::tick::TickCount>,
     ns_config: Res<crate::agent::nervous_system::config::NervousSystemConfig>,
-    world_map: Res<WorldMap>,
+    _world_map: Res<WorldMap>,
     action_registry: Res<crate::agent::actions::ActionRegistry>,
     mut game_log: ResMut<crate::core::GameLog>,
     affordances: Query<(
@@ -105,7 +105,7 @@ pub fn update_rational_brain(
     };
     let mut plan_attempts = 0;
 
-    for (entity, mut brain, consciousness, _inventory, transform, _visible, cns, mind) in
+    for (entity, mut brain, consciousness, _inventory, _transform, _visible, cns, mind) in
         query.iter_mut()
     {
         // 1. Plan Verification
@@ -285,7 +285,7 @@ pub fn rational_brain_propose(
     transform: &Transform,
     mind: &MindGraph,
     visible: &crate::agent::mind::perception::VisibleObjects,
-    world_map: &WorldMap,
+    _world_map: &WorldMap,
     action_registry: &crate::agent::actions::ActionRegistry,
     affordances: &Query<(
         &GlobalTransform,

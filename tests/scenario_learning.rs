@@ -86,8 +86,8 @@ fn test_bob_becomes_hostile() {
     {
         let mut mind = app.world_mut().get_mut::<MindGraph>(agent).unwrap();
 
-        for i in 0..4 {
-            let event_id = 1000 + i as u64;
+        for i in 0..4u64 {
+            let event_id = 1000 + i;
 
             // Record: (Event, Actor, Bob)
             mind.assert(Triple::with_meta(

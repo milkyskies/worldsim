@@ -93,12 +93,11 @@ impl Action for HarvestAction {
         // 2. Is any produced item useful (Food or Resource)?
         // We verify if the produced Concept IsA Food or Resource
         for triple in produced_items {
-            if let Value::Item(concept, _) = triple.object {
-                if mind.is_a(&Node::Concept(concept), Concept::Food)
-                    || mind.is_a(&Node::Concept(concept), Concept::Resource)
-                {
-                    return true;
-                }
+            if let Value::Item(concept, _) = triple.object
+                && (mind.is_a(&Node::Concept(concept), Concept::Food)
+                    || mind.is_a(&Node::Concept(concept), Concept::Resource))
+            {
+                return true;
             }
         }
 
