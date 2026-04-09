@@ -554,23 +554,20 @@ fn reconstruct_regressive_path(
 /// None fields act as wildcards — if either pattern has None for a field, that field can't rule
 /// out overlap. Two patterns overlap when no field has *conflicting concrete* values.
 fn patterns_overlap(a: &TriplePattern, b: &TriplePattern) -> bool {
-    // Subject: if both are concrete and differ → no overlap
-    if let (Some(sa), Some(sb)) = (&a.subject, &b.subject) {
-        if sa != sb {
-            return false;
-        }
+    if let (Some(sa), Some(sb)) = (&a.subject, &b.subject)
+        && sa != sb
+    {
+        return false;
     }
-    // Predicate: if both are concrete and differ → no overlap
-    if let (Some(pa), Some(pb)) = (a.predicate, b.predicate) {
-        if pa != pb {
-            return false;
-        }
+    if let (Some(pa), Some(pb)) = (a.predicate, b.predicate)
+        && pa != pb
+    {
+        return false;
     }
-    // Object: if both are concrete and differ → no overlap
-    if let (Some(oa), Some(ob)) = (&a.object, &b.object) {
-        if compare_values(oa, ob) != Ordering::Equal {
-            return false;
-        }
+    if let (Some(oa), Some(ob)) = (&a.object, &b.object)
+        && compare_values(oa, ob) != Ordering::Equal
+    {
+        return false;
     }
     true
 }
