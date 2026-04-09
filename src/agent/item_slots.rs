@@ -187,7 +187,9 @@ impl ItemSlots {
     // resource nodes, and any entity configured with Free slots.
     // -----------------------------------------------------------------------
 
-    /// Add `quantity` of `concept` to the first available Free slot.
+    /// Add `quantity` of `concept` to the first Free slot, bypassing filter and access checks.
+    /// Use this for trusted internal writes (spawn, harvest completion, test setup).
+    /// Use [`deposit`] for access-controlled writes from external agents.
     pub fn add(&mut self, concept: Concept, quantity: u32) {
         if let Some(slot) = self.slots.iter_mut().find(|s| s.role == SlotRole::Free) {
             if let Some(stack) = slot.contents.iter_mut().find(|s| s.concept == concept) {
@@ -252,8 +254,11 @@ impl ItemSlots {
         self.slots.iter().flat_map(|s| s.contents.iter())
     }
 
-    /// Attempt to deposit `quantity` of `concept` into the first slot that accepts it.
-    /// Returns `true` on success, `false` if every slot rejects (filter or capacity).
+    /// Attempt to deposit `quantity` of `concept` into the first slot that accepts it,
+    /// respecting filter, capacity, and deposit access rules.
+    /// Returns `true` on success, `false` if every slot rejects.
+    /// Use this for externally-initiated transfers (Deposit action, trade).
+    /// Use [`add`] for trusted internal writes that bypass slot rules.
     pub fn deposit(
         &mut self,
         concept: Concept,
