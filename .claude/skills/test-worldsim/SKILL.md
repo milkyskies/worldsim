@@ -26,10 +26,11 @@ Read these files before writing tests — they're the source of truth, not this 
 
 1. Use `TestWorld::scenario(seed)` (the builder) for any test with more than one agent or any custom setup.
 2. Use `TestWorld::with_seed(seed) + spawn_agent(...)` only for trivial single-agent tests.
-3. Always seed the RNG. No wall-clock time, no unseeded randomness. Flaky test = non-determinism somewhere.
-4. Place tests in `#[cfg(test)] mod tests` next to the code, OR in a top-level integration test under `tests/`.
+3. Use `TestWorld::game_defaults(seed)` to reproduce the exact game world (128×128 noise map, Realistic placement, same counts as `cargo run`). Identical to `--headless --game-defaults --seed N`.
+4. Always seed the RNG. No wall-clock time, no unseeded randomness. Flaky test = non-determinism somewhere.
+5. Place tests in `#[cfg(test)] mod tests` next to the code, OR in a top-level integration test under `tests/`.
 
-Read `src/testing/world.rs` for the spawn/inspection API. Read `src/testing/scenario.rs` for the builder API. Don't guess method names.
+Read `src/testing/world.rs` for the spawn/inspection API. Read `src/testing/scenario.rs` for the builder API. Read `src/world/spawn_config.rs` for `WorldSpawnConfig` and `SpawnLayout`. Don't guess method names.
 
 ## Test types
 
@@ -42,7 +43,7 @@ Read `src/testing/world.rs` for the spawn/inspection API. Read `src/testing/scen
 
 Don't guess. Invoke the `debug-worldsim` skill — it covers `world.print_*` inspection methods, headless reproduction, JSONL event log, decision trace, and ad-hoc inspection.
 
-The short version: add `world.print_agent_state(agent)` or `world.print_agent_events(agent, 200)` before the failing assertion, then run with `cargo nextest run -E 'test(name)' -- --nocapture`. For anything beyond that, use the debug skill.
+The short version: add `world.print_agent_state(agent)` or `world.print_agent_events(agent, 200)` before the failing assertion, then run with `cargo nextest run -E 'test(name)' --no-capture` to see the output (nextest swallows stderr/stdout by default). For anything beyond that, use the debug skill.
 
 ## Rules
 
