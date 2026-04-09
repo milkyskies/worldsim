@@ -58,12 +58,12 @@ pub fn formulate_goals(
                 UrgencySource::Pain => {
                     vec![TriplePattern::self_has(Predicate::Pain, Value::Int(0))]
                 }
+                UrgencySource::Thirst => {
+                    vec![TriplePattern::self_has(Predicate::Thirst, Value::Int(0))]
+                }
                 // Placeholder for logic not yet fully implemented
                 // For now, map others to empty conditions which implicitly means "do nothing specific" or "satisfied"
-                UrgencySource::Thirst
-                | UrgencySource::Fun
-                | UrgencySource::Boredom
-                | UrgencySource::Fear => vec![],
+                UrgencySource::Fun | UrgencySource::Boredom | UrgencySource::Fear => vec![],
             };
 
             // Set the new goal

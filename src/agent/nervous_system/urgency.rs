@@ -174,6 +174,7 @@ pub fn generate_urgency(
             .iter()
             .filter_map(|action| match action.action_type {
                 crate::agent::actions::ActionType::Eat => Some(UrgencySource::Hunger),
+                crate::agent::actions::ActionType::Drink => Some(UrgencySource::Thirst),
                 crate::agent::actions::ActionType::Sleep => Some(UrgencySource::Energy),
                 crate::agent::actions::ActionType::Wander => Some(UrgencySource::Boredom),
                 _ => None,
