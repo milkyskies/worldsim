@@ -8,6 +8,10 @@ paths:
 
 **Write tests for any logic you add or change.** Don't ask — just write them. If a function matches the "worth testing" criteria below, it must have tests before shipping.
 
+## Running tests locally
+
+**Never run the full test suite.** Run only your specific test with `cargo nextest run -E 'test(name)'`. CI runs the full suite.
+
 ## When to write tests
 
 **Test logic, not plumbing.** If a function makes decisions, transforms data, or enforces invariants — test it. If it mostly calls an external API and passes through results — don't.
