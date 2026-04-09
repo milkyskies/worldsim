@@ -13,6 +13,26 @@ use std::sync::Arc;
 // NODES — What can be subject or object in a triple
 // ═══════════════════════════════════════════════════════════════════════════
 
+/// A named area (e.g., "Forest", "River Bank").
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Reflect)]
+pub struct AreaId(pub String);
+
+impl std::fmt::Display for AreaId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+/// A typed agent name — prevents accidental comparison against arbitrary strings.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Reflect)]
+pub struct AgentName(pub String);
+
+impl std::fmt::Display for AgentName {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
 /// A node in the knowledge graph — can be a subject or object
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Reflect)]
 pub enum Node {
@@ -25,7 +45,7 @@ pub enum Node {
     /// A 16x16 chunk coordinate
     Chunk((i32, i32)),
     /// A named area (e.g., "Forest", "River")
-    Area(String),
+    Area(AreaId),
     /// A remembered event
     Event(u64),
     /// The agent who owns this MindGraph (self-reference)
@@ -211,7 +231,7 @@ pub enum Value {
     Emotion(crate::agent::psyche::emotions::EmotionType, f32),
     Item(Concept, u32), // (Apple, 5) - quantity
     Attitude(f32),      // -1.0 to 1.0 (hate to love)
-    Text(String),       // For names and other text
+    Text(AgentName),    // For agent names
 }
 
 impl Value {

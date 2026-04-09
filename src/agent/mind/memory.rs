@@ -1,6 +1,7 @@
 use bevy::prelude::*;
 use std::collections::VecDeque;
 
+use crate::agent::actions::ActionType;
 use crate::agent::mind::knowledge::MemoryType;
 
 // WorkingMemory structs
@@ -108,7 +109,6 @@ pub fn process_working_memory(
     >,
     mut game_log: ResMut<crate::core::GameLog>,
 ) {
-    use crate::agent::actions::ActionType;
     use crate::agent::mind::knowledge::{Concept, Metadata, Node, Predicate, Triple, Value};
 
     for (entity, mut wm, mut mind) in query.iter_mut() {
@@ -119,233 +119,160 @@ pub fn process_working_memory(
             item.processed = true;
 
             match &item.event {
-                crate::agent::events::GameEvent::Interaction {
-                    actor,
-                    action,
-                    target,
-                    ..
-                } => {
-                    // Map Action -> Concept
-                    let mut concepts = vec![];
-                    match action {
-                        ActionType::Wave | ActionType::Talk => concepts.push(Concept::SocialAction),
-                        ActionType::Attack | ActionType::Flee => {
-                            concepts.push(Concept::ViolentAction)
-                        }
-                        ActionType::Eat | ActionType::Sleep | ActionType::Drink => {
-                            concepts.push(Concept::SurvivalAction)
-                        }
-                        ActionType::Walk | ActionType::Wander => {
-                            concepts.push(Concept::MovementAction)
-                        }
-                        _ => {}
-                    }
-
-                    // Determine Emotional Impact
-                    // TODO: Query ontology instead of hardcoding (see docs/todo.md)
-                    let felt = if concepts.contains(&Concept::ViolentAction) {
-                        Some((crate::agent::psyche::emotions::EmotionType::Fear, 0.8)) // emotion + intensity
-                    } else if concepts.contains(&Concept::SocialAction) {
-                        Some((crate::agent::psyche::emotions::EmotionType::Joy, 0.5))
-                    } else {
-                        None
-                    };
-
-                    // ═══════════════════════════════════════════════════════════
-                    // SELECTIVE RECORDING: Only record emotionally significant events
-                    // Movement, eating, etc. don't create episodic memories
-                    // ═══════════════════════════════════════════════════════════
-                    if felt.is_none() {
-                        continue; // Skip non-emotional events
-                    }
-
-                    let (emotion, intensity) = felt.unwrap();
-
-                    // Calculate Importance based on involvement
-                    let is_self = *actor == entity || *target == Some(entity);
-                    let importance = if is_self { 1.0 } else { 0.5 };
-
-                    // Salience = emotional intensity * importance
-                    // High salience memories decay slower
-                    let salience = intensity * importance;
-
-                    // ─── KNOWLEDGE UPDATE (Episodic Event) ───
-                    // Unique ID: Timestamp + Actor Index + Target Index
-                    let target_idx = target.map_or(0, |t| t.index());
-                    let event_id = item.timestamp + (*actor).index() as u64 + target_idx as u64;
-
-                    // Use Episodic memory type with salience for proper decay
-                    let meta = Metadata {
-                        source: crate::agent::mind::knowledge::Source::Experienced,
-                        memory_type: MemoryType::Episodic,
-                        timestamp: item.timestamp,
-                        confidence: 1.0,
-                        informant: None,
-                        evidence: Vec::new(),
-                        salience,
-                    };
-
-                    // (Event, Actor, ActorEntity)
-                    mind.assert(Triple::with_meta(
-                        Node::Event(event_id),
-                        Predicate::Actor,
-                        Value::Entity(*actor),
-                        meta.clone(),
-                    ));
-
-                    // (Event, Action, ActionType)
-                    mind.assert(Triple::with_meta(
-                        Node::Event(event_id),
-                        Predicate::Action,
-                        Value::Action(*action),
-                        meta.clone(),
-                    ));
-
-                    if let Some(t) = target {
-                        // (Event, Target, TargetEntity)
-                        mind.assert(Triple::with_meta(
-                            Node::Event(event_id),
-                            Predicate::Target,
-                            Value::Entity(*t),
-                            meta.clone(),
-                        ));
-                    }
-
-                    // (Event, Timestamp, Time)
-                    mind.assert(Triple::with_meta(
-                        Node::Event(event_id),
-                        Predicate::Timestamp,
-                        Value::Int(item.timestamp as i32),
-                        meta.clone(),
-                    ));
-
-                    // (Event, FeltEmotion, Emotion)
-                    mind.assert(Triple::with_meta(
-                        Node::Event(event_id),
-                        Predicate::FeltEmotion,
-                        Value::Emotion(emotion, intensity),
-                        meta.clone(),
-                    ));
-
-                    if is_self {
-                        game_log.perception(
-                            &format!("{:?}", entity),
-                            &format!("observed: {}", action),
-                            Some(entity),
-                        );
-                    }
+                crate::agent::events::GameEvent::Interaction { actor, action, target, .. } => {
+                    record_interaction_event(entity, item, actor, action, target, &mut mind, &mut game_log);
                 }
 
-                // Social interactions are emotionally significant and stored
-                crate::agent::events::GameEvent::SocialInteraction {
-                    actor,
-                    target,
-                    action,
-                    valence,
-                    ..
-                } => {
-                    let is_self = *actor == entity || *target == entity;
-                    if !is_self {
-                        continue; // Only participants remember social interactions
-                    }
-
-                    // Determine emotion based on valence
-                    let (emotion, intensity) = if *valence > 0.0 {
-                        (crate::agent::psyche::emotions::EmotionType::Joy, *valence)
-                    } else {
-                        (
-                            crate::agent::psyche::emotions::EmotionType::Sadness,
-                            valence.abs(),
-                        )
-                    };
-
-                    let salience = intensity;
-
-                    let target_idx = (*target).index();
-                    let event_id = item.timestamp + (*actor).index() as u64 + target_idx as u64;
-
-                    let meta = Metadata {
-                        source: crate::agent::mind::knowledge::Source::Experienced,
-                        memory_type: MemoryType::Episodic,
-                        timestamp: item.timestamp,
-                        confidence: 1.0,
-                        informant: None,
-                        evidence: Vec::new(),
-                        salience,
-                    };
-
-                    // Store basic event structure
-                    mind.assert(Triple::with_meta(
-                        Node::Event(event_id),
-                        Predicate::Actor,
-                        Value::Entity(*actor),
-                        meta.clone(),
-                    ));
-
-                    mind.assert(Triple::with_meta(
-                        Node::Event(event_id),
-                        Predicate::Action,
-                        Value::Action(*action),
-                        meta.clone(),
-                    ));
-
-                    mind.assert(Triple::with_meta(
-                        Node::Event(event_id),
-                        Predicate::Target,
-                        Value::Entity(*target),
-                        meta.clone(),
-                    ));
-
-                    mind.assert(Triple::with_meta(
-                        Node::Event(event_id),
-                        Predicate::FeltEmotion,
-                        Value::Emotion(emotion, intensity),
-                        meta.clone(),
-                    ));
+                crate::agent::events::GameEvent::SocialInteraction { actor, target, action, valence, .. } => {
+                    record_social_interaction(entity, item, actor, target, action, *valence, &mut mind);
                 }
 
-                // Knowledge shared via conversation - learn what speaker told us
-                crate::agent::events::GameEvent::KnowledgeShared {
-                    speaker,
-                    listener,
-                    content,
-                } => {
-                    // Only process if we are the listener
-                    if entity != *listener {
-                        continue;
-                    }
-
-                    // Add each shared triple to our mind as hearsay
-                    for triple in content {
-                        let hearsay_meta = Metadata {
-                            source: crate::agent::mind::knowledge::Source::Hearsay,
-                            memory_type: MemoryType::Semantic, // Facts learned from others
-                            timestamp: item.timestamp,
-                            confidence: 0.7, // Not as confident as direct experience
-                            informant: Some(*speaker),
-                            evidence: Vec::new(),
-                            salience: 0.5,
-                        };
-
-                        // Clone the triple with new metadata
-                        mind.assert(Triple::with_meta(
-                            triple.subject.clone(),
-                            triple.predicate,
-                            triple.object.clone(),
-                            hearsay_meta,
-                        ));
-                    }
-
-                    game_log.log_debug(format!(
-                        "{:?} learned {} facts from {:?}",
-                        listener,
-                        content.len(),
-                        speaker
-                    ));
+                crate::agent::events::GameEvent::KnowledgeShared { speaker, listener, content } => {
+                    record_knowledge_shared(entity, item, speaker, listener, content, &mut mind, &mut game_log);
                 }
             }
         }
     }
+}
+
+fn record_interaction_event(
+    entity: Entity,
+    item: &WorkingMemoryItem,
+    actor: &Entity,
+    action: &ActionType,
+    target: &Option<Entity>,
+    mind: &mut crate::agent::mind::knowledge::MindGraph,
+    game_log: &mut crate::core::GameLog,
+) {
+    use crate::agent::mind::knowledge::{Concept, Metadata, Node, Predicate, Triple, Value};
+
+    let mut concepts = vec![];
+    match action {
+        ActionType::Wave | ActionType::Talk => concepts.push(Concept::SocialAction),
+        ActionType::Attack | ActionType::Flee => concepts.push(Concept::ViolentAction),
+        ActionType::Eat | ActionType::Sleep | ActionType::Drink => {
+            concepts.push(Concept::SurvivalAction)
+        }
+        ActionType::Walk | ActionType::Wander => concepts.push(Concept::MovementAction),
+        _ => {}
+    }
+
+    // Only record emotionally significant events — movement, eating, etc. don't create episodic memories
+    // TODO: Query ontology instead of hardcoding (see docs/todo.md)
+    let (emotion, intensity) = if concepts.contains(&Concept::ViolentAction) {
+        (crate::agent::psyche::emotions::EmotionType::Fear, 0.8)
+    } else if concepts.contains(&Concept::SocialAction) {
+        (crate::agent::psyche::emotions::EmotionType::Joy, 0.5)
+    } else {
+        return;
+    };
+
+    let is_self = *actor == entity || *target == Some(entity);
+    let importance = if is_self { 1.0 } else { 0.5 };
+    let salience = intensity * importance;
+
+    let target_idx = target.map_or(0, |t| t.index());
+    let event_id = item.timestamp + (*actor).index() as u64 + target_idx as u64;
+
+    let meta = Metadata {
+        source: crate::agent::mind::knowledge::Source::Experienced,
+        memory_type: MemoryType::Episodic,
+        timestamp: item.timestamp,
+        confidence: 1.0,
+        informant: None,
+        evidence: Vec::new(),
+        salience,
+    };
+
+    mind.assert(Triple::with_meta(Node::Event(event_id), Predicate::Actor, Value::Entity(*actor), meta.clone()));
+    mind.assert(Triple::with_meta(Node::Event(event_id), Predicate::Action, Value::Action(*action), meta.clone()));
+
+    if let Some(t) = target {
+        mind.assert(Triple::with_meta(Node::Event(event_id), Predicate::Target, Value::Entity(*t), meta.clone()));
+    }
+
+    mind.assert(Triple::with_meta(Node::Event(event_id), Predicate::Timestamp, Value::Int(item.timestamp as i32), meta.clone()));
+    mind.assert(Triple::with_meta(Node::Event(event_id), Predicate::FeltEmotion, Value::Emotion(emotion, intensity), meta.clone()));
+
+    if is_self {
+        game_log.perception(&format!("{:?}", entity), &format!("observed: {}", action), Some(entity));
+    }
+}
+
+fn record_social_interaction(
+    entity: Entity,
+    item: &WorkingMemoryItem,
+    actor: &Entity,
+    target: &Entity,
+    action: &ActionType,
+    valence: f32,
+    mind: &mut crate::agent::mind::knowledge::MindGraph,
+) {
+    use crate::agent::mind::knowledge::{Metadata, Node, Predicate, Triple, Value};
+
+    if *actor != entity && *target != entity {
+        return;
+    }
+
+    let (emotion, intensity) = if valence > 0.0 {
+        (crate::agent::psyche::emotions::EmotionType::Joy, valence)
+    } else {
+        (crate::agent::psyche::emotions::EmotionType::Sadness, valence.abs())
+    };
+
+    let event_id = item.timestamp + (*actor).index() as u64 + (*target).index() as u64;
+
+    let meta = Metadata {
+        source: crate::agent::mind::knowledge::Source::Experienced,
+        memory_type: MemoryType::Episodic,
+        timestamp: item.timestamp,
+        confidence: 1.0,
+        informant: None,
+        evidence: Vec::new(),
+        salience: intensity,
+    };
+
+    mind.assert(Triple::with_meta(Node::Event(event_id), Predicate::Actor, Value::Entity(*actor), meta.clone()));
+    mind.assert(Triple::with_meta(Node::Event(event_id), Predicate::Action, Value::Action(*action), meta.clone()));
+    mind.assert(Triple::with_meta(Node::Event(event_id), Predicate::Target, Value::Entity(*target), meta.clone()));
+    mind.assert(Triple::with_meta(Node::Event(event_id), Predicate::FeltEmotion, Value::Emotion(emotion, intensity), meta.clone()));
+}
+
+fn record_knowledge_shared(
+    entity: Entity,
+    item: &WorkingMemoryItem,
+    speaker: &Entity,
+    listener: &Entity,
+    content: &[crate::agent::mind::knowledge::Triple],
+    mind: &mut crate::agent::mind::knowledge::MindGraph,
+    game_log: &mut crate::core::GameLog,
+) {
+    use crate::agent::mind::knowledge::Metadata;
+
+    if entity != *listener {
+        return;
+    }
+
+    for triple in content {
+        let hearsay_meta = Metadata {
+            source: crate::agent::mind::knowledge::Source::Hearsay,
+            memory_type: MemoryType::Semantic,
+            timestamp: item.timestamp,
+            confidence: 0.7,
+            informant: Some(*speaker),
+            evidence: Vec::new(),
+            salience: 0.5,
+        };
+
+        mind.assert(crate::agent::mind::knowledge::Triple::with_meta(
+            triple.subject.clone(),
+            triple.predicate,
+            triple.object.clone(),
+            hearsay_meta,
+        ));
+    }
+
+    game_log.log_debug(format!("{:?} learned {} facts from {:?}", listener, content.len(), speaker));
 }
 
 /// Decay stale knowledge using exponential decay based on memory type and salience.
