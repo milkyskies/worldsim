@@ -24,6 +24,37 @@ use crate::testing::{AgentConfig, TestWorld};
 /// default walkable map so spawn positions never land in unwalkable tiles.
 const DEFAULT_AREA_PX: f32 = 1024.0;
 
+/// A MindGraph text query for a specific agent.
+#[derive(Debug, Clone)]
+pub struct InspectQuery {
+    /// Agent name (case-insensitive).
+    pub agent: String,
+    /// Text to search for in the MindGraph.
+    pub text: String,
+}
+
+/// Configuration for post-run inspection commands.
+#[derive(Debug, Clone, Default)]
+pub struct InspectConfig {
+    /// If set, stop the simulation at this tick (overrides `HeadlessConfig::ticks`).
+    pub at_tick: Option<u64>,
+    /// Print full agent state snapshots for these agent names.
+    pub inspect_agents: Vec<String>,
+    /// Print full MindGraph dumps for these agent names.
+    pub dump_mind_agents: Vec<String>,
+    /// Execute these MindGraph text queries.
+    pub queries: Vec<InspectQuery>,
+}
+
+impl InspectConfig {
+    /// Returns true if any inspection commands are configured.
+    pub fn is_active(&self) -> bool {
+        !self.inspect_agents.is_empty()
+            || !self.dump_mind_agents.is_empty()
+            || !self.queries.is_empty()
+    }
+}
+
 /// Configuration for a headless run.
 #[derive(Debug, Clone)]
 pub struct HeadlessConfig {
@@ -45,6 +76,8 @@ pub struct HeadlessConfig {
     pub trace: TraceConfig,
     /// JSONL event log configuration. `None` disables the logger.
     pub event_log: Option<EventLogConfig>,
+    /// Inspection commands to run after the simulation completes.
+    pub inspect: InspectConfig,
 }
 
 impl Default for HeadlessConfig {
@@ -58,6 +91,7 @@ impl Default for HeadlessConfig {
             deer: 3,
             trace: TraceConfig::default(),
             event_log: None,
+            inspect: InspectConfig::default(),
         }
     }
 }
@@ -135,12 +169,18 @@ pub fn run_headless(config: HeadlessConfig) -> HeadlessReport {
 
     let spawned = populate(&mut world, &config);
 
+    // If --at-tick is set, stop there; otherwise run the full --ticks count.
+    let ticks_to_run = config
+        .inspect
+        .at_tick
+        .unwrap_or(config.ticks)
+        .min(config.ticks);
+
     let start = Instant::now();
-    world.tick(config.ticks);
+    world.tick(ticks_to_run);
     let elapsed = start.elapsed();
 
-    // Dump trace output before collecting the report so any I/O goes to the
-    // correct destination before the report is printed to stdout.
+    // Dump trace output before inspection so ordering is predictable.
     if config.trace.is_enabled() {
         let buffer = world.app().world().resource::<DecisionTraceBuffer>();
         dump_trace(buffer, &config.trace);
@@ -152,7 +192,58 @@ pub fn run_headless(config: HeadlessConfig) -> HeadlessReport {
         dump_event_log(buffer, log_config);
     }
 
+    // Run inspection commands if any were specified.
+    if config.inspect.is_active() {
+        run_inspection(&mut world, &config.inspect);
+    }
+
     collect_report(&mut world, &config, spawned, elapsed)
+}
+
+/// Execute all inspection commands against the current world state.
+fn run_inspection(world: &mut TestWorld, inspect: &InspectConfig) {
+    for agent_name in &inspect.inspect_agents {
+        match world.find_agent_by_name(agent_name) {
+            Some(entity) => {
+                world.print_agent_state(entity);
+                world.print_brain_decision(entity);
+            }
+            None => {
+                eprintln!("inspect: no agent named {agent_name:?} found");
+            }
+        }
+    }
+
+    for agent_name in &inspect.dump_mind_agents {
+        match world.find_agent_by_name(agent_name) {
+            Some(entity) => {
+                world.print_mind_graph(entity);
+            }
+            None => {
+                eprintln!("dump-mind: no agent named {agent_name:?} found");
+            }
+        }
+    }
+
+    for q in &inspect.queries {
+        match world.find_agent_by_name(&q.agent) {
+            Some(entity) => {
+                let results = world.query_knowledge(entity, &q.text);
+                eprintln!(
+                    "query [{agent}] \"{text}\" — {n} result(s):",
+                    agent = q.agent,
+                    text = q.text,
+                    n = results.len()
+                );
+                for r in &results {
+                    eprintln!("  {r}");
+                }
+            }
+            None => {
+                eprintln!("query: no agent named {:?} found", q.agent);
+            }
+        }
+    }
 }
 
 /// Spawns the configured population into the TestWorld using a seeded RNG for
