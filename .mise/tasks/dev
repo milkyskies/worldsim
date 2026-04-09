@@ -1,0 +1,5 @@
+#!/bin/bash
+#MISE description="Run worldsim (Bevy dev build)"
+set -euo pipefail
+
+cargo run

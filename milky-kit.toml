@@ -7,8 +7,10 @@ languages = ["rust"]
 
 [skills]
 include = [
-    "retrospective",
+    "ship",
     "rulify",
+    "retrospective",
+    "land",
 ]
 
 [sync]
