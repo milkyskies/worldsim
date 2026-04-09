@@ -182,8 +182,9 @@ pub trait Action: Send + Sync + 'static {
         &[]
     }
 
-    /// Whether this action can be preempted mid-execution. Some actions
-    /// (Sleep) resist arbitrary interruption; others (Walk, Idle) yield freely.
+    /// Whether this action can be preempted mid-execution. Default `true`.
+    /// Reserved for future actions that should resist casual preemption
+    /// regardless of channel saturation (crafting, ritual, surgery).
     fn interruptible(&self) -> bool {
         true
     }

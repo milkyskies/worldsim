@@ -1,6 +1,6 @@
 //! Three-brains orchestration: runs all brain systems and arbitrates between their proposals each tick.
 //!
-//! Reads: PhysicalNeeds, Consciousness, PsychologicalDrives, EmotionalState, Body, Personality, Inventory, VisibleObjects, MindGraph, ActionState, InConversation, WorldMap
+//! Reads: PhysicalNeeds, Consciousness, PsychologicalDrives, EmotionalState, Body, Personality, Inventory, VisibleObjects, MindGraph, ActiveActions, InConversation, WorldMap
 //! Writes: BrainState (chosen action, winner, proposals, powers)
 //! Upstream: survival/emotional/rational brain modules, arbitration, perception, knowledge
 //! Downstream: nervous_system::cns (executes the chosen action)
@@ -124,7 +124,8 @@ pub fn three_brains_system(
 
         // 3. Arbitrate - greedy multi-action admission across body channels
         let proposals = [survival_proposal, emotional_proposal, rational_proposal];
-        let admitted = arbitrate_parallel(&proposals, &powers, body, &action_registry);
+        let capacities = crate::agent::actions::ChannelCapacities::compute(body, Some(physical));
+        let admitted = arbitrate_parallel(&proposals, &powers, &capacities, &action_registry);
 
         // 4. Store for debugging/UI and execution
         brain_state.proposals = proposals.into_iter().flatten().collect();

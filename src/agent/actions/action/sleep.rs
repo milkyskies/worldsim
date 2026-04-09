@@ -35,13 +35,17 @@ impl Action for SleepAction {
     }
 
     fn body_channels(&self) -> &'static [ChannelUsage] {
-        const CHANNELS: &[ChannelUsage] = &[ChannelUsage::new(BodyChannel::FullBody, 1.0)];
+        // Sleep occupies the entire body - declares all four active channels
+        // at full intensity so it hard-conflicts with any other action and
+        // preempts them when started. The brain re-asserts Sleep each think
+        // tick so it stays in place until WakeUp specifically displaces it.
+        const CHANNELS: &[ChannelUsage] = &[
+            ChannelUsage::new(BodyChannel::Legs, 1.0),
+            ChannelUsage::new(BodyChannel::Hands, 1.0),
+            ChannelUsage::new(BodyChannel::Mouth, 1.0),
+            ChannelUsage::new(BodyChannel::FullBody, 1.0),
+        ];
         CHANNELS
-    }
-
-    fn interruptible(&self) -> bool {
-        // Sleep yields only on hard preemption (e.g. extreme fear / starvation).
-        false
     }
 
     fn runtime_effects(&self) -> RuntimeEffects {

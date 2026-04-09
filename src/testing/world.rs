@@ -10,8 +10,7 @@ use bevy::prelude::*;
 
 use crate::agent::Agent;
 use crate::agent::AgentPlugin;
-use crate::agent::actions::ActionRegistry;
-use crate::agent::actions::ActionType;
+use crate::agent::actions::{ActionRegistry, ActionType, ActiveActions};
 use crate::agent::body::needs::PhysicalNeeds;
 use crate::agent::mind::knowledge::{
     Concept, MindGraph, Node as MindNode, Ontology, Predicate, Value, setup_ontology,
@@ -256,12 +255,18 @@ impl TestWorld {
     }
 
     /// Returns the action type the agent is currently executing. Returns
-    /// `Some(Idle)` when the agent has no active action.
+    /// `Some(Idle)` when the agent has no active action. With parallel
+    /// channels, this reports the *primary* (highest-intensity) running action.
     pub fn current_action(&self, agent: Entity) -> Option<ActionType> {
         let world = self.app.world();
-        let active = world.get::<crate::agent::actions::ActiveActions>(agent)?;
+        let active = world.get::<ActiveActions>(agent)?;
         let registry = world.resource::<ActionRegistry>();
-        active.primary(registry).map(|s| s.action_type)
+        Some(
+            active
+                .primary(registry)
+                .map(|s| s.action_type)
+                .unwrap_or(ActionType::Idle),
+        )
     }
 
     /// Returns true if the action registry contains an entry for the given action.
