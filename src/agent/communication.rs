@@ -469,13 +469,13 @@ mod tests {
 
     #[test]
     fn next_intent_starts_with_greet() {
-        let conv = Conversation::new(0, [Entity::from_raw(1), Entity::from_raw(2)], 0);
+        let conv = Conversation::new(0, [Entity::from_bits(1), Entity::from_bits(2)], 0);
         assert_eq!(next_intent_for(&conv), Intent::Greet);
     }
 
     #[test]
     fn next_intent_wraps_with_farewell() {
-        let mut conv = Conversation::new(0, [Entity::from_raw(1), Entity::from_raw(2)], 0);
+        let mut conv = Conversation::new(0, [Entity::from_bits(1), Entity::from_bits(2)], 0);
         conv.state = ConversationState::Wrapping;
         assert_eq!(next_intent_for(&conv), Intent::Farewell);
     }
