@@ -43,7 +43,7 @@ Read `src/testing/world.rs` for the spawn/inspection API. Read `src/testing/scen
 
 Don't guess. Invoke the `debug-worldsim` skill — it covers `world.print_*` inspection methods, headless reproduction, JSONL event log, decision trace, and ad-hoc inspection.
 
-The short version: add `world.print_agent_state(agent)` or `world.print_agent_events(agent, 200)` before the failing assertion, then run with `cargo nextest run -E 'test(name)' -- --nocapture`. For anything beyond that, use the debug skill.
+The short version: add `world.print_agent_state(agent)` or `world.print_agent_events(agent, 200)` before the failing assertion, then run with `cargo nextest run -E 'test(name)' --no-capture` to see the output (nextest swallows stderr/stdout by default). For anything beyond that, use the debug skill.
 
 ## Rules
 

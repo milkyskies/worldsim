@@ -112,7 +112,7 @@ cargo run --release -- --headless --ticks 5000 --seed 42 \
 
 ### 4. TestWorld inspection methods — when debugging from inside a test
 
-If you're debugging a failing test (not a headless run), call these BEFORE the failing assertion. Output goes to stderr — visible with `cargo nextest run -E 'test(name)' -- --nocapture` or in CI logs.
+If you're debugging a failing test (not a headless run), call these BEFORE the failing assertion. Output goes to stderr — visible with `cargo nextest run -E 'test(name)' --no-capture` (nextest swallows output by default; `--no-capture` streams it live) or in CI logs.
 
 - `world.print_agent_state(agent)` — full snapshot
 - `world.print_brain_decision(agent)` — last decision with all proposals and powers
