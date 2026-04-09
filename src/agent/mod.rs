@@ -102,6 +102,8 @@ impl Plugin for AgentPlugin {
                     mind::perception::write_perceptions_to_mind
                         .after(mind::perception::update_visual_perception),
                     mind::perception::update_body_perception,
+                    // Perceive water tiles in vision range
+                    mind::perception::perceive_water_tiles,
                     // React to perceived dangers (triggers fear based on knowledge)
                     mind::perception::react_to_danger
                         .after(mind::perception::write_perceptions_to_mind),

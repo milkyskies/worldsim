@@ -95,6 +95,8 @@ pub enum FailureReason {
     PathBlocked,
     /// Already did this (e.g., already introduced)
     AlreadyDone,
+    /// No drinkable water adjacent to agent
+    NoWaterNearby,
 }
 
 /// Event for communicating action outcomes to belief update system

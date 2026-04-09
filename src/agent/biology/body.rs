@@ -198,14 +198,20 @@ pub fn process_healing(mut query: Query<(&mut Body, Option<&PhysicalNeeds>)>, ti
     }
 }
 
-/// Starvation system - applies damage if hunger is critical
+/// Starvation and dehydration system - applies damage if hunger or thirst is critical
 pub fn process_starvation(time: Res<Time>, mut query: Query<&mut PhysicalNeeds>) {
     let dt = time.delta_secs();
 
     for mut physical in query.iter_mut() {
         // Health damage if starving (hunger >= 90)
         if physical.hunger >= 90.0 {
-            let health_damage = dt * 0.2; // 0.2 damage per second (~500s to die from full health?)
+            let health_damage = dt * 0.2;
+            physical.health = (physical.health - health_damage).clamp(0.0, 100.0);
+        }
+
+        // Health damage if dehydrated (thirst >= 90)
+        if physical.thirst >= 90.0 {
+            let health_damage = dt * 0.3; // Dehydration kills faster than starvation
             physical.health = (physical.health - health_damage).clamp(0.0, 100.0);
         }
     }
@@ -220,7 +226,10 @@ pub fn check_death(
     for (entity, physical, name) in query.iter() {
         if physical.health <= 0.0 {
             let name_str = name.map(|n| n.as_str()).unwrap_or("Unknown Entity");
-            game_log.event(&format!("{} died of starvation/injury!", name_str));
+            game_log.event(&format!(
+                "{} died of starvation/dehydration/injury!",
+                name_str
+            ));
             commands.entity(entity).despawn();
         }
     }
