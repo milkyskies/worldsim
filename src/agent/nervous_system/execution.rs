@@ -271,42 +271,7 @@ pub fn tick_actions(
             action_def.on_complete(&mut ctx);
 
             // Emit social interaction event for social actions
-            if (action_type == ActionType::Introduce || action_type == ActionType::Talk)
-                && let Some(target_entity) = action_state.target_entity
-            {
-                event_writer.write(crate::agent::events::GameEvent::SocialInteraction {
-                    actor: entity,
-                    target: target_entity,
-                    action: action_type,
-                    topic: action_state.topic.map(|t| match t {
-                        crate::agent::mind::conversation::Topic::General => {
-                            crate::agent::events::ConversationTopic::Greetings
-                        }
-                        crate::agent::mind::conversation::Topic::Location(_) => {
-                            crate::agent::events::ConversationTopic::Request
-                        }
-                        crate::agent::mind::conversation::Topic::State(_) => {
-                            crate::agent::events::ConversationTopic::Knowledge
-                        }
-                        crate::agent::mind::conversation::Topic::Person(_) => {
-                            crate::agent::events::ConversationTopic::Gossip
-                        }
-                        crate::agent::mind::conversation::Topic::Help => {
-                            crate::agent::events::ConversationTopic::Request
-                        }
-                    }),
-                    valence: 0.5, // Positive interaction
-                });
-
-                // Also emit KnowledgeShared if there's content to share
-                if action_type == ActionType::Talk && !action_state.content.is_empty() {
-                    event_writer.write(crate::agent::events::GameEvent::KnowledgeShared {
-                        speaker: entity,
-                        listener: target_entity,
-                        content: action_state.content.clone(),
-                    });
-                }
-            }
+            emit_social_interaction_events(entity, action_type, &action_state, &mut event_writer);
 
             // Log completion
             if let Some(msg) = action_def.complete_log() {
@@ -404,4 +369,51 @@ fn pick_random_walkable_target(
         }
     }
     None
+}
+
+fn emit_social_interaction_events(
+    entity: Entity,
+    action_type: ActionType,
+    action_state: &ActionState,
+    event_writer: &mut MessageWriter<crate::agent::events::GameEvent>,
+) {
+    if action_type != ActionType::Introduce && action_type != ActionType::Talk {
+        return;
+    }
+
+    let Some(target_entity) = action_state.target_entity else {
+        return;
+    };
+
+    event_writer.write(crate::agent::events::GameEvent::SocialInteraction {
+        actor: entity,
+        target: target_entity,
+        action: action_type,
+        topic: action_state.topic.map(|t| match t {
+            crate::agent::mind::conversation::Topic::General => {
+                crate::agent::events::ConversationTopic::Greetings
+            }
+            crate::agent::mind::conversation::Topic::Location(_) => {
+                crate::agent::events::ConversationTopic::Request
+            }
+            crate::agent::mind::conversation::Topic::State(_) => {
+                crate::agent::events::ConversationTopic::Knowledge
+            }
+            crate::agent::mind::conversation::Topic::Person(_) => {
+                crate::agent::events::ConversationTopic::Gossip
+            }
+            crate::agent::mind::conversation::Topic::Help => {
+                crate::agent::events::ConversationTopic::Request
+            }
+        }),
+        valence: 0.5,
+    });
+
+    if action_type == ActionType::Talk && !action_state.content.is_empty() {
+        event_writer.write(crate::agent::events::GameEvent::KnowledgeShared {
+            speaker: entity,
+            listener: target_entity,
+            content: action_state.content.clone(),
+        });
+    }
 }

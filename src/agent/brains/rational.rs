@@ -1,3 +1,10 @@
+//! Rational brain: deliberate goal-directed planning via GOAP.
+//!
+//! Reads: RationalBrain, Consciousness, Inventory, MindGraph, VisibleObjects, CentralNervousSystem
+//! Writes: RationalBrain (plan/goal), BrainProposal
+//! Upstream: cns (current_goal), planner (regressive_plan), mind (MindGraph)
+//! Downstream: brains::proposal (winner selection)
+
 use crate::agent::actions::ActionType;
 use crate::agent::body::needs::Consciousness;
 use crate::agent::brains::proposal::{BrainProposal, BrainType};
@@ -6,8 +13,8 @@ use crate::agent::inventory::Inventory;
 use crate::agent::mind::knowledge::{MindGraph, Node, Predicate, Value};
 use crate::agent::mind::perception::VisibleObjects;
 use crate::constants::brains::rational::{
-    ASK_FOR_HELP_PRIORITY_MULTIPLIER, EXPLORE_FALLBACK_PRIORITY_MULTIPLIER, IDLE_WANDER_URGENCY,
-    MIN_ALERTNESS_FOR_PLANNING, PLAN_CONTINUATION_URGENCY,
+    EXPLORE_FALLBACK_PRIORITY_MULTIPLIER, IDLE_WANDER_URGENCY, MIN_ALERTNESS_FOR_PLANNING,
+    PLAN_CONTINUATION_URGENCY,
 };
 use crate::world::map::WorldMap;
 use bevy::prelude::*;
@@ -473,49 +480,10 @@ pub fn rational_brain_propose(
         }
 
         // EPISTEMIC: Before exploring, try asking a nearby known agent
-        // Check if any agents are visible that we know (introduced to)
-        for visible_entity in visible.entities.iter() {
-            // Check if this is a known agent
-            let is_known = !mind
-                .query(
-                    Some(&Node::Entity(*visible_entity)),
-                    Some(Predicate::Knows),
-                    Some(&Value::Boolean(true)),
-                )
-                .is_empty();
-
-            if is_known {
-                // Get their position for the action template
-                if let Ok((target_transform, _)) = affordances.get(*visible_entity) {
-                    let vis_pos = target_transform.translation().truncate();
-
-                    // Determine what we need based on goal
-                    let needed_concept = goal.conditions.iter().find_map(|cond| {
-                        if let Some(Value::Item(concept, _)) = &cond.object {
-                            Some(*concept)
-                        } else {
-                            None
-                        }
-                    });
-
-                    if let (Some(talk_action), Some(concept)) =
-                        (action_registry.get(ActionType::Talk), needed_concept)
-                    {
-                        let mut template =
-                            talk_action.to_template(Some(*visible_entity), Some(vis_pos));
-                        template.topic =
-                            Some(crate::agent::mind::conversation::Topic::Location(concept));
-                        // No content - we're asking, not sharing
-
-                        return Some(BrainProposal {
-                            brain: BrainType::Rational,
-                            action: template,
-                            urgency: goal.priority * ASK_FOR_HELP_PRIORITY_MULTIPLIER,
-                            reasoning: format!("Asking {:?} about {:?}", visible_entity, concept),
-                        });
-                    }
-                }
-            }
+        if let Some(proposal) =
+            propose_epistemic_ask(goal, visible, mind, affordances, action_registry)
+        {
+            return Some(proposal);
         }
 
         // Fallback: Explore to find resources ourselves
@@ -542,4 +510,59 @@ pub fn rational_brain_propose(
         urgency: IDLE_WANDER_URGENCY,
         reasoning: "Nothing to do, wandering".to_string(),
     })
+}
+
+/// Ask a nearby known agent about a needed resource before falling back to exploring.
+fn propose_epistemic_ask(
+    goal: &Goal,
+    visible: &VisibleObjects,
+    mind: &MindGraph,
+    affordances: &Query<(
+        &GlobalTransform,
+        Option<&crate::agent::affordance::Affordance>,
+    )>,
+    action_registry: &crate::agent::actions::ActionRegistry,
+) -> Option<BrainProposal> {
+    use crate::constants::brains::rational::ASK_FOR_HELP_PRIORITY_MULTIPLIER;
+
+    let needed_concept = goal.conditions.iter().find_map(|cond| {
+        if let Some(Value::Item(concept, _)) = &cond.object {
+            Some(*concept)
+        } else {
+            None
+        }
+    })?;
+
+    let talk_action = action_registry.get(ActionType::Talk)?;
+
+    for visible_entity in visible.entities.iter() {
+        let is_known = !mind
+            .query(
+                Some(&Node::Entity(*visible_entity)),
+                Some(Predicate::Knows),
+                Some(&Value::Boolean(true)),
+            )
+            .is_empty();
+
+        if !is_known {
+            continue;
+        }
+
+        if let Ok((target_transform, _)) = affordances.get(*visible_entity) {
+            let vis_pos = target_transform.translation().truncate();
+            let mut template = talk_action.to_template(Some(*visible_entity), Some(vis_pos));
+            template.topic = Some(crate::agent::mind::conversation::Topic::Location(
+                needed_concept,
+            ));
+
+            return Some(BrainProposal {
+                brain: BrainType::Rational,
+                action: template,
+                urgency: goal.priority * ASK_FOR_HELP_PRIORITY_MULTIPLIER,
+                reasoning: format!("Asking {:?} about {:?}", visible_entity, needed_concept),
+            });
+        }
+    }
+
+    None
 }

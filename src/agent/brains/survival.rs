@@ -1,3 +1,10 @@
+//! Survival brain: reflexive responses to physical threats and urgent needs.
+//!
+//! Reads: PhysicalNeeds, Consciousness, EmotionalState, Body, Inventory, VisibleObjects
+//! Writes: BrainProposal
+//! Upstream: body (needs, body), psyche (emotions), inventory
+//! Downstream: brains::proposal (winner selection)
+
 use super::proposal::{BrainProposal, BrainType};
 use crate::agent::actions::{ActionState, ActionType};
 use crate::agent::biology::body::Body;
