@@ -122,6 +122,7 @@ pub mod brains {
         pub const STRESS_SNAP_HIGH: f32 = 90.0;
         pub const STRESS_SNAP_LOW: f32 = 70.0;
         pub const SNAP_HUNGER_THRESHOLD: f32 = 30.0;
+        pub const SNAP_THIRST_THRESHOLD: f32 = 30.0;
         pub const SNAP_SEARCH_HUNGER_THRESHOLD: f32 = 50.0;
         pub const SNAP_EXHAUSTION_ENERGY_THRESHOLD: f32 = 50.0;
         pub const PAIN_HIGH: f32 = 70.0;

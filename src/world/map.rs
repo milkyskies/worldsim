@@ -50,6 +50,11 @@ pub enum TileType {
 }
 
 impl TileType {
+    /// Whether this tile is a water tile (deep or shallow).
+    pub fn is_water(&self) -> bool {
+        matches!(self, TileType::Water | TileType::ShallowWater)
+    }
+
     /// Whether agents can traverse this tile at all.
     pub fn is_walkable(&self) -> bool {
         !matches!(self, TileType::Water)

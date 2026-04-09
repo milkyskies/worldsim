@@ -16,8 +16,8 @@ use crate::agent::psyche::emotions::{EmotionType, EmotionalState};
 use crate::constants::brains::survival::{
     EXHAUSTION_RELEASE, EXHAUSTION_TRIGGER, FEAR_HIGH, FEAR_LOW, HUNGER_HIGH, HUNGER_LOW,
     PAIN_HIGH, PAIN_LOW, SNAP_EXHAUSTION_ENERGY_THRESHOLD, SNAP_HUNGER_THRESHOLD,
-    SNAP_SEARCH_HUNGER_THRESHOLD, STRESS_SNAP_HIGH, STRESS_SNAP_LOW, THIRST_HIGH, THIRST_LOW,
-    WAKE_ENERGY_THRESHOLD,
+    SNAP_SEARCH_HUNGER_THRESHOLD, SNAP_THIRST_THRESHOLD, STRESS_SNAP_HIGH, STRESS_SNAP_LOW,
+    THIRST_HIGH, THIRST_LOW, WAKE_ENERGY_THRESHOLD,
 };
 use bevy::prelude::*;
 
@@ -72,7 +72,7 @@ pub fn survival_brain_propose(
         }
 
         // 2. Extreme Thirst Snap
-        if context.physical.thirst > SNAP_HUNGER_THRESHOLD
+        if context.physical.thirst > SNAP_THIRST_THRESHOLD
             && let Some(action) = action_registry.get(ActionType::Drink)
         {
             return Some(BrainProposal {
@@ -95,7 +95,7 @@ pub fn survival_brain_propose(
             });
         }
 
-        // 3. Exhaustion Snap
+        // 4. Exhaustion Snap
         if context.physical.energy < SNAP_EXHAUSTION_ENERGY_THRESHOLD
             && let Some(action) = action_registry.get(ActionType::Sleep)
         {
@@ -110,7 +110,7 @@ pub fn survival_brain_propose(
             });
         }
 
-        // 4. Panic Hide Snap (Default if others don't fire)
+        // 5. Panic Hide Snap (Default if others don't fire)
         // Seek safety usually implies Walk to safety or Flee
         // Using WalkAction for now as "Seek Safety" creates variable destination
         // But for now, let's use Flee with no target (run away randomly?) or fallback

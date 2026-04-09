@@ -7,8 +7,6 @@ use crate::agent::brains::thinking::TriplePattern;
 use crate::agent::events::FailureReason;
 use crate::agent::mind::knowledge::{Node, Predicate, Triple, Value};
 use crate::constants::actions::drink::{DURATION_TICKS, ENERGY_GAIN, THIRST_REDUCTION};
-use crate::world::map::TileType;
-
 pub struct DrinkAction;
 
 /// Check if any tile adjacent to the given position is a water source.
@@ -27,7 +25,7 @@ fn is_adjacent_to_water(
             if nx >= 0
                 && ny >= 0
                 && let Some(tile) = world_map.get_tile(nx as u32, ny as u32)
-                && matches!(tile, TileType::Water | TileType::ShallowWater)
+                && tile.is_water()
             {
                 return true;
             }
@@ -60,7 +58,6 @@ impl Action for DrinkAction {
     }
 
     fn preconditions(&self) -> Vec<TriplePattern> {
-        // No inventory preconditions - agent just needs to be near water
         vec![]
     }
 

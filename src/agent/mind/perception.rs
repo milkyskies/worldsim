@@ -287,17 +287,20 @@ fn perceive_inventory(
 // WATER PERCEPTION — Detect water tiles in vision range
 // ═══════════════════════════════════════════════════════════════════════════
 
+/// Water tiles are static terrain — scan infrequently (every 30 ticks per agent).
 pub fn perceive_water_tiles(
-    mut agents: Query<(&Transform, &Vision, &mut MindGraph), With<Agent>>,
+    mut agents: Query<(Entity, &Transform, &Vision, &mut MindGraph), With<Agent>>,
     world_map: Res<crate::world::map::WorldMap>,
     light_level: Res<LightLevel>,
     tick: Res<TickCount>,
 ) {
-    use crate::world::map::TileType;
-
     let current_time = tick.current;
 
-    for (transform, vision, mut mind) in agents.iter_mut() {
+    for (entity, transform, vision, mut mind) in agents.iter_mut() {
+        if !tick.should_run(entity, 30) {
+            continue;
+        }
+
         let pos = transform.translation.truncate();
         let view_range = vision.range * light_level.0;
         let tile_range = (view_range / TILE_SIZE).ceil() as i32;
@@ -313,20 +316,19 @@ pub fn perceive_water_tiles(
                     continue;
                 }
 
-                // Check actual distance in world units
                 let tile_world = world_map.tile_to_world(tx, ty);
                 if pos.distance(tile_world) > view_range {
                     continue;
                 }
 
                 if let Some(tile_type) = world_map.get_tile(tx as u32, ty as u32)
-                    && matches!(tile_type, TileType::Water | TileType::ShallowWater)
+                    && tile_type.is_water()
                 {
                     mind.assert(Triple::with_meta(
                         Node::Tile((tx, ty)),
                         Predicate::HasTrait,
                         Value::Concept(Concept::Drinkable),
-                        Metadata::perception(current_time),
+                        Metadata::semantic(current_time),
                     ));
                 }
             }
