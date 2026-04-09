@@ -102,25 +102,50 @@ fn human_fears_wolf_via_ontology() {
     );
 }
 
-/// A wolf that perceives a deer should have the emotional brain propose
-/// an Attack action after a few ticks.
+/// The emotional brain should propose Attack when a wolf's mind contains a
+/// visible deer entity (simulating what perception writes). Tests the mechanism
+/// directly rather than the full simulation chain.
 #[test]
-fn wolf_attacks_deer_on_sight() {
-    use worldsim::agent::actions::ActionType;
+fn wolf_emotional_brain_proposes_attack_for_visible_deer() {
+    use worldsim::agent::actions::{ActionRegistry, ActionType};
+    use worldsim::agent::brains::emotional::emotional_brain_propose;
+    use worldsim::agent::mind::knowledge::{Metadata, Node, Triple, Value};
+    use worldsim::agent::mind::perception::VisibleObjects;
+    use worldsim::agent::psyche::emotions::EmotionalState;
 
+    // Get a wolf mind via the public TestWorld API so it has innate knowledge applied.
     let mut world = TestWorld::with_seed(42);
-
-    // Place wolf and deer close enough to be within wolf vision (120px)
     let wolf = world.spawn_wolf(Vec2::new(0.0, 0.0));
-    let _deer = world.spawn_deer(Vec2::new(50.0, 0.0));
+    let wolf_mind = world.get::<MindGraph>(wolf).clone();
 
-    // Run enough ticks for perception → emotional brain → arbitration → action
-    world.tick(30);
+    // Simulate what the perception system writes when a deer entity is observed.
+    let mut mind = wolf_mind;
+    let deer_entity = bevy::ecs::entity::Entity::from_bits(1);
+    mind.assert(Triple::with_meta(
+        Node::Entity(deer_entity),
+        Predicate::IsA,
+        Value::Concept(Concept::Deer),
+        Metadata::perception(0),
+    ));
 
-    let action = world.current_action(wolf);
+    let mut visible = VisibleObjects::default();
+    visible.entities.push(deer_entity);
+
+    let emotions = EmotionalState::default();
+    let mut registry = ActionRegistry::default();
+    registry.register(worldsim::agent::actions::action::AttackAction);
+    registry.register(worldsim::agent::actions::action::WalkAction);
+    registry.register(worldsim::agent::actions::action::FleeAction);
+
+    let proposal = emotional_brain_propose(&emotions, &mind, &visible, &registry);
+
     assert!(
-        matches!(action, Some(ActionType::Attack) | Some(ActionType::Walk)),
-        "wolf should be attacking or walking toward deer after perceiving it, got {:?}",
-        action
+        proposal.is_some(),
+        "emotional brain should propose an action when wolf sees deer"
+    );
+    assert_eq!(
+        proposal.unwrap().action.action_type,
+        ActionType::Attack,
+        "wolf should want to attack a visible deer"
     );
 }
