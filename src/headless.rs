@@ -495,14 +495,21 @@ mod tests {
 
     #[test]
     fn game_defaults_spawns_correct_human_count() {
+        let game = crate::world::spawn_config::WorldSpawnConfig::game_defaults();
         let config = HeadlessConfig {
             ticks: 0,
             game_defaults: true,
+            humans: game.humans,
+            deer: game.deer,
+            berry_bushes: game.berry_bushes,
+            apple_trees: game.apple_trees,
             ..Default::default()
         };
         let report = run_headless(config);
-        // game_defaults uses WorldSpawnConfig::game_defaults() counts: 6 humans + 8 deer
-        assert_eq!(report.agents.spawned, 14); // 6 humans + 8 deer
+        assert_eq!(
+            report.agents.spawned,
+            (game.humans + game.deer) as u64
+        );
     }
 
     #[test]
