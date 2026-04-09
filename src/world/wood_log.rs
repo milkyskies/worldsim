@@ -14,22 +14,19 @@ use bevy::prelude::*;
 #[derive(Component)]
 pub struct VisualWoodPiece;
 
-/// Marker component for the wood log entity itself (for targeted queries).
+/// Marker component used to target wood log queries without scanning all entities.
 #[derive(Component)]
 pub struct WoodLogMarker;
 
 /// Spawns a Wood Log with an ItemSlots inventory containing wood.
 pub fn spawn_wood_log(commands: &mut Commands, position: Vec2, wood: u32) -> Entity {
-    use rand::Rng;
-    let mut rng = rand::rng();
-
     let mut inventory = ItemSlots::agent_carry();
     if wood > 0 {
         inventory.add(Concept::Wood, wood);
     }
 
     let log_size = Vec2::new(TILE_SIZE * 1.4, TILE_SIZE * 0.5);
-    let log_color = Color::srgb(0.4, 0.25, 0.1); // Dark brown
+    let log_color = Color::srgb(0.4, 0.25, 0.1);
 
     commands
         .spawn((
@@ -51,13 +48,12 @@ pub fn spawn_wood_log(commands: &mut Commands, position: Vec2, wood: u32) -> Ent
             },
             ResourceRegeneration {
                 timer: 0.0,
-                interval: 45.0, // Slower than food — logs don't regrow quickly
+                interval: 45.0,
                 item: Concept::Wood,
                 max_amount: 6,
             },
         ))
         .with_children(|parent| {
-            // Main log body
             parent.spawn((
                 Sprite {
                     color: log_color,
@@ -67,8 +63,9 @@ pub fn spawn_wood_log(commands: &mut Commands, position: Vec2, wood: u32) -> Ent
                 Transform::from_translation(Vec3::new(0.0, 0.0, 0.0)),
             ));
 
-            // Wood piece visuals
             if wood > 0 {
+                use rand::Rng;
+                let mut rng = rand::rng();
                 let piece_color = Color::srgb(0.55, 0.35, 0.15);
                 let piece_size = Vec2::new(6.0, 4.0);
 
@@ -94,16 +91,14 @@ pub fn spawn_wood_log(commands: &mut Commands, position: Vec2, wood: u32) -> Ent
 /// Syncs the visual wood piece count with the inventory count.
 pub fn sync_wood_visuals(
     mut commands: Commands,
-    mut log_query: Query<(Entity, &ItemSlots, &Children), With<WoodLogMarker>>,
+    log_query: Query<(Entity, &ItemSlots, &Children), (With<WoodLogMarker>, Changed<ItemSlots>)>,
     pieces_query: Query<Entity, With<VisualWoodPiece>>,
 ) {
-    use rand::Rng;
-    let mut rng = rand::rng();
     let log_size = Vec2::new(TILE_SIZE * 1.4, TILE_SIZE * 0.5);
     let piece_color = Color::srgb(0.55, 0.35, 0.15);
     let piece_size = Vec2::new(6.0, 4.0);
 
-    for (log_entity, inventory, children) in log_query.iter_mut() {
+    for (log_entity, inventory, children) in log_query.iter() {
         let wood_count = inventory.count(Concept::Wood);
 
         let mut current_visuals = Vec::new();
@@ -116,6 +111,8 @@ pub fn sync_wood_visuals(
         let diff = wood_count as i32 - current_visuals.len() as i32;
 
         if diff > 0 {
+            use rand::Rng;
+            let mut rng = rand::rng();
             for _ in 0..diff {
                 let x = rng.random_range(-log_size.x * 0.35..log_size.x * 0.35);
                 let y = rng.random_range(-log_size.y * 0.25..log_size.y * 0.25);

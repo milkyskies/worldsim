@@ -1007,11 +1007,11 @@ pub fn setup_ontology() -> Ontology {
     add(c(Water), IsA, v(Resource));
     add(c(Stone), IsA, v(Resource));
 
-    add(c(WoodLog), IsA, v(Plant));
     add(c(WoodLog), IsA, v(Object));
+    add(c(WoodLog), IsA, v(Resource));
 
     add(c(StoneNode), IsA, v(Object));
-    add(c(StoneNode), IsA, v(Physical));
+    add(c(StoneNode), IsA, v(Resource));
 
     // ─── Properties (HasTrait) ───
     add(c(Food), HasTrait, v(Edible));

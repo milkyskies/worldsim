@@ -14,22 +14,19 @@ use bevy::prelude::*;
 #[derive(Component)]
 pub struct VisualStoneChunk;
 
-/// Marker component for the stone node entity itself (for targeted queries).
+/// Marker component used to target stone node queries without scanning all entities.
 #[derive(Component)]
 pub struct StoneNodeMarker;
 
 /// Spawns a Stone Node with an ItemSlots inventory containing stone.
 pub fn spawn_stone_node(commands: &mut Commands, position: Vec2, stones: u32) -> Entity {
-    use rand::Rng;
-    let mut rng = rand::rng();
-
     let mut inventory = ItemSlots::agent_carry();
     if stones > 0 {
         inventory.add(Concept::Stone, stones);
     }
 
     let base_size = Vec2::new(TILE_SIZE * 1.2, TILE_SIZE * 0.7);
-    let base_color = Color::srgb(0.45, 0.45, 0.45); // Medium gray
+    let base_color = Color::srgb(0.45, 0.45, 0.45);
 
     commands
         .spawn((
@@ -45,19 +42,18 @@ pub fn spawn_stone_node(commands: &mut Commands, position: Vec2, stones: u32) ->
             inventory,
             crate::agent::affordance::Affordance {
                 action_type: crate::agent::actions::ActionType::Harvest,
-                cost: 6.0, // Harder to harvest than plants
+                cost: 6.0,
                 distance: 28.0,
                 risk: 0.0,
             },
             ResourceRegeneration {
                 timer: 0.0,
-                interval: 60.0, // Very slow regrowth — stone takes a long time
+                interval: 60.0,
                 item: Concept::Stone,
                 max_amount: 8,
             },
         ))
         .with_children(|parent| {
-            // Base rock mass
             parent.spawn((
                 Sprite {
                     color: base_color,
@@ -67,10 +63,11 @@ pub fn spawn_stone_node(commands: &mut Commands, position: Vec2, stones: u32) ->
                 Transform::from_translation(Vec3::new(0.0, 0.0, 0.0)),
             ));
 
-            // Stone chunk visuals scattered on top
             if stones > 0 {
+                use rand::Rng;
                 let chunk_color = Color::srgb(0.6, 0.6, 0.62);
                 let chunk_size = Vec2::new(5.0, 4.0);
+                let mut rng = rand::rng();
 
                 for _ in 0..stones.min(6) {
                     let x = rng.random_range(-base_size.x * 0.35..base_size.x * 0.35);
@@ -94,16 +91,14 @@ pub fn spawn_stone_node(commands: &mut Commands, position: Vec2, stones: u32) ->
 /// Syncs the visual stone chunk count with the inventory count.
 pub fn sync_stone_visuals(
     mut commands: Commands,
-    mut node_query: Query<(Entity, &ItemSlots, &Children), With<StoneNodeMarker>>,
+    node_query: Query<(Entity, &ItemSlots, &Children), (With<StoneNodeMarker>, Changed<ItemSlots>)>,
     chunks_query: Query<Entity, With<VisualStoneChunk>>,
 ) {
-    use rand::Rng;
-    let mut rng = rand::rng();
     let base_size = Vec2::new(TILE_SIZE * 1.2, TILE_SIZE * 0.7);
     let chunk_color = Color::srgb(0.6, 0.6, 0.62);
     let chunk_size = Vec2::new(5.0, 4.0);
 
-    for (node_entity, inventory, children) in node_query.iter_mut() {
+    for (node_entity, inventory, children) in node_query.iter() {
         let stone_count = inventory.count(Concept::Stone);
 
         let mut current_visuals = Vec::new();
@@ -116,6 +111,8 @@ pub fn sync_stone_visuals(
         let diff = stone_count as i32 - current_visuals.len() as i32;
 
         if diff > 0 {
+            use rand::Rng;
+            let mut rng = rand::rng();
             for _ in 0..diff {
                 let x = rng.random_range(-base_size.x * 0.35..base_size.x * 0.35);
                 let y = rng.random_range(-base_size.y * 0.3..base_size.y * 0.3);
