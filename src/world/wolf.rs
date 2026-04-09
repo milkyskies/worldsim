@@ -1,10 +1,9 @@
-//! Wolf spawning logic.
+//! Wolf spawning logic — carnivorous pack predator entity.
 //!
-//! Wolves are carnivorous pack predators that:
-//! - Hunt deer (and humans when desperate)
-//! - Spawn in small packs in forest biomes
-//! - Trigger fear in humans and deer on sight
-//! - Have stronger survival and emotional brains than rational
+//! Reads: SpeciesProfile::wolf(), Ontology
+//! Writes: Wolf component, MindGraph (innate prey/threat knowledge), world entities
+//! Upstream: world::spawner (calls spawn_wolf), world::map (biome placement)
+//! Downstream: agent brains (fear/flee in humans/deer, anger/attack in wolves)
 
 use crate::agent::body::species::SpeciesProfile;
 use crate::agent::mind::knowledge::{Concept, MindGraph, Ontology};
