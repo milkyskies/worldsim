@@ -1,3 +1,10 @@
+//! Agent event types: GameEvent and ActionOutcomeEvent — the shared message bus for agent interactions.
+//!
+//! Reads: ActionType, Concept (item types), Triple (knowledge content)
+//! Writes: GameEvent (Interaction, SocialInteraction, KnowledgeShared), ActionOutcomeEvent (Success/Failed)
+//! Upstream: action execution systems (emit outcomes), conversation system (emits KnowledgeShared)
+//! Downstream: belief_updater (consumes ActionOutcomeEvent), relationship systems (consume SocialInteraction), GameLog
+
 use super::actions::ActionType;
 use crate::agent::mind::knowledge::Concept;
 use bevy::prelude::*;

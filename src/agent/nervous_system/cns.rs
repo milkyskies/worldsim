@@ -1,3 +1,10 @@
+//! Central nervous system: formulates goals from the highest-urgency drive and tracks the current goal.
+//!
+//! Reads: Urgency list (from urgency module), Personality, MindGraph, PlannerConfig
+//! Writes: CentralNervousSystem (urgencies, current_goal)
+//! Upstream: nervous_system::urgency (produces Urgency values), mind::knowledge (MindGraph)
+//! Downstream: brain_system (reads current_goal for rational planning)
+
 use super::urgency::{Urgency, UrgencySource};
 use crate::agent::brains::planner::PlannerConfig;
 use crate::agent::brains::thinking::{Goal, TriplePattern};

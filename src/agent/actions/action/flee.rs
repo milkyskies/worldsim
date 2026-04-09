@@ -2,6 +2,9 @@
 
 use crate::agent::actions::ActionType;
 use crate::agent::actions::registry::{Action, ActionKind, RuntimeEffects};
+use crate::constants::actions::flee::{
+    ALERTNESS_PER_SEC, BASE_COST, ENERGY_PER_SEC, HUNGER_PER_SEC,
+};
 
 pub struct FleeAction;
 
@@ -19,14 +22,14 @@ impl Action for FleeAction {
     }
 
     fn cost(&self) -> f32 {
-        1.0 // Fleeing is urgent
+        BASE_COST
     }
 
     fn runtime_effects(&self) -> RuntimeEffects {
         RuntimeEffects {
-            energy_per_sec: -0.5,
-            hunger_per_sec: 3.0,
-            alertness_per_sec: 20.0,
+            energy_per_sec: ENERGY_PER_SEC,
+            hunger_per_sec: HUNGER_PER_SEC,
+            alertness_per_sec: ALERTNESS_PER_SEC,
             ..Default::default()
         }
     }

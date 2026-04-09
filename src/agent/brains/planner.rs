@@ -1,6 +1,14 @@
+//! GOAP regressive planner: backward A* search from goal to initial state.
+//!
+//! Reads: MindGraph (world state), available ActionTemplates, Goal conditions
+//! Writes: Vec<ActionTemplate> (ordered plan)
+//! Upstream: rational brain (goal + actions), mind (MindGraph)
+//! Downstream: rational brain (executes the plan)
+
 use super::thinking::{ActionTemplate, Goal, TriplePattern};
 use crate::agent::actions::ActionType;
 use crate::agent::mind::knowledge::{MindGraph, Node as MindNode, Predicate, Triple, Value};
+use crate::world::map::TILE_SIZE;
 use bevy::prelude::*;
 use std::cmp::Ordering;
 use std::collections::{BinaryHeap, HashMap};
@@ -296,9 +304,9 @@ pub fn regressive_plan(
     available_actions: &[ActionTemplate],
     action_registry: &crate::agent::actions::ActionRegistry,
 ) -> Option<Vec<ActionTemplate>> {
+    use crate::constants::brains::planner::{HEURISTIC_MULTIPLIER, MAX_ITERATIONS};
     let start_time = std::time::Instant::now();
     let mut iterations = 0;
-    const MAX_ITERATIONS: usize = 200;
 
     let mut open_set = BinaryHeap::new();
     let mut came_from: HashMap<RegressiveState, (ActionTemplate, RegressiveState)> = HashMap::new();
@@ -372,143 +380,66 @@ pub fn regressive_plan(
         let target_goal = &current_state.unmet_goals[0];
         let remaining_goals = &current_state.unmet_goals[1..];
 
-        // 1. Check if `target_goal` is ALREADY satisfied in MindGraph (and we just didn't filter it yet?
-        // No, we filter on init. But maybe we added it as a precondition?
-        if mind_satisfies_pattern(mind, target_goal) {
-            // It's satisfied by world state!
-            // New state is just remaining goals. Action = None?
-            // Wait, "Action = None" doesn't fit `came_from`.
-            // Ideally we filter these out immediately when creating the state.
-            // Let's assume `RegressiveState::new` cleans up satisfied goals?
-            // But checking MindGraph is cheap.
-            // If it is satisfied, we just transition to `remaining_goals` with 0 cost.
-            // We do need to record the transition path... but maybe we skip recording action?
-            // Or better: filter preconditions *before* adding to UnmetGoals.
-            // See "Filter Preconditions" below.
-        }
-
         // 2. Find actions that satisfy `target_goal`
-        // A. Explicit Actions
-        for action in available_actions {
-            if action_satisfies_pattern(action, target_goal) {
-                // This action is a candidate!
-                // New Unmet = (Remaining Goals) + (Action Preconditions)
-                // Filter out preconditions that are already true in MindGraph!
-                let mut new_unmet = remaining_goals.to_vec();
-                for pre in &action.preconditions {
-                    if !mind_satisfies_pattern(mind, pre) {
-                        new_unmet.push(pre.clone());
-                    }
-                }
-
-                let next_state = RegressiveState::new(new_unmet);
-                let new_cost = current_g + action.base_cost; // Add action cost
-
-                if new_cost < *g_score.get(&next_state).unwrap_or(&f32::INFINITY) {
-                    came_from.insert(next_state.clone(), (action.clone(), current_state.clone()));
-                    g_score.insert(next_state.clone(), new_cost);
-                    open_set.push(RegressiveSearchNode {
-                        f_score: new_cost + next_state.unmet_goals.len() as f32 * 5.0,
-                        state: next_state,
-                    });
-                }
-            }
+        // A. Explicit actions
+        let candidates = find_explicit_actions_for_goal(
+            available_actions,
+            target_goal,
+            remaining_goals,
+            current_g,
+            mind,
+        );
+        for (action, next_state, new_cost) in candidates {
+            update_search_candidate(
+                action,
+                next_state,
+                new_cost,
+                &current_state,
+                HEURISTIC_MULTIPLIER,
+                &mut came_from,
+                &mut g_score,
+                &mut open_set,
+            );
         }
 
-        // B. Implicit Movement (The Special Rule)
-        // If target_goal is `LocatedAt(X)`, we can generate `WalkTo(X)`.
-        if let Some(Predicate::LocatedAt) = target_goal.predicate
-            && let Some(MindNode::Self_) = target_goal.subject
-        {
-            if let Some(Value::Tile(tile)) = target_goal.object {
-                // We can walk here!
-                // Implicit Action: WalkTo
-                // Preconditions: None (always valid to try walking)
-                // Cost: Distance from current pos (MindGraph) to target tile.
-                if let Some(current_pos_val) = mind.get(&MindNode::Self_, Predicate::LocatedAt)
-                    && let Value::Tile((cx, cy)) = current_pos_val
-                {
-                    let dist = (((cx - tile.0).pow(2) + (cy - tile.1).pow(2)) as f32).sqrt();
-                    // FIX: Convert Tile Coords to World Coords
-                    // Assuming TILE_SIZE = 16.0 (Default)
-                    const TILE_SIZE: f32 = 16.0;
-                    let world_pos = Vec2::new(
-                        tile.0 as f32 * TILE_SIZE + TILE_SIZE / 2.0,
-                        tile.1 as f32 * TILE_SIZE + TILE_SIZE / 2.0,
-                    );
+        // B. Implicit tile walk (LocatedAt tile goal)
+        if let Some((walk_action, next_state, new_cost)) = generate_implicit_tile_walk(
+            target_goal,
+            remaining_goals,
+            current_g,
+            mind,
+            action_registry,
+        ) {
+            update_search_candidate(
+                walk_action,
+                next_state,
+                new_cost,
+                &current_state,
+                HEURISTIC_MULTIPLIER,
+                &mut came_from,
+                &mut g_score,
+                &mut open_set,
+            );
+        }
 
-                    let walk_action = action_registry
-                        .get(ActionType::Walk)
-                        .map(|a| a.to_template(None, Some(world_pos)))
-                        .expect("Walk action must be registered");
-
-                    // New state: Removing LocatedAt requirement. No new preconditions.
-                    let new_unmet = remaining_goals.to_vec();
-                    let next_state = RegressiveState::new(new_unmet);
-                    let new_cost = current_g + dist;
-
-                    if new_cost < *g_score.get(&next_state).unwrap_or(&f32::INFINITY) {
-                        came_from.insert(next_state.clone(), (walk_action, current_state.clone()));
-                        g_score.insert(next_state.clone(), new_cost);
-                        open_set.push(RegressiveSearchNode {
-                            f_score: new_cost + next_state.unmet_goals.len() as f32 * 5.0,
-                            state: next_state,
-                        });
-                    }
-                }
-            }
-            // Handle explicit entity target if needed (e.g. LocatedAt Entity)
-            // But mostly our goals use Tiles for movement results.
-            if let Some(MindNode::Entity(e)) = target_goal.object.as_ref().map(|v| match v {
-                Value::Entity(e) => MindNode::Entity(*e),
-                _ => MindNode::Self_, // dummy
-            }) && let MindNode::Entity(_) = target_goal
-                .object
-                .as_ref()
-                .unwrap()
-                .as_entity()
-                .map(MindNode::Entity)
-                .unwrap_or(MindNode::Self_)
-            {
-                // If target is an entity location, we check if we know where it is
-                // This logic matches how `rational.rs` makes actions.
-                // But we need to construct a robust WalkTo.
-                // For now, let's assume interactions define `LocatedAt` using Tiles or specific Entity Predicates.
-                // If the goal is `LocatedAt(Entity)`, we need a lookup.
-                if let Some(pos_val) = mind.get(&MindNode::Entity(e), Predicate::LocatedAt)
-                    && let Value::Tile((tx, ty)) = pos_val
-                {
-                    // Found it! Generate WalkTo
-                    if let Some(current_pos_val) = mind.get(&MindNode::Self_, Predicate::LocatedAt)
-                        && let Value::Tile((cx, cy)) = current_pos_val
-                    {
-                        let dist = (((cx - tx).pow(2) + (cy - ty).pow(2)) as f32).sqrt();
-                        const TILE_SIZE: f32 = 16.0;
-                        let world_pos = Vec2::new(
-                            *tx as f32 * TILE_SIZE + TILE_SIZE / 2.0,
-                            *ty as f32 * TILE_SIZE + TILE_SIZE / 2.0,
-                        );
-                        let walk_action = action_registry
-                            .get(ActionType::Walk)
-                            .map(|a| a.to_template(Some(e), Some(world_pos)))
-                            .expect("Walk action must be registered");
-
-                        let new_unmet = remaining_goals.to_vec();
-                        let next_state = RegressiveState::new(new_unmet);
-                        let new_cost = current_g + dist;
-
-                        if new_cost < *g_score.get(&next_state).unwrap_or(&f32::INFINITY) {
-                            came_from
-                                .insert(next_state.clone(), (walk_action, current_state.clone()));
-                            g_score.insert(next_state.clone(), new_cost);
-                            open_set.push(RegressiveSearchNode {
-                                f_score: new_cost + next_state.unmet_goals.len() as f32 * 5.0,
-                                state: next_state,
-                            });
-                        }
-                    }
-                }
-            }
+        // C. Implicit entity walk (LocatedAt entity goal)
+        if let Some((walk_action, next_state, new_cost)) = generate_implicit_entity_walk(
+            target_goal,
+            remaining_goals,
+            current_g,
+            mind,
+            action_registry,
+        ) {
+            update_search_candidate(
+                walk_action,
+                next_state,
+                new_cost,
+                &current_state,
+                HEURISTIC_MULTIPLIER,
+                &mut came_from,
+                &mut g_score,
+                &mut open_set,
+            );
         }
     }
 
@@ -648,6 +579,151 @@ fn hash_pattern<H: std::hash::Hasher>(p: &TriplePattern, state: &mut H) {
     if let Some(v) = &p.object {
         hash_value(v, state);
     }
+}
+
+// ─── Search Helpers ───
+
+/// Updates the search structures if new_cost is better than the current best for next_state.
+fn update_search_candidate(
+    action: ActionTemplate,
+    next_state: RegressiveState,
+    new_cost: f32,
+    current_state: &RegressiveState,
+    heuristic_multiplier: f32,
+    came_from: &mut HashMap<RegressiveState, (ActionTemplate, RegressiveState)>,
+    g_score: &mut HashMap<RegressiveState, f32>,
+    open_set: &mut BinaryHeap<RegressiveSearchNode>,
+) {
+    if new_cost < *g_score.get(&next_state).unwrap_or(&f32::INFINITY) {
+        came_from.insert(next_state.clone(), (action, current_state.clone()));
+        g_score.insert(next_state.clone(), new_cost);
+        open_set.push(RegressiveSearchNode {
+            f_score: new_cost + next_state.unmet_goals.len() as f32 * heuristic_multiplier,
+            state: next_state,
+        });
+    }
+}
+
+/// Collects all explicit actions that satisfy target_goal, with their next states and costs.
+fn find_explicit_actions_for_goal(
+    available_actions: &[ActionTemplate],
+    target_goal: &TriplePattern,
+    remaining_goals: &[TriplePattern],
+    current_g: f32,
+    mind: &MindGraph,
+) -> Vec<(ActionTemplate, RegressiveState, f32)> {
+    let mut candidates = Vec::new();
+
+    for action in available_actions {
+        if !action_satisfies_pattern(action, target_goal) {
+            continue;
+        }
+
+        let mut new_unmet = remaining_goals.to_vec();
+        for pre in &action.preconditions {
+            if !mind_satisfies_pattern(mind, pre) {
+                new_unmet.push(pre.clone());
+            }
+        }
+
+        let next_state = RegressiveState::new(new_unmet);
+        let new_cost = current_g + action.base_cost;
+        candidates.push((action.clone(), next_state, new_cost));
+    }
+
+    candidates
+}
+
+/// Generates an implicit tile walk if the target goal requires Self_ to be at a tile.
+fn generate_implicit_tile_walk(
+    target_goal: &TriplePattern,
+    remaining_goals: &[TriplePattern],
+    current_g: f32,
+    mind: &MindGraph,
+    action_registry: &crate::agent::actions::ActionRegistry,
+) -> Option<(ActionTemplate, RegressiveState, f32)> {
+    if target_goal.predicate != Some(Predicate::LocatedAt) {
+        return None;
+    }
+    if !matches!(&target_goal.subject, Some(MindNode::Self_)) {
+        return None;
+    }
+
+    let tile = match &target_goal.object {
+        Some(Value::Tile(t)) => *t,
+        _ => return None,
+    };
+
+    let current_pos_val = mind.get(&MindNode::Self_, Predicate::LocatedAt)?;
+    let (cx, cy) = match current_pos_val {
+        Value::Tile((cx, cy)) => (cx, cy),
+        _ => return None,
+    };
+
+    let dist = (((cx - tile.0).pow(2) + (cy - tile.1).pow(2)) as f32).sqrt();
+    let world_pos = Vec2::new(
+        tile.0 as f32 * TILE_SIZE + TILE_SIZE / 2.0,
+        tile.1 as f32 * TILE_SIZE + TILE_SIZE / 2.0,
+    );
+
+    let walk_action = action_registry
+        .get(ActionType::Walk)
+        .map(|a| a.to_template(None, Some(world_pos)))
+        .expect("Walk action must be registered");
+
+    let next_state = RegressiveState::new(remaining_goals.to_vec());
+    let new_cost = current_g + dist;
+
+    Some((walk_action, next_state, new_cost))
+}
+
+/// Generates an implicit entity walk if the target goal requires Self_ to be at an entity's location.
+fn generate_implicit_entity_walk(
+    target_goal: &TriplePattern,
+    remaining_goals: &[TriplePattern],
+    current_g: f32,
+    mind: &MindGraph,
+    action_registry: &crate::agent::actions::ActionRegistry,
+) -> Option<(ActionTemplate, RegressiveState, f32)> {
+    if target_goal.predicate != Some(Predicate::LocatedAt) {
+        return None;
+    }
+    if !matches!(&target_goal.subject, Some(MindNode::Self_)) {
+        return None;
+    }
+
+    let entity = match &target_goal.object {
+        Some(Value::Entity(e)) => *e,
+        _ => return None,
+    };
+
+    let pos_val = mind.get(&MindNode::Entity(entity), Predicate::LocatedAt)?;
+    let (tx, ty) = match pos_val {
+        Value::Tile((tx, ty)) => (*tx, *ty),
+        _ => return None,
+    };
+
+    let current_pos_val = mind.get(&MindNode::Self_, Predicate::LocatedAt)?;
+    let (cx, cy) = match current_pos_val {
+        Value::Tile((cx, cy)) => (*cx, *cy),
+        _ => return None,
+    };
+
+    let dist = (((cx - tx).pow(2) + (cy - ty).pow(2)) as f32).sqrt();
+    let world_pos = Vec2::new(
+        tx as f32 * TILE_SIZE + TILE_SIZE / 2.0,
+        ty as f32 * TILE_SIZE + TILE_SIZE / 2.0,
+    );
+
+    let walk_action = action_registry
+        .get(ActionType::Walk)
+        .map(|a| a.to_template(Some(entity), Some(world_pos)))
+        .expect("Walk action must be registered");
+
+    let next_state = RegressiveState::new(remaining_goals.to_vec());
+    let new_cost = current_g + dist;
+
+    Some((walk_action, next_state, new_cost))
 }
 
 // =============================================================================

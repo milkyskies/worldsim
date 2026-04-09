@@ -1,12 +1,19 @@
+//! Brain proposal types: BrainProposal, BrainType, BrainPowers, and the BrainState component.
+//!
+//! Reads: ActionTemplate (from thinking), BrainType tag
+//! Writes: BrainProposal, BrainPowers, BrainState (ECS component holding all proposals and the winner)
+//! Upstream: thinking (ActionTemplate), all brain modules that create proposals
+//! Downstream: arbitration (selects winner), brain_system (reads BrainState result)
+
 use super::thinking::ActionTemplate;
 use bevy::prelude::*;
 
 /// Which brain is making a proposal
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect)]
 pub enum BrainType {
-    Survival,   // Reactive, immediate responses
-    Emotional,  // Association-driven behavior
-    Rational,   // Planning, multi-step reasoning
+    Survival,  // Reactive, immediate responses
+    Emotional, // Association-driven behavior
+    Rational,  // Planning, multi-step reasoning
 }
 
 /// A proposal from one of the three brains

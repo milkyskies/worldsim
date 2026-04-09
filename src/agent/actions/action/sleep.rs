@@ -3,6 +3,9 @@
 use crate::agent::actions::ActionType;
 use crate::agent::actions::registry::{Action, ActionKind, RuntimeEffects};
 use crate::agent::mind::knowledge::{Node, Predicate, Triple, Value};
+use crate::constants::actions::sleep::{
+    ALERTNESS_PER_SEC, BASE_COST, ENERGY_PER_SEC, HUNGER_PER_SEC,
+};
 
 pub struct SleepAction;
 
@@ -27,14 +30,14 @@ impl Action for SleepAction {
     }
 
     fn cost(&self) -> f32 {
-        0.1 // Sleeping is low cost when tired
+        BASE_COST
     }
 
     fn runtime_effects(&self) -> RuntimeEffects {
         RuntimeEffects {
-            energy_per_sec: 20.0,
-            hunger_per_sec: 0.2,
-            alertness_per_sec: -50.0,
+            energy_per_sec: ENERGY_PER_SEC,
+            hunger_per_sec: HUNGER_PER_SEC,
+            alertness_per_sec: ALERTNESS_PER_SEC,
             ..Default::default()
         }
     }

@@ -4,6 +4,8 @@ use crate::agent::actions::ActionType;
 use crate::agent::actions::registry::{Action, ActionKind, RuntimeEffects};
 use crate::agent::brains::thinking::ActionTemplate;
 use crate::agent::mind::knowledge::{Node, Predicate, Triple, Value};
+use crate::constants::actions::walk::{ALERTNESS_PER_SEC, ENERGY_PER_SEC, HUNGER_PER_SEC};
+use crate::world::map::TILE_SIZE;
 use bevy::prelude::*;
 
 pub struct WalkAction;
@@ -33,9 +35,9 @@ impl Action for WalkAction {
 
     fn runtime_effects(&self) -> RuntimeEffects {
         RuntimeEffects {
-            energy_per_sec: -0.3,
-            hunger_per_sec: 0.5,
-            alertness_per_sec: 10.0,
+            energy_per_sec: ENERGY_PER_SEC,
+            hunger_per_sec: HUNGER_PER_SEC,
+            alertness_per_sec: ALERTNESS_PER_SEC,
             ..Default::default()
         }
     }
@@ -52,7 +54,6 @@ impl Action for WalkAction {
     ) -> ActionTemplate {
         let effects = if let Some(pos) = target_position {
             // Convert world position to tile
-            const TILE_SIZE: f32 = 16.0;
             let tile = (
                 (pos.x / TILE_SIZE).floor() as i32,
                 (pos.y / TILE_SIZE).floor() as i32,

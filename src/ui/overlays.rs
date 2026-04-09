@@ -1,5 +1,5 @@
-use crate::agent::{Agent, TargetPosition};
 use crate::agent::mind::perception::{VisibleObjects, Vision};
+use crate::agent::{Agent, TargetPosition};
 use bevy::prelude::*;
 
 pub struct OverlayPlugin;
@@ -45,22 +45,23 @@ fn draw_overlays(
 
         // Intent Overlay
         if overlay_state.show_intent
-            && let Some(target_pos) = target.0 {
-                // Draw line to target
-                gizmos.line_2d(pos, target_pos, Color::srgba(1.0, 0.5, 0.0, 0.8));
+            && let Some(target_pos) = target.0
+        {
+            // Draw line to target
+            gizmos.line_2d(pos, target_pos, Color::srgba(1.0, 0.5, 0.0, 0.8));
 
-                // Draw target X
-                let x_size = 5.0;
-                gizmos.line_2d(
-                    target_pos + Vec2::new(-x_size, -x_size),
-                    target_pos + Vec2::new(x_size, x_size),
-                    Color::srgba(1.0, 0.5, 0.0, 0.8),
-                );
-                gizmos.line_2d(
-                    target_pos + Vec2::new(-x_size, x_size),
-                    target_pos + Vec2::new(x_size, -x_size),
-                    Color::srgba(1.0, 0.5, 0.0, 0.8),
-                );
-            }
+            // Draw target X
+            let x_size = 5.0;
+            gizmos.line_2d(
+                target_pos + Vec2::new(-x_size, -x_size),
+                target_pos + Vec2::new(x_size, x_size),
+                Color::srgba(1.0, 0.5, 0.0, 0.8),
+            );
+            gizmos.line_2d(
+                target_pos + Vec2::new(-x_size, x_size),
+                target_pos + Vec2::new(x_size, -x_size),
+                Color::srgba(1.0, 0.5, 0.0, 0.8),
+            );
+        }
     }
 }

@@ -17,7 +17,6 @@ pub enum CurrentActivity {
     Exploring(Vec2), // Exploring toward a direction to find resources
 }
 
-
 impl CurrentActivity {
     /// Helper to access mutable state for a specific action type.
     /// Returns (Target, Timer) if the current activity matches the action type.

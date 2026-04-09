@@ -1,3 +1,10 @@
+//! Inventory: ECS component tracking items an agent carries, keyed by Concept vocabulary.
+//!
+//! Reads: Concept (item type vocabulary from knowledge)
+//! Writes: Inventory (add/remove/count items), EntityType (marks what kind of entity something is)
+//! Upstream: action execution systems (add/remove items on success), mind::knowledge (Concept vocabulary)
+//! Downstream: brain_system (inventory influences action choices), belief_updater (syncs MindGraph inventory beliefs)
+
 use crate::agent::mind::knowledge::Concept;
 use bevy::prelude::*;
 
@@ -38,13 +45,14 @@ impl Inventory {
 
     pub fn remove(&mut self, concept: Concept, quantity: u32) -> bool {
         if let Some(existing) = self.items.iter_mut().find(|i| i.concept == concept)
-            && existing.quantity >= quantity {
-                existing.quantity -= quantity;
-                if existing.quantity == 0 {
-                    self.items.retain(|i| i.concept != concept);
-                }
-                return true;
+            && existing.quantity >= quantity
+        {
+            existing.quantity -= quantity;
+            if existing.quantity == 0 {
+                self.items.retain(|i| i.concept != concept);
             }
+            return true;
+        }
         false
     }
 
@@ -63,7 +71,10 @@ impl Inventory {
 
     /// Returns the first edible food concept found in the inventory, if any.
     /// Queries the Ontology to check if items have the Edible trait.
-    pub fn first_edible(&self, ontology: &crate::agent::mind::knowledge::Ontology) -> Option<Concept> {
+    pub fn first_edible(
+        &self,
+        ontology: &crate::agent::mind::knowledge::Ontology,
+    ) -> Option<Concept> {
         for item in &self.items {
             if item.quantity > 0 && ontology.has_trait(item.concept, Concept::Edible) {
                 return Some(item.concept);

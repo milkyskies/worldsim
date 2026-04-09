@@ -1,3 +1,10 @@
+//! Urgency generation: maps physical/emotional state to drive urgencies.
+//!
+//! Reads: PhysicalNeeds, Consciousness, PsychologicalDrives, EmotionalState, Body, ActionState
+//! Writes: CentralNervousSystem.urgencies
+//! Upstream: body (needs), psyche (emotions), nervous_system::config
+//! Downstream: nervous_system::cns (urgency ranking)
+
 use bevy::prelude::*;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect, Default)]
@@ -152,7 +159,6 @@ pub fn generate_urgency(
 
         // --- MOMENTUM & CONSCIOUSNESS ---
 
-        // Map Activity to UrgencySource
         let current_source = match activity.action_type {
             crate::agent::actions::ActionType::Eat => Some(UrgencySource::Hunger),
             crate::agent::actions::ActionType::Sleep => Some(UrgencySource::Energy),
@@ -160,43 +166,12 @@ pub fn generate_urgency(
             _ => None,
         };
 
-        let alertness = consciousness.alertness;
-
-        for urgency in cns.urgencies.iter_mut() {
-            // Apply Momentum (from config)
-            if Some(urgency.source) == current_source {
-                urgency.value *= ns_config.momentum_bonus;
-            }
-
-            // Apply Consciousness / Sensory Gating (emergent from alertness)
-            let is_current_drive = Some(urgency.source) == current_source;
-
-            if !is_current_drive {
-                // Check if this drive bypasses gating (e.g. Pain)
-                let bypass = ns_config
-                    .get_drive(urgency.source)
-                    .map(|d| d.bypasses_gating)
-                    .unwrap_or(false);
-
-                if !bypass {
-                    // Determine Channel Factor
-                    let mut channel_dampening = 0.1 + (alertness * 0.9); // Default fallback
-
-                    if ns_config.interoception.sources.contains(&urgency.source) {
-                        // Interoception (Hunger/Pain): Hard to ignore.
-                        channel_dampening = 0.6 + (alertness * 0.4);
-                    } else if ns_config.exteroception.sources.contains(&urgency.source) {
-                        // Exteroception (Social/Fear): Highly dependent on being awake.
-                        channel_dampening = 0.0 + (alertness * 1.0);
-                    } else if ns_config.proprioception.sources.contains(&urgency.source) {
-                        // Proprioception (Movement/Energy):
-                        channel_dampening = 0.2 + (alertness * 0.8);
-                    }
-
-                    urgency.value *= channel_dampening;
-                }
-            }
-        }
+        apply_momentum_and_gating(
+            &mut cns.urgencies,
+            current_source,
+            consciousness.alertness,
+            &ns_config,
+        );
 
         // Sort Highest Urgency First
         cns.urgencies.sort_by(|a, b| {
@@ -204,5 +179,43 @@ pub fn generate_urgency(
                 .partial_cmp(&a.value)
                 .unwrap_or(std::cmp::Ordering::Equal)
         });
+    }
+}
+
+/// Applies momentum bonus to the currently-active drive and consciousness gating to all others.
+fn apply_momentum_and_gating(
+    urgencies: &mut Vec<Urgency>,
+    current_source: Option<UrgencySource>,
+    alertness: f32,
+    ns_config: &NervousSystemConfig,
+) {
+    for urgency in urgencies.iter_mut() {
+        if Some(urgency.source) == current_source {
+            urgency.value *= ns_config.momentum_bonus;
+        }
+
+        let is_current_drive = Some(urgency.source) == current_source;
+        if !is_current_drive {
+            let bypass = ns_config
+                .get_drive(urgency.source)
+                .map(|d| d.bypasses_gating)
+                .unwrap_or(false);
+
+            if !bypass {
+                // Channel dampening: how much consciousness reduces non-active drives
+                let channel_dampening = if ns_config.interoception.sources.contains(&urgency.source)
+                {
+                    0.6 + (alertness * 0.4) // Interoception (Hunger/Pain): hard to ignore
+                } else if ns_config.exteroception.sources.contains(&urgency.source) {
+                    alertness // Exteroception (Social/Fear): requires being awake
+                } else if ns_config.proprioception.sources.contains(&urgency.source) {
+                    0.2 + (alertness * 0.8) // Proprioception (Energy): moderate gating
+                } else {
+                    0.1 + (alertness * 0.9) // Default
+                };
+
+                urgency.value *= channel_dampening;
+            }
+        }
     }
 }

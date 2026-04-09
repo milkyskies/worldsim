@@ -1,3 +1,10 @@
+//! Agent needs: PhysicalNeeds, Consciousness, and PsychologicalDrives components — the source of truth for agent state.
+//!
+//! Reads: nothing (pure data components, written by other systems)
+//! Writes: PhysicalNeeds, Consciousness, PsychologicalDrives (ECS components)
+//! Upstream: nervous_system::activity_effects (modifies values each tick)
+//! Downstream: nervous_system::urgency (drives urgency scores), brains::arbitration (survival power), brain_system
+
 use bevy::prelude::*;
 
 /// Physical needs - THE source of truth for survival needs

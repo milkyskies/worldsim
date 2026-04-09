@@ -61,33 +61,38 @@ fn log_performance_stats(
     *last_log = time.elapsed_secs();
 
     if let Some(fps) = diagnostics.get(&FrameTimeDiagnosticsPlugin::FPS)
-        && let Some(avg) = fps.average() {
-            game_log.performance(format!("FPS: {:.1}", avg));
-        }
+        && let Some(avg) = fps.average()
+    {
+        game_log.performance(format!("FPS: {:.1}", avg));
+    }
 
     if let Some(frame_time) = diagnostics.get(&FrameTimeDiagnosticsPlugin::FRAME_TIME)
-        && let Some(avg) = frame_time.average() {
-            game_log.performance(format!("Frame Time: {:.2}ms", avg));
-        }
+        && let Some(avg) = frame_time.average()
+    {
+        game_log.performance(format!("Frame Time: {:.2}ms", avg));
+    }
 
     if let Some(entities) = diagnostics.get(&EntityCountDiagnosticsPlugin::ENTITY_COUNT)
-        && let Some(count) = entities.value() {
-            game_log.performance(format!("Entities: {:.0}", count));
-        }
+        && let Some(count) = entities.value()
+    {
+        game_log.performance(format!("Entities: {:.0}", count));
+    }
 
     if let Some(mem) = diagnostics.get(&DiagnosticPath::const_new("system/mem_used"))
-        && let Some(val) = mem.value() {
-            // value is in bytes ?? No, SystemInfo usually returns bytes. Let's assume bytes -> MB
-            // Actually bevy_diagnostic documentation says some are in bytes.
-            // Let's just print raw value for now or try to format
-            game_log.performance(format!(
-                "Mem Used: {:.1} GB",
-                val / 1024.0 / 1024.0 / 1024.0
-            ));
-        }
+        && let Some(val) = mem.value()
+    {
+        // value is in bytes ?? No, SystemInfo usually returns bytes. Let's assume bytes -> MB
+        // Actually bevy_diagnostic documentation says some are in bytes.
+        // Let's just print raw value for now or try to format
+        game_log.performance(format!(
+            "Mem Used: {:.1} GB",
+            val / 1024.0 / 1024.0 / 1024.0
+        ));
+    }
 
     if let Some(cpu) = diagnostics.get(&DiagnosticPath::const_new("system/cpu_usage"))
-        && let Some(val) = cpu.value() {
-            game_log.performance(format!("CPU Usage: {:.1}%", val));
-        }
+        && let Some(val) = cpu.value()
+    {
+        game_log.performance(format!("CPU Usage: {:.1}%", val));
+    }
 }

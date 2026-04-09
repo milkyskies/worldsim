@@ -2,6 +2,9 @@
 
 use crate::agent::actions::ActionType;
 use crate::agent::actions::registry::{Action, ActionKind, RuntimeEffects};
+use crate::constants::actions::wander::{
+    ALERTNESS_PER_SEC, BASE_COST, ENERGY_PER_SEC, HUNGER_PER_SEC,
+};
 
 pub struct WanderAction;
 
@@ -19,14 +22,14 @@ impl Action for WanderAction {
     }
 
     fn cost(&self) -> f32 {
-        5.0 // Wandering is low priority
+        BASE_COST
     }
 
     fn runtime_effects(&self) -> RuntimeEffects {
         RuntimeEffects {
-            energy_per_sec: -0.2,
-            hunger_per_sec: 2.0,
-            alertness_per_sec: 5.0,
+            energy_per_sec: ENERGY_PER_SEC,
+            hunger_per_sec: HUNGER_PER_SEC,
+            alertness_per_sec: ALERTNESS_PER_SEC,
             ..Default::default()
         }
     }

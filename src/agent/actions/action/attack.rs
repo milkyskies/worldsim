@@ -3,6 +3,7 @@ use crate::agent::actions::registry::{
     Action, ActionContext, ActionKind, RuntimeEffects, TargetType,
 };
 use crate::agent::mind::knowledge::Triple;
+use crate::constants::actions::attack::{BASE_COST, DURATION_TICKS, ENERGY_PER_SEC};
 use bevy::prelude::*;
 
 pub struct AttackAction;
@@ -17,11 +18,13 @@ impl Action for AttackAction {
     }
 
     fn kind(&self) -> ActionKind {
-        ActionKind::Timed { duration_ticks: 30 }
+        ActionKind::Timed {
+            duration_ticks: DURATION_TICKS,
+        }
     }
 
     fn cost(&self) -> f32 {
-        10.0 // Expensive
+        BASE_COST
     }
 
     fn target_type(&self) -> TargetType {
@@ -46,7 +49,7 @@ impl Action for AttackAction {
 
     fn runtime_effects(&self) -> RuntimeEffects {
         RuntimeEffects {
-            energy_per_sec: -2.0, // Tiring
+            energy_per_sec: ENERGY_PER_SEC,
             ..Default::default()
         }
     }

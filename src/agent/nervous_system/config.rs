@@ -1,10 +1,16 @@
+//! Nervous system configuration: response curves, personality modifiers, and urgency drive definitions.
+//!
+//! Reads: Personality traits, UrgencySource tags
+//! Writes: ResponseCurve, PersonalityMod, ModifierOp, UrgencyDriveConfig (loaded as Bevy resources)
+//! Upstream: psyche::personality (trait values used in PersonalityMod), nervous_system::urgency (UrgencySource)
+//! Downstream: nervous_system::urgency (applies curves and modifiers to compute urgency scores)
+
 use crate::agent::nervous_system::urgency::UrgencySource;
 use crate::agent::psyche::personality::PersonalityTrait;
 use bevy::prelude::*;
 
 /// Curve type for mapping input (0-1) to output (0-1)
-#[derive(Debug, Clone, Reflect)]
-#[derive(Default)]
+#[derive(Debug, Clone, Reflect, Default)]
 pub enum ResponseCurve {
     /// Linear: output = input
     #[default]
@@ -36,7 +42,6 @@ impl ResponseCurve {
         }
     }
 }
-
 
 /// Personality modifier configuration
 #[derive(Debug, Clone, Reflect, Default)]

@@ -1,3 +1,14 @@
+//! Movement utilities: tick-based position stepping toward a target with speed modifiers for fatigue and injury.
+//!
+//! Reads: MovementState (last_tick), TickCount, PhysicalNeeds (energy for speed penalty), Body (injury mobility), WorldMap (walkability)
+//! Writes: Transform (position), MovementState (last_tick updated), MoveResult (Arrived/Moving/Blocked)
+//! Upstream: constants::movement (speed/threshold values), world::map (walkability checks), body::needs (fatigue)
+//! Downstream: action execution systems (call move_toward each tick), nervous_system (movement completes actions)
+
+use crate::constants::movement::{
+    BASE_SPEED_PER_TICK, EXHAUSTED_ENERGY_THRESHOLD, EXHAUSTED_SPEED_MULTIPLIER,
+    INJURY_MOBILITY_RANGE, MIN_INJURY_MOBILITY, TIRED_ENERGY_THRESHOLD, TIRED_SPEED_MULTIPLIER,
+};
 use bevy::prelude::*;
 
 /// Tracks movement timing for tick-based movement
@@ -76,15 +87,13 @@ pub enum MoveResult {
 /// Returns pixels per tick (assuming 60 ticks/sec equivalent).
 pub fn calculate_speed(energy: f32, body: Option<&crate::agent::biology::body::Body>) -> f32 {
     // Speed = pixels per tick (at 60 ticks/sec, 1.0 = 60 px/sec equivalent)
-    let base_speed_per_tick = 0.8; // pixels per tick
-
     // FATIGUE PENALTY
     let mut speed_modifier = 1.0;
-    if energy < 20.0 {
-        speed_modifier = 0.5; // Tired: 50% speed
+    if energy < TIRED_ENERGY_THRESHOLD {
+        speed_modifier = TIRED_SPEED_MULTIPLIER;
     }
-    if energy < 5.0 {
-        speed_modifier = 0.2; // Exhausted: 20% speed
+    if energy < EXHAUSTED_ENERGY_THRESHOLD {
+        speed_modifier = EXHAUSTED_SPEED_MULTIPLIER;
     }
 
     // INJURY PENALTY
@@ -93,9 +102,9 @@ pub fn calculate_speed(energy: f32, body: Option<&crate::agent::biology::body::B
         // Legs determine movement speed.
         // Average function of both legs.
         let legs_function = (body.left_leg.function_rate + body.right_leg.function_rate) / 2.0;
-        // Map 0.0-1.0 to 0.1-1.0 (Can always crawl a bit)
-        injury_modifier = 0.1 + (legs_function * 0.9);
+        // Map 0.0-1.0 to MIN_INJURY_MOBILITY..1.0 (Can always crawl a bit)
+        injury_modifier = MIN_INJURY_MOBILITY + (legs_function * INJURY_MOBILITY_RANGE);
     }
 
-    base_speed_per_tick * speed_modifier * injury_modifier
+    BASE_SPEED_PER_TICK * speed_modifier * injury_modifier
 }
