@@ -29,15 +29,19 @@ On **re-runs** (PR already exists), skip PR creation — just run quality gates,
 
 ## Step 2: Quality gates
 
-Run quality gates **scoped to changed packages only**. Fix issues at each step before proceeding.
+Run **only `cargo fmt`** locally. Skip clippy and nextest — Worldsim's Bevy
+compile is too slow for the full trinity to run on every push, and CI
+already runs fmt + clippy + nextest on a fast runner with caching.
 
-Check `.claude/rules/` for the specific quality gate commands for each technology in this project (e.g., Rust formatting/linting/testing, frontend linting/typechecking/testing).
+```bash
+cargo fmt
+```
 
-Common patterns:
-- **Rust**: `cargo fmt -p <pkg>`, `cargo clippy -p <pkg> -- -D warnings`, `cargo nextest run -p <pkg>`
-- **Frontend**: `cd <app-dir> && pnpm lint:fix`, `cd <app-dir> && pnpm check`
+If fmt makes any changes, commit them.
 
-Commit any fixes from this step.
+**Trust CI for clippy and test results.** If CI fails after pushing, fix
+the issue and push again — do NOT try to "pre-validate" by running clippy
+or nextest locally.
 
 ## Step 3: Code review
 
