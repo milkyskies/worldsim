@@ -83,6 +83,15 @@ pub mod actions {
         pub const ENERGY_PER_SEC: f32 = -0.3;
         pub const HUNGER_PER_SEC: f32 = 0.5;
         pub const ALERTNESS_PER_SEC: f32 = 10.0;
+
+        /// Estimated energy cost per tile at normal speed (for planner estimation).
+        /// Derived: (TILE_SIZE / BASE_SPEED_PER_TICK) * |ENERGY_PER_SEC| * (DEFAULT_TICKS_PER_SEC / 3600)
+        /// = (16 / 0.8) * 0.3 * (60 / 3600) = 20 * 0.005 = 0.1
+        pub const ENERGY_PER_TILE_NORMAL: f32 = 0.1;
+
+        /// Estimated energy cost per tile at tired speed (below TIRED_ENERGY_THRESHOLD).
+        /// Doubles compared to normal because TIRED_SPEED_MULTIPLIER = 0.5.
+        pub const ENERGY_PER_TILE_TIRED: f32 = 0.2;
     }
 
     pub mod explore {
