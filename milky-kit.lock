@@ -1,0 +1,20 @@
+kit_version = "0.1.0"
+kit_commit = "662d420"
+last_sync = "2026-04-09T03:43:11Z"
+managed = [
+    ".claude/rules/worktrees.md",
+    ".claude/rules/general.md",
+    ".claude/rules/workflow.md",
+    ".claude/rules/testing.md",
+    ".claude/rules/claude-meta.md",
+    ".claude/rules/config-and-env.md",
+    ".mise/tasks/worktree/setup",
+    ".mise/tasks/worktree/cleanup",
+    ".claude/rules/rust-style.md",
+    ".claude/rules/clean-architecture.md",
+    ".mise/tasks/check/rust",
+    ".mise/tasks/fmt/rust",
+    ".mise/tasks/clean",
+    ".claude/skills/retrospective/SKILL.md",
+    ".claude/skills/rulify/SKILL.md",
+]
