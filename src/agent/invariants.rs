@@ -202,13 +202,14 @@ mod tests {
     fn negative_emotion_fuel_is_caught() {
         let mut world = TestWorld::new();
         let agent = world.spawn_agent(AgentConfig::default());
-        let mut state = world.get_mut::<EmotionalState>(agent);
-        state.active_emotions.push(Emotion {
-            emotion_type: EmotionType::Joy,
-            intensity: 0.5,
-            fuel: -1.0,
-        });
-        drop(state);
+        {
+            let mut state = world.get_mut::<EmotionalState>(agent);
+            state.active_emotions.push(Emotion {
+                emotion_type: EmotionType::Joy,
+                intensity: 0.5,
+                fuel: -1.0,
+            });
+        }
         assert_invariants(world.app_mut().world_mut());
     }
 

@@ -70,7 +70,7 @@ pub fn find_settlement_center(map: &WorldMap, search: &SettlementSearch) -> Opti
             let water_bonus = (search.max_water_distance as f32 - water_dist as f32) * 4.0;
             let score = cluster_space as f32 + water_bonus;
 
-            if best.map_or(true, |(_, b)| score > b) {
+            if best.is_none_or(|(_, b)| score > b) {
                 best = Some((UVec2::new(x, y), score));
             }
         }
