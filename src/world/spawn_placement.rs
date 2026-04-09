@@ -79,10 +79,11 @@ pub fn find_settlement_center(map: &WorldMap, search: &SettlementSearch) -> Opti
     best.map(|(pos, _)| pos)
 }
 
-/// Generate up to `count` walkable world positions clustered around the tile at
-/// `center_tile`. Positions are sampled at random tile offsets within
-/// `radius` and rejected if they fall on impassable terrain. Shallow water is
-/// excluded so spawned entities never start standing in the river.
+/// Generate up to `count` walkable world positions (may be fewer if the
+/// attempt budget runs out) clustered around the tile at `center_tile`.
+/// Positions are sampled at random tile offsets within `radius` and rejected
+/// if they fall on impassable terrain. Shallow water is excluded so spawned
+/// entities never start standing in the river.
 pub fn cluster_positions(
     map: &WorldMap,
     center_tile: UVec2,

@@ -166,7 +166,7 @@ fn spawn_deer_herds(
 ) {
     let allowed = [TileType::Grass, TileType::Forest];
     let mut spawned = 0usize;
-    let mut herd_index = 0usize;
+    let mut attempts = 0usize;
 
     while spawned < total {
         let remaining = total - spawned;
@@ -185,7 +185,6 @@ fn spawn_deer_herds(
         };
 
         let Some(anchor_pos) = anchor else {
-            // Fallback: scatter remaining deer individually so we never lose them.
             for _ in 0..remaining {
                 if let Some(pos) = find_biome_tile(map, rng, &allowed, MAX_SPAWN_ATTEMPTS) {
                     spawn_deer(commands, ontology.clone(), pos, spawned);
@@ -205,8 +204,6 @@ fn spawn_deer_herds(
         );
 
         if positions.is_empty() {
-            // The anchor was unsuitable for cluster expansion — drop a single
-            // deer at the anchor itself and move on.
             spawn_deer(commands, ontology.clone(), anchor_pos, spawned);
             spawned += 1;
         } else {
@@ -219,8 +216,8 @@ fn spawn_deer_herds(
             }
         }
 
-        herd_index += 1;
-        if herd_index > total * 2 {
+        attempts += 1;
+        if attempts > total * 2 {
             // Defensive: never loop forever if the map is pathological.
             break;
         }
