@@ -263,7 +263,7 @@ fn event_to_json(
                 "type": event_type,
                 "agent": resolve(*agent),
                 "action": format!("{action:?}"),
-                "target": target.map(|t| resolve(t)),
+                "target": target.map(resolve),
             })
         }
         SimEvent::ActionCompleted { agent, action, .. } => {
