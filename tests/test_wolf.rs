@@ -85,8 +85,6 @@ fn ontology_marks_wolf_as_dangerous() {
 #[test]
 fn human_fears_wolf_via_ontology() {
     use worldsim::agent::mind::knowledge::MindGraph;
-    use worldsim::agent::mind::perception::VisibleObjects;
-    use worldsim::agent::psyche::emotions::{Emotion, EmotionalState};
 
     let ontology = setup_ontology();
     let mind = MindGraph::new(ontology);
