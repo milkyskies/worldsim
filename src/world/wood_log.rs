@@ -1,7 +1,9 @@
 //! Wood log spawning logic.
 //!
-//! Fallen logs and dead branches appear in forest biomes. Agents can harvest
-//! them to collect Wood, which is used for building and crafting.
+//! Reads: ItemSlots, ResourceRegeneration, WorldMap (biome tiles via spawn_config)
+//! Writes: WoodLog entities (EntityType, ItemSlots, Affordance, ResourceRegeneration)
+//! Upstream: world::spawn_config (layout), world::apple_tree (ResourceRegeneration)
+//! Downstream: world::spawner (registered and synced each frame)
 
 use crate::agent::inventory::EntityType;
 use crate::agent::item_slots::ItemSlots;
