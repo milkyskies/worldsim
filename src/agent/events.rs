@@ -57,6 +57,22 @@ pub enum GameEvent {
 // ACTION OUTCOMES — Results of actions that update beliefs
 // ═══════════════════════════════════════════════════════════════════════════
 
+/// How much a need changed when an action completed.
+/// Pre-action levels are captured so joy can be scaled by urgency at the moment of relief.
+#[derive(Debug, Clone, Default, Reflect)]
+pub struct NeedSatisfaction {
+    /// How much hunger dropped (positive = hunger went down).
+    pub hunger_reduced: f32,
+    /// How much thirst dropped (positive = thirst went down).
+    pub thirst_reduced: f32,
+    /// How much energy rose (positive = energy went up).
+    pub energy_gained: f32,
+    /// Hunger level just before the action completed (0–100).
+    pub pre_hunger: f32,
+    /// Thirst level just before the action completed (0–100).
+    pub pre_thirst: f32,
+}
+
 /// The result of an attempted action
 #[derive(Debug, Clone, Reflect)]
 pub enum ActionOutcome {
@@ -68,6 +84,8 @@ pub enum ActionOutcome {
         gained: Option<(Concept, u32)>,
         /// What was consumed (item concept, quantity)
         consumed: Option<(Concept, u32)>,
+        /// How much physical needs changed (if any)
+        need_satisfaction: Option<NeedSatisfaction>,
     },
     /// Action failed - learn why
     Failed {

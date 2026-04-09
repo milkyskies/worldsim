@@ -12,6 +12,7 @@ use clap::Parser;
 use crate::agent::brains::trace::{AgentFilter, TraceConfig, TraceFormat};
 use crate::core::{EventLogConfig, EventLogOutput, parse_log_filter};
 use crate::headless::{HeadlessConfig, InspectConfig, InspectQuery};
+use crate::world::spawn_config::WorldSpawnConfig;
 
 /// Command-line arguments accepted by the worldsim binary.
 #[derive(Parser, Debug, Clone)]
@@ -39,21 +40,35 @@ pub struct CliArgs {
     #[arg(long)]
     pub report: bool,
 
+    /// Use the same 128x128 map and Realistic placement algorithm as the normal
+    /// game. The --humans, --deer, etc. flags still override individual counts.
+    /// Without this flag, headless uses a 64x64 flat map with uniform scatter.
+    #[arg(long)]
+    pub game_defaults: bool,
+
     /// Number of human agents to spawn at startup (headless mode only).
-    #[arg(long, default_value_t = 5)]
-    pub humans: usize,
+    /// Defaults to the game defaults (6) when --game-defaults is set,
+    /// or the headless defaults (5) otherwise.
+    #[arg(long)]
+    pub humans: Option<usize>,
 
     /// Number of berry bushes to scatter (headless mode only).
-    #[arg(long, default_value_t = 8)]
-    pub berry_bushes: usize,
+    /// Defaults to the game defaults (32) when --game-defaults is set,
+    /// or the headless defaults (8) otherwise.
+    #[arg(long)]
+    pub berry_bushes: Option<usize>,
 
     /// Number of apple trees to scatter (headless mode only).
-    #[arg(long, default_value_t = 4)]
-    pub apple_trees: usize,
+    /// Defaults to the game defaults (24) when --game-defaults is set,
+    /// or the headless defaults (4) otherwise.
+    #[arg(long)]
+    pub apple_trees: Option<usize>,
 
     /// Number of deer to scatter (headless mode only).
-    #[arg(long, default_value_t = 3)]
-    pub deer: usize,
+    /// Defaults to the game defaults (8) when --game-defaults is set,
+    /// or the headless defaults (3) otherwise.
+    #[arg(long)]
+    pub deer: Option<usize>,
 
     /// Enable decision trace logging. Use "all" to trace all agents or
     /// "agent:<name>" (e.g. "agent:alice") to trace a specific agent.
@@ -112,14 +127,26 @@ pub struct CliArgs {
 
 impl CliArgs {
     /// Builds a HeadlessConfig from these CLI arguments.
+    ///
+    /// Population counts fall back to game defaults when `--game-defaults` is set,
+    /// or headless defaults otherwise.
     pub fn to_headless_config(&self) -> HeadlessConfig {
+        let (default_humans, default_deer, default_berry_bushes, default_apple_trees) =
+            if self.game_defaults {
+                let g = WorldSpawnConfig::game_defaults();
+                (g.humans, g.deer, g.berry_bushes, g.apple_trees)
+            } else {
+                (5, 3, 8, 4)
+            };
+
         HeadlessConfig {
             ticks: self.ticks,
             seed: self.seed,
-            humans: self.humans,
-            berry_bushes: self.berry_bushes,
-            apple_trees: self.apple_trees,
-            deer: self.deer,
+            game_defaults: self.game_defaults,
+            humans: self.humans.unwrap_or(default_humans),
+            berry_bushes: self.berry_bushes.unwrap_or(default_berry_bushes),
+            apple_trees: self.apple_trees.unwrap_or(default_apple_trees),
+            deer: self.deer.unwrap_or(default_deer),
             trace: self.build_trace_config(),
             event_log: self.build_event_log_config(),
             inspect: self.build_inspect_config(),
@@ -240,7 +267,7 @@ mod tests {
         assert!(!args.headless);
         assert_eq!(args.ticks, 1_000);
         assert_eq!(args.seed, 0);
-        assert_eq!(args.humans, 5);
+        assert!(args.humans.is_none());
     }
 
     #[test]
@@ -263,6 +290,39 @@ mod tests {
         assert_eq!(config.deer, 2);
         assert_eq!(config.berry_bushes, 1);
         assert_eq!(config.apple_trees, 0);
+    }
+
+    #[test]
+    fn game_defaults_flag_sets_game_counts_when_no_overrides() {
+        let args = CliArgs::try_parse_from(["worldsim", "--headless", "--game-defaults"])
+            .expect("should parse");
+        let config = args.to_headless_config();
+        assert!(config.game_defaults);
+        let game = WorldSpawnConfig::game_defaults();
+        assert_eq!(config.humans, game.humans);
+        assert_eq!(config.deer, game.deer);
+        assert_eq!(config.berry_bushes, game.berry_bushes);
+        assert_eq!(config.apple_trees, game.apple_trees);
+    }
+
+    #[test]
+    fn game_defaults_with_humans_override() {
+        let args = CliArgs::try_parse_from([
+            "worldsim",
+            "--headless",
+            "--game-defaults",
+            "--humans",
+            "10",
+        ])
+        .expect("should parse");
+        let config = args.to_headless_config();
+        assert!(config.game_defaults);
+        assert_eq!(config.humans, 10);
+        // Other counts use game defaults
+        let game = WorldSpawnConfig::game_defaults();
+        assert_eq!(config.deer, game.deer);
+        assert_eq!(config.berry_bushes, game.berry_bushes);
+        assert_eq!(config.apple_trees, game.apple_trees);
     }
 
     #[test]

@@ -8,9 +8,6 @@
 use std::time::{Duration, Instant};
 
 use bevy::ecs::entity::Entity;
-use bevy::math::Vec2;
-use rand::{Rng, SeedableRng};
-use rand_chacha::ChaCha8Rng;
 use serde::Serialize;
 
 use crate::agent::body::needs::{Consciousness, PhysicalNeeds};
@@ -18,11 +15,9 @@ use crate::agent::brains::trace::{DecisionTraceBuffer, TraceConfig, dump_trace};
 use crate::agent::mind::conversation::ConversationManager;
 use crate::agent::psyche::emotions::{EmotionType, EmotionalState};
 use crate::core::{EventLogBuffer, EventLogConfig, collect_event_log, dump_event_log};
-use crate::testing::{AgentConfig, TestWorld};
-
-/// Default world dimensions for headless populations. Matches TestWorld's
-/// default walkable map so spawn positions never land in unwalkable tiles.
-const DEFAULT_AREA_PX: f32 = 1024.0;
+use crate::testing::TestWorld;
+use crate::world::map::WorldMap;
+use crate::world::spawn_config::{SpawnAlgorithm, WorldSpawnConfig};
 
 /// A MindGraph text query for a specific agent.
 #[derive(Debug, Clone)]
@@ -71,6 +66,10 @@ pub struct HeadlessConfig {
     pub apple_trees: usize,
     /// Number of deer to scatter across the map.
     pub deer: usize,
+    /// When true, use the same 128×128 map and Realistic placement algorithm as
+    /// the normal game. The `humans`, `deer`, `berry_bushes`, and `apple_trees`
+    /// fields still apply and override the game defaults for each entity type.
+    pub game_defaults: bool,
     /// Decision trace configuration. Disabled by default (no overhead when
     /// `trace.agent_filter` is `AgentFilter::Disabled`).
     pub trace: TraceConfig,
@@ -89,6 +88,7 @@ impl Default for HeadlessConfig {
             berry_bushes: 8,
             apple_trees: 4,
             deer: 3,
+            game_defaults: false,
             trace: TraceConfig::default(),
             event_log: None,
             inspect: InspectConfig::default(),
@@ -147,11 +147,19 @@ pub struct EmotionStats {
 /// Builds a TestWorld with the given config, populates it, runs `config.ticks`
 /// ticks at max speed, and returns the resulting report.
 ///
+/// If `config.game_defaults` is true, uses the 128×128 noise map and Realistic
+/// placement algorithm (same as the normal windowed game). Otherwise uses a
+/// 64×64 flat map with Uniform random scatter.
+///
 /// If `config.trace.is_enabled()`, decision trace records are collected during
 /// the run and dumped to stderr (text) or the configured file (JSONL) when the
 /// run completes.
 pub fn run_headless(config: HeadlessConfig) -> HeadlessReport {
-    let mut world = TestWorld::with_seed(config.seed);
+    let mut world = if config.game_defaults {
+        TestWorld::with_game_map(config.seed)
+    } else {
+        TestWorld::with_seed(config.seed)
+    };
 
     // Override the default (disabled) TraceConfig if tracing was requested.
     if config.trace.is_enabled() {
@@ -246,35 +254,37 @@ fn run_inspection(world: &mut TestWorld, inspect: &InspectConfig) {
     }
 }
 
-/// Spawns the configured population into the TestWorld using a seeded RNG for
-/// positions. Returns the number of agents spawned (humans + deer).
+/// Spawns the configured population into the TestWorld using `WorldSpawnConfig`.
+/// Returns the number of agents spawned (humans + deer).
 fn populate(world: &mut TestWorld, config: &HeadlessConfig) -> u64 {
-    let mut rng = ChaCha8Rng::seed_from_u64(config.seed);
+    let spawn_config = if config.game_defaults {
+        WorldSpawnConfig {
+            humans: config.humans,
+            deer: config.deer,
+            berry_bushes: config.berry_bushes,
+            apple_trees: config.apple_trees,
+            seed: config.seed,
+            ..WorldSpawnConfig::game_defaults()
+        }
+    } else {
+        WorldSpawnConfig {
+            humans: config.humans,
+            deer: config.deer,
+            berry_bushes: config.berry_bushes,
+            apple_trees: config.apple_trees,
+            seed: config.seed,
+            spawn_algorithm: SpawnAlgorithm::Uniform,
+            ..WorldSpawnConfig::game_defaults()
+        }
+    };
 
-    for _ in 0..config.humans {
-        let pos = random_position(&mut rng);
-        world.spawn_agent(AgentConfig::at(pos));
-    }
-    for _ in 0..config.deer {
-        let pos = random_position(&mut rng);
-        world.spawn_deer(pos);
-    }
-    for _ in 0..config.berry_bushes {
-        let pos = random_position(&mut rng);
-        world.spawn_berry_bush(pos, 5);
-    }
-    for _ in 0..config.apple_trees {
-        let pos = random_position(&mut rng);
-        world.spawn_apple_tree(pos, 7);
-    }
+    let layout = {
+        let map = world.app().world().resource::<WorldMap>();
+        spawn_config.compute_layout(map)
+    };
+    world.apply_spawn_layout(&layout);
 
     (config.humans + config.deer) as u64
-}
-
-fn random_position(rng: &mut ChaCha8Rng) -> Vec2 {
-    let x = rng.random_range(0.0..DEFAULT_AREA_PX);
-    let y = rng.random_range(0.0..DEFAULT_AREA_PX);
-    Vec2::new(x, y)
 }
 
 fn collect_report(
@@ -481,5 +491,64 @@ mod tests {
             report.agents.alive + report.agents.died,
             report.agents.spawned
         );
+    }
+
+    #[test]
+    fn game_defaults_spawns_correct_human_count() {
+        let game = crate::world::spawn_config::WorldSpawnConfig::game_defaults();
+        let config = HeadlessConfig {
+            ticks: 0,
+            game_defaults: true,
+            humans: game.humans,
+            deer: game.deer,
+            berry_bushes: game.berry_bushes,
+            apple_trees: game.apple_trees,
+            ..Default::default()
+        };
+        let report = run_headless(config);
+        assert_eq!(report.agents.spawned, (game.humans + game.deer) as u64);
+    }
+
+    #[test]
+    fn game_defaults_human_override_applies() {
+        let config = HeadlessConfig {
+            ticks: 0,
+            game_defaults: true,
+            humans: 10,
+            deer: 0,
+            berry_bushes: 0,
+            apple_trees: 0,
+            ..Default::default()
+        };
+        let report = run_headless(config);
+        assert_eq!(report.agents.spawned, 10); // overridden to 10 humans, 0 deer
+    }
+
+    #[test]
+    fn game_defaults_same_seed_same_positions() {
+        let cfg = HeadlessConfig {
+            ticks: 0,
+            seed: 42,
+            game_defaults: true,
+            ..Default::default()
+        };
+
+        let mut world_a = TestWorld::with_game_map(cfg.seed);
+        let mut world_b = TestWorld::with_game_map(cfg.seed);
+        populate(&mut world_a, &cfg);
+        populate(&mut world_b, &cfg);
+
+        let entities_a = world_a.all_agents();
+        let entities_b = world_b.all_agents();
+        let positions_a: Vec<_> = entities_a
+            .iter()
+            .map(|e| world_a.get::<bevy::prelude::Transform>(*e).translation)
+            .collect();
+        let positions_b: Vec<_> = entities_b
+            .iter()
+            .map(|e| world_b.get::<bevy::prelude::Transform>(*e).translation)
+            .collect();
+
+        assert_eq!(positions_a, positions_b);
     }
 }

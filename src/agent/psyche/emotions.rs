@@ -358,7 +358,7 @@ pub fn update_stress(
     }
 }
 
-fn add_emotion_with_event(
+pub fn add_emotion_with_event(
     state: &mut EmotionalState,
     sim_events: &mut MessageWriter<crate::agent::events::SimEvent>,
     agent: Entity,

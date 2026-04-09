@@ -243,15 +243,24 @@ fn hash_value<H: std::hash::Hasher>(v: &Value, state: &mut H) {
 struct RegressiveState {
     /// Conditions that still need to be satisfied
     unmet_goals: Vec<TriplePattern>,
+    /// Resources consumed by actions already in the plan (executing after this point).
+    /// Used to block preconditions for actions that would execute before those consumers.
+    consumed: Vec<TriplePattern>,
 }
 
 impl PartialEq for RegressiveState {
     fn eq(&self, other: &Self) -> bool {
         self.unmet_goals.len() == other.unmet_goals.len()
+            && self.consumed.len() == other.consumed.len()
             && self
                 .unmet_goals
                 .iter()
                 .zip(&other.unmet_goals)
+                .all(|(a, b)| patterns_eq(a, b))
+            && self
+                .consumed
+                .iter()
+                .zip(&other.consumed)
                 .all(|(a, b)| patterns_eq(a, b))
     }
 }
@@ -263,12 +272,18 @@ impl Hash for RegressiveState {
         for pattern in &self.unmet_goals {
             hash_pattern(pattern, state);
         }
+        for pattern in &self.consumed {
+            hash_pattern(pattern, state);
+        }
     }
 }
 
 impl RegressiveState {
-    fn new(goals: Vec<TriplePattern>) -> Self {
-        let mut s = Self { unmet_goals: goals };
+    fn new(goals: Vec<TriplePattern>, consumed: Vec<TriplePattern>) -> Self {
+        let mut s = Self {
+            unmet_goals: goals,
+            consumed,
+        };
         s.normalize();
         s
     }
@@ -276,6 +291,7 @@ impl RegressiveState {
     /// Sort goals for canonical hashing
     fn normalize(&mut self) {
         self.unmet_goals.sort_by(compare_patterns);
+        self.consumed.sort_by(compare_patterns);
     }
 }
 
@@ -334,7 +350,7 @@ pub fn regressive_plan(
         return Some(Vec::new());
     }
 
-    let start = RegressiveState::new(initial_goals);
+    let start = RegressiveState::new(initial_goals, vec![]);
     g_score.insert(start.clone(), 0.0);
     open_set.push(RegressiveSearchNode {
         f_score: start.unmet_goals.len() as f32, // Simple heuristic
@@ -394,6 +410,7 @@ pub fn regressive_plan(
             remaining_goals,
             current_g,
             mind,
+            &current_state.consumed,
         );
         for (action, next_state, new_cost) in candidates {
             update_search_candidate(
@@ -415,6 +432,7 @@ pub fn regressive_plan(
             current_g,
             mind,
             action_registry,
+            &current_state.consumed,
         ) {
             update_search_candidate(
                 walk_action,
@@ -435,6 +453,7 @@ pub fn regressive_plan(
             current_g,
             mind,
             action_registry,
+            &current_state.consumed,
         ) {
             update_search_candidate(
                 walk_action,
@@ -529,7 +548,29 @@ fn reconstruct_regressive_path(
     path
 }
 
-// ─── Pattern Hashing Mocks ───
+// ─── Pattern Helpers ───
+
+/// Returns true if patterns `a` and `b` could match the same triple.
+/// None fields act as wildcards — if either pattern has None for a field, that field can't rule
+/// out overlap. Two patterns overlap when no field has *conflicting concrete* values.
+fn patterns_overlap(a: &TriplePattern, b: &TriplePattern) -> bool {
+    if let (Some(sa), Some(sb)) = (&a.subject, &b.subject)
+        && sa != sb
+    {
+        return false;
+    }
+    if let (Some(pa), Some(pb)) = (a.predicate, b.predicate)
+        && pa != pb
+    {
+        return false;
+    }
+    if let (Some(oa), Some(ob)) = (&a.object, &b.object)
+        && compare_values(oa, ob) != Ordering::Equal
+    {
+        return false;
+    }
+    true
+}
 
 fn patterns_eq(a: &TriplePattern, b: &TriplePattern) -> bool {
     a.subject == b.subject && a.predicate == b.predicate && values_opt_eq(&a.object, &b.object)
@@ -611,12 +652,17 @@ fn update_search_candidate(
 }
 
 /// Collects all explicit actions that satisfy target_goal, with their next states and costs.
+///
+/// `current_consumed` tracks resources already consumed by actions that will execute *after*
+/// this point in the plan (from the backward search's perspective). A precondition is blocked
+/// if any consumed pattern overlaps with it, because the resource will already be gone.
 fn find_explicit_actions_for_goal(
     available_actions: &[ActionTemplate],
     target_goal: &TriplePattern,
     remaining_goals: &[TriplePattern],
     current_g: f32,
     mind: &MindGraph,
+    current_consumed: &[TriplePattern],
 ) -> Vec<(ActionTemplate, RegressiveState, f32)> {
     let mut candidates = Vec::new();
 
@@ -627,12 +673,20 @@ fn find_explicit_actions_for_goal(
 
         let mut new_unmet = remaining_goals.to_vec();
         for pre in &action.preconditions {
-            if !mind_satisfies_pattern(mind, pre) {
+            // A precondition is unmet if:
+            // 1. It isn't satisfied in the live world, OR
+            // 2. It would be satisfied in the live world but a later action consumes it
+            let consumed_by_later = current_consumed.iter().any(|c| patterns_overlap(c, pre));
+            if !mind_satisfies_pattern(mind, pre) || consumed_by_later {
                 new_unmet.push(pre.clone());
             }
         }
 
-        let next_state = RegressiveState::new(new_unmet);
+        // Propagate consumed: add this action's consumptions for actions that execute earlier
+        let mut next_consumed = current_consumed.to_vec();
+        next_consumed.extend(action.consumes.iter().cloned());
+
+        let next_state = RegressiveState::new(new_unmet, next_consumed);
         let new_cost = current_g + action.base_cost;
         candidates.push((action.clone(), next_state, new_cost));
     }
@@ -647,6 +701,7 @@ fn generate_implicit_tile_walk(
     current_g: f32,
     mind: &MindGraph,
     action_registry: &crate::agent::actions::ActionRegistry,
+    current_consumed: &[TriplePattern],
 ) -> Option<(ActionTemplate, RegressiveState, f32)> {
     if target_goal.predicate != Some(Predicate::LocatedAt) {
         return None;
@@ -677,7 +732,8 @@ fn generate_implicit_tile_walk(
         .map(|a| a.to_template(None, Some(world_pos)))
         .expect("Walk action must be registered");
 
-    let next_state = RegressiveState::new(remaining_goals.to_vec());
+    // Walk doesn't consume resources; propagate consumed unchanged
+    let next_state = RegressiveState::new(remaining_goals.to_vec(), current_consumed.to_vec());
     let new_cost = current_g + dist;
 
     Some((walk_action, next_state, new_cost))
@@ -690,6 +746,7 @@ fn generate_implicit_entity_walk(
     current_g: f32,
     mind: &MindGraph,
     action_registry: &crate::agent::actions::ActionRegistry,
+    current_consumed: &[TriplePattern],
 ) -> Option<(ActionTemplate, RegressiveState, f32)> {
     if target_goal.predicate != Some(Predicate::LocatedAt) {
         return None;
@@ -726,7 +783,8 @@ fn generate_implicit_entity_walk(
         .map(|a| a.to_template(Some(entity), Some(world_pos)))
         .expect("Walk action must be registered");
 
-    let next_state = RegressiveState::new(remaining_goals.to_vec());
+    // Walk doesn't consume resources; propagate consumed unchanged
+    let next_state = RegressiveState::new(remaining_goals.to_vec(), current_consumed.to_vec());
     let new_cost = current_g + dist;
 
     Some((walk_action, next_state, new_cost))
@@ -749,5 +807,239 @@ impl Default for PlannerConfig {
         Self {
             goal_formulation_threshold: 0.1, // Low threshold to encourage action
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::agent::actions::ActionType;
+    use crate::agent::actions::registry::ActionRegistry;
+    use crate::agent::mind::knowledge::{
+        Concept, Node as MindNode, Predicate, Triple, Value, setup_ontology,
+    };
+    use bevy::prelude::Entity;
+
+    // ─── Helpers ──────────────────────────────────────────────────────────────
+
+    fn test_mind() -> MindGraph {
+        MindGraph::new(setup_ontology())
+    }
+
+    /// An action that gathers `concept` from `target`. Consumes the source's contents.
+    fn gather_template(target: Entity, concept: Concept) -> ActionTemplate {
+        ActionTemplate {
+            name: format!("Gather({:?})", concept),
+            action_type: ActionType::Harvest,
+            target_entity: Some(target),
+            target_position: None,
+            preconditions: vec![TriplePattern::entity_contains(target)],
+            effects: vec![Triple::new(
+                MindNode::Self_,
+                Predicate::Contains,
+                Value::Item(concept, 1),
+            )],
+            consumes: vec![TriplePattern::entity_contains(target)],
+            base_cost: 2.0,
+        }
+    }
+
+    fn goal_self_contains(concept: Concept) -> Goal {
+        Goal {
+            conditions: vec![TriplePattern::new(
+                Some(MindNode::Self_),
+                Some(Predicate::Contains),
+                Some(Value::Item(concept, 1)),
+            )],
+            priority: 1.0,
+        }
+    }
+
+    fn goal_self_contains_both(a: Concept, b: Concept) -> Goal {
+        Goal {
+            conditions: vec![
+                TriplePattern::new(
+                    Some(MindNode::Self_),
+                    Some(Predicate::Contains),
+                    Some(Value::Item(a, 1)),
+                ),
+                TriplePattern::new(
+                    Some(MindNode::Self_),
+                    Some(Predicate::Contains),
+                    Some(Value::Item(b, 1)),
+                ),
+            ],
+            priority: 1.0,
+        }
+    }
+
+    fn minimal_registry() -> ActionRegistry {
+        // Walk must be registered because the planner may need it for implicit walks.
+        // For tests that don't use LocatedAt goals, it won't be called.
+        ActionRegistry::new()
+    }
+
+    // ─── patterns_overlap ─────────────────────────────────────────────────────
+
+    #[test]
+    fn patterns_overlap_same_subject_and_predicate() {
+        let e = Entity::from_bits(1);
+        let a = TriplePattern::entity_contains(e);
+        let b = TriplePattern::entity_contains(e);
+        assert!(patterns_overlap(&a, &b));
+    }
+
+    #[test]
+    fn patterns_overlap_one_wildcard_subject() {
+        let e = Entity::from_bits(1);
+        // `a` has a wildcard object, `b` is fully concrete
+        let a = TriplePattern::new(Some(MindNode::Entity(e)), Some(Predicate::Contains), None);
+        let b = TriplePattern::new(
+            Some(MindNode::Entity(e)),
+            Some(Predicate::Contains),
+            Some(Value::Item(Concept::Apple, 1)),
+        );
+        assert!(patterns_overlap(&a, &b));
+    }
+
+    #[test]
+    fn patterns_no_overlap_different_entities() {
+        let e1 = Entity::from_bits(1);
+        let e2 = Entity::from_bits(2);
+        let a = TriplePattern::entity_contains(e1);
+        let b = TriplePattern::entity_contains(e2);
+        assert!(!patterns_overlap(&a, &b));
+    }
+
+    #[test]
+    fn patterns_no_overlap_different_predicates() {
+        let e = Entity::from_bits(1);
+        let a = TriplePattern::new(Some(MindNode::Entity(e)), Some(Predicate::Contains), None);
+        let b = TriplePattern::new(Some(MindNode::Entity(e)), Some(Predicate::LocatedAt), None);
+        assert!(!patterns_overlap(&a, &b));
+    }
+
+    // ─── planner with consumed tracking ───────────────────────────────────────
+
+    #[test]
+    fn single_gather_plan_still_works() {
+        // Baseline: a single gather from a source with items succeeds (no regression).
+        let tree = Entity::from_bits(42);
+        let mut mind = test_mind();
+        mind.add(Triple::new(
+            MindNode::Entity(tree),
+            Predicate::Contains,
+            Value::Item(Concept::Apple, 1),
+        ));
+
+        let actions = vec![gather_template(tree, Concept::Apple)];
+        let goal = goal_self_contains(Concept::Apple);
+        let registry = minimal_registry();
+
+        let plan = regressive_plan(&mind, &goal, &actions, &registry);
+        assert!(plan.is_some(), "single gather should produce a valid plan");
+        assert!(
+            plan.unwrap()
+                .iter()
+                .any(|a| a.action_type == ActionType::Harvest),
+            "plan should include Harvest"
+        );
+    }
+
+    #[test]
+    fn second_gather_from_same_source_blocked_when_consumed() {
+        // Goal needs both Apple and Berry. Two actions both target the same node (entity 42)
+        // which has items. The live world satisfies both preconditions — but consumed tracking
+        // must block the second action from planning against the already-consumed source.
+        let node = Entity::from_bits(42);
+        let mut mind = test_mind();
+        mind.add(Triple::new(
+            MindNode::Entity(node),
+            Predicate::Contains,
+            Value::Item(Concept::Apple, 1),
+        ));
+
+        // Both gather apples and berries from the same node, consuming it
+        let actions = vec![
+            gather_template(node, Concept::Apple),
+            gather_template(node, Concept::Berry),
+        ];
+        let goal = goal_self_contains_both(Concept::Apple, Concept::Berry);
+        let registry = minimal_registry();
+
+        // After planning the first gather (which consumes node 42), the second gather's
+        // precondition `entity_contains(42)` is in consumed — so no valid plan exists.
+        let plan = regressive_plan(&mind, &goal, &actions, &registry);
+        if let Some(ref p) = plan {
+            let gather_count = p
+                .iter()
+                .filter(|a| a.action_type == ActionType::Harvest)
+                .count();
+            assert!(
+                gather_count < 2,
+                "planner must not plan two gathers from the same consumed source; got {}",
+                gather_count
+            );
+        }
+        // No plan found is also a correct outcome — the planner correctly gives up
+    }
+
+    #[test]
+    fn independent_sources_not_blocked_by_consumed() {
+        // Goal needs Apple and Berry. Apple comes from tree1, Berry from tree2.
+        // Consuming tree1 (for Apple) must NOT block the Berry gather from tree2.
+        let tree1 = Entity::from_bits(1);
+        let tree2 = Entity::from_bits(2);
+        let mut mind = test_mind();
+        mind.add(Triple::new(
+            MindNode::Entity(tree1),
+            Predicate::Contains,
+            Value::Item(Concept::Apple, 1),
+        ));
+        mind.add(Triple::new(
+            MindNode::Entity(tree2),
+            Predicate::Contains,
+            Value::Item(Concept::Berry, 1),
+        ));
+
+        let actions = vec![
+            gather_template(tree1, Concept::Apple),
+            gather_template(tree2, Concept::Berry),
+        ];
+        let goal = goal_self_contains_both(Concept::Apple, Concept::Berry);
+        let registry = minimal_registry();
+
+        let plan = regressive_plan(&mind, &goal, &actions, &registry);
+        assert!(
+            plan.is_some(),
+            "two independent sources should produce a valid plan"
+        );
+        let plan = plan.unwrap();
+        let gather_count = plan
+            .iter()
+            .filter(|a| a.action_type == ActionType::Harvest)
+            .count();
+        assert_eq!(gather_count, 2, "plan should contain exactly 2 gathers");
+    }
+
+    #[test]
+    fn already_satisfied_goal_returns_empty_plan() {
+        // Agent already has an apple — no actions needed.
+        let mut mind = test_mind();
+        mind.add(Triple::new(
+            MindNode::Self_,
+            Predicate::Contains,
+            Value::Item(Concept::Apple, 1),
+        ));
+
+        let goal = goal_self_contains(Concept::Apple);
+        let registry = minimal_registry();
+
+        let plan = regressive_plan(&mind, &goal, &[], &registry);
+        assert!(plan.is_some(), "goal already satisfied should return Some");
+        assert!(
+            plan.unwrap().is_empty(),
+            "goal already satisfied should return empty plan"
+        );
     }
 }

@@ -122,6 +122,13 @@ pub trait Action: Send + Sync + 'static {
         vec![]
     }
 
+    /// Patterns that this action removes from the world when it executes (destructive effects).
+    /// Used by the planner to track resource depletion during backward search.
+    /// Default: no consumptions
+    fn plan_consumes(&self) -> Vec<TriplePattern> {
+        vec![]
+    }
+
     /// Base cost for planning (lower = preferred)
     fn cost(&self) -> f32 {
         1.0
@@ -230,6 +237,7 @@ pub trait Action: Send + Sync + 'static {
             target_position,
             preconditions,
             effects: self.plan_effects(),
+            consumes: self.plan_consumes(),
             base_cost: self.cost(),
         }
     }
