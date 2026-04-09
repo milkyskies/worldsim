@@ -77,7 +77,7 @@ pub fn profile_mindgraph_growth(
         // Calculate growth from initial
         let initial = diagnostics
             .initial_counts
-            .get(&entity.index())
+            .get(&entity.index_u32())
             .copied()
             .unwrap_or(0);
         let growth = triple_count as i64 - initial as i64;
@@ -86,7 +86,7 @@ pub fn profile_mindgraph_growth(
         if !diagnostics.initialized {
             diagnostics
                 .initial_counts
-                .insert(entity.index(), triple_count);
+                .insert(entity.index_u32(), triple_count);
         }
 
         agent_stats.push((name.to_string(), triple_count, by_subject_pred_size, growth));

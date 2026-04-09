@@ -4,10 +4,21 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-bevy = { version = "0.17.3", features = ["dynamic_linking"] }
-bevy-inspector-egui = "0.35.0"
-bevy_egui = "0.38.0"
-bevy_rand = "0.12.1"
+# This is a 2D project with an egui-based UI, so we opt out of Bevy's
+# default features and compose only the pieces we need:
+#   - default_app + default_platform: standard window/asset/input/state plumbing
+#   - 2d_bevy_render: Bevy's 2D renderer (sprites, gizmos, core pipeline)
+# This drops bevy_pbr, bevy_gltf, bevy_audio, bevy_ui, scene, picking, and the
+# rest of the 3D stack, which significantly trims compile time.
+bevy = { version = "0.18", default-features = false, features = [
+    "default_app",
+    "default_platform",
+    "2d_bevy_render",
+    "dynamic_linking",
+] }
+bevy-inspector-egui = "0.36.0"
+bevy_egui = "0.39.1"
+bevy_rand = "0.13.0"
 chrono = "0.4.42"
 egui_dock = "0.18.0"
 noise = "0.9.0"
