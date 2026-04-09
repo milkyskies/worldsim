@@ -285,6 +285,9 @@ pub fn tick_actions(
                     Some(target_position) => {
                         let current_pos = transform.translation.truncate();
                         if current_pos.distance(target_position) < ARRIVAL_THRESHOLD {
+                            // Snap to exact target so perceived tile matches Walk effect.
+                            transform.translation.x = target_position.x;
+                            transform.translation.y = target_position.y;
                             true
                         } else {
                             let ticks =
