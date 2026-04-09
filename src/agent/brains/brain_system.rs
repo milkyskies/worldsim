@@ -55,7 +55,7 @@ pub fn three_brains_system(
     >,
     world_map: Res<WorldMap>,
     action_registry: Res<crate::agent::actions::ActionRegistry>,
-    mut affordances: Query<(
+    affordances: Query<(
         &GlobalTransform,
         Option<&crate::agent::affordance::Affordance>,
     )>,

@@ -12,22 +12,23 @@ mod tests {
     #[test]
     fn test_harvest_knowledge_constraints() {
         // Setup Ontology (Shared Knowledge)
-        let mut triples = Vec::new();
-        triples.push(Triple::new(
-            Node::Concept(Concept::Apple),
-            Predicate::IsA,
-            Value::Concept(Concept::Food),
-        ));
-        triples.push(Triple::new(
-            Node::Concept(Concept::Berry),
-            Predicate::IsA,
-            Value::Concept(Concept::Food),
-        ));
-        triples.push(Triple::new(
-            Node::Concept(Concept::Stone),
-            Predicate::IsA,
-            Value::Concept(Concept::Resource),
-        ));
+        let triples = vec![
+            Triple::new(
+                Node::Concept(Concept::Apple),
+                Predicate::IsA,
+                Value::Concept(Concept::Food),
+            ),
+            Triple::new(
+                Node::Concept(Concept::Berry),
+                Predicate::IsA,
+                Value::Concept(Concept::Food),
+            ),
+            Triple::new(
+                Node::Concept(Concept::Stone),
+                Predicate::IsA,
+                Value::Concept(Concept::Resource),
+            ),
+        ];
 
         let ontology = Ontology {
             triples: Arc::new(triples),

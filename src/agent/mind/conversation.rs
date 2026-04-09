@@ -186,35 +186,35 @@ pub fn sync_conversation_state(
         }
 
         // Check if this is a newly started Talk action with a target
-        if let Some(talk_state) = active.get(ActionType::Talk) {
-            if let Some(target) = talk_state.target_entity {
-                // Check if we need to create InConversation components
-                if in_conversation.get(entity).is_err() {
-                    // Find or create conversation
-                    let participants = vec![entity, target];
-                    let conversation_id = if let Some(c) = conv_manager.find_active(&participants) {
-                        c.id
-                    } else {
-                        // This will be created by the action's on_complete,
-                        // but we need the component now
-                        continue;
-                    };
+        if let Some(talk_state) = active.get(ActionType::Talk)
+            && let Some(target) = talk_state.target_entity
+        {
+            // Check if we need to create InConversation components
+            if in_conversation.get(entity).is_err() {
+                // Find or create conversation
+                let participants = vec![entity, target];
+                let conversation_id = if let Some(c) = conv_manager.find_active(&participants) {
+                    c.id
+                } else {
+                    // This will be created by the action's on_complete,
+                    // but we need the component now
+                    continue;
+                };
 
-                    // Add InConversation components
-                    commands.entity(entity).insert(InConversation {
-                        conversation_id,
-                        partner: target,
-                        my_turn: true,
-                        owes_response: false,
-                    });
+                // Add InConversation components
+                commands.entity(entity).insert(InConversation {
+                    conversation_id,
+                    partner: target,
+                    my_turn: true,
+                    owes_response: false,
+                });
 
-                    commands.entity(target).insert(InConversation {
-                        conversation_id,
-                        partner: entity,
-                        my_turn: false,
-                        owes_response: false,
-                    });
-                }
+                commands.entity(target).insert(InConversation {
+                    conversation_id,
+                    partner: entity,
+                    my_turn: false,
+                    owes_response: false,
+                });
             }
         }
     }

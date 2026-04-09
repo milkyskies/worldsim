@@ -17,84 +17,148 @@ use std::hash::Hash;
 // ═══════════════════════════════════════════════════════════════════════════
 // PLANNER STATE — Snapshot of MindGraph for A* planning
 // ═══════════════════════════════════════════════════════════════════════════
-
-/// A lightweight state representation for the planner.
-/// We track only the triples that have been added/modified during planning.
-#[derive(Debug, Clone)]
-struct PlannerState {
-    /// Hash of the base MindGraph (for identity)
-    base_hash: u64,
-    /// Triples added during planning
-    /// We keep them sorted for canonical hashing
-    added_triples: Vec<Triple>,
-}
-
-impl PartialEq for PlannerState {
-    fn eq(&self, other: &Self) -> bool {
-        self.base_hash == other.base_hash
-            && self.added_triples.len() == other.added_triples.len()
-            && self
-                .added_triples
-                .iter()
-                .zip(&other.added_triples)
-                .all(|(a, b)| triples_eq(a, b))
-    }
-}
-
-impl Eq for PlannerState {}
-
-impl std::hash::Hash for PlannerState {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.base_hash.hash(state);
-        for triple in &self.added_triples {
-            hash_triple(triple, state);
-        }
-    }
-}
-
-impl PlannerState {
-    fn from_mind(mind: &MindGraph) -> Self {
-        Self {
-            base_hash: mind.triples.len() as u64, // Simple hash based on triple count
-            added_triples: Vec::new(),
-        }
-    }
-
-    fn with_effects(&self, effects: &[Triple]) -> Self {
-        let mut new_state = self.clone();
-        for effect in effects {
-            // Check if already exists (using our custom eq)
-            if !new_state
-                .added_triples
-                .iter()
-                .any(|t| triples_eq(t, effect))
-            {
-                new_state.added_triples.push(effect.clone());
-            }
-        }
-        // Sort for canonical state (needed for Hashing stability)
-        new_state.added_triples.sort_by(compare_triples);
-        new_state
-    }
-
-    fn check_pattern(&self, mind: &MindGraph, pattern: &TriplePattern) -> bool {
-        // First check added triples
-        for added in &self.added_triples {
-            if pattern_matches_triple(pattern, added) {
-                return true;
-            }
-        }
-
-        // Then check base MindGraph
-        !mind
-            .query(
-                pattern.subject.as_ref(),
-                pattern.predicate,
-                pattern.object.as_ref(),
-            )
-            .is_empty()
-    }
-}
+// Forward-planner scaffolding from the original GOAP implementation. Removed
+// from the live build because the forward planner (`goap_plan`) was deleted in
+// favour of the regressive planner below — backward search is more efficient
+// for goal-directed AI (only relevant actions are explored, Walk steps are
+// generated implicitly), so this struct, its impls, and the triple
+// equality/ordering/hashing helpers it depended on (`triples_eq`,
+// `compare_triples`, `hash_triple`, `SearchNode`) became dead code and were
+// tripping `#[warn(dead_code)]`.
+//
+// Kept commented out as a reference in case a forward planner is ever
+// reintroduced. The active planner uses `RegressiveState` further down.
+//
+// /// A lightweight state representation for the planner.
+// /// We track only the triples that have been added/modified during planning.
+// #[derive(Debug, Clone)]
+// struct PlannerState {
+//     /// Hash of the base MindGraph (for identity)
+//     base_hash: u64,
+//     /// Triples added during planning
+//     /// We keep them sorted for canonical hashing
+//     added_triples: Vec<Triple>,
+// }
+//
+// impl PartialEq for PlannerState {
+//     fn eq(&self, other: &Self) -> bool {
+//         self.base_hash == other.base_hash
+//             && self.added_triples.len() == other.added_triples.len()
+//             && self
+//                 .added_triples
+//                 .iter()
+//                 .zip(&other.added_triples)
+//                 .all(|(a, b)| triples_eq(a, b))
+//     }
+// }
+//
+// impl Eq for PlannerState {}
+//
+// impl std::hash::Hash for PlannerState {
+//     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+//         self.base_hash.hash(state);
+//         for triple in &self.added_triples {
+//             hash_triple(triple, state);
+//         }
+//     }
+// }
+//
+// impl PlannerState {
+//     fn from_mind(mind: &MindGraph) -> Self {
+//         Self {
+//             base_hash: mind.triples.len() as u64, // Simple hash based on triple count
+//             added_triples: Vec::new(),
+//         }
+//     }
+//
+//     fn with_effects(&self, effects: &[Triple]) -> Self {
+//         let mut new_state = self.clone();
+//         for effect in effects {
+//             // Check if already exists (using our custom eq)
+//             if !new_state
+//                 .added_triples
+//                 .iter()
+//                 .any(|t| triples_eq(t, effect))
+//             {
+//                 new_state.added_triples.push(effect.clone());
+//             }
+//         }
+//         // Sort for canonical state (needed for Hashing stability)
+//         new_state.added_triples.sort_by(compare_triples);
+//         new_state
+//     }
+//
+//     fn check_pattern(&self, mind: &MindGraph, pattern: &TriplePattern) -> bool {
+//         // First check added triples
+//         for added in &self.added_triples {
+//             if pattern_matches_triple(pattern, added) {
+//                 return true;
+//             }
+//         }
+//
+//         // Then check base MindGraph
+//         !mind
+//             .query(
+//                 pattern.subject.as_ref(),
+//                 pattern.predicate,
+//                 pattern.object.as_ref(),
+//             )
+//             .is_empty()
+//     }
+// }
+//
+// fn triples_eq(a: &Triple, b: &Triple) -> bool {
+//     a.subject == b.subject && a.predicate == b.predicate && a.object == b.object
+// }
+//
+// fn compare_triples(a: &Triple, b: &Triple) -> Ordering {
+//     // Subject -> Predicate -> Object
+//     let ord = compare_nodes(&a.subject, &b.subject);
+//     if ord != Ordering::Equal {
+//         return ord;
+//     }
+//     let ord = (a.predicate as usize).cmp(&(b.predicate as usize));
+//     if ord != Ordering::Equal {
+//         return ord;
+//     }
+//     compare_values(&a.object, &b.object)
+// }
+//
+// fn hash_triple<H: std::hash::Hasher>(t: &Triple, state: &mut H) {
+//     t.subject.hash(state);
+//     t.predicate.hash(state);
+//     hash_value(&t.object, state);
+// }
+//
+// // ═══════════════════════════════════════════════════════════════════════════
+// // A* NODE
+// // ═══════════════════════════════════════════════════════════════════════════
+//
+// /// A node in the A* open set.
+// #[derive(Debug, Clone)]
+// struct SearchNode {
+//     f_score: f32, // Total estimated cost (g + h)
+//     state: PlannerState,
+// }
+//
+// // Rust's BinaryHeap is a max-heap, so we implement Ord to reverse it for a min-heap.
+// impl PartialEq for SearchNode {
+//     fn eq(&self, other: &Self) -> bool {
+//         self.f_score == other.f_score
+//     }
+// }
+// impl Eq for SearchNode {}
+// impl PartialOrd for SearchNode {
+//     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+//         Some(self.cmp(other))
+//     }
+// }
+// impl Ord for SearchNode {
+//     fn cmp(&self, other: &Self) -> Ordering {
+//         // Reverse order: smaller f_score is better (Greater)
+//         other.f_score.total_cmp(&self.f_score) // Use total_cmp for floats
+//     }
+// }
 
 /// Helper: Check if pattern matches a concrete triple
 fn pattern_matches_triple(pattern: &TriplePattern, triple: &Triple) -> bool {
@@ -117,28 +181,6 @@ fn pattern_matches_triple(pattern: &TriplePattern, triple: &Triple) -> bool {
 }
 
 // ─── Custom Comparison / Hashing for Triples (since Value doesn't impl it) ───
-
-fn triples_eq(a: &Triple, b: &Triple) -> bool {
-    a.subject == b.subject && a.predicate == b.predicate && a.object == b.object
-}
-
-fn compare_triples(a: &Triple, b: &Triple) -> Ordering {
-    // Subject -> Predicate -> Object
-
-    // Manual comparison for Node
-    let ord = compare_nodes(&a.subject, &b.subject);
-    if ord != Ordering::Equal {
-        return ord;
-    }
-
-    // Predicate is simple enum
-    let ord = (a.predicate as usize).cmp(&(b.predicate as usize));
-    if ord != Ordering::Equal {
-        return ord;
-    }
-
-    compare_values(&a.object, &b.object)
-}
 
 fn compare_nodes(a: &MindNode, b: &MindNode) -> Ordering {
     // Basic heuristic sort
@@ -165,12 +207,6 @@ fn compare_values(a: &Value, b: &Value) -> Ordering {
     }
 }
 
-fn hash_triple<H: std::hash::Hasher>(t: &Triple, state: &mut H) {
-    t.subject.hash(state);
-    t.predicate.hash(state);
-    hash_value(&t.object, state);
-}
-
 fn hash_value<H: std::hash::Hasher>(v: &Value, state: &mut H) {
     std::mem::discriminant(v).hash(state);
     match v {
@@ -191,36 +227,6 @@ fn hash_value<H: std::hash::Hasher>(v: &Value, state: &mut H) {
         }
         Value::Attitude(f) => f.to_bits().hash(state),
         Value::Text(s) => s.0.hash(state),
-    }
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
-// A* NODE
-// ═══════════════════════════════════════════════════════════════════════════
-
-/// A node in the A* open set.
-#[derive(Debug, Clone)]
-struct SearchNode {
-    f_score: f32, // Total estimated cost (g + h)
-    state: PlannerState,
-}
-
-// Rust's BinaryHeap is a max-heap, so we implement Ord to reverse it for a min-heap.
-impl PartialEq for SearchNode {
-    fn eq(&self, other: &Self) -> bool {
-        self.f_score == other.f_score
-    }
-}
-impl Eq for SearchNode {}
-impl PartialOrd for SearchNode {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-impl Ord for SearchNode {
-    fn cmp(&self, other: &Self) -> Ordering {
-        // Reverse order: smaller f_score is better (Greater)
-        other.f_score.total_cmp(&self.f_score) // Use total_cmp for floats
     }
 }
 
