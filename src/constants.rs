@@ -128,6 +128,9 @@ pub mod brains {
     pub mod survival {
         /// Energy level at which a sleeping agent wakes up fully rested.
         pub const WAKE_ENERGY_THRESHOLD: f32 = 90.0;
+        /// Energy safety margin used by the planner: if a walk would leave the agent below
+        /// this level, Sleep is prepended so the survival brain doesn't interrupt the trip.
+        pub const EXHAUSTION_TRIGGER: f32 = 15.0;
     }
 
     /// Emotional brain urgency scores and emotion intensity thresholds
