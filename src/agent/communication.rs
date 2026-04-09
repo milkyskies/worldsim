@@ -488,109 +488,6 @@ pub(crate) fn valence_from_parts(
     (base + affection_modifier + mood_modifier + personality_modifier).clamp(-1.0, 1.0)
 }
 
-// ============================================================================
-// TESTS
-// ============================================================================
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn ask_intent_produces_lower_base_valence_than_share() {
-        assert!(valence_base(Intent::Ask) < valence_base(Intent::Share));
-    }
-
-    #[test]
-    fn disagree_intent_produces_lowest_base_valence() {
-        let all_intents = [
-            Intent::Greet,
-            Intent::Ask,
-            Intent::Answer,
-            Intent::Share,
-            Intent::Empathize,
-            Intent::Agree,
-            Intent::Disagree,
-            Intent::Thank,
-            Intent::Farewell,
-            Intent::Acknowledge,
-        ];
-        let disagree = valence_base(Intent::Disagree);
-        for intent in all_intents {
-            assert!(
-                valence_base(intent) >= disagree,
-                "{intent:?} base ({}) is less than Disagree ({})",
-                valence_base(intent),
-                disagree
-            );
-        }
-    }
-
-    #[test]
-    fn high_affection_raises_valence_compared_to_neutral() {
-        let base = valence_base(Intent::Share);
-        let neutral = valence_from_parts(base, 0.5, 0.0, 0.0, 0.5);
-        let friend = valence_from_parts(base, 1.0, 0.0, 0.0, 0.5);
-        let enemy = valence_from_parts(base, 0.0, 0.0, 0.0, 0.5);
-        assert!(
-            friend > neutral,
-            "friend valence {friend} should exceed neutral {neutral}"
-        );
-        assert!(
-            enemy < neutral,
-            "enemy valence {enemy} should be below neutral {neutral}"
-        );
-    }
-
-    #[test]
-    fn positive_mood_raises_valence() {
-        let base = valence_base(Intent::Share);
-        let neutral_mood = valence_from_parts(base, 0.5, 0.0, 0.0, 0.5);
-        let good_mood = valence_from_parts(base, 0.5, 1.0, 1.0, 0.5);
-        assert!(good_mood > neutral_mood);
-    }
-
-    #[test]
-    fn valence_is_clamped_to_minus_one_to_one() {
-        // Max out all modifiers to verify clamp.
-        let v_max = valence_from_parts(1.0, 1.0, 1.0, 1.0, 1.0);
-        let v_min = valence_from_parts(-1.0, 0.0, -1.0, -1.0, 0.0);
-        assert!(v_max <= 1.0);
-        assert!(v_min >= -1.0);
-    }
-
-    #[test]
-    fn agreeable_speaker_produces_higher_valence() {
-        let base = valence_base(Intent::Share);
-        let low_agree = valence_from_parts(base, 0.5, 0.0, 0.0, 0.0);
-        let high_agree = valence_from_parts(base, 0.5, 0.0, 0.0, 1.0);
-        assert!(high_agree > low_agree);
-    }
-
-    #[test]
-    fn map_topic_general_is_greetings() {
-        assert_eq!(map_topic(Topic::General), ConversationTopic::Greetings);
-    }
-
-    #[test]
-    fn map_topic_help_is_request() {
-        assert_eq!(map_topic(Topic::Help), ConversationTopic::Request);
-    }
-
-    #[test]
-    fn next_intent_starts_with_greet() {
-        let conv = Conversation::new(0, [Entity::from_bits(1), Entity::from_bits(2)], 0);
-        assert_eq!(next_intent_for(&conv), Intent::Greet);
-    }
-
-    #[test]
-    fn next_intent_wraps_with_farewell() {
-        let mut conv = Conversation::new(0, [Entity::from_bits(1), Entity::from_bits(2)], 0);
-        conv.state = ConversationState::Wrapping;
-        assert_eq!(next_intent_for(&conv), Intent::Farewell);
-    }
-}
-
 fn map_topic(topic: Topic) -> ConversationTopic {
     match topic {
         Topic::General => ConversationTopic::Greetings,
@@ -715,4 +612,102 @@ fn pick_abandoner(actives: &Query<&ActiveActions>, participants: [Entity; 2]) ->
         }
     }
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ask_intent_produces_lower_base_valence_than_share() {
+        assert!(valence_base(Intent::Ask) < valence_base(Intent::Share));
+    }
+
+    #[test]
+    fn disagree_intent_produces_lowest_base_valence() {
+        let all_intents = [
+            Intent::Greet,
+            Intent::Ask,
+            Intent::Answer,
+            Intent::Share,
+            Intent::Empathize,
+            Intent::Agree,
+            Intent::Disagree,
+            Intent::Thank,
+            Intent::Farewell,
+            Intent::Acknowledge,
+        ];
+        let disagree = valence_base(Intent::Disagree);
+        for intent in all_intents {
+            assert!(
+                valence_base(intent) >= disagree,
+                "{intent:?} base ({}) is less than Disagree ({})",
+                valence_base(intent),
+                disagree
+            );
+        }
+    }
+
+    #[test]
+    fn high_affection_raises_valence_compared_to_neutral() {
+        let base = valence_base(Intent::Share);
+        let neutral = valence_from_parts(base, 0.5, 0.0, 0.0, 0.5);
+        let friend = valence_from_parts(base, 1.0, 0.0, 0.0, 0.5);
+        let enemy = valence_from_parts(base, 0.0, 0.0, 0.0, 0.5);
+        assert!(
+            friend > neutral,
+            "friend valence {friend} should exceed neutral {neutral}"
+        );
+        assert!(
+            enemy < neutral,
+            "enemy valence {enemy} should be below neutral {neutral}"
+        );
+    }
+
+    #[test]
+    fn positive_mood_raises_valence() {
+        let base = valence_base(Intent::Share);
+        let neutral_mood = valence_from_parts(base, 0.5, 0.0, 0.0, 0.5);
+        let good_mood = valence_from_parts(base, 0.5, 1.0, 1.0, 0.5);
+        assert!(good_mood > neutral_mood);
+    }
+
+    #[test]
+    fn valence_is_clamped_to_minus_one_to_one() {
+        let v_max = valence_from_parts(1.0, 1.0, 1.0, 1.0, 1.0);
+        let v_min = valence_from_parts(-1.0, 0.0, -1.0, -1.0, 0.0);
+        assert!(v_max <= 1.0);
+        assert!(v_min >= -1.0);
+    }
+
+    #[test]
+    fn agreeable_speaker_produces_higher_valence() {
+        let base = valence_base(Intent::Share);
+        let low_agree = valence_from_parts(base, 0.5, 0.0, 0.0, 0.0);
+        let high_agree = valence_from_parts(base, 0.5, 0.0, 0.0, 1.0);
+        assert!(high_agree > low_agree);
+    }
+
+    #[test]
+    fn map_topic_general_is_greetings() {
+        assert_eq!(map_topic(Topic::General), ConversationTopic::Greetings);
+    }
+
+    #[test]
+    fn map_topic_help_is_request() {
+        assert_eq!(map_topic(Topic::Help), ConversationTopic::Request);
+    }
+
+    #[test]
+    fn next_intent_starts_with_greet() {
+        let conv = Conversation::new(0, [Entity::from_bits(1), Entity::from_bits(2)], 0);
+        assert_eq!(next_intent_for(&conv), Intent::Greet);
+    }
+
+    #[test]
+    fn next_intent_wraps_with_farewell() {
+        let mut conv = Conversation::new(0, [Entity::from_bits(1), Entity::from_bits(2)], 0);
+        conv.state = ConversationState::Wrapping;
+        assert_eq!(next_intent_for(&conv), Intent::Farewell);
+    }
 }
