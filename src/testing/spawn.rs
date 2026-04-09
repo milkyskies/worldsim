@@ -14,7 +14,8 @@ use crate::agent::body::needs::{Consciousness, PhysicalNeeds, PsychologicalDrive
 use crate::agent::body::species::SpeciesProfile;
 use crate::agent::brains::proposal::BrainState;
 use crate::agent::brains::rational::RationalBrain;
-use crate::agent::inventory::{EntityType, Inventory};
+use crate::agent::inventory::EntityType;
+use crate::agent::item_slots::ItemSlots;
 use crate::agent::mind::knowledge::{Concept, MindGraph, Ontology};
 use crate::agent::mind::memory::WorkingMemory;
 use crate::agent::mind::perception::{VisibleObjects, Vision};
@@ -54,7 +55,7 @@ pub(super) fn spawn_test_person(
             Physical,
             TargetPosition::default(),
             MovementState::default(),
-            Inventory::default(),
+            ItemSlots::agent_carry(),
             config.personality,
             Transform::from_translation(config.pos.extend(3.0)),
             GlobalTransform::default(),
@@ -137,7 +138,7 @@ pub(super) fn spawn_test_deer(world: &mut World, ontology: Ontology, pos: Vec2) 
             Physical,
             TargetPosition::default(),
             MovementState::default(),
-            Inventory::default(),
+            ItemSlots::agent_carry(),
             Personality::default(),
             Transform::from_translation(pos.extend(3.0)),
             GlobalTransform::default(),
@@ -163,7 +164,7 @@ pub(super) fn spawn_test_deer(world: &mut World, ontology: Ontology, pos: Vec2) 
 
 /// Spawns a berry bush with the given starting berry count, no visuals.
 pub(super) fn spawn_test_berry_bush(world: &mut World, pos: Vec2, berries: u32) -> Entity {
-    let mut inventory = Inventory::default();
+    let mut inventory = ItemSlots::agent_carry();
     if berries > 0 {
         inventory.add(Concept::Berry, berries);
     }
@@ -194,7 +195,7 @@ pub(super) fn spawn_test_berry_bush(world: &mut World, pos: Vec2, berries: u32) 
 
 /// Spawns an apple tree with the given starting apple count, no visuals.
 pub(super) fn spawn_test_apple_tree(world: &mut World, pos: Vec2, apples: u32) -> Entity {
-    let mut inventory = Inventory::default();
+    let mut inventory = ItemSlots::agent_carry();
     if apples > 0 {
         inventory.add(Concept::Apple, apples);
     }

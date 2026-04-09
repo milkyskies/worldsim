@@ -1,6 +1,7 @@
 //! Tree spawning logic (Apple Trees, etc.).
 
-use crate::agent::inventory::{EntityType, Inventory};
+use crate::agent::inventory::EntityType;
+use crate::agent::item_slots::ItemSlots;
 use crate::agent::mind::knowledge::Concept;
 use crate::world::map::TILE_SIZE;
 use bevy::prelude::*;
@@ -28,7 +29,7 @@ pub fn spawn_apple_tree(commands: &mut Commands, position: Vec2, apples: u32) ->
     use rand::Rng;
     let mut rng = rand::rng();
 
-    let mut inventory = Inventory::default();
+    let mut inventory = ItemSlots::agent_carry();
     if apples > 0 {
         inventory.add(Concept::Apple, apples);
     }
@@ -121,7 +122,7 @@ pub fn spawn_apple_tree(commands: &mut Commands, position: Vec2, apples: u32) ->
 /// Syncs the visual apple count with the inventory count.
 pub fn sync_apple_visuals(
     mut commands: Commands,
-    mut tree_query: Query<(&Inventory, &Children)>,
+    mut tree_query: Query<(&ItemSlots, &Children)>,
     mut leaves_query: Query<(Entity, &Children), With<VisualLeaves>>,
     apples_query: Query<Entity, With<VisualApple>>,
 ) {
@@ -180,7 +181,7 @@ pub fn sync_apple_visuals(
 
 /// Regenerates resources (e.g., apples on trees) over time.
 pub fn regenerate_resources(
-    mut query: Query<(&mut Inventory, &mut ResourceRegeneration)>,
+    mut query: Query<(&mut ItemSlots, &mut ResourceRegeneration)>,
     time: Res<Time>,
 ) {
     let dt = time.delta_secs();

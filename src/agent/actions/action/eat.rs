@@ -48,7 +48,7 @@ impl Action for EatAction {
 
     // Execution: Actually check if we have edible food
     fn can_start(&self, ctx: &ActionContext) -> Result<(), FailureReason> {
-        if ctx.inventory.items.iter().any(|item| item.quantity > 0) {
+        if ctx.inventory.all_items().any(|item| item.quantity > 0) {
             Ok(())
         } else {
             Err(FailureReason::NoEdibleFood)
@@ -64,8 +64,12 @@ impl Action for EatAction {
         ctx.physical.energy = (ctx.physical.energy + ENERGY_GAIN).min(100.0);
 
         // Consume first edible item from inventory
-        if let Some(item) = ctx.inventory.items.iter().find(|i| i.quantity > 0) {
-            let concept = item.concept;
+        let concept = ctx
+            .inventory
+            .all_items()
+            .find(|i| i.quantity > 0)
+            .map(|i| i.concept);
+        if let Some(concept) = concept {
             ctx.inventory.remove(concept, 1);
         }
     }

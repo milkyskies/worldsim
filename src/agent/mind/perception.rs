@@ -169,7 +169,7 @@ pub fn update_body_perception(
 pub fn write_perceptions_to_mind(
     mut agents: Query<(Entity, &Name, &Transform, &VisibleObjects, &mut MindGraph), With<Agent>>,
     transforms: Query<&Transform>,
-    inventories: Query<&crate::agent::inventory::Inventory>,
+    inventories: Query<&crate::agent::item_slots::ItemSlots>,
     entity_types: Query<&crate::agent::inventory::EntityType>,
     tick: Res<TickCount>,
 ) {
@@ -245,7 +245,7 @@ fn calc_confidence(agent_pos: Vec2, targeted_transform: Option<&Transform>) -> f
 
 fn perceive_inventory(
     entity: Entity,
-    inventory: &crate::agent::inventory::Inventory,
+    inventory: &crate::agent::item_slots::ItemSlots,
     mind: &mut MindGraph,
     time: u64,
     confidence: f32,
@@ -259,7 +259,7 @@ fn perceive_inventory(
     let mut observed_concepts = std::collections::HashSet::new();
 
     // 1. Record what IS there
-    for item in &inventory.items {
+    for item in inventory.all_items() {
         if item.quantity > 0 {
             observed_concepts.insert(item.concept);
             mind.assert(Triple::with_meta(

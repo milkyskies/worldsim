@@ -1,6 +1,7 @@
 //! Berry Bush spawning logic.
 
-use crate::agent::inventory::{EntityType, Inventory};
+use crate::agent::inventory::EntityType;
+use crate::agent::item_slots::ItemSlots;
 use crate::agent::mind::knowledge::Concept;
 use crate::world::map::TILE_SIZE;
 use bevy::prelude::*;
@@ -20,7 +21,7 @@ pub fn spawn_berry_bush(commands: &mut Commands, position: Vec2, berries: u32) -
     use rand::Rng;
     let mut rng = rand::rng();
 
-    let mut inventory = Inventory::default();
+    let mut inventory = ItemSlots::agent_carry();
     if berries > 0 {
         inventory.add(Concept::Berry, berries);
     }
@@ -98,7 +99,7 @@ pub fn spawn_berry_bush(commands: &mut Commands, position: Vec2, berries: u32) -
 /// Syncs the visual berry count with the inventory count.
 pub fn sync_berry_visuals(
     mut commands: Commands,
-    mut bush_query: Query<(&Inventory, &Children)>,
+    mut bush_query: Query<(&ItemSlots, &Children)>,
     mut leaves_query: Query<(Entity, &Children), With<VisualBushLeaves>>,
     berries_query: Query<Entity, With<VisualBerry>>,
 ) {
