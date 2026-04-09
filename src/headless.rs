@@ -17,6 +17,7 @@ use crate::agent::body::needs::{Consciousness, PhysicalNeeds};
 use crate::agent::brains::trace::{DecisionTraceBuffer, TraceConfig, dump_trace};
 use crate::agent::mind::conversation::ConversationManager;
 use crate::agent::psyche::emotions::{EmotionType, EmotionalState};
+use crate::core::{EventLogBuffer, EventLogConfig, collect_event_log, dump_event_log};
 use crate::testing::{AgentConfig, TestWorld};
 
 /// Default world dimensions for headless populations. Matches TestWorld's
@@ -42,6 +43,8 @@ pub struct HeadlessConfig {
     /// Decision trace configuration. Disabled by default (no overhead when
     /// `trace.agent_filter` is `AgentFilter::Disabled`).
     pub trace: TraceConfig,
+    /// JSONL event log configuration. `None` disables the logger.
+    pub event_log: Option<EventLogConfig>,
 }
 
 impl Default for HeadlessConfig {
@@ -54,6 +57,7 @@ impl Default for HeadlessConfig {
             apple_trees: 4,
             deer: 3,
             trace: TraceConfig::default(),
+            event_log: None,
         }
     }
 }
@@ -120,6 +124,15 @@ pub fn run_headless(config: HeadlessConfig) -> HeadlessReport {
         world.app_mut().insert_resource(config.trace.clone());
     }
 
+    // Register the JSONL event logger if --log was specified.
+    if let Some(log_config) = &config.event_log {
+        world.app_mut().insert_resource(log_config.clone());
+        world.app_mut().init_resource::<EventLogBuffer>();
+        world
+            .app_mut()
+            .add_systems(bevy::app::Last, collect_event_log);
+    }
+
     let spawned = populate(&mut world, &config);
 
     let start = Instant::now();
@@ -131,6 +144,12 @@ pub fn run_headless(config: HeadlessConfig) -> HeadlessReport {
     if config.trace.is_enabled() {
         let buffer = world.app().world().resource::<DecisionTraceBuffer>();
         dump_trace(buffer, &config.trace);
+    }
+
+    // Dump event log if configured.
+    if let Some(log_config) = &config.event_log {
+        let buffer = world.app().world().resource::<EventLogBuffer>();
+        dump_event_log(buffer, log_config);
     }
 
     collect_report(&mut world, &config, spawned, elapsed)
