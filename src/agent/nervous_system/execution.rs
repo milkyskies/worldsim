@@ -257,11 +257,11 @@ pub fn tick_actions(
             // If this action targets an entity that has since been despawned, cancel it
             // immediately rather than ticking it to completion (where on_complete would
             // silently do nothing or — without this guard — potentially panic).
-            if let Some(target) = action_state.target_entity {
-                if living_entities.get(target).is_err() {
-                    target_gone_types.push(action_type);
-                    continue;
-                }
+            if let Some(target) = action_state.target_entity
+                && living_entities.get(target).is_err()
+            {
+                target_gone_types.push(action_type);
+                continue;
             }
 
             let Some(action_def) = registry.get(action_type) else {
