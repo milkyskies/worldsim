@@ -73,12 +73,11 @@ impl BodyChannel {
     ///
     /// Modifiers:
     /// - **Incapacitation** (`Body::is_incapacitated()`): Legs/Hands/Mouth lock
-    ///   to 0.0 so the agent can only run cognitive or full-body (Sleep/Idle)
-    ///   actions and recover.
+    ///   to 0.0. The brain falls through to Idle (no channel requirements);
+    ///   passive healing still ticks regardless of action state.
     /// - **Exhaustion** (`PhysicalNeeds::energy < TIRED_ENERGY_THRESHOLD`):
     ///   scales the active channels (Legs/Hands/Mouth) by
-    ///   `TIRED_SPEED_MULTIPLIER..=1.0`. FullBody and Mind are exempt so Sleep
-    ///   is always reachable for recovery.
+    ///   `TIRED_SPEED_MULTIPLIER..=1.0`. FullBody and Mind are exempt.
     ///
     /// Per-tick callers should use [`ChannelCapacities::compute`] to evaluate
     /// every channel once and reuse the array. This direct method is for
@@ -219,8 +218,10 @@ impl ChannelLoad {
         self.usage[channel.idx()]
     }
 
-    /// Adding `requirements` would push some channel above the hard threshold,
-    /// after accounting for the body's max capacity per channel.
+    /// Adding `requirements` would push some channel to or above the hard
+    /// threshold, after accounting for the body's max capacity per channel.
+    /// The spec uses inclusive bounds: `Flee(Legs 1.0) + Walk(Legs 0.4) = 1.4`
+    /// is a hard conflict, not a soft one.
     pub fn would_hard_conflict(
         &self,
         requirements: &[ChannelUsage],
@@ -231,7 +232,7 @@ impl ChannelLoad {
             let projected = self.saturation(usage.channel) + usage.intensity;
             // Effective threshold scales with capacity, so a half-functioning
             // leg hard-conflicts at 0.7 instead of 1.4.
-            if projected > HARD_CONFLICT_THRESHOLD * cap {
+            if projected >= HARD_CONFLICT_THRESHOLD * cap {
                 return true;
             }
         }
@@ -239,7 +240,7 @@ impl ChannelLoad {
     }
 
     /// Adding `requirements` would push some channel into the soft band but
-    /// not over the hard threshold.
+    /// not into the hard band.
     pub fn would_soft_conflict(
         &self,
         requirements: &[ChannelUsage],
@@ -249,7 +250,7 @@ impl ChannelLoad {
         for usage in requirements {
             let cap = capacities.get(usage.channel);
             let projected = self.saturation(usage.channel) + usage.intensity;
-            if projected > HARD_CONFLICT_THRESHOLD * cap {
+            if projected >= HARD_CONFLICT_THRESHOLD * cap {
                 return false;
             }
             if projected > SOFT_CONFLICT_THRESHOLD * cap {
@@ -354,15 +355,13 @@ mod tests {
     }
 
     #[test]
-    fn flee_plus_walk_crosses_hard_threshold_when_pushed_over() {
+    fn flee_plus_walk_hard_conflicts_at_threshold() {
         let mut load = ChannelLoad::new();
         load.add(&[req(BodyChannel::Legs, 0.4)]);
         let flee = [req(BodyChannel::Legs, 1.0), req(BodyChannel::FullBody, 0.5)];
-        let caps = full_caps();
-        // 0.4 + 1.0 = 1.4 lands exactly at HARD_CONFLICT_THRESHOLD - still legal.
-        assert!(!load.would_hard_conflict(&flee, &caps));
-        load.add(&[req(BodyChannel::Legs, 0.05)]);
-        assert!(load.would_hard_conflict(&flee, &caps));
+        // 0.4 + 1.0 = 1.4 lands exactly at HARD_CONFLICT_THRESHOLD - the spec
+        // example treats this as a hard conflict (Walk gets preempted).
+        assert!(load.would_hard_conflict(&flee, &full_caps()));
     }
 
     #[test]
@@ -464,13 +463,24 @@ mod tests {
     }
 
     #[test]
-    fn incapacitated_agent_can_still_sleep() {
+    fn incapacitated_agent_falls_through_to_idle() {
+        // With Sleep declaring all four active channels at 1.0, an
+        // incapacitated agent (Legs/Hands/Mouth locked to 0) cannot start
+        // Sleep either - the brain falls through to Idle, which has no
+        // channel requirements. Passive healing still ticks.
         let mut body = Body::default();
         incapacitate(&mut body);
         let caps = caps_for(&body, None);
         let load = ChannelLoad::new();
-        let sleep = [req(BodyChannel::FullBody, 1.0)];
-        assert!(!load.would_hard_conflict(&sleep, &caps));
+        let sleep = [
+            req(BodyChannel::Legs, 1.0),
+            req(BodyChannel::Hands, 1.0),
+            req(BodyChannel::Mouth, 1.0),
+            req(BodyChannel::FullBody, 1.0),
+        ];
+        assert!(load.would_hard_conflict(&sleep, &caps));
+        // Idle has no channels, so no conflict regardless of capacities.
+        assert!(!load.would_hard_conflict(&[], &caps));
     }
 
     #[test]

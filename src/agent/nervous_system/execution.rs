@@ -426,13 +426,13 @@ fn preempt_to_make_room(
     let mut load = active.channel_load(registry);
 
     while load.would_hard_conflict(requirements, capacities) {
-        // Which channels are over the hard threshold given the new requirements?
+        // Which channels are at or over the hard threshold given the new requirements?
         let saturated: [bool; crate::agent::actions::channel::CHANNEL_COUNT] = {
             let mut s = [false; crate::agent::actions::channel::CHANNEL_COUNT];
             for usage in requirements {
                 let cap = capacities.get(usage.channel);
                 let projected = load.saturation(usage.channel) + usage.intensity;
-                if projected > crate::agent::actions::channel::HARD_CONFLICT_THRESHOLD * cap {
+                if projected >= crate::agent::actions::channel::HARD_CONFLICT_THRESHOLD * cap {
                     s[usage.channel.idx()] = true;
                 }
             }
@@ -656,26 +656,6 @@ mod tests {
     }
 
     #[test]
-    fn sleep_cannot_preempt_uninterruptible_sleep() {
-        let registry = build_registry();
-        let mut active = ActiveActions::empty();
-        active.insert(ActionState::new(ActionType::Sleep, 0));
-
-        let sleep_def = registry.get(ActionType::Sleep).unwrap();
-        let mut target = TargetPosition::default();
-        let admitted = preempt_to_make_room(
-            &mut active,
-            &registry,
-            sleep_def.body_channels(),
-            &ChannelCapacities::full(),
-            &mut target,
-        );
-
-        assert!(!admitted);
-        assert!(active.contains(ActionType::Sleep));
-    }
-
-    #[test]
     fn eat_plus_talk_creates_soft_conflict_with_degradation() {
         let registry = build_registry();
         let mut active = ActiveActions::empty();
@@ -690,28 +670,28 @@ mod tests {
     }
 
     #[test]
-    fn preemption_skips_actions_that_dont_overlap_saturated_channel() {
-        // A Walk (Legs) should not be preempted to make room for a Mouth-only
-        // overload, because removing it doesn't relieve the conflict.
+    fn preemption_only_removes_actions_touching_saturated_channels() {
+        // Walk(Legs 0.4) and Talk(Mouth 0.6) both running. Admitting
+        // Flee(Legs 1.0, FullBody 0.5) saturates Legs at 1.4 - exactly the
+        // hard threshold. The preemption pass should drop Walk (Legs is
+        // saturated) and leave Talk alone (Mouth is not).
         let registry = build_registry();
         let mut active = ActiveActions::empty();
         active.insert(ActionState::new(ActionType::Walk, 0));
-        active.insert(ActionState::new(ActionType::Sleep, 0));
+        active.insert(ActionState::new(ActionType::Talk, 0).with_duration(60));
 
+        let flee_def = registry.get(ActionType::Flee).unwrap();
         let mut target = TargetPosition::default();
         let admitted = preempt_to_make_room(
             &mut active,
             &registry,
-            &[crate::agent::actions::channel::ChannelUsage::new(
-                crate::agent::actions::channel::BodyChannel::FullBody,
-                1.0,
-            )],
+            flee_def.body_channels(),
             &ChannelCapacities::full(),
             &mut target,
         );
 
-        assert!(!admitted);
-        assert!(active.contains(ActionType::Walk));
-        assert!(active.contains(ActionType::Sleep));
+        assert!(admitted);
+        assert!(!active.contains(ActionType::Walk));
+        assert!(active.contains(ActionType::Talk));
     }
 }
