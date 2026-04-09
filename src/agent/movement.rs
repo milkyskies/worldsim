@@ -55,7 +55,14 @@ pub fn move_toward(
         return MoveResult::Arrived;
     }
 
-    let move_dist = speed * ticks as f32;
+    // Terrain at the agent's current tile slows movement (forest, sand, rock, etc.).
+    // Falling back to 1.0 when off-map keeps the agent moving toward bounds rather than freezing.
+    let terrain_mult = map
+        .tile_at(current_pos)
+        .map(|t| t.speed_multiplier())
+        .filter(|m| *m > 0.0)
+        .unwrap_or(1.0);
+    let move_dist = speed * ticks as f32 * terrain_mult;
     let new_pos = if move_dist >= distance {
         target_pos
     } else {
