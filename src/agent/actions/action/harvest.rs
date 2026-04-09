@@ -135,16 +135,7 @@ impl Action for HarvestAction {
         target_entity: Option<Entity>,
         target_position: Option<Vec2>,
     ) -> ActionTemplate {
-        // Use default template (which adds proximity precondition automatically)
-        let mut template = ActionTemplate {
-            name: self.name().to_string(),
-            action_type: self.action_type(),
-            target_entity,
-            target_position,
-            preconditions: self.preconditions(),
-            effects: self.plan_effects(),
-            base_cost: 10.0,
-        };
+        let mut preconditions = self.preconditions();
 
         // Add location requirement (from requires_proximity)
         if let Some(pos) = target_position {
@@ -153,16 +144,30 @@ impl Action for HarvestAction {
                 (pos.x / TILE_SIZE).floor() as i32,
                 (pos.y / TILE_SIZE).floor() as i32,
             );
-            template.preconditions.push(TriplePattern::self_at(tile));
+            preconditions.push(TriplePattern::self_at(tile));
         }
 
         // Add content requirement (Harvest-specific)
         if let Some(entity) = target_entity {
-            template
-                .preconditions
-                .push(TriplePattern::entity_contains(entity));
+            preconditions.push(TriplePattern::entity_contains(entity));
         }
 
-        template
+        // Harvest removes an item from the target entity
+        let consumes = if let Some(entity) = target_entity {
+            vec![TriplePattern::entity_contains(entity)]
+        } else {
+            vec![]
+        };
+
+        ActionTemplate {
+            name: self.name().to_string(),
+            action_type: self.action_type(),
+            target_entity,
+            target_position,
+            preconditions,
+            effects: self.plan_effects(),
+            consumes,
+            base_cost: 10.0,
+        }
     }
 }

@@ -88,6 +88,7 @@ impl Action for AttackAction {
             target_position: None,
             preconditions,
             effects: self.plan_effects(),
+            consumes: vec![],
             base_cost: self.cost(),
         }
     }

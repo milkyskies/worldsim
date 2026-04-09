@@ -79,6 +79,7 @@ impl Action for WalkAction {
             target_position,
             preconditions: self.preconditions(),
             effects,
+            consumes: vec![],
             base_cost: 0.0,
         }
     }
