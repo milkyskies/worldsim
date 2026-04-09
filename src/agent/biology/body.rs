@@ -222,6 +222,8 @@ pub fn check_death(
     mut commands: Commands,
     query: Query<(Entity, &PhysicalNeeds, Option<&Name>)>,
     mut game_log: ResMut<GameLog>,
+    tick: Res<crate::core::tick::TickCount>,
+    mut sim_events: MessageWriter<crate::agent::events::SimEvent>,
 ) {
     for (entity, physical, name) in query.iter() {
         if physical.health <= 0.0 {
@@ -230,6 +232,11 @@ pub fn check_death(
                 "{} died of starvation/dehydration/injury!",
                 name_str
             ));
+            sim_events.write(crate::agent::events::SimEvent::Death {
+                agent: entity,
+                tick: tick.current,
+                cause: "starvation/dehydration/injury".to_string(),
+            });
             commands.entity(entity).despawn();
         }
     }
