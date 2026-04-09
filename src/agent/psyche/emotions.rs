@@ -97,6 +97,19 @@ impl EmotionalState {
             .map(|e| e.intensity)
             .unwrap_or(0.0)
     }
+
+    /// Advance emotion decay by `dt` seconds. Each emotion's fuel drains at a
+    /// rate driven by `EmotionConfig`, with intensity tracking fuel directly.
+    /// Emotions whose fuel falls below the removal threshold are dropped.
+    pub fn decay_tick(&mut self, dt: f32, config: &EmotionConfig) {
+        self.active_emotions.retain_mut(|e| {
+            let decay_rate = config.decay_base_rate + (e.fuel * config.decay_fuel_factor).min(0.1);
+            e.fuel -= decay_rate * dt;
+            e.fuel = e.fuel.max(0.0);
+            e.intensity = e.fuel.min(1.0);
+            e.fuel > 0.01
+        });
+    }
 }
 
 /// Role of the observer relative to the event
@@ -222,13 +235,7 @@ pub fn decay_emotions(
     let dt = time.delta_secs();
 
     for mut emotional_state in agents.iter_mut() {
-        emotional_state.active_emotions.retain_mut(|e| {
-            let decay_rate = config.decay_base_rate + (e.fuel * config.decay_fuel_factor).min(0.1);
-            e.fuel -= decay_rate * dt;
-            e.fuel = e.fuel.max(0.0);
-            e.intensity = e.fuel.min(1.0);
-            e.fuel > 0.01
-        });
+        emotional_state.decay_tick(dt, &config);
     }
 }
 
@@ -437,5 +444,92 @@ pub fn react_to_events(
                 // Learning from others could trigger gratitude, but we skip for now
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn emotion_intensity_decreases_after_decay_tick() {
+        let config = EmotionConfig::default();
+        let mut state = EmotionalState::default();
+        state.add_emotion(Emotion::new(EmotionType::Fear, 0.8));
+
+        let initial = state.get_emotion_intensity(EmotionType::Fear);
+        state.decay_tick(1.0, &config);
+        let after = state.get_emotion_intensity(EmotionType::Fear);
+
+        assert!(
+            after < initial,
+            "intensity should decrease after a decay tick (initial={initial}, after={after})"
+        );
+    }
+
+    #[test]
+    fn unreinforced_emotion_fades_to_zero() {
+        let config = EmotionConfig::default();
+        let mut state = EmotionalState::default();
+        state.add_emotion(Emotion::new(EmotionType::Surprise, 0.5));
+        assert_eq!(state.active_emotions.len(), 1);
+
+        // Simulate ~100 seconds of decay (1000 ticks of 0.1s each).
+        for _ in 0..1000 {
+            state.decay_tick(0.1, &config);
+        }
+
+        assert!(
+            state.active_emotions.is_empty(),
+            "unreinforced emotion should be removed after sustained decay"
+        );
+        assert_eq!(state.get_emotion_intensity(EmotionType::Surprise), 0.0);
+    }
+
+    #[test]
+    fn decay_is_monotonic_across_many_ticks() {
+        let config = EmotionConfig::default();
+        let mut state = EmotionalState::default();
+        state.add_emotion(Emotion::new(EmotionType::Joy, 1.0));
+
+        let mut previous = state.get_emotion_intensity(EmotionType::Joy);
+        for _ in 0..20 {
+            state.decay_tick(0.5, &config);
+            let current = state.get_emotion_intensity(EmotionType::Joy);
+            assert!(
+                current <= previous,
+                "intensity must never increase during decay (prev={previous}, curr={current})"
+            );
+            previous = current;
+        }
+    }
+
+    #[test]
+    fn higher_fuel_decays_faster_per_second() {
+        let config = EmotionConfig::default();
+
+        let mut low = EmotionalState::default();
+        low.add_emotion(Emotion::new(EmotionType::Anger, 0.2));
+
+        let mut high = EmotionalState::default();
+        high.active_emotions.push(Emotion {
+            emotion_type: EmotionType::Anger,
+            intensity: 1.0,
+            fuel: 5.0,
+        });
+
+        let low_before = low.active_emotions[0].fuel;
+        let high_before = high.active_emotions[0].fuel;
+
+        low.decay_tick(1.0, &config);
+        high.decay_tick(1.0, &config);
+
+        let low_drop = low_before - low.active_emotions[0].fuel;
+        let high_drop = high_before - high.active_emotions[0].fuel;
+
+        assert!(
+            high_drop > low_drop,
+            "fuel-scaled decay should drain high-fuel emotions faster (low={low_drop}, high={high_drop})"
+        );
     }
 }
