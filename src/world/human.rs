@@ -76,7 +76,7 @@ pub fn spawn_person(
             crate::agent::body::needs::PhysicalNeeds::default(),
             crate::agent::body::needs::Consciousness::default(),
             crate::agent::body::needs::PsychologicalDrives::default(),
-            crate::agent::actions::ActionState::default(),
+            crate::agent::actions::ActiveActions::default(),
             crate::agent::psyche::emotions::EmotionalState::default(),
         ))
         .id();

@@ -479,26 +479,28 @@ fn agent_viewer_ui_for_agent(world: &mut World, entity: Entity, ui: &mut egui::U
         ui.label(format!("(ID: {:?})", entity));
     });
 
-    if let Some(action_state) = world.get::<crate::agent::actions::ActionState>(entity) {
-        ui.horizontal(|ui| {
-            ui.strong("Current Action:");
-            ui.label(format!("{:?}", action_state.action_type));
+    if let Some(active) = world.get::<crate::agent::actions::ActiveActions>(entity) {
+        ui.label(format!("Active Actions ({}):", active.len()));
+        for action_state in active.iter() {
+            ui.horizontal(|ui| {
+                ui.label(format!("• {:?}", action_state.action_type));
 
-            // Show target entity name if available
-            if let Some(target_entity) = action_state.target_entity {
-                if let Some(target_name) = world.get::<Name>(target_entity) {
-                    ui.label(format!("→ {}", target_name.as_str()));
-                } else {
-                    ui.label(format!("→ {:?}", target_entity));
+                // Show target entity name if available
+                if let Some(target_entity) = action_state.target_entity {
+                    if let Some(target_name) = world.get::<Name>(target_entity) {
+                        ui.label(format!("→ {}", target_name.as_str()));
+                    } else {
+                        ui.label(format!("→ {:?}", target_entity));
+                    }
+                } else if let Some(target) = action_state.target_position {
+                    ui.label(format!("→ ({:.0}, {:.0})", target.x, target.y));
                 }
-            } else if let Some(target) = action_state.target_position {
-                ui.label(format!("→ ({:.0}, {:.0})", target.x, target.y));
-            }
 
-            if action_state.ticks_remaining > 0 && action_state.ticks_remaining < u32::MAX {
-                ui.label(format!("[{} ticks left]", action_state.ticks_remaining));
-            }
-        });
+                if action_state.ticks_remaining > 0 && action_state.ticks_remaining < u32::MAX {
+                    ui.label(format!("[{} ticks left]", action_state.ticks_remaining));
+                }
+            });
+        }
     }
 
     if let Some(emotions) = world.get::<crate::agent::psyche::emotions::EmotionalState>(entity) {

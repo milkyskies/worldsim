@@ -5,6 +5,7 @@
 
 use crate::agent::actions::ActionType;
 use crate::agent::actions::action::AttackAction;
+use crate::agent::actions::channel::ChannelUsage;
 use crate::agent::brains::thinking::{ActionTemplate, TriplePattern};
 use crate::agent::events::FailureReason;
 use crate::agent::inventory::Inventory;
@@ -173,6 +174,20 @@ pub trait Action: Send + Sync + 'static {
         RuntimeEffects::default()
     }
 
+    /// Body channels this action occupies, with intensity 0.0..=1.0 each.
+    ///
+    /// Returns a `'static` slice so the hot tick loop never allocates.
+    /// Default: no channels - the action is purely cognitive (Idle, planning).
+    fn body_channels(&self) -> &'static [ChannelUsage] {
+        &[]
+    }
+
+    /// Whether this action can be preempted mid-execution. Some actions
+    /// (Sleep) resist arbitrary interruption; others (Walk, Idle) yield freely.
+    fn interruptible(&self) -> bool {
+        true
+    }
+
     /// Called when action completes - action applies its own effects!
     /// This is where actions modify physical needs, inventory, etc.
     /// Default: do nothing
@@ -229,12 +244,15 @@ pub trait Action: Send + Sync + 'static {
 }
 
 // ============================================================================
-// ACTION STATE - Runtime state for active action
+// ACTION STATE - Runtime state for one active action
 // ============================================================================
 
-/// Runtime state for an active action (replaces CurrentActivity)
-#[derive(Component, Debug, Clone, Default, Reflect)]
-#[reflect(Component)]
+/// Runtime state for one active action.
+///
+/// Lives inside [`ActiveActions`] (the ECS component). An agent can have
+/// many `ActionState`s running in parallel as long as their body channels
+/// don't hard-conflict.
+#[derive(Debug, Clone, Default, Reflect)]
 pub struct ActionState {
     /// The action type being executed
     pub action_type: ActionType,
@@ -248,6 +266,11 @@ pub struct ActionState {
     pub ticks_remaining: u32,
     /// Movement state - last tick for delta calculation
     pub last_movement_tick: u64,
+    /// Fractional tick progress for degraded actions. When the channel load
+    /// degrades a timed action, only a fraction of each tick "counts" -
+    /// progress accumulates here and decrements `ticks_remaining` each time
+    /// it crosses 1.0. Deterministic and replay-safe.
+    pub progress_accumulator: f32,
     /// Topic for conversation actions
     pub topic: Option<crate::agent::mind::conversation::Topic>,
     /// Content for conversation actions
@@ -261,6 +284,7 @@ impl ActionState {
             started_tick: tick,
             last_movement_tick: tick.saturating_sub(1),
             ticks_remaining: 0,
+            progress_accumulator: 0.0,
             target_entity: None,
             target_position: None,
             topic: None,
@@ -281,6 +305,143 @@ impl ActionState {
     pub fn with_duration(mut self, ticks: u32) -> Self {
         self.ticks_remaining = ticks;
         self
+    }
+}
+
+// ============================================================================
+// ACTIVE ACTIONS - Component holding the parallel set of running actions
+// ============================================================================
+
+/// All actions currently running on an agent.
+///
+/// Replaces the single-slot model. Multiple actions can coexist as long as
+/// their [`ChannelUsage`] doesn't hard-conflict. The container preserves
+/// uniqueness by [`ActionType`] - starting an action that's already running
+/// updates that slot in place.
+#[derive(Component, Debug, Clone, Reflect)]
+#[reflect(Component)]
+pub struct ActiveActions {
+    #[reflect(ignore)]
+    running: Vec<ActionState>,
+}
+
+impl Default for ActiveActions {
+    fn default() -> Self {
+        // Every agent starts idle - this preserves the previous behavior where
+        // the default `ActionState` had `ActionType::Idle`.
+        Self {
+            running: vec![ActionState::default()],
+        }
+    }
+}
+
+impl ActiveActions {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Empty container - useful for tests and entities that don't auto-idle.
+    pub fn empty() -> Self {
+        Self {
+            running: Vec::new(),
+        }
+    }
+
+    pub fn iter(&self) -> std::slice::Iter<'_, ActionState> {
+        self.running.iter()
+    }
+
+    pub fn iter_mut(&mut self) -> std::slice::IterMut<'_, ActionState> {
+        self.running.iter_mut()
+    }
+
+    pub fn len(&self) -> usize {
+        self.running.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.running.is_empty()
+    }
+
+    /// Find a running action by its type.
+    pub fn get(&self, action_type: ActionType) -> Option<&ActionState> {
+        self.running.iter().find(|a| a.action_type == action_type)
+    }
+
+    /// Find a running action by its type for mutation.
+    pub fn get_mut(&mut self, action_type: ActionType) -> Option<&mut ActionState> {
+        self.running
+            .iter_mut()
+            .find(|a| a.action_type == action_type)
+    }
+
+    pub fn contains(&self, action_type: ActionType) -> bool {
+        self.get(action_type).is_some()
+    }
+
+    /// Insert a new action, replacing any existing entry with the same type.
+    pub fn insert(&mut self, action: ActionState) {
+        if let Some(slot) = self.get_mut(action.action_type) {
+            *slot = action;
+        } else {
+            self.running.push(action);
+        }
+    }
+
+    /// Remove an action by type, returning the removed state if present.
+    pub fn remove(&mut self, action_type: ActionType) -> Option<ActionState> {
+        let idx = self
+            .running
+            .iter()
+            .position(|a| a.action_type == action_type)?;
+        Some(self.running.remove(idx))
+    }
+
+    /// Clear all running actions and reset to a single Idle slot.
+    pub fn reset_to_idle(&mut self, tick: u64) {
+        self.running.clear();
+        self.running.push(ActionState::new(ActionType::Idle, tick));
+    }
+
+    /// Drop all actions, leaving the container empty.
+    pub fn clear(&mut self) {
+        self.running.clear();
+    }
+
+    /// "Primary" action - the most demanding currently running action by total
+    /// channel intensity. Falls back to the first slot. Used by legacy callers
+    /// (UI, perception) that need a single `ActionState`.
+    pub fn primary<'a>(&'a self, registry: &ActionRegistry) -> Option<&'a ActionState> {
+        // Cache total intensity once per action so the comparator is O(n) total,
+        // not O(n log n) registry hits.
+        let mut scored: Vec<(f32, &ActionState)> = self
+            .running
+            .iter()
+            .map(|s| {
+                let intensity: f32 = registry
+                    .get(s.action_type)
+                    .map(|d| d.body_channels().iter().map(|c| c.intensity).sum())
+                    .unwrap_or(0.0);
+                (intensity, s)
+            })
+            .collect();
+        scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+        scored.first().map(|(_, s)| *s)
+    }
+
+    /// Build the [`crate::agent::actions::channel::ChannelLoad`] aggregate over
+    /// all currently running actions.
+    pub fn channel_load(
+        &self,
+        registry: &ActionRegistry,
+    ) -> crate::agent::actions::channel::ChannelLoad {
+        let mut load = crate::agent::actions::channel::ChannelLoad::new();
+        for action in &self.running {
+            if let Some(def) = registry.get(action.action_type) {
+                load.add(def.body_channels());
+            }
+        }
+        load
     }
 }
 

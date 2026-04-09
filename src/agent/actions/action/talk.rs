@@ -8,6 +8,7 @@
 //! - Gossip: Share beliefs about other agents
 
 use crate::agent::actions::ActionType;
+use crate::agent::actions::channel::{BodyChannel, ChannelUsage};
 use crate::agent::actions::registry::{
     Action, ActionContext, ActionKind, CompletionContext, TargetType,
 };
@@ -57,6 +58,11 @@ impl Action for TalkAction {
 
     fn requires_proximity(&self) -> bool {
         true // Must be near target to talk
+    }
+
+    fn body_channels(&self) -> &'static [ChannelUsage] {
+        const CHANNELS: &[ChannelUsage] = &[ChannelUsage::new(BodyChannel::Mouth, 0.6)];
+        CHANNELS
     }
 
     // Override to_template to set default topic

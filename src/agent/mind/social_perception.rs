@@ -8,9 +8,11 @@
 //! - Whether they are a stranger or someone we've met
 
 use crate::agent::Agent;
-use crate::agent::actions::registry::ActionState;
+use crate::agent::actions::registry::{ActionRegistry, ActiveActions};
 use crate::agent::body::needs::PhysicalNeeds;
-use crate::agent::mind::knowledge::{AgentName, Concept, Metadata, MindGraph, Node, Predicate, Triple, Value};
+use crate::agent::mind::knowledge::{
+    AgentName, Concept, Metadata, MindGraph, Node, Predicate, Triple, Value,
+};
 use crate::agent::mind::perception::VisibleObjects;
 use crate::agent::psyche::emotions::EmotionalState;
 use crate::core::tick::TickCount;
@@ -27,12 +29,13 @@ pub fn perceive_other_agents(
             Entity,
             &Name,
             &Transform,
-            &ActionState,
+            &ActiveActions,
             &EmotionalState,
             &PhysicalNeeds,
         ),
         With<Agent>,
     >,
+    registry: Res<ActionRegistry>,
     tick: Res<TickCount>,
 ) {
     let current_time = tick.current;
@@ -47,7 +50,7 @@ pub fn perceive_other_agents(
             }
 
             // Only perceive other agents
-            let Ok((_, name, target_transform, action_state, emotional_state, physical)) =
+            let Ok((_, name, target_transform, active, emotional_state, physical)) =
                 observable_agents.get(visible_entity)
             else {
                 continue;
@@ -70,11 +73,15 @@ pub fn perceive_other_agents(
                 meta.clone(),
             ));
 
-            // 2. Perceive their current action
+            // 2. Perceive their primary current action
+            let primary_action_type = active
+                .primary(&registry)
+                .map(|s| s.action_type)
+                .unwrap_or(crate::agent::actions::ActionType::Idle);
             mind.assert(Triple::with_meta(
                 target_node.clone(),
                 Predicate::Doing,
-                Value::Action(action_state.action_type),
+                Value::Action(primary_action_type),
                 meta.clone(),
             ));
 

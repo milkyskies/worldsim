@@ -1,4 +1,5 @@
 use crate::agent::actions::ActionType;
+use crate::agent::actions::channel::{BodyChannel, ChannelUsage};
 use crate::agent::actions::registry::{
     Action, ActionContext, ActionKind, RuntimeEffects, TargetType,
 };
@@ -29,6 +30,15 @@ impl Action for AttackAction {
 
     fn target_type(&self) -> TargetType {
         TargetType::Entity
+    }
+
+    fn body_channels(&self) -> &'static [ChannelUsage] {
+        const CHANNELS: &[ChannelUsage] = &[
+            ChannelUsage::new(BodyChannel::Hands, 0.9),
+            ChannelUsage::new(BodyChannel::Legs, 0.6),
+            ChannelUsage::new(BodyChannel::FullBody, 0.7),
+        ];
+        CHANNELS
     }
 
     fn preconditions(&self) -> Vec<crate::agent::brains::thinking::TriplePattern> {

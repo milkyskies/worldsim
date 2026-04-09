@@ -79,7 +79,7 @@ pub fn spawn_deer(
             crate::agent::nervous_system::cns::CentralNervousSystem::default(),
             crate::agent::body::needs::PhysicalNeeds::default(),
             crate::agent::body::needs::Consciousness::default(),
-            crate::agent::actions::ActionState::default(),
+            crate::agent::actions::ActiveActions::default(),
             crate::agent::psyche::emotions::EmotionalState::default(),
         ))
         .id();

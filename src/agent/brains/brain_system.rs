@@ -5,7 +5,7 @@
 //! Upstream: survival/emotional/rational brain modules, arbitration, perception, knowledge
 //! Downstream: nervous_system::cns (executes the chosen action)
 
-use super::arbitration::{arbitrate, calculate_brain_powers};
+use super::arbitration::{arbitrate_parallel, calculate_brain_powers};
 use super::emotional::emotional_brain_propose;
 use super::proposal::BrainState;
 use super::rational::rational_brain_propose;
@@ -47,7 +47,7 @@ pub fn three_brains_system(
                 &Transform,
                 &VisibleObjects,
                 &crate::agent::mind::knowledge::MindGraph,
-                &crate::agent::actions::ActionState,
+                &crate::agent::actions::ActiveActions,
                 Option<&crate::agent::mind::conversation::InConversation>,
             ),
         ),
@@ -69,7 +69,7 @@ pub fn three_brains_system(
         (rational_brain, cns),
         (physical, consciousness, _drives),
         (emotions, body, personality, inventory),
-        (transform, visible, mind, activity, in_conversation),
+        (transform, visible, mind, active_actions, in_conversation),
     ) in query.iter_mut()
     {
         // Staggered: heavy thinking runs every N ticks, offset by entity ID
@@ -91,7 +91,7 @@ pub fn three_brains_system(
             inventory,
             visible,
             brain_state.winner,
-            activity,
+            active_actions,
             &ontology,
             &action_registry,
         );
@@ -122,35 +122,37 @@ pub fn three_brains_system(
         // 2. Calculate brain powers
         let powers = calculate_brain_powers(physical, consciousness, body, emotions, personality);
 
-        // 3. Arbitrate
+        // 3. Arbitrate - greedy multi-action admission across body channels
         let proposals = [survival_proposal, emotional_proposal, rational_proposal];
-        let winner = arbitrate(&proposals, &powers);
+        let admitted = arbitrate_parallel(&proposals, &powers, body, &action_registry);
 
         // 4. Store for debugging/UI and execution
         brain_state.proposals = proposals.into_iter().flatten().collect();
         brain_state.powers = powers;
 
-        if let Some((winner_brain, proposal)) = winner {
-            brain_state.winner = Some(winner_brain);
-            brain_state.chosen_action = Some(proposal.action.clone());
+        if let Some(top) = admitted.first() {
+            brain_state.winner = Some(top.brain);
+            brain_state.chosen_actions = admitted.iter().map(|p| p.action.clone()).collect();
 
-            // Log brain decision for debugging
-            let brain_name = match winner_brain {
-                super::proposal::BrainType::Survival => "SURVIVAL",
-                super::proposal::BrainType::Emotional => "EMOTIONAL",
-                super::proposal::BrainType::Rational => "RATIONAL",
-            };
+            // Log every admitted action so multi-channel decisions are visible.
+            for proposal in &admitted {
+                let brain_name = match proposal.brain {
+                    super::proposal::BrainType::Survival => "SURVIVAL",
+                    super::proposal::BrainType::Emotional => "EMOTIONAL",
+                    super::proposal::BrainType::Rational => "RATIONAL",
+                };
 
-            game_log.brain(
-                name.as_str(),
-                brain_name,
-                &proposal.action.name,
-                &proposal.reasoning,
-                Some(entity),
-            );
+                game_log.brain(
+                    name.as_str(),
+                    brain_name,
+                    &proposal.action.name,
+                    &proposal.reasoning,
+                    Some(entity),
+                );
+            }
         } else {
             brain_state.winner = None;
-            brain_state.chosen_action = None;
+            brain_state.chosen_actions.clear();
         }
     }
 }

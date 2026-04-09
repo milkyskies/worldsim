@@ -20,6 +20,8 @@ impl Action for IdleAction {
         }
     }
 
+    // Idle reserves no body channels (default `&[]`).
+
     fn runtime_effects(&self) -> RuntimeEffects {
         RuntimeEffects {
             hunger_per_sec: 0.5,

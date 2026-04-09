@@ -1,6 +1,7 @@
 //! Harvest action - gather resources from targets.
 
 use crate::agent::actions::ActionType;
+use crate::agent::actions::channel::{BodyChannel, ChannelUsage};
 use crate::agent::actions::registry::{
     Action, ActionContext, ActionKind, CompletionContext, RuntimeEffects,
 };
@@ -52,6 +53,14 @@ impl Action for HarvestAction {
 
     fn requires_proximity(&self) -> bool {
         true // Must be at target location to harvest
+    }
+
+    fn body_channels(&self) -> &'static [ChannelUsage] {
+        const CHANNELS: &[ChannelUsage] = &[
+            ChannelUsage::new(BodyChannel::Hands, 0.9),
+            ChannelUsage::new(BodyChannel::Legs, 0.2),
+        ];
+        CHANNELS
     }
 
     // Execution: Must have a target entity

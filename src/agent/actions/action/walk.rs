@@ -1,6 +1,7 @@
 //! Walk action - move to a specific target.
 
 use crate::agent::actions::ActionType;
+use crate::agent::actions::channel::{BodyChannel, ChannelUsage};
 use crate::agent::actions::registry::{Action, ActionKind, RuntimeEffects};
 use crate::agent::brains::thinking::ActionTemplate;
 use crate::agent::mind::knowledge::{Node, Predicate, Triple, Value};
@@ -21,6 +22,11 @@ impl Action for WalkAction {
 
     fn kind(&self) -> ActionKind {
         ActionKind::Movement
+    }
+
+    fn body_channels(&self) -> &'static [ChannelUsage] {
+        const CHANNELS: &[ChannelUsage] = &[ChannelUsage::new(BodyChannel::Legs, 0.4)];
+        CHANNELS
     }
 
     // Walk effects depend on target - set LocatedAt to destination
