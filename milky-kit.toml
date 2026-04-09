@@ -1,0 +1,17 @@
+[project]
+name = "worldsim"
+worktree_dir = "worldsim-worktrees"
+
+[stack]
+languages = ["rust"]
+
+[skills]
+include = [
+    "retrospective",
+    "rulify",
+]
+
+[sync]
+exclude = [
+    "monorepo.md",
+]
