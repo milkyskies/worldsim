@@ -374,16 +374,16 @@ pub fn tick_actions(
                 action: *action_type,
             });
 
-            // Emit KnowledgeShared sim event when Talk shares content
-            if *action_type == ActionType::Talk && !snapshot.content.is_empty() {
-                if let Some(listener) = snapshot.target_entity {
-                    sim_events.write(crate::agent::events::SimEvent::KnowledgeShared {
-                        speaker: entity,
-                        listener,
-                        tick: current_tick,
-                        triple_count: snapshot.content.len(),
-                    });
-                }
+            if *action_type == ActionType::Talk
+                && !snapshot.content.is_empty()
+                && let Some(listener) = snapshot.target_entity
+            {
+                sim_events.write(crate::agent::events::SimEvent::KnowledgeShared {
+                    speaker: entity,
+                    listener,
+                    tick: current_tick,
+                    triple_count: snapshot.content.len(),
+                });
             }
 
             if let Some(msg) = action_def.complete_log() {
