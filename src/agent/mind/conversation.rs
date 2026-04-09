@@ -1,9 +1,9 @@
 //! Conversation system: models multi-turn dialogue between agents with intents, topics, and shared knowledge triples.
 //!
 //! Reads: ActionType, ActiveActions, Emotion, Triple (knowledge content), TickCount
-//! Writes: Conversation, Turn, InConversation (ECS marker), ConversationState
+//! Writes: Conversation, Turn, InConversation (ECS marker), ConversationState, SimEvent (ConversationStarted/Ended/Abandoned)
 //! Upstream: mind::knowledge (triples shared as content), psyche::emotions (emotional coloring of turns)
-//! Downstream: brain_system (InConversation affects rational/emotional brain proposals), belief_updater (KnowledgeShared events)
+//! Downstream: brain_system (InConversation affects rational/emotional brain proposals), belief_updater (KnowledgeShared events), SimEvent consumers
 
 use crate::agent::actions::ActionType;
 use crate::agent::actions::registry::ActiveActions;

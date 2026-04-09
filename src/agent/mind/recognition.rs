@@ -4,6 +4,7 @@
 //! 1. Checks if we've met them before (Knows predicate)
 //! 2. Marks strangers so the social brain can propose introductions
 //! 3. Tracks familiarity levels
+//! Emits SimEvent::StrangerDetected on first encounter.
 
 use crate::agent::Agent;
 use crate::agent::mind::knowledge::{Concept, Metadata, MindGraph, Node, Predicate, Triple, Value};

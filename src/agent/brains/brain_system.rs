@@ -1,9 +1,9 @@
 //! Three-brains orchestration: runs all brain systems and arbitrates between their proposals each tick.
 //!
 //! Reads: PhysicalNeeds, Consciousness, PsychologicalDrives, EmotionalState, Body, Personality, Inventory, VisibleObjects, MindGraph, ActiveActions, InConversation, WorldMap
-//! Writes: BrainState (chosen action, winner, proposals, powers)
+//! Writes: BrainState (chosen action, winner, proposals, powers), SimEvent::Decision
 //! Upstream: survival/emotional/rational brain modules, arbitration, perception, knowledge
-//! Downstream: nervous_system::cns (executes the chosen action)
+//! Downstream: nervous_system::cns (executes the chosen action), SimEvent consumers
 
 use super::arbitration::{arbitrate_parallel, calculate_brain_powers};
 use super::emotional::emotional_brain_propose;

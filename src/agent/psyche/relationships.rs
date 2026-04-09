@@ -5,6 +5,7 @@
 //! - Positive interactions increase values (small amounts)
 //! - Negative interactions decrease values (larger amounts - negativity bias!)
 //! - Relationships decay slowly without contact
+//! Emits SimEvent::RelationshipChanged on trust/affection updates.
 
 use crate::agent::Agent;
 use crate::agent::events::{ConversationTopic, GameEvent};

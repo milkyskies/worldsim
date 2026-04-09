@@ -6,6 +6,7 @@
 //! conflict and allowing soft conflicts. `tick_actions` advances every running
 //! action and removes completed ones, scaling speed by channel saturation.
 //! `apply_action_effects` sums per-tick effects across all running actions.
+//! Emits SimEvent (ActionStarted, ActionCompleted, ActionPreempted, ActionFailed, KnowledgeShared).
 
 use crate::agent::TargetPosition;
 use crate::agent::actions::ActionType;
