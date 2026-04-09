@@ -116,30 +116,8 @@ pub mod actions {
 
 /// Brain behavior thresholds and urgency scores
 pub mod brains {
-    /// Survival brain reflexive response thresholds.
-    ///
-    /// Most thresholds use hysteresis: the HIGH value starts a response,
-    /// the LOW value stops it (preventing rapid oscillation).
     pub mod survival {
-        pub const STRESS_SNAP_HIGH: f32 = 90.0;
-        pub const STRESS_SNAP_LOW: f32 = 70.0;
-        pub const SNAP_HUNGER_THRESHOLD: f32 = 30.0;
-        pub const SNAP_THIRST_THRESHOLD: f32 = 30.0;
-        pub const SNAP_SEARCH_HUNGER_THRESHOLD: f32 = 50.0;
-        pub const SNAP_EXHAUSTION_ENERGY_THRESHOLD: f32 = 50.0;
-        pub const PAIN_HIGH: f32 = 70.0;
-        pub const PAIN_LOW: f32 = 50.0;
-        pub const HUNGER_HIGH: f32 = 80.0;
-        pub const HUNGER_LOW: f32 = 60.0;
-        pub const THIRST_HIGH: f32 = 80.0;
-        pub const THIRST_LOW: f32 = 60.0;
-        /// Energy below this triggers sleep (or keeps agent asleep)
-        pub const EXHAUSTION_TRIGGER: f32 = 15.0;
-        /// Energy above this allows the agent to stop sleeping from exhaustion
-        pub const EXHAUSTION_RELEASE: f32 = 30.0;
-        pub const FEAR_HIGH: f32 = 0.8;
-        pub const FEAR_LOW: f32 = 0.5;
-        /// Energy level at which a sleeping agent wakes up fully rested
+        /// Energy level at which a sleeping agent wakes up fully rested.
         pub const WAKE_ENERGY_THRESHOLD: f32 = 90.0;
     }
 

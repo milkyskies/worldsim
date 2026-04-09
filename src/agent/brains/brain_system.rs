@@ -80,18 +80,11 @@ pub fn three_brains_system(
 
         // 1. Gather proposals from all three brains
 
-        let survival_context = SurvivalBrainContext {
-            physical,
-            consciousness,
-            emotions,
-            body,
-        };
+        let survival_context = SurvivalBrainContext { physical, cns };
 
         let survival_proposal = survival_brain_propose(
             survival_context,
             inventory,
-            visible,
-            brain_state.winner,
             active_actions,
             &ontology,
             &action_registry,
