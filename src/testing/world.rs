@@ -11,10 +11,15 @@ use bevy::prelude::*;
 use crate::agent::Agent;
 use crate::agent::AgentPlugin;
 use crate::agent::actions::{ActionRegistry, ActionType, ActiveActions};
-use crate::agent::body::needs::PhysicalNeeds;
+use crate::agent::biology::body::Body;
+use crate::agent::body::needs::{Consciousness, PhysicalNeeds, PsychologicalDrives};
+use crate::agent::brains::proposal::BrainState;
+use crate::agent::events::SimEvent;
+use crate::agent::mind::conversation::{ConversationManager, InConversation};
 use crate::agent::mind::knowledge::{
     Concept, MindGraph, Node as MindNode, Ontology, Predicate, Value, setup_ontology,
 };
+use crate::agent::psyche::emotions::EmotionalState;
 use crate::core::tick::TickCount;
 use crate::core::{GameLog, GameTime};
 use crate::testing::config::AgentConfig;
@@ -27,6 +32,245 @@ use crate::world::map::{CHUNK_SIZE, Chunk, WorldMap};
 /// Default test world dimensions in tiles. Large enough for typical scenarios but
 /// small enough that map construction is cheap (a few KB).
 const DEFAULT_MAP_TILES: u32 = 64;
+
+// ─── SimEvent history ──────────────────────────────────────────────────────
+
+/// Resource that accumulates every SimEvent emitted during a TestWorld run.
+///
+/// Populated automatically by `collect_sim_events_into_log`. Available via
+/// `TestWorld::print_recent_events` and `TestWorld::print_agent_events`.
+#[derive(Resource, Default)]
+pub struct SimEventLog {
+    events: Vec<SimEvent>,
+}
+
+impl SimEventLog {
+    fn push(&mut self, event: SimEvent) {
+        self.events.push(event);
+    }
+
+    fn events_since(
+        &self,
+        current_tick: u64,
+        last_n_ticks: u64,
+    ) -> impl Iterator<Item = &SimEvent> {
+        let cutoff = current_tick.saturating_sub(last_n_ticks);
+        self.events
+            .iter()
+            .filter(move |e| sim_event_tick(e) >= cutoff)
+    }
+}
+
+/// Bevy system that drains incoming SimEvents into `SimEventLog`.
+fn collect_sim_events_into_log(mut reader: MessageReader<SimEvent>, mut log: ResMut<SimEventLog>) {
+    for event in reader.read() {
+        log.push(event.clone());
+    }
+}
+
+// ─── Formatting helpers ────────────────────────────────────────────────────
+
+/// Extract the primary tick from any SimEvent variant.
+fn sim_event_tick(event: &SimEvent) -> u64 {
+    match event {
+        SimEvent::Decision { tick, .. }
+        | SimEvent::ActionStarted { tick, .. }
+        | SimEvent::ActionCompleted { tick, .. }
+        | SimEvent::ActionPreempted { tick, .. }
+        | SimEvent::ActionFailed { tick, .. }
+        | SimEvent::ConversationStarted { tick, .. }
+        | SimEvent::ConversationEnded { tick, .. }
+        | SimEvent::ConversationAbandoned { tick, .. }
+        | SimEvent::RelationshipChanged { tick, .. }
+        | SimEvent::EmotionTriggered { tick, .. }
+        | SimEvent::Death { tick, .. }
+        | SimEvent::EntityPerceived { tick, .. }
+        | SimEvent::StrangerDetected { tick, .. }
+        | SimEvent::KnowledgeShared { tick, .. } => *tick,
+    }
+}
+
+/// Returns true if this SimEvent involves the given entity as a primary participant.
+fn sim_event_involves(event: &SimEvent, agent: Entity) -> bool {
+    match event {
+        SimEvent::Decision { agent: a, .. }
+        | SimEvent::ActionStarted { agent: a, .. }
+        | SimEvent::ActionCompleted { agent: a, .. }
+        | SimEvent::ActionPreempted { agent: a, .. }
+        | SimEvent::ActionFailed { agent: a, .. }
+        | SimEvent::EmotionTriggered { agent: a, .. }
+        | SimEvent::Death { agent: a, .. }
+        | SimEvent::EntityPerceived { agent: a, .. }
+        | SimEvent::StrangerDetected { agent: a, .. } => *a == agent,
+
+        SimEvent::RelationshipChanged {
+            agent: a, other, ..
+        } => *a == agent || *other == agent,
+
+        SimEvent::KnowledgeShared {
+            speaker, listener, ..
+        } => *speaker == agent || *listener == agent,
+
+        SimEvent::ConversationStarted { participants, .. }
+        | SimEvent::ConversationEnded { participants, .. } => participants.contains(&agent),
+
+        SimEvent::ConversationAbandoned {
+            abandoner,
+            abandoned,
+            ..
+        } => *abandoner == agent || *abandoned == agent,
+    }
+}
+
+/// One-line description of a SimEvent for terminal output.
+fn format_sim_event(event: &SimEvent) -> String {
+    match event {
+        SimEvent::Decision {
+            agent,
+            tick,
+            winner,
+            chosen_actions,
+            powers,
+            ..
+        } => format!(
+            "[t{tick}] Decision  agent={agent:?} winner={winner:?} actions={chosen_actions:?} \
+             powers=(S:{:.2} E:{:.2} R:{:.2})",
+            powers.survival, powers.emotional, powers.rational
+        ),
+
+        SimEvent::ActionStarted {
+            agent,
+            tick,
+            action,
+            target,
+        } => {
+            if let Some(t) = target {
+                format!("[t{tick}] ActionStarted   agent={agent:?} action={action:?} target={t:?}")
+            } else {
+                format!("[t{tick}] ActionStarted   agent={agent:?} action={action:?}")
+            }
+        }
+
+        SimEvent::ActionCompleted {
+            agent,
+            tick,
+            action,
+        } => {
+            format!("[t{tick}] ActionCompleted agent={agent:?} action={action:?}")
+        }
+
+        SimEvent::ActionPreempted {
+            agent,
+            tick,
+            preempted_action,
+        } => {
+            format!("[t{tick}] ActionPreempted agent={agent:?} preempted={preempted_action:?}")
+        }
+
+        SimEvent::ActionFailed {
+            agent,
+            tick,
+            action,
+            reason,
+        } => {
+            format!("[t{tick}] ActionFailed    agent={agent:?} action={action:?} reason={reason:?}")
+        }
+
+        SimEvent::ConversationStarted {
+            participants,
+            tick,
+            conversation_id,
+        } => {
+            format!(
+                "[t{tick}] ConversationStarted  id={conversation_id} participants={participants:?}"
+            )
+        }
+
+        SimEvent::ConversationEnded {
+            participants,
+            tick,
+            conversation_id,
+        } => {
+            format!(
+                "[t{tick}] ConversationEnded    id={conversation_id} participants={participants:?}"
+            )
+        }
+
+        SimEvent::ConversationAbandoned {
+            abandoner,
+            abandoned,
+            tick,
+        } => {
+            format!(
+                "[t{tick}] ConversationAbandoned abandoner={abandoner:?} abandoned={abandoned:?}"
+            )
+        }
+
+        SimEvent::RelationshipChanged {
+            agent,
+            other,
+            tick,
+            dimension,
+            old_value,
+            new_value,
+        } => format!(
+            "[t{tick}] RelationshipChanged agent={agent:?} other={other:?} \
+             dim={dimension:?} {old_value:.3}->{new_value:.3}"
+        ),
+
+        SimEvent::EmotionTriggered {
+            agent,
+            tick,
+            emotion,
+            intensity,
+        } => {
+            format!(
+                "[t{tick}] EmotionTriggered   agent={agent:?} emotion={emotion:?} \
+                 intensity={intensity:.3}"
+            )
+        }
+
+        SimEvent::Death { agent, tick, cause } => {
+            format!("[t{tick}] Death             agent={agent:?} cause={cause}")
+        }
+
+        SimEvent::EntityPerceived {
+            agent,
+            tick,
+            target,
+        } => {
+            format!("[t{tick}] EntityPerceived   agent={agent:?} target={target:?}")
+        }
+
+        SimEvent::StrangerDetected {
+            agent,
+            tick,
+            stranger,
+        } => {
+            format!("[t{tick}] StrangerDetected  agent={agent:?} stranger={stranger:?}")
+        }
+
+        SimEvent::KnowledgeShared {
+            speaker,
+            listener,
+            tick,
+            triple_count,
+        } => {
+            format!(
+                "[t{tick}] KnowledgeShared   speaker={speaker:?} listener={listener:?} \
+                 triples={triple_count}"
+            )
+        }
+    }
+}
+
+/// Format a MindGraph triple as "subject -- predicate --> object".
+fn format_triple(triple: &crate::agent::mind::knowledge::Triple) -> String {
+    format!(
+        "{:?} --{:?}--> {:?}",
+        triple.subject, triple.predicate, triple.object
+    )
+}
 
 /// A lightweight headless simulation harness. Wraps a Bevy `App` configured with
 /// the same logic plugins as the real game (`AgentPlugin` and friends) but
@@ -65,6 +309,10 @@ impl TestWorld {
         app.insert_resource(TickCount::new(60.0));
         app.insert_resource(GameLog::new(100));
         app.init_resource::<GameTime>();
+
+        // SimEvent history — collected automatically each tick.
+        app.init_resource::<SimEventLog>();
+        app.add_systems(Last, collect_sim_events_into_log);
 
         // Replace tick_system with a deterministic per-update tick advancer so
         // each `app.update()` advances exactly one logical tick regardless of
@@ -277,6 +525,490 @@ impl TestWorld {
             .resource::<ActionRegistry>()
             .get(action)
             .is_some()
+    }
+
+    // ─── Text inspection (output goes to stderr) ───────────────────────────
+
+    /// Print full agent state to stderr: position, current action, brain winner,
+    /// physical needs, psychological drives, consciousness, emotional state, and body.
+    pub fn print_agent_state(&self, agent: Entity) {
+        let world = self.app.world();
+        let tick = world.resource::<TickCount>().current;
+        let name = world
+            .get::<Name>(agent)
+            .map(|n| n.as_str().to_string())
+            .unwrap_or_else(|| format!("{agent:?}"));
+
+        eprintln!("══════════════════════════════════════════════════");
+        eprintln!("  Agent state — {name} [{agent:?}] at tick {tick}");
+        eprintln!("══════════════════════════════════════════════════");
+
+        // Position
+        if let Some(tf) = world.get::<Transform>(agent) {
+            let pos = tf.translation.truncate();
+            eprintln!("  Position:  ({:.1}, {:.1})", pos.x, pos.y);
+        }
+
+        // Current action
+        if let Some(active) = world.get::<ActiveActions>(agent) {
+            let registry = world.resource::<ActionRegistry>();
+            if let Some(primary) = active.primary(registry) {
+                eprintln!("  Action:    {:?}", primary.action_type);
+            } else {
+                eprintln!("  Action:    Idle");
+            }
+            let running: Vec<_> = active
+                .iter()
+                .map(|s| format!("{:?}", s.action_type))
+                .collect();
+            if running.len() > 1 {
+                eprintln!("  All running: [{}]", running.join(", "));
+            }
+        }
+
+        // Brain winner
+        if let Some(brain) = world.get::<BrainState>(agent) {
+            eprintln!(
+                "  Brain:     winner={:?}  S:{:.2} E:{:.2} R:{:.2}",
+                brain.winner, brain.powers.survival, brain.powers.emotional, brain.powers.rational
+            );
+        }
+
+        // Physical needs
+        if let Some(needs) = world.get::<PhysicalNeeds>(agent) {
+            eprintln!(
+                "  Needs:     hunger={:.1}  thirst={:.1}  energy={:.1}  health={:.1}",
+                needs.hunger, needs.thirst, needs.energy, needs.health
+            );
+        }
+
+        // Consciousness
+        if let Some(con) = world.get::<Consciousness>(agent) {
+            eprintln!("  Alertness: {:.2}", con.alertness);
+        }
+
+        // Psychological drives
+        if let Some(drives) = world.get::<PsychologicalDrives>(agent) {
+            eprintln!(
+                "  Drives:    social={:.2}  fun={:.2}  curiosity={:.2}  status={:.2}  security={:.2}  autonomy={:.2}",
+                drives.social,
+                drives.fun,
+                drives.curiosity,
+                drives.status,
+                drives.security,
+                drives.autonomy
+            );
+        }
+
+        // Emotional state
+        if let Some(emo) = world.get::<EmotionalState>(agent) {
+            eprintln!(
+                "  Emotions:  mood={:.3}  stress={:.1}  active=[{}]",
+                emo.current_mood,
+                emo.stress_level,
+                emo.active_emotions
+                    .iter()
+                    .map(|e| format!("{:?}({:.2})", e.emotion_type, e.intensity))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            );
+        }
+
+        // Body
+        if let Some(body) = world.get::<Body>(agent) {
+            eprintln!("  Body:");
+            for (label, part) in [
+                ("head     ", &body.head),
+                ("torso    ", &body.torso),
+                ("left_arm ", &body.left_arm),
+                ("right_arm", &body.right_arm),
+                ("left_leg ", &body.left_leg),
+                ("right_leg", &body.right_leg),
+            ] {
+                let injury_str = if part.injuries.is_empty() {
+                    String::new()
+                } else {
+                    format!(
+                        "  injuries=[{}]",
+                        part.injuries
+                            .iter()
+                            .map(|i| format!("{:?}({:.2})", i.injury_type, i.severity))
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    )
+                };
+                eprintln!(
+                    "    {label}  hp={:.0}/{:.0}  fn={:.2}{}",
+                    part.current_hp, part.max_hp, part.function_rate, injury_str
+                );
+            }
+        }
+
+        eprintln!("──────────────────────────────────────────────────");
+    }
+
+    /// Print the last brain decision for `agent` to stderr: all proposals, their
+    /// urgency and reasoning, the power levels, and the winner.
+    pub fn print_brain_decision(&self, agent: Entity) {
+        let world = self.app.world();
+        let tick = world.resource::<TickCount>().current;
+        let name = world
+            .get::<Name>(agent)
+            .map(|n| n.as_str().to_string())
+            .unwrap_or_else(|| format!("{agent:?}"));
+
+        eprintln!("══════════════════════════════════════════════════");
+        eprintln!("  Brain decision — {name} [{agent:?}] at tick {tick}");
+        eprintln!("══════════════════════════════════════════════════");
+
+        let Some(brain) = world.get::<BrainState>(agent) else {
+            eprintln!("  (no BrainState component)");
+            eprintln!("──────────────────────────────────────────────────");
+            return;
+        };
+
+        eprintln!(
+            "  Powers:  Survival={:.2}  Emotional={:.2}  Rational={:.2}",
+            brain.powers.survival, brain.powers.emotional, brain.powers.rational
+        );
+        eprintln!("  Winner:  {:?}", brain.winner);
+
+        if brain.proposals.is_empty() {
+            eprintln!("  Proposals: (none this tick — brain thinking interval not reached)");
+        } else {
+            eprintln!("  Proposals ({}):", brain.proposals.len());
+            for p in brain.proposals.iter() {
+                eprintln!(
+                    "    [{:?}]  urgency={:.2}  action={:?}",
+                    p.brain, p.urgency, p.action.action_type
+                );
+                if let Some(target) = p.action.target_entity {
+                    eprintln!("             target={target:?}");
+                }
+                eprintln!("             reason=\"{}\"", p.reasoning);
+            }
+        }
+
+        if brain.chosen_actions.is_empty() {
+            eprintln!("  Chosen actions: (none)");
+        } else {
+            eprintln!("  Chosen actions:");
+            for a in &brain.chosen_actions {
+                eprintln!("    {:?}", a.action_type);
+            }
+        }
+
+        eprintln!("──────────────────────────────────────────────────");
+    }
+
+    /// Print the full MindGraph for `agent` to stderr: all triples across the
+    /// ontology, shared knowledge blocks, and personal knowledge.
+    pub fn print_mind_graph(&self, agent: Entity) {
+        let world = self.app.world();
+        let tick = world.resource::<TickCount>().current;
+        let name = world
+            .get::<Name>(agent)
+            .map(|n| n.as_str().to_string())
+            .unwrap_or_else(|| format!("{agent:?}"));
+
+        eprintln!("══════════════════════════════════════════════════");
+        eprintln!("  MindGraph — {name} [{agent:?}] at tick {tick}");
+        eprintln!("══════════════════════════════════════════════════");
+
+        let Some(mind) = world.get::<MindGraph>(agent) else {
+            eprintln!("  (no MindGraph component)");
+            eprintln!("──────────────────────────────────────────────────");
+            return;
+        };
+
+        eprintln!("  Ontology ({} triples):", mind.ontology.triples.len());
+        for triple in mind.ontology.triples.iter() {
+            eprintln!("    {}", format_triple(triple));
+        }
+
+        let shared_total: usize = mind.shared_knowledge.iter().map(|v| v.len()).sum();
+        if shared_total > 0 {
+            eprintln!("  Shared knowledge ({shared_total} triples):");
+            for block in &mind.shared_knowledge {
+                for triple in block.iter() {
+                    eprintln!("    {}", format_triple(triple));
+                }
+            }
+        }
+
+        eprintln!("  Personal knowledge ({} triples):", mind.triples.len());
+        for triple in &mind.triples {
+            eprintln!(
+                "    {}  [conf={:.2} age={}]",
+                format_triple(triple),
+                triple.meta.confidence,
+                tick.saturating_sub(triple.meta.timestamp)
+            );
+        }
+
+        eprintln!("──────────────────────────────────────────────────");
+    }
+
+    /// Print all relationships (Trust, Affection, Respect) that `agent` holds
+    /// toward other entities.
+    pub fn print_relationships(&self, agent: Entity) {
+        let world = self.app.world();
+        let tick = world.resource::<TickCount>().current;
+        let name = world
+            .get::<Name>(agent)
+            .map(|n| n.as_str().to_string())
+            .unwrap_or_else(|| format!("{agent:?}"));
+
+        eprintln!("══════════════════════════════════════════════════");
+        eprintln!("  Relationships — {name} [{agent:?}] at tick {tick}");
+        eprintln!("══════════════════════════════════════════════════");
+
+        let Some(mind) = world.get::<MindGraph>(agent) else {
+            eprintln!("  (no MindGraph component)");
+            eprintln!("──────────────────────────────────────────────────");
+            return;
+        };
+
+        // Collect all Entity subjects that have at least one relationship predicate.
+        let mut entities: std::collections::HashSet<Entity> = std::collections::HashSet::new();
+        for pred in [
+            Predicate::Trust,
+            Predicate::Affection,
+            Predicate::Respect,
+            Predicate::Knows,
+        ] {
+            for triple in mind.query(None, Some(pred), None) {
+                if let MindNode::Entity(e) = &triple.subject {
+                    entities.insert(*e);
+                }
+            }
+        }
+
+        if entities.is_empty() {
+            eprintln!("  (no relationship entries)");
+        } else {
+            for other in &entities {
+                let other_name = world
+                    .get::<Name>(*other)
+                    .map(|n| n.as_str().to_string())
+                    .unwrap_or_else(|| format!("{other:?}"));
+
+                let trust = mind
+                    .query(
+                        Some(&MindNode::Entity(*other)),
+                        Some(Predicate::Trust),
+                        None,
+                    )
+                    .into_iter()
+                    .find_map(|t| {
+                        if let Value::Float(f) = &t.object {
+                            Some(*f)
+                        } else {
+                            None
+                        }
+                    });
+                let affection = mind
+                    .query(
+                        Some(&MindNode::Entity(*other)),
+                        Some(Predicate::Affection),
+                        None,
+                    )
+                    .into_iter()
+                    .find_map(|t| {
+                        if let Value::Float(f) = &t.object {
+                            Some(*f)
+                        } else {
+                            None
+                        }
+                    });
+                let respect = mind
+                    .query(
+                        Some(&MindNode::Entity(*other)),
+                        Some(Predicate::Respect),
+                        None,
+                    )
+                    .into_iter()
+                    .find_map(|t| {
+                        if let Value::Float(f) = &t.object {
+                            Some(*f)
+                        } else {
+                            None
+                        }
+                    });
+                let knows = !mind
+                    .query(
+                        Some(&MindNode::Entity(*other)),
+                        Some(Predicate::Knows),
+                        None,
+                    )
+                    .is_empty();
+
+                eprintln!(
+                    "  {other_name} [{other:?}]  knows={knows}  trust={trust}  affection={affection}  respect={respect}",
+                    trust = trust
+                        .map(|f| format!("{f:.3}"))
+                        .unwrap_or_else(|| "-".to_string()),
+                    affection = affection
+                        .map(|f| format!("{f:.3}"))
+                        .unwrap_or_else(|| "-".to_string()),
+                    respect = respect
+                        .map(|f| format!("{f:.3}"))
+                        .unwrap_or_else(|| "-".to_string()),
+                );
+            }
+        }
+
+        eprintln!("──────────────────────────────────────────────────");
+    }
+
+    /// Print the current conversation state for `agent` to stderr (if any).
+    pub fn print_conversation(&self, agent: Entity) {
+        let world = self.app.world();
+        let tick = world.resource::<TickCount>().current;
+        let name = world
+            .get::<Name>(agent)
+            .map(|n| n.as_str().to_string())
+            .unwrap_or_else(|| format!("{agent:?}"));
+
+        eprintln!("══════════════════════════════════════════════════");
+        eprintln!("  Conversation — {name} [{agent:?}] at tick {tick}");
+        eprintln!("══════════════════════════════════════════════════");
+
+        let in_conv = world.get::<InConversation>(agent);
+        let manager = world.resource::<ConversationManager>();
+
+        let Some(in_conv) = in_conv else {
+            eprintln!("  (agent is not currently in a conversation)");
+            eprintln!("──────────────────────────────────────────────────");
+            return;
+        };
+
+        let partner_name = world
+            .get::<Name>(in_conv.partner)
+            .map(|n| n.as_str().to_string())
+            .unwrap_or_else(|| format!("{:?}", in_conv.partner));
+
+        eprintln!(
+            "  conversation_id={}  partner={partner_name} [{:?}]",
+            in_conv.conversation_id, in_conv.partner
+        );
+        eprintln!(
+            "  my_turn={}  owes_response={}",
+            in_conv.my_turn, in_conv.owes_response
+        );
+
+        if let Some(conv) = manager.conversations.get(&in_conv.conversation_id) {
+            eprintln!(
+                "  State: {:?}  started=t{}  last_activity=t{}  turns={}",
+                conv.state,
+                conv.started_at,
+                conv.last_activity,
+                conv.turns.len()
+            );
+            for (i, turn) in conv.turns.iter().enumerate() {
+                let speaker_name = world
+                    .get::<Name>(turn.speaker)
+                    .map(|n| n.as_str().to_string())
+                    .unwrap_or_else(|| format!("{:?}", turn.speaker));
+                eprintln!(
+                    "  Turn {i}: [{speaker_name}] intent={:?}  topic={:?}  triples={}",
+                    turn.intent,
+                    turn.topic,
+                    turn.content.len()
+                );
+            }
+        }
+
+        eprintln!("──────────────────────────────────────────────────");
+    }
+
+    /// Search the agent's full MindGraph (ontology + shared + personal) for
+    /// triples whose subject, predicate, or object Debug representation contains
+    /// `query` (case-insensitive substring match). Returns formatted strings.
+    pub fn query_knowledge(&self, agent: Entity, query: &str) -> Vec<String> {
+        let Some(mind) = self.app.world().get::<MindGraph>(agent) else {
+            return Vec::new();
+        };
+
+        let query_lower = query.to_lowercase();
+
+        let all_triples = mind
+            .ontology
+            .triples
+            .iter()
+            .chain(mind.shared_knowledge.iter().flat_map(|v| v.iter()))
+            .chain(mind.triples.iter());
+
+        all_triples
+            .filter(|t| {
+                let subject = format!("{:?}", t.subject).to_lowercase();
+                let predicate = format!("{:?}", t.predicate).to_lowercase();
+                let object = format!("{:?}", t.object).to_lowercase();
+                subject.contains(&query_lower)
+                    || predicate.contains(&query_lower)
+                    || object.contains(&query_lower)
+            })
+            .map(format_triple)
+            .collect()
+    }
+
+    /// Print all SimEvents that occurred in the last `last_n_ticks` ticks to stderr.
+    pub fn print_recent_events(&self, last_n_ticks: u64) {
+        let world = self.app.world();
+        let tick = world.resource::<TickCount>().current;
+        let log = world.resource::<SimEventLog>();
+
+        let events: Vec<_> = log.events_since(tick, last_n_ticks).collect();
+
+        eprintln!("══════════════════════════════════════════════════");
+        eprintln!(
+            "  SimEvents — last {last_n_ticks} ticks (tick {tick})  [{} events]",
+            events.len()
+        );
+        eprintln!("══════════════════════════════════════════════════");
+
+        if events.is_empty() {
+            eprintln!("  (none)");
+        } else {
+            for event in events {
+                eprintln!("  {}", format_sim_event(event));
+            }
+        }
+
+        eprintln!("──────────────────────────────────────────────────");
+    }
+
+    /// Print all SimEvents involving `agent` in the last `last_n_ticks` ticks to stderr.
+    pub fn print_agent_events(&self, agent: Entity, last_n_ticks: u64) {
+        let world = self.app.world();
+        let tick = world.resource::<TickCount>().current;
+        let name = world
+            .get::<Name>(agent)
+            .map(|n| n.as_str().to_string())
+            .unwrap_or_else(|| format!("{agent:?}"));
+        let log = world.resource::<SimEventLog>();
+
+        let events: Vec<_> = log
+            .events_since(tick, last_n_ticks)
+            .filter(|e| sim_event_involves(e, agent))
+            .collect();
+
+        eprintln!("══════════════════════════════════════════════════");
+        eprintln!(
+            "  Agent SimEvents — {name} [{agent:?}]  last {last_n_ticks} ticks  [{} events]",
+            events.len()
+        );
+        eprintln!("══════════════════════════════════════════════════");
+
+        if events.is_empty() {
+            eprintln!("  (none)");
+        } else {
+            for event in events {
+                eprintln!("  {}", format_sim_event(event));
+            }
+        }
+
+        eprintln!("──────────────────────────────────────────────────");
     }
 }
 
@@ -511,5 +1243,125 @@ mod tests {
         world.spawn_apple_tree(Vec2::new(20.0, 20.0), 10);
         world.tick(30);
         assert_eq!(world.current_tick(), 30);
+    }
+
+    // ─── Inspection method tests ──────────────────────────────────────────
+
+    #[test]
+    fn print_agent_state_does_not_panic() {
+        let mut world = TestWorld::new();
+        let agent = world.spawn_agent(AgentConfig {
+            hunger: 60.0,
+            energy: 40.0,
+            ..Default::default()
+        });
+        world.tick(5);
+        // Should not panic; output goes to stderr.
+        world.print_agent_state(agent);
+    }
+
+    #[test]
+    fn print_brain_decision_does_not_panic() {
+        let mut world = TestWorld::new();
+        let agent = world.spawn_agent(AgentConfig {
+            hunger: 80.0,
+            ..Default::default()
+        });
+        world.spawn_apple_tree(Vec2::new(20.0, 20.0), 10);
+        // Tick past the brain thinking_interval (60 ticks) so a decision is made.
+        world.tick(65);
+        world.print_brain_decision(agent);
+    }
+
+    #[test]
+    fn print_mind_graph_does_not_panic() {
+        let mut world = TestWorld::new();
+        let agent = world.spawn_agent(AgentConfig::default());
+        world.tick(5);
+        world.print_mind_graph(agent);
+    }
+
+    #[test]
+    fn print_relationships_does_not_panic() {
+        let mut world = TestWorld::new();
+        let agent = world.spawn_agent(AgentConfig::at(Vec2::new(10.0, 10.0)));
+        world.spawn_agent(AgentConfig::at(Vec2::new(12.0, 10.0)));
+        world.tick(50);
+        world.print_relationships(agent);
+    }
+
+    #[test]
+    fn print_conversation_does_not_panic_when_not_in_conversation() {
+        let mut world = TestWorld::new();
+        let agent = world.spawn_agent(AgentConfig::default());
+        world.print_conversation(agent);
+    }
+
+    #[test]
+    fn query_knowledge_returns_matching_triples() {
+        use crate::agent::mind::knowledge::{Metadata, Triple};
+
+        let mut world = TestWorld::new();
+        let agent = world.spawn_agent(AgentConfig {
+            knowledge: vec![Triple::with_meta(
+                MindNode::Concept(Concept::AppleTree),
+                Predicate::Produces,
+                Value::Item(Concept::Apple, 1),
+                Metadata::semantic(0),
+            )],
+            ..Default::default()
+        });
+
+        let results = world.query_knowledge(agent, "Apple");
+        assert!(
+            !results.is_empty(),
+            "query for 'Apple' should match AppleTree-Produces-Apple triple"
+        );
+    }
+
+    #[test]
+    fn query_knowledge_returns_empty_for_no_match() {
+        let mut world = TestWorld::new();
+        let agent = world.spawn_agent(AgentConfig::default());
+        let results = world.query_knowledge(agent, "xyzzy_no_match");
+        assert!(results.is_empty());
+    }
+
+    #[test]
+    fn print_recent_events_does_not_panic_with_no_events() {
+        let world = TestWorld::new();
+        world.print_recent_events(10);
+    }
+
+    #[test]
+    fn print_recent_events_shows_events_after_ticking() {
+        let mut world = TestWorld::new();
+        let agent = world.spawn_agent(AgentConfig {
+            hunger: 50.0,
+            ..Default::default()
+        });
+        world.spawn_apple_tree(Vec2::new(20.0, 20.0), 10);
+        world.tick(100);
+
+        // Should not panic and the log should have events.
+        let log = world.app().world().resource::<SimEventLog>();
+        assert!(
+            !log.events.is_empty(),
+            "SimEventLog should collect events after ticking"
+        );
+
+        world.print_recent_events(100);
+        world.print_agent_events(agent, 100);
+    }
+
+    #[test]
+    fn print_agent_events_filters_to_agent() {
+        let mut world = TestWorld::new();
+        let agent_a = world.spawn_agent(AgentConfig::at(Vec2::new(0.0, 0.0)));
+        let _agent_b = world.spawn_agent(AgentConfig::at(Vec2::new(200.0, 200.0)));
+        world.tick(100);
+
+        // Should not panic.
+        world.print_agent_events(agent_a, 100);
     }
 }

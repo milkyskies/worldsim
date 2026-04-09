@@ -10,4 +10,4 @@ mod spawn;
 mod world;
 
 pub use config::AgentConfig;
-pub use world::TestWorld;
+pub use world::{SimEventLog, TestWorld};
