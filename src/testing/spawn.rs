@@ -153,7 +153,7 @@ pub(super) fn spawn_test_wolf(world: &mut World, ontology: Ontology, pos: Vec2) 
             Physical,
             TargetPosition::default(),
             MovementState::default(),
-            Inventory::default(),
+            ItemSlots::agent_carry(),
             Personality::default(),
             Transform::from_translation(pos.extend(3.0)),
             GlobalTransform::default(),
