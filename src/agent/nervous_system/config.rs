@@ -3,8 +3,7 @@ use crate::agent::psyche::personality::PersonalityTrait;
 use bevy::prelude::*;
 
 /// Curve type for mapping input (0-1) to output (0-1)
-#[derive(Debug, Clone, Reflect)]
-#[derive(Default)]
+#[derive(Debug, Clone, Reflect, Default)]
 pub enum ResponseCurve {
     /// Linear: output = input
     #[default]
@@ -36,7 +35,6 @@ impl ResponseCurve {
         }
     }
 }
-
 
 /// Personality modifier configuration
 #[derive(Debug, Clone, Reflect, Default)]

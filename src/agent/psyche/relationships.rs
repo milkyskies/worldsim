@@ -198,9 +198,10 @@ pub fn decay_relationships(
             .into_iter()
             .filter_map(|t| {
                 if let Node::Entity(e) = &t.subject
-                    && let Value::Float(f) = &t.object {
-                        return Some((*e, *f));
-                    }
+                    && let Value::Float(f) = &t.object
+                {
+                    return Some((*e, *f));
+                }
                 None
             })
             .collect();
@@ -224,9 +225,10 @@ pub fn decay_relationships(
             .into_iter()
             .filter_map(|t| {
                 if let Node::Entity(e) = &t.subject
-                    && let Value::Float(f) = &t.object {
-                        return Some((*e, *f));
-                    }
+                    && let Value::Float(f) = &t.object
+                {
+                    return Some((*e, *f));
+                }
                 None
             })
             .collect();

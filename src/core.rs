@@ -5,10 +5,10 @@ pub mod log;
 pub mod tick;
 pub mod time;
 
+pub use diagnostics::DiagnosticsPlugin;
 pub use log::GameLog;
 pub use tick::{TickCount, not_paused};
 pub use time::GameTime;
-pub use diagnostics::DiagnosticsPlugin;
 
 pub struct CorePlugin;
 
@@ -48,15 +48,17 @@ fn time_controls(
 
     // + or = to speed up
     if (keyboard.just_pressed(KeyCode::Equal) || keyboard.just_pressed(KeyCode::NumpadAdd))
-        && current_speed_index < speeds.len() - 1 {
-            tick.ticks_per_second = speeds[current_speed_index + 1];
-            game_log.event(&format!("Speed: {}x", tick.ticks_per_second / 60.0));
-        }
+        && current_speed_index < speeds.len() - 1
+    {
+        tick.ticks_per_second = speeds[current_speed_index + 1];
+        game_log.event(&format!("Speed: {}x", tick.ticks_per_second / 60.0));
+    }
 
     // - to slow down
     if (keyboard.just_pressed(KeyCode::Minus) || keyboard.just_pressed(KeyCode::NumpadSubtract))
-        && current_speed_index > 0 {
-            tick.ticks_per_second = speeds[current_speed_index - 1];
-            game_log.event(&format!("Speed: {}x", tick.ticks_per_second / 60.0));
-        }
+        && current_speed_index > 0
+    {
+        tick.ticks_per_second = speeds[current_speed_index - 1];
+        game_log.event(&format!("Speed: {}x", tick.ticks_per_second / 60.0));
+    }
 }

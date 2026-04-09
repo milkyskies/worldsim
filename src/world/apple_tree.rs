@@ -40,7 +40,6 @@ pub fn spawn_apple_tree(commands: &mut Commands, position: Vec2, apples: u32) ->
     let leaf_color = Color::srgb(0.13, 0.55, 0.13); // ForestGreen
 
     // Spawn ECS Entity (Root Container)
-    
 
     commands
         .spawn((

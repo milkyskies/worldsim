@@ -1,8 +1,14 @@
 use super::proposal::{BrainProposal, BrainType};
 use crate::agent::actions::ActionType;
 use crate::agent::mind::perception::VisibleObjects;
-
 use crate::agent::psyche::emotions::{EmotionType, EmotionalState};
+use crate::constants::brains::emotional::{
+    ANGER_ENTITY_THRESHOLD, ANGER_ENTITY_URGENCY_MULTIPLIER, CONVERSATION_CONTINUE_URGENCY,
+    CONVERSATION_RESPONSE_URGENCY, CONVERSATION_SOCIAL_THRESHOLD, FEAR_ENTITY_THRESHOLD,
+    FEAR_ENTITY_URGENCY_MULTIPLIER, FEAR_GENERAL_THRESHOLD, FEAR_GENERAL_URGENCY_MULTIPLIER,
+    INTRODUCE_SOCIAL_URGENCY_MULTIPLIER, JOY_ENTITY_THRESHOLD, JOY_ENTITY_URGENCY_MULTIPLIER,
+    SOCIAL_SEEK_THRESHOLD, TALK_SOCIAL_URGENCY_MULTIPLIER, TALK_TRUST_URGENCY_BONUS,
+};
 use bevy::prelude::*;
 
 /// The Emotional Brain: Association-driven behavior based on feelings
@@ -38,15 +44,15 @@ pub fn emotional_brain_propose(
                     return Some(BrainProposal {
                         brain: BrainType::Emotional,
                         action: template,
-                        urgency: 90.0, // Very high - must respond!
+                        urgency: CONVERSATION_RESPONSE_URGENCY,
                         reasoning: "Responding to question".to_string(),
                     });
                 }
             }
 
             // Priority 2: Check if we want to leave
-            // If social drive satisfied (< 0.2) or urgent needs (> 80)
-            let social_satisfied = social_drive < 0.2;
+            // If social drive satisfied or urgent needs
+            let social_satisfied = social_drive < CONVERSATION_SOCIAL_THRESHOLD;
             let others_urgent = false; // TODO check external urgency
 
             if social_satisfied && !in_conv.owes_response {
@@ -55,7 +61,7 @@ pub fn emotional_brain_propose(
             }
 
             // Priority 3: Continue conversation if we still have social drive
-            if social_drive > 0.2 {
+            if social_drive > CONVERSATION_SOCIAL_THRESHOLD {
                 if let Some(action) = action_registry.get(ActionType::Talk) {
                     let mut template = action.to_template(Some(in_conv.partner), None);
                     template.topic = Some(Topic::General);
@@ -63,7 +69,7 @@ pub fn emotional_brain_propose(
                     return Some(BrainProposal {
                         brain: BrainType::Emotional,
                         action: template,
-                        urgency: 70.0, // High - maintain conversation
+                        urgency: CONVERSATION_CONTINUE_URGENCY,
                         reasoning: format!("Continuing conversation (social: {:.2})", social_drive),
                     });
                 }
@@ -125,13 +131,13 @@ pub fn emotional_brain_propose(
 
         // Strong fear about this entity? AVOID (Flee)
         if fear_intensity > best_urgency
-            && fear_intensity > 0.3
+            && fear_intensity > FEAR_ENTITY_THRESHOLD
             && let Some(action) = action_registry.get(ActionType::Flee)
         {
             best = Some(BrainProposal {
                 brain: BrainType::Emotional,
                 action: action.to_template(Some(entity), None),
-                urgency: fear_intensity * 80.0,
+                urgency: fear_intensity * FEAR_ENTITY_URGENCY_MULTIPLIER,
                 reasoning: format!("I'm scared of {:?} (fear: {:.2})", entity, fear_intensity),
             });
             best_urgency = fear_intensity;
@@ -139,13 +145,13 @@ pub fn emotional_brain_propose(
 
         // Strong positive feeling? APPROACH (Walk)
         if joy_intensity > best_urgency
-            && joy_intensity > 0.3
+            && joy_intensity > JOY_ENTITY_THRESHOLD
             && let Some(action) = action_registry.get(ActionType::Walk)
         {
             best = Some(BrainProposal {
                 brain: BrainType::Emotional,
                 action: action.to_template(Some(entity), None),
-                urgency: joy_intensity * 50.0,
+                urgency: joy_intensity * JOY_ENTITY_URGENCY_MULTIPLIER,
                 reasoning: format!("I like {:?} (joy: {:.2})", entity, joy_intensity),
             });
             best_urgency = joy_intensity;
@@ -153,13 +159,13 @@ pub fn emotional_brain_propose(
 
         // Strong anger? ATTACK (if above threshold)
         if anger_intensity > best_urgency
-            && anger_intensity > 0.5
+            && anger_intensity > ANGER_ENTITY_THRESHOLD
             && let Some(action) = action_registry.get(ActionType::Attack)
         {
             best = Some(BrainProposal {
                 brain: BrainType::Emotional,
                 action: action.to_template(Some(entity), None),
-                urgency: anger_intensity * 60.0,
+                urgency: anger_intensity * ANGER_ENTITY_URGENCY_MULTIPLIER,
                 reasoning: format!("I hate {:?}! (anger: {:.2})", entity, anger_intensity),
             });
             best_urgency = anger_intensity;
@@ -175,8 +181,8 @@ pub fn emotional_brain_propose(
         .map(|e| e.intensity)
         .sum();
 
-    if fear_level > 0.7 {
-        let fear_urgency = fear_level * 90.0;
+    if fear_level > FEAR_GENERAL_THRESHOLD {
+        let fear_urgency = fear_level * FEAR_GENERAL_URGENCY_MULTIPLIER;
         if fear_urgency > best_urgency
             && let Some(action) = action_registry.get(ActionType::Flee)
         {
@@ -194,8 +200,8 @@ pub fn emotional_brain_propose(
     use crate::agent::mind::knowledge::{Node, Predicate, Value};
     let social_drive = drives.map(|d| d.social).unwrap_or(0.0);
 
-    // If social drive > 0.3, look for friendly entities to talk to
-    if social_drive > 0.3 {
+    // If social drive exceeds threshold, look for friendly entities to talk to
+    if social_drive > SOCIAL_SEEK_THRESHOLD {
         for &entity in &visible.entities {
             // Only consider entities that are Persons (not trees, rocks, etc.)
             let is_person = !mind
@@ -232,7 +238,8 @@ pub fn emotional_brain_propose(
                 .unwrap_or(0.0);
 
             if introduced && trust >= 0.0 {
-                let talk_urgency = social_drive * 40.0 + trust * 10.0;
+                let talk_urgency = social_drive * TALK_SOCIAL_URGENCY_MULTIPLIER
+                    + trust * TALK_TRUST_URGENCY_BONUS;
                 if talk_urgency > best_urgency
                     && let Some(action) = action_registry.get(ActionType::Talk)
                 {
@@ -253,7 +260,7 @@ pub fn emotional_brain_propose(
                 }
             } else if !introduced {
                 // Stranger! Let's introduce ourselves if we're feeling social
-                let intro_urgency = social_drive * 35.0; // Slightly less than talking to friends
+                let intro_urgency = social_drive * INTRODUCE_SOCIAL_URGENCY_MULTIPLIER;
                 if intro_urgency > best_urgency
                     && let Some(action) = action_registry.get(ActionType::Introduce)
                 {

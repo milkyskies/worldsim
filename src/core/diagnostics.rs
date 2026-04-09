@@ -162,8 +162,10 @@ fn profile_memory_types(
 
     let mut type_counts: std::collections::HashMap<MemoryType, usize> =
         std::collections::HashMap::new();
-    let mut predicate_counts: std::collections::HashMap<crate::agent::mind::knowledge::Predicate, usize> =
-        std::collections::HashMap::new();
+    let mut predicate_counts: std::collections::HashMap<
+        crate::agent::mind::knowledge::Predicate,
+        usize,
+    > = std::collections::HashMap::new();
 
     for (_, _, mind) in agents.iter() {
         for triple in &mind.triples {

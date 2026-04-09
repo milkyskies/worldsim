@@ -30,7 +30,6 @@ pub fn spawn_berry_bush(commands: &mut Commands, position: Vec2, berries: u32) -
     let bush_color = Color::srgb(0.2, 0.5, 0.2); // Darker green
 
     // Spawn ECS Entity (Root Container)
-    
 
     commands
         .spawn((

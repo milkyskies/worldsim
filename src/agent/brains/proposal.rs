@@ -4,9 +4,9 @@ use bevy::prelude::*;
 /// Which brain is making a proposal
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect)]
 pub enum BrainType {
-    Survival,   // Reactive, immediate responses
-    Emotional,  // Association-driven behavior
-    Rational,   // Planning, multi-step reasoning
+    Survival,  // Reactive, immediate responses
+    Emotional, // Association-driven behavior
+    Rational,  // Planning, multi-step reasoning
 }
 
 /// A proposal from one of the three brains

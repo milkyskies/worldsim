@@ -5,6 +5,10 @@ use crate::agent::brains::thinking::{ActionTemplate, Goal, TriplePattern};
 use crate::agent::inventory::Inventory;
 use crate::agent::mind::knowledge::{MindGraph, Node, Predicate, Value};
 use crate::agent::mind::perception::VisibleObjects;
+use crate::constants::brains::rational::{
+    ASK_FOR_HELP_PRIORITY_MULTIPLIER, EXPLORE_FALLBACK_PRIORITY_MULTIPLIER, IDLE_WANDER_URGENCY,
+    MIN_ALERTNESS_FOR_PLANNING, PLAN_CONTINUATION_URGENCY,
+};
 use crate::world::map::WorldMap;
 use bevy::prelude::*;
 
@@ -160,7 +164,7 @@ pub fn update_rational_brain(
         }
 
         // CONSCIOUSNESS CHECK: Can't plan while asleep
-        if consciousness.alertness < 0.3 {
+        if consciousness.alertness < MIN_ALERTNESS_FOR_PLANNING {
             continue;
         }
 
@@ -378,7 +382,7 @@ pub fn rational_brain_propose(
             return Some(BrainProposal {
                 brain: BrainType::Rational,
                 action: action.clone(),
-                urgency: 30.0,
+                urgency: PLAN_CONTINUATION_URGENCY,
                 reasoning: format!("Continuing plan step {}: {}", brain.plan_index, action.name),
             });
         }
@@ -462,7 +466,7 @@ pub fn rational_brain_propose(
                 return Some(BrainProposal {
                     brain: BrainType::Rational,
                     action: wander_action,
-                    urgency: 5.0,
+                    urgency: crate::constants::brains::rational::GOAL_SATISFIED_WANDER_URGENCY,
                     reasoning: "Goal already satisfied, wandering".to_string(),
                 });
             }
@@ -506,7 +510,7 @@ pub fn rational_brain_propose(
                         return Some(BrainProposal {
                             brain: BrainType::Rational,
                             action: template,
-                            urgency: goal.priority * 0.5,
+                            urgency: goal.priority * ASK_FOR_HELP_PRIORITY_MULTIPLIER,
                             reasoning: format!("Asking {:?} about {:?}", visible_entity, concept),
                         });
                     }
@@ -523,7 +527,7 @@ pub fn rational_brain_propose(
         return Some(BrainProposal {
             brain: BrainType::Rational,
             action: explore_action,
-            urgency: goal.priority * 0.3,
+            urgency: goal.priority * EXPLORE_FALLBACK_PRIORITY_MULTIPLIER,
             reasoning: "Can't plan - exploring for resources".to_string(),
         });
     }
@@ -535,7 +539,7 @@ pub fn rational_brain_propose(
     Some(BrainProposal {
         brain: BrainType::Rational,
         action: wander_action,
-        urgency: 10.0,
+        urgency: IDLE_WANDER_URGENCY,
         reasoning: "Nothing to do, wandering".to_string(),
     })
 }

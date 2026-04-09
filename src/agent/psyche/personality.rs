@@ -1,12 +1,10 @@
 use bevy::prelude::*;
 use rand::Rng;
 
-#[derive(Component, Debug, Clone, Reflect)]
-#[derive(Default)]
+#[derive(Component, Debug, Clone, Reflect, Default)]
 pub struct Personality {
     pub traits: PersonalityTraits,
 }
-
 
 impl Personality {
     pub fn random() -> Self {

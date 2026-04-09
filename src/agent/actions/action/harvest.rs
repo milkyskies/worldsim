@@ -7,6 +7,7 @@ use crate::agent::actions::registry::{
 use crate::agent::brains::thinking::{ActionTemplate, TriplePattern};
 use crate::agent::events::FailureReason;
 use crate::agent::mind::knowledge::{Concept, MindGraph, Node, Predicate, Triple, Value};
+use crate::constants::actions::harvest::{DURATION_TICKS, ENERGY_PER_SEC, HUNGER_PER_SEC};
 use bevy::prelude::*;
 
 pub struct HarvestAction;
@@ -21,7 +22,9 @@ impl Action for HarvestAction {
     }
 
     fn kind(&self) -> ActionKind {
-        ActionKind::Timed { duration_ticks: 30 }
+        ActionKind::Timed {
+            duration_ticks: DURATION_TICKS,
+        }
     }
 
     // Planning: Need to be at location and target must have items
@@ -96,8 +99,8 @@ impl Action for HarvestAction {
     // Per-tick effects while harvesting
     fn runtime_effects(&self) -> RuntimeEffects {
         RuntimeEffects {
-            energy_per_sec: -0.2,
-            hunger_per_sec: 2.0,
+            energy_per_sec: ENERGY_PER_SEC,
+            hunger_per_sec: HUNGER_PER_SEC,
             ..Default::default()
         }
     }
