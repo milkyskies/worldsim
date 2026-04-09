@@ -14,7 +14,7 @@ use rand_chacha::ChaCha8Rng;
 use serde::Serialize;
 
 use crate::agent::body::needs::{Consciousness, PhysicalNeeds};
-use crate::agent::mind::conversation::{ConversationManager, ConversationState};
+use crate::agent::mind::conversation::ConversationManager;
 use crate::agent::psyche::emotions::{EmotionType, EmotionalState};
 use crate::testing::{AgentConfig, TestWorld};
 
@@ -195,17 +195,13 @@ fn collect_agent_stats(world: &TestWorld, agents: &[Entity], spawned: u64) -> Ag
 fn collect_conversation_stats(world: &TestWorld) -> ConversationStats {
     let manager = world.app().world().resource::<ConversationManager>();
     let total = manager.conversations.len() as u64;
-    let mut active = 0u64;
-    let mut ended = 0u64;
-    let mut total_turns: u64 = 0;
-    for conv in manager.conversations.values() {
-        if conv.state == ConversationState::Ended {
-            ended += 1;
-        } else {
-            active += 1;
-        }
-        total_turns += conv.turns.len() as u64;
-    }
+    let active = manager.active_conversations().count() as u64;
+    let ended = total - active;
+    let total_turns: u64 = manager
+        .conversations
+        .values()
+        .map(|c| c.turns.len() as u64)
+        .sum();
     let avg_turns = if total > 0 {
         total_turns as f64 / total as f64
     } else {
