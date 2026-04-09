@@ -427,10 +427,11 @@ fn collect_resource_targets(
             None,
         );
         if belief_state.pattern_confidence(&pattern) > 0.1 {
-            actions.push(action.to_template(
-                Some(target_entity),
-                Some(target_transform.translation().truncate()),
-            ));
+            let target_pos = target_transform.translation().truncate();
+            let mut template = action.to_template(Some(target_entity), Some(target_pos));
+            // Override effects with mind-derived effects (e.g. Harvest yields what the target produces)
+            template.effects = action.plan_effects_for_target(Some(target_entity), mind);
+            actions.push(template);
         }
     }
 }
@@ -476,6 +477,8 @@ fn collect_affordance_targets(
         let vis_pos = vis_transform.translation().truncate();
         let dist = agent_pos.distance(vis_pos);
         let mut template = action.to_template(Some(entity), Some(vis_pos));
+        // Override effects with mind-derived effects (e.g. Harvest yields what the target produces)
+        template.effects = action.plan_effects_for_target(Some(entity), mind);
         template.base_cost += dist;
         actions.push(template);
     }

@@ -14,6 +14,7 @@ pub enum ActionType {
     Harvest,
     Pickup,
     Drop,
+    Build,
 
     // Movement / Positioning
     Walk,    // "Travel"

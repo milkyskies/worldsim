@@ -74,6 +74,13 @@ pub struct RuntimeEffects {
 // COMPLETION CONTEXT - Passed to on_complete for actions to modify
 // ============================================================================
 
+/// A request to spawn a world entity at a position when an action completes.
+/// Processed by the execution system after `on_complete` returns.
+pub struct SpawnRequest {
+    pub concept: crate::agent::mind::knowledge::Concept,
+    pub position: bevy::prelude::Vec2,
+}
+
 /// Context provided to actions when they complete
 /// Actions modify this directly - fully declarative!
 pub struct CompletionContext<'a> {
@@ -87,6 +94,11 @@ pub struct CompletionContext<'a> {
     pub target_entity: Option<bevy::prelude::Entity>,
     /// Current tick for timestamping
     pub tick: u64,
+    /// Position of the agent executing this action (for Build-style spawning).
+    pub agent_position: bevy::prelude::Vec2,
+    /// Entities the action wants spawned in the world after completion.
+    /// The execution system processes these with `Commands` after `on_complete` returns.
+    pub spawn_requests: &'a mut Vec<SpawnRequest>,
 }
 
 // ============================================================================
@@ -210,8 +222,8 @@ pub trait Action: Send + Sync + 'static {
 
     // === CONVERSION ===
 
-    /// Generate an ActionTemplate from this Action for the planner
-    /// Automatically adds location precondition if requires_proximity() is true
+    /// Generate an ActionTemplate from this Action for the planner.
+    /// Automatically adds a location precondition when `requires_proximity()` is true.
     fn to_template(
         &self,
         target_entity: Option<Entity>,
@@ -240,6 +252,23 @@ pub trait Action: Send + Sync + 'static {
             consumes: self.plan_consumes(),
             base_cost: self.cost(),
         }
+    }
+
+    /// Dynamic plan effects for a specific target entity, derived from MindGraph.
+    ///
+    /// Override this in actions whose effects depend on the target (e.g. Harvest
+    /// yields whatever the target entity actually produces). The default delegates
+    /// to `plan_effects()` so most actions need not override.
+    ///
+    /// Used by `collect_resource_targets` / `collect_affordance_targets` when
+    /// building templates for the planner — allowing multi-step chains like
+    /// Harvest(wood_log) → Build(campfire) to resolve correctly.
+    fn plan_effects_for_target(
+        &self,
+        _target: Option<Entity>,
+        _mind: &crate::agent::mind::knowledge::MindGraph,
+    ) -> Vec<Triple> {
+        self.plan_effects()
     }
 }
 
@@ -444,8 +473,8 @@ impl ActiveActions {
 // ============================================================================
 
 use super::action::{
-    ConverseAction, DrinkAction, EatAction, ExploreAction, FleeAction, HarvestAction, IdleAction,
-    InitiateConversationAction, SleepAction, WakeUpAction, WalkAction, WanderAction,
+    BuildAction, ConverseAction, DrinkAction, EatAction, ExploreAction, FleeAction, HarvestAction,
+    IdleAction, InitiateConversationAction, SleepAction, WakeUpAction, WalkAction, WanderAction,
 };
 
 #[derive(Resource, Default)]
@@ -467,6 +496,7 @@ impl ActionRegistry {
         registry.register(ExploreAction);
         registry.register(AttackAction);
         registry.register(HarvestAction);
+        registry.register(BuildAction);
         registry.register(WanderAction);
         // Conversation actions — owned by the CommunicationPlugin.
         registry.register(InitiateConversationAction);

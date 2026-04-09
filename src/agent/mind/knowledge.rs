@@ -86,6 +86,18 @@ pub enum Concept {
     StoneNode,
     Stick,
 
+    // ─── Buildable entity types ───
+    Campfire,
+    LeanTo,
+
+    // ─── Abstract needs / states ───
+    Safety,
+    Warmth,
+    Light,
+
+    // ─── Plant materials ───
+    LargeLeaves,
+
     // ─── Animal types ───
     Deer,
 
@@ -145,6 +157,8 @@ pub enum Predicate {
     Consumes,  // (Eat, Consumes, Food)
     Satisfies, // (Eat, Satisfies, Hunger)
     Requires,  // (Harvest, Requires, AtLocation)
+    Provides,  // (Campfire, Provides, Warmth)
+    BuildTime, // (Campfire, BuildTime, 120) — ticks to construct
 
     // ─── Temporal ───
     RegenerationRate, // (AppleTree, RegenerationRate, 10.0)
