@@ -82,16 +82,8 @@ pub struct CompletionContext<'a> {
     pub drives: Option<&'a mut crate::agent::body::needs::PsychologicalDrives>,
     /// Target entity's inventory (for Harvest, etc.)
     pub target_inventory: Option<&'a mut crate::agent::inventory::Inventory>,
-    /// Conversation manager for social actions
-    pub conversation_manager: Option<&'a mut crate::agent::mind::conversation::ConversationManager>,
-    /// Topic for conversation actions
-    pub topic: Option<crate::agent::mind::conversation::Topic>,
     /// Target entity
     pub target_entity: Option<bevy::prelude::Entity>,
-    /// The actor performing the action
-    pub actor: bevy::prelude::Entity,
-    /// Content logic shared for conversation actions
-    pub content: Vec<crate::agent::mind::knowledge::Triple>,
     /// Current tick for timestamping
     pub tick: u64,
 }
@@ -235,8 +227,6 @@ pub trait Action: Send + Sync + 'static {
             action_type: self.action_type(),
             target_entity,
             target_position,
-            topic: None,
-            content: Vec::new(),
             preconditions,
             effects: self.plan_effects(),
             base_cost: self.cost(),
@@ -272,10 +262,6 @@ pub struct ActionState {
     /// progress accumulates here and decrements `ticks_remaining` each time
     /// it crosses 1.0. Deterministic and replay-safe.
     pub progress_accumulator: f32,
-    /// Topic for conversation actions
-    pub topic: Option<crate::agent::mind::conversation::Topic>,
-    /// Content for conversation actions
-    pub content: Vec<crate::agent::mind::knowledge::Triple>,
 }
 
 impl ActionState {
@@ -288,8 +274,6 @@ impl ActionState {
             progress_accumulator: 0.0,
             target_entity: None,
             target_position: None,
-            topic: None,
-            content: Vec::new(),
         }
     }
 
@@ -451,8 +435,8 @@ impl ActiveActions {
 // ============================================================================
 
 use super::action::{
-    EatAction, ExploreAction, FleeAction, HarvestAction, IdleAction, IntroduceAction, SleepAction,
-    TalkAction, WakeUpAction, WalkAction, WanderAction,
+    ConverseAction, EatAction, ExploreAction, FleeAction, HarvestAction, IdleAction, SleepAction,
+    WakeUpAction, WalkAction, WanderAction,
 };
 
 #[derive(Resource, Default)]
@@ -474,9 +458,8 @@ impl ActionRegistry {
         registry.register(AttackAction);
         registry.register(HarvestAction);
         registry.register(WanderAction);
-        // Social actions
-        registry.register(IntroduceAction);
-        registry.register(TalkAction);
+        // Conversation channel marker — owned by the CommunicationPlugin.
+        registry.register(ConverseAction);
         registry
     }
 

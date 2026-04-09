@@ -179,7 +179,7 @@ fn record_interaction_event(
 
     let mut concepts = vec![];
     match action {
-        ActionType::Wave | ActionType::Talk => concepts.push(Concept::SocialAction),
+        ActionType::Wave | ActionType::Converse => concepts.push(Concept::SocialAction),
         ActionType::Attack | ActionType::Flee => concepts.push(Concept::ViolentAction),
         ActionType::Eat | ActionType::Sleep | ActionType::Drink => {
             concepts.push(Concept::SurvivalAction)

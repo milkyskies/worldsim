@@ -144,8 +144,6 @@ impl Action for HarvestAction {
             preconditions: self.preconditions(),
             effects: self.plan_effects(),
             base_cost: 10.0,
-            topic: None,
-            content: Vec::new(),
         };
 
         // Add location requirement (from requires_proximity)

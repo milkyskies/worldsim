@@ -4,6 +4,7 @@ pub mod affordance;
 pub mod biology;
 pub mod body;
 pub mod brains;
+pub mod communication;
 pub mod culture;
 pub mod events;
 pub mod invariants;
@@ -58,18 +59,16 @@ impl Plugin for AgentPlugin {
             .register_type::<psyche::emotions::EmotionalState>()
             .register_type::<psyche::emotions::EmotionConfig>()
             .init_resource::<psyche::emotions::EmotionConfig>()
-            .init_resource::<mind::conversation::ConversationManager>()
-            .register_type::<mind::conversation::InConversation>()
             .register_type::<mind::knowledge::MindGraph>()
             .register_type::<actions::ActiveActions>()
             .insert_resource(actions::ActionRegistry::new())
             .add_message::<events::GameEvent>()
             .add_message::<events::ActionOutcomeEvent>()
-            .add_message::<mind::conversation::ConversationAbandoned>()
             .add_plugins(biology::BiologyPlugin)
             .add_plugins(brains::BrainPlugin)
             .add_plugins(nervous_system::NervousSystemPlugin)
             .add_plugins(invariants::InvariantPlugin)
+            .add_plugins(communication::CommunicationPlugin)
             // Unified action execution system
             .add_systems(
                 Update,
@@ -79,18 +78,6 @@ impl Plugin for AgentPlugin {
                         .after(nervous_system::execution::start_actions),
                     nervous_system::execution::apply_action_effects
                         .after(nervous_system::execution::tick_actions),
-                )
-                    .run_if(not_paused),
-            )
-            // Conversation management systems
-            .add_systems(
-                Update,
-                (
-                    mind::conversation::sync_conversation_state,
-                    mind::conversation::cleanup_stale_conversations
-                        .after(mind::conversation::sync_conversation_state),
-                    mind::conversation::handle_conversation_exits
-                        .after(mind::conversation::sync_conversation_state),
                 )
                     .run_if(not_paused),
             )

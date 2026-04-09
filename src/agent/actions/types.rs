@@ -24,11 +24,11 @@ pub enum ActionType {
 
     // Social / Combat
     Wave,
-    Talk,
-    Introduce, // Exchange names with a stranger
+    /// Body-channel marker for being in a conversation. Inserted and removed
+    /// by the CommunicationPlugin — never proposed by brains directly.
+    Converse,
     Attack,
     Flee,
-    Social, // Generic social action
 }
 
 impl std::fmt::Display for ActionType {

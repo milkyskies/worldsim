@@ -85,10 +85,6 @@ pub struct ActionTemplate {
     pub action_type: ActionType,
     pub target_entity: Option<Entity>,
     pub target_position: Option<Vec2>,
-    /// Topic for conversation actions
-    pub topic: Option<crate::agent::mind::conversation::Topic>,
-    /// Content for conversation actions (knowledge to share)
-    pub content: Vec<crate::agent::mind::knowledge::Triple>,
     /// Patterns that must match in MindGraph for action to be valid
     pub preconditions: Vec<TriplePattern>,
     /// Concrete triples to assert when action completes

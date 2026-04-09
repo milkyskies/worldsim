@@ -86,8 +86,6 @@ impl Action for AttackAction {
             action_type: self.action_type(),
             target_entity,
             target_position: None,
-            topic: None,
-            content: Vec::new(),
             preconditions,
             effects: self.plan_effects(),
             base_cost: self.cost(),

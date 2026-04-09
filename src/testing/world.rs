@@ -462,7 +462,7 @@ mod tests {
             ActionType::Walk,
             ActionType::Harvest,
             ActionType::Wander,
-            ActionType::Talk,
+            ActionType::Converse,
         ] {
             assert!(
                 world.has_registered_action(action),

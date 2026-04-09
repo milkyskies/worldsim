@@ -1,6 +1,6 @@
 //! Three-brains orchestration: runs all brain systems and arbitrates between their proposals each tick.
 //!
-//! Reads: PhysicalNeeds, Consciousness, PsychologicalDrives, EmotionalState, Body, Personality, Inventory, VisibleObjects, MindGraph, ActiveActions, InConversation, WorldMap
+//! Reads: PhysicalNeeds, Consciousness, PsychologicalDrives, EmotionalState, Body, Personality, Inventory, VisibleObjects, MindGraph, ActiveActions, WorldMap
 //! Writes: BrainState (chosen action, winner, proposals, powers)
 //! Upstream: survival/emotional/rational brain modules, arbitration, perception, knowledge
 //! Downstream: nervous_system::cns (executes the chosen action)
@@ -48,7 +48,6 @@ pub fn three_brains_system(
                 &VisibleObjects,
                 &crate::agent::mind::knowledge::MindGraph,
                 &crate::agent::actions::ActiveActions,
-                Option<&crate::agent::mind::conversation::InConversation>,
             ),
         ),
         With<crate::agent::Agent>,
@@ -69,7 +68,7 @@ pub fn three_brains_system(
         (rational_brain, cns),
         (physical, consciousness, _drives),
         (emotions, body, personality, inventory),
-        (transform, visible, mind, active_actions, in_conversation),
+        (transform, visible, mind, active_actions),
     ) in query.iter_mut()
     {
         // Staggered: heavy thinking runs every N ticks, offset by entity ID
@@ -96,14 +95,7 @@ pub fn three_brains_system(
             &action_registry,
         );
 
-        let emotional_proposal = emotional_brain_propose(
-            emotions,
-            mind,
-            visible,
-            _drives,
-            &action_registry,
-            in_conversation,
-        );
+        let emotional_proposal = emotional_brain_propose(emotions, mind, visible, &action_registry);
 
         // Pass None for state since RationalBrain doesn't use it anymore
         // or update rational_brain_propose to strictly take only what it needs
