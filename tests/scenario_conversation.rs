@@ -11,15 +11,24 @@
 use bevy::math::Vec2;
 use worldsim::agent::actions::ActionType;
 use worldsim::agent::events::SimEvent;
+use worldsim::agent::nervous_system::config::NervousSystemConfig;
 use worldsim::testing::TestWorld;
 
 const HIGH_SOCIAL: f32 = 0.8;
 const LOW_SOCIAL: f32 = 0.1;
 
-/// Enough ticks for at least one brain decision (interval = 60), the
-/// resulting walk to complete (10px at base speed), and the plugin to
-/// register the conversation.
-const TICKS_TO_INITIATE: u64 = 200;
+/// With brains running every tick (see `fast_brains`), 100 ticks gives
+/// plenty of time for perception → brain → action → walk → registration.
+const TICKS_TO_INITIATE: u64 = 100;
+
+/// Force brains to run every tick so tests don't fight the 60-tick stagger.
+fn fast_brains(world: &mut TestWorld) {
+    let mut config = world
+        .app_mut()
+        .world_mut()
+        .resource_mut::<NervousSystemConfig>();
+    config.thinking_interval = 1;
+}
 
 #[test]
 fn social_agents_in_vision_range_start_conversation() {
@@ -36,6 +45,7 @@ fn social_agents_in_vision_range_start_conversation() {
         .done()
         .build();
 
+    fast_brains(&mut world);
     world.tick(TICKS_TO_INITIATE);
 
     let alice = agents["alice"];
@@ -66,6 +76,7 @@ fn initiation_emits_conversation_started_sim_event() {
         .done()
         .build();
 
+    fast_brains(&mut world);
     world.tick(TICKS_TO_INITIATE);
 
     let alice = agents["alice"];
@@ -103,6 +114,7 @@ fn out_of_vision_agents_do_not_start_conversation() {
         .done()
         .build();
 
+    fast_brains(&mut world);
     world.tick(TICKS_TO_INITIATE);
 
     assert!(!world.in_conversation(agents["alice"]));
@@ -135,6 +147,7 @@ fn low_social_drive_agents_do_not_initiate() {
         .done()
         .build();
 
+    fast_brains(&mut world);
     world.tick(TICKS_TO_INITIATE);
 
     assert!(!world.in_conversation(agents["alice"]));
@@ -157,6 +170,7 @@ fn converse_marker_replaces_initiate_on_arrival() {
         .done()
         .build();
 
+    fast_brains(&mut world);
     world.tick(TICKS_TO_INITIATE);
 
     let alice = agents["alice"];
@@ -191,6 +205,7 @@ fn conversation_ends_gracefully_after_enough_turns() {
         .build();
 
     // Initiation (~200) + 6 turns @ 30 ticks each + cleanup ~= 500 ticks.
+    fast_brains(&mut world);
     world.tick(600);
 
     let alice = agents["alice"];
