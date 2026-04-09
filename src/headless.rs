@@ -506,10 +506,7 @@ mod tests {
             ..Default::default()
         };
         let report = run_headless(config);
-        assert_eq!(
-            report.agents.spawned,
-            (game.humans + game.deer) as u64
-        );
+        assert_eq!(report.agents.spawned, (game.humans + game.deer) as u64);
     }
 
     #[test]
