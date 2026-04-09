@@ -461,6 +461,17 @@ impl TestWorld {
         query.iter(world).collect()
     }
 
+    /// Finds an agent entity by name (case-insensitive). Returns `None` if no
+    /// agent with that name exists.
+    pub fn find_agent_by_name(&mut self, name: &str) -> Option<Entity> {
+        let world = self.app.world_mut();
+        let mut query = world.query_filtered::<(Entity, &Name), With<Agent>>();
+        query
+            .iter(world)
+            .find(|(_, n)| n.as_str().eq_ignore_ascii_case(name))
+            .map(|(e, _)| e)
+    }
+
     // ─── Convenience queries ───────────────────────────────────────────────
 
     /// True if `agent` has at least one Knows triple about `other`.
