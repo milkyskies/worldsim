@@ -26,6 +26,7 @@ use crate::testing::config::AgentConfig;
 use crate::world::Physical;
 use crate::world::apple_tree::ResourceRegeneration;
 use crate::world::deer::Deer;
+use crate::world::wolf::Wolf;
 
 /// Spawns a Person agent with all logic components but no sprites/children/name tags.
 /// The MindGraph is initialized with the world Ontology and any pre-loaded knowledge.
@@ -146,6 +147,72 @@ pub(super) fn spawn_test_deer(world: &mut World, ontology: Ontology, pos: Vec2) 
             Affordance::default(),
             mind,
             Vision { range: 128.0 },
+            VisibleObjects::default(),
+        ))
+        .insert((
+            WorkingMemory::default(),
+            RationalBrain::default(),
+            BrainState::default(),
+            CentralNervousSystem::default(),
+            PhysicalNeeds::default(),
+            Consciousness::default(),
+            ActiveActions::default(),
+            EmotionalState::default(),
+        ))
+        .id()
+}
+
+/// Spawns a Wolf predator agent with all logic components but no visuals.
+pub(super) fn spawn_test_wolf(world: &mut World, ontology: Ontology, pos: Vec2) -> Entity {
+    use crate::agent::mind::knowledge::{
+        MemoryType, Metadata, Node, Predicate, Source, Triple, Value,
+    };
+    use crate::agent::psyche::emotions::EmotionType;
+    use crate::agent::psyche::personality::Personality;
+
+    let mut mind = MindGraph::new(ontology);
+
+    let intrinsic = Metadata {
+        source: Source::Intrinsic,
+        memory_type: MemoryType::Intrinsic,
+        timestamp: 0,
+        confidence: 1.0,
+        ..Default::default()
+    };
+    // Deer trigger anger (primary prey)
+    mind.assert(Triple::with_meta(
+        Node::Concept(Concept::Deer),
+        Predicate::TriggersEmotion,
+        Value::Emotion(EmotionType::Anger, 0.7),
+        intrinsic.clone(),
+    ));
+    // Humans trigger mild anger (territorial threat)
+    mind.assert(Triple::with_meta(
+        Node::Concept(Concept::Person),
+        Predicate::TriggersEmotion,
+        Value::Emotion(EmotionType::Anger, 0.4),
+        intrinsic,
+    ));
+
+    world
+        .spawn((
+            Name::new("TestWolf"),
+            Agent,
+            Wolf,
+            EntityType(Concept::Wolf),
+            SpeciesProfile::wolf(),
+            Physical,
+            TargetPosition::default(),
+            MovementState::default(),
+            Inventory::default(),
+            Personality::default(),
+            Transform::from_translation(pos.extend(3.0)),
+            GlobalTransform::default(),
+        ))
+        .insert((
+            Affordance::default(),
+            mind,
+            Vision { range: 120.0 },
             VisibleObjects::default(),
         ))
         .insert((

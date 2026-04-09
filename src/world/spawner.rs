@@ -17,7 +17,8 @@ use crate::constants::world::{
     APPLE_TREE_SPAWN_COUNT, BERRY_BUSH_SPAWN_COUNT, DEER_HERD_RADIUS_TILES, DEER_HERD_SIZE,
     DEER_MIN_DISTANCE_FROM_SETTLEMENT, DEER_SPAWN_COUNT, HUMAN_CLUSTER_RADIUS_TILES,
     HUMAN_SPAWN_COUNT, MAX_SPAWN_ATTEMPTS, SETTLEMENT_BERRY_BUSH_COUNT,
-    SETTLEMENT_FOOD_RADIUS_TILES,
+    SETTLEMENT_FOOD_RADIUS_TILES, WOLF_MIN_DISTANCE_FROM_SETTLEMENT, WOLF_PACK_RADIUS_TILES,
+    WOLF_PACK_SIZE, WOLF_SPAWN_COUNT,
 };
 use crate::world::map::TileType;
 use crate::world::spawn_placement::{
@@ -35,6 +36,7 @@ pub use super::apple_tree::{
 pub use super::berry_bush::{VisualBerry, VisualBushLeaves, spawn_berry_bush, sync_berry_visuals};
 pub use super::deer::{Deer, spawn_deer};
 pub use super::human::spawn_person;
+pub use super::wolf::{Wolf, spawn_wolf};
 
 pub struct SpawnerPlugin;
 
@@ -45,6 +47,7 @@ impl Plugin for SpawnerPlugin {
 
         app.register_type::<ResourceRegeneration>()
             .register_type::<Deer>()
+            .register_type::<Wolf>()
             .add_systems(
                 Startup,
                 spawn_initial_population.after(crate::world::map::setup_map),
@@ -150,6 +153,16 @@ fn spawn_initial_population(
         DEER_SPAWN_COUNT,
         &mut rng,
     );
+
+    // Wolves spawn in small packs in deep forest, well away from the settlement.
+    spawn_wolf_packs(
+        &mut commands,
+        &map,
+        &ontology,
+        settlement,
+        WOLF_SPAWN_COUNT,
+        &mut rng,
+    );
 }
 
 /// Spawn deer in herds of `DEER_HERD_SIZE`. Each herd anchor is placed in
@@ -219,6 +232,72 @@ fn spawn_deer_herds(
         attempts += 1;
         if attempts > total * 2 {
             // Defensive: never loop forever if the map is pathological.
+            break;
+        }
+    }
+}
+
+/// Spawn wolves in packs of `WOLF_PACK_SIZE` in forest biome, well away from
+/// the human settlement. Each pack clusters within `WOLF_PACK_RADIUS_TILES` of
+/// an anchor tile.
+fn spawn_wolf_packs(
+    commands: &mut Commands,
+    map: &crate::world::map::WorldMap,
+    ontology: &Ontology,
+    settlement: Option<UVec2>,
+    total: usize,
+    rng: &mut impl rand::Rng,
+) {
+    let allowed = [TileType::Forest];
+    let mut spawned = 0usize;
+    let mut attempts = 0usize;
+
+    while spawned < total {
+        let remaining = total - spawned;
+        let pack_size = remaining.min(WOLF_PACK_SIZE);
+
+        let anchor = match settlement {
+            Some(center) => find_tile_away_from(
+                map,
+                rng,
+                &allowed,
+                center,
+                WOLF_MIN_DISTANCE_FROM_SETTLEMENT,
+                MAX_SPAWN_ATTEMPTS,
+            ),
+            None => find_biome_tile(map, rng, &allowed, MAX_SPAWN_ATTEMPTS),
+        };
+
+        let Some(anchor_pos) = anchor else {
+            // No forest tile found far enough away — skip remaining wolves rather
+            // than spawning them on top of the settlement.
+            break;
+        };
+
+        let (anchor_tx, anchor_ty) = map.world_to_tile(anchor_pos);
+        let positions = cluster_positions(
+            map,
+            UVec2::new(anchor_tx, anchor_ty),
+            pack_size,
+            WOLF_PACK_RADIUS_TILES,
+            rng,
+        );
+
+        if positions.is_empty() {
+            spawn_wolf(commands, ontology.clone(), anchor_pos, spawned);
+            spawned += 1;
+        } else {
+            for pos in positions {
+                spawn_wolf(commands, ontology.clone(), pos, spawned);
+                spawned += 1;
+                if spawned == total {
+                    break;
+                }
+            }
+        }
+
+        attempts += 1;
+        if attempts > total * 2 {
             break;
         }
     }

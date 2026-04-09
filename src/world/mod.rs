@@ -6,6 +6,7 @@ pub mod human;
 pub mod map;
 pub mod spawn_placement;
 pub mod spawner;
+pub mod wolf;
 
 use bevy::prelude::*;
 

@@ -86,6 +86,7 @@ pub enum Concept {
 
     // ─── Animal types ───
     Deer,
+    Wolf,
 
     // ─── Traits/Properties (adjectives) ───
     Edible,    // Items that can be eaten (Apple, Berry, Meat)
@@ -1000,6 +1001,9 @@ pub fn setup_ontology() -> Ontology {
     add(c(BerryBush), IsA, v(Plant));
 
     add(c(Deer), IsA, v(Animal));
+
+    add(c(Wolf), IsA, v(Animal));
+    add(c(Wolf), HasTrait, v(Dangerous)); // All agents with ontology know wolves are dangerous
 
     add(c(Wood), IsA, v(Resource));
     add(c(Water), IsA, v(Resource));

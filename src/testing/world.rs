@@ -25,6 +25,7 @@ use crate::core::{GameLog, GameTime};
 use crate::testing::config::AgentConfig;
 use crate::testing::spawn::{
     spawn_test_apple_tree, spawn_test_berry_bush, spawn_test_deer, spawn_test_person,
+    spawn_test_wolf,
 };
 use crate::world::environment::LightLevel;
 use crate::world::map::{CHUNK_SIZE, Chunk, WorldMap};
@@ -439,6 +440,12 @@ impl TestWorld {
     pub fn spawn_deer(&mut self, pos: Vec2) -> Entity {
         let ontology = self.app.world().resource::<Ontology>().clone();
         spawn_test_deer(self.app.world_mut(), ontology, pos)
+    }
+
+    /// Spawns a Wolf predator at the given position with full logic components.
+    pub fn spawn_wolf(&mut self, pos: Vec2) -> Entity {
+        let ontology = self.app.world().resource::<Ontology>().clone();
+        spawn_test_wolf(self.app.world_mut(), ontology, pos)
     }
 
     /// Spawns a berry bush at the given position with the specified berry count.
