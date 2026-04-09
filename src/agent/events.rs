@@ -10,6 +10,7 @@ use super::brains::proposal::{BrainPowers, BrainProposal, BrainType};
 use super::psyche::emotions::EmotionType;
 use crate::agent::mind::knowledge::Concept;
 use bevy::prelude::*;
+use std::sync::Arc;
 
 /// Topics for conversations
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect)]
@@ -106,18 +107,13 @@ pub struct ActionOutcomeEvent {
     pub outcome: ActionOutcome,
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
-// SIM EVENT — Unified observability bus for every meaningful state change
-// ═══════════════════════════════════════════════════════════════════════════
-
 /// Unified event bus capturing every meaningful simulation state change.
 ///
-/// Every variant carries `agent` and `tick` so consumers can filter by agent
-/// and tick range without knowing variant internals. Bevy events are free if
-/// unread, so there is zero performance impact when no consumer subscribes.
+/// Most variants carry `agent` and `tick` for uniform filtering.
+/// Conversation variants use `participants` instead of a single `agent`.
+/// Bevy events are free if unread — zero performance impact without consumers.
 #[derive(Event, Message, Debug, Clone, Reflect)]
 pub enum SimEvent {
-    // ── Brain decisions ──────────────────────────────────────────────
     /// A brain decision was made: the arbitration system selected actions.
     Decision {
         agent: Entity,
@@ -126,10 +122,9 @@ pub enum SimEvent {
         chosen_actions: Vec<ActionType>,
         powers: BrainPowers,
         #[reflect(ignore)]
-        proposals: Vec<BrainProposal>,
+        proposals: Arc<Vec<BrainProposal>>,
     },
 
-    // ── Action lifecycle ─────────────────────────────────────────────
     /// An action was admitted into the running set.
     ActionStarted {
         agent: Entity,
@@ -160,7 +155,6 @@ pub enum SimEvent {
         reason: FailureReason,
     },
 
-    // ── Communication ────────────────────────────────────────────────
     /// A conversation was started between participants.
     ConversationStarted {
         participants: Vec<Entity>,
@@ -182,7 +176,6 @@ pub enum SimEvent {
         tick: u64,
     },
 
-    // ── Relationships ────────────────────────────────────────────────
     /// A relationship dimension changed between two agents.
     RelationshipChanged {
         agent: Entity,
@@ -193,7 +186,6 @@ pub enum SimEvent {
         new_value: f32,
     },
 
-    // ── Emotions ─────────────────────────────────────────────────────
     /// An emotion was triggered or reinforced.
     EmotionTriggered {
         agent: Entity,
@@ -202,7 +194,6 @@ pub enum SimEvent {
         intensity: f32,
     },
 
-    // ── Life events ──────────────────────────────────────────────────
     /// An agent died.
     Death {
         agent: Entity,
@@ -210,7 +201,6 @@ pub enum SimEvent {
         cause: String,
     },
 
-    // ── Perception ───────────────────────────────────────────────────
     /// An agent perceived a new entity (wasn't visible last tick).
     EntityPerceived {
         agent: Entity,
@@ -225,7 +215,6 @@ pub enum SimEvent {
         stranger: Entity,
     },
 
-    // ── Knowledge ────────────────────────────────────────────────────
     /// Knowledge was shared between agents.
     KnowledgeShared {
         speaker: Entity,

@@ -358,6 +358,22 @@ pub fn update_stress(
     }
 }
 
+fn add_emotion_with_event(
+    state: &mut EmotionalState,
+    sim_events: &mut MessageWriter<crate::agent::events::SimEvent>,
+    agent: Entity,
+    tick: u64,
+    emotion: Emotion,
+) {
+    sim_events.write(crate::agent::events::SimEvent::EmotionTriggered {
+        agent,
+        tick,
+        emotion: emotion.emotion_type,
+        intensity: emotion.intensity,
+    });
+    state.add_emotion(emotion);
+}
+
 pub fn react_to_events(
     mut events: MessageReader<crate::agent::events::GameEvent>,
     mut agents: Query<
@@ -393,13 +409,13 @@ pub fn react_to_events(
                         &config,
                     );
                     for e in emotions {
-                        sim_events.write(crate::agent::events::SimEvent::EmotionTriggered {
-                            agent: *actor,
-                            tick: tick.current,
-                            emotion: e.emotion_type,
-                            intensity: e.intensity,
-                        });
-                        state.add_emotion(e);
+                        add_emotion_with_event(
+                            &mut state,
+                            &mut sim_events,
+                            *actor,
+                            tick.current,
+                            e,
+                        );
                     }
                 }
 
@@ -415,76 +431,65 @@ pub fn react_to_events(
                         &config,
                     );
                     for e in emotions {
-                        sim_events.write(crate::agent::events::SimEvent::EmotionTriggered {
-                            agent: *target_entity,
-                            tick: tick.current,
-                            emotion: e.emotion_type,
-                            intensity: e.intensity,
-                        });
-                        state.add_emotion(e);
+                        add_emotion_with_event(
+                            &mut state,
+                            &mut sim_events,
+                            *target_entity,
+                            tick.current,
+                            e,
+                        );
                     }
                 }
             }
 
-            // Social interactions trigger emotions based on valence
             crate::agent::events::GameEvent::SocialInteraction {
                 actor,
                 target,
-
                 valence,
                 ..
             } => {
-                // Actor feels joy/satisfaction from positive social interaction
                 if *valence > 0.0 {
                     if let Ok((_, mut state, _personality, _mind)) = agents.get_mut(*actor) {
-                        let intensity = *valence * 0.3;
-                        sim_events.write(crate::agent::events::SimEvent::EmotionTriggered {
-                            agent: *actor,
-                            tick: tick.current,
-                            emotion: EmotionType::Joy,
-                            intensity,
-                        });
-                        state.add_emotion(Emotion::new(EmotionType::Joy, intensity));
+                        add_emotion_with_event(
+                            &mut state,
+                            &mut sim_events,
+                            *actor,
+                            tick.current,
+                            Emotion::new(EmotionType::Joy, *valence * 0.3),
+                        );
                     }
                     if let Ok((_, mut state, _personality, _mind)) = agents.get_mut(*target) {
-                        let intensity = *valence * 0.2;
-                        sim_events.write(crate::agent::events::SimEvent::EmotionTriggered {
-                            agent: *target,
-                            tick: tick.current,
-                            emotion: EmotionType::Joy,
-                            intensity,
-                        });
-                        state.add_emotion(Emotion::new(EmotionType::Joy, intensity));
+                        add_emotion_with_event(
+                            &mut state,
+                            &mut sim_events,
+                            *target,
+                            tick.current,
+                            Emotion::new(EmotionType::Joy, *valence * 0.2),
+                        );
                     }
                 } else if *valence < 0.0 {
-                    // Negative social interaction (hostility)
                     if let Ok((_, mut state, _personality, _mind)) = agents.get_mut(*actor) {
-                        let intensity = valence.abs() * 0.3;
-                        sim_events.write(crate::agent::events::SimEvent::EmotionTriggered {
-                            agent: *actor,
-                            tick: tick.current,
-                            emotion: EmotionType::Anger,
-                            intensity,
-                        });
-                        state.add_emotion(Emotion::new(EmotionType::Anger, intensity));
+                        add_emotion_with_event(
+                            &mut state,
+                            &mut sim_events,
+                            *actor,
+                            tick.current,
+                            Emotion::new(EmotionType::Anger, valence.abs() * 0.3),
+                        );
                     }
                     if let Ok((_, mut state, _personality, _mind)) = agents.get_mut(*target) {
-                        let intensity = valence.abs() * 0.2;
-                        sim_events.write(crate::agent::events::SimEvent::EmotionTriggered {
-                            agent: *target,
-                            tick: tick.current,
-                            emotion: EmotionType::Fear,
-                            intensity,
-                        });
-                        state.add_emotion(Emotion::new(EmotionType::Fear, intensity));
+                        add_emotion_with_event(
+                            &mut state,
+                            &mut sim_events,
+                            *target,
+                            tick.current,
+                            Emotion::new(EmotionType::Fear, valence.abs() * 0.2),
+                        );
                     }
                 }
             }
 
-            // KnowledgeShared events don't directly trigger emotions
-            crate::agent::events::GameEvent::KnowledgeShared { .. } => {
-                // Learning from others could trigger gratitude, but we skip for now
-            }
+            crate::agent::events::GameEvent::KnowledgeShared { .. } => {}
         }
     }
 }
