@@ -1,5 +1,16 @@
 #!/bin/bash
 #MISE description="Run worldsim (Bevy dev build)"
+#MISE usage="dev [worktree-num]"
 set -euo pipefail
+
+if [ -n "${1:-}" ]; then
+    REPO_ROOT="$(git rev-parse --show-toplevel)"
+    WT_DIR="$REPO_ROOT/../worldsim-worktrees/$1"
+    if [ ! -d "$WT_DIR" ]; then
+        echo "Worktree $1 not found at $WT_DIR" >&2
+        exit 1
+    fi
+    cd "$WT_DIR"
+fi
 
 cargo run
