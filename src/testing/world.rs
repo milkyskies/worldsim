@@ -59,6 +59,12 @@ impl SimEventLog {
             .iter()
             .filter(move |e| sim_event_tick(e) >= cutoff)
     }
+
+    /// Read-only access to all collected events. Tests use this to assert
+    /// specific SimEvent variants fired during a run.
+    pub fn all(&self) -> &[SimEvent] {
+        &self.events
+    }
 }
 
 /// Bevy system that drains incoming SimEvents into `SimEventLog`.
@@ -402,6 +408,12 @@ impl TestWorld {
     /// Returns the current tick count.
     pub fn current_tick(&self) -> u64 {
         self.app.world().resource::<TickCount>().current
+    }
+
+    /// Borrows the SimEventLog for assertion in tests.
+    /// Use this to check that specific SimEvent variants were emitted.
+    pub fn sim_events(&self) -> &SimEventLog {
+        self.app.world().resource::<SimEventLog>()
     }
 
     // ─── Inspection ────────────────────────────────────────────────────────
