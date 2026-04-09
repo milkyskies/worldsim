@@ -1,3 +1,10 @@
+//! Three-brains orchestration: runs all brain systems and arbitrates between their proposals each tick.
+//!
+//! Reads: PhysicalNeeds, Consciousness, PsychologicalDrives, EmotionalState, Body, Personality, Inventory, VisibleObjects, MindGraph, ActionState, InConversation, WorldMap
+//! Writes: BrainState (chosen action, winner, proposals, powers)
+//! Upstream: survival/emotional/rational brain modules, arbitration, perception, knowledge
+//! Downstream: nervous_system::cns (executes the chosen action)
+
 use super::arbitration::{arbitrate, calculate_brain_powers};
 use super::emotional::emotional_brain_propose;
 use super::proposal::BrainState;

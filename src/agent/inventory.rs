@@ -1,3 +1,10 @@
+//! Inventory: ECS component tracking items an agent carries, keyed by Concept vocabulary.
+//!
+//! Reads: Concept (item type vocabulary from knowledge)
+//! Writes: Inventory (add/remove/count items), EntityType (marks what kind of entity something is)
+//! Upstream: action execution systems (add/remove items on success), mind::knowledge (Concept vocabulary)
+//! Downstream: brain_system (inventory influences action choices), belief_updater (syncs MindGraph inventory beliefs)
+
 use crate::agent::mind::knowledge::Concept;
 use bevy::prelude::*;
 

@@ -1,3 +1,10 @@
+//! Brain proposal types: BrainProposal, BrainType, BrainPowers, and the BrainState component.
+//!
+//! Reads: ActionTemplate (from thinking), BrainType tag
+//! Writes: BrainProposal, BrainPowers, BrainState (ECS component holding all proposals and the winner)
+//! Upstream: thinking (ActionTemplate), all brain modules that create proposals
+//! Downstream: arbitration (selects winner), brain_system (reads BrainState result)
+
 use super::thinking::ActionTemplate;
 use bevy::prelude::*;
 

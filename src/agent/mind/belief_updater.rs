@@ -1,3 +1,10 @@
+//! Belief updater: processes action outcome events and updates MindGraph triples to reflect results.
+//!
+//! Reads: ActionOutcomeEvent (success/failure, gained/consumed items, targets), Time
+//! Writes: MindGraph (inventory counts, resource depletion, location beliefs)
+//! Upstream: agent::events (ActionOutcomeEvent emitted by action execution systems)
+//! Downstream: mind::knowledge (MindGraph updated), brains (read updated beliefs next tick)
+
 use crate::agent::events::{ActionOutcome, ActionOutcomeEvent, FailureReason};
 use crate::agent::mind::knowledge::{Concept, Metadata, MindGraph, Node, Predicate, Triple, Value};
 use bevy::prelude::*;

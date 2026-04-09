@@ -1,3 +1,10 @@
+//! Movement utilities: tick-based position stepping toward a target with speed modifiers for fatigue and injury.
+//!
+//! Reads: MovementState (last_tick), TickCount, PhysicalNeeds (energy for speed penalty), Body (injury mobility), WorldMap (walkability)
+//! Writes: Transform (position), MovementState (last_tick updated), MoveResult (Arrived/Moving/Blocked)
+//! Upstream: constants::movement (speed/threshold values), world::map (walkability checks), body::needs (fatigue)
+//! Downstream: action execution systems (call move_toward each tick), nervous_system (movement completes actions)
+
 use crate::constants::movement::{
     BASE_SPEED_PER_TICK, EXHAUSTED_ENERGY_THRESHOLD, EXHAUSTED_SPEED_MULTIPLIER,
     INJURY_MOBILITY_RANGE, MIN_INJURY_MOBILITY, TIRED_ENERGY_THRESHOLD, TIRED_SPEED_MULTIPLIER,

@@ -1,3 +1,10 @@
+//! Brain arbitration: selects the winning brain proposal by urgency and power levels.
+//!
+//! Reads: BrainProposal (from all brains), PhysicalNeeds, Consciousness, Body, EmotionalState, Personality
+//! Writes: BrainPowers, BrainState (chosen action and winner)
+//! Upstream: survival, emotional, and rational brain systems (proposal.rs)
+//! Downstream: brain_system (consumes arbitrated BrainState), nervous_system execution
+
 use super::proposal::{BrainPowers, BrainProposal, BrainType};
 use crate::agent::biology::body::Body;
 use crate::agent::body::needs::{Consciousness, PhysicalNeeds};

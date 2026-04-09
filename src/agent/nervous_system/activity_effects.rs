@@ -1,3 +1,10 @@
+//! Activity effects: applies per-tick stat changes from the current activity to agent needs and emotions.
+//!
+//! Reads: CurrentActivity, ActivityConfig, TickCount
+//! Writes: PhysicalNeeds, Consciousness, PsychologicalDrives, EmotionalState
+//! Upstream: activity system (CurrentActivity, ActivityConfig), core::tick (TickCount)
+//! Downstream: nervous_system::urgency (reads updated needs to recalculate urgencies)
+
 use crate::agent::activity::ActivityConfig;
 use crate::agent::activity::CurrentActivity;
 use crate::agent::body::needs::{Consciousness, PhysicalNeeds, PsychologicalDrives};

@@ -1,3 +1,10 @@
+//! Thinking primitives: TriplePattern for MindGraph queries, Goal and ActionTemplate types for planning.
+//!
+//! Reads: MindGraph triples (via pattern matching), ActionType
+//! Writes: TriplePattern, Goal, ActionTemplate (used by brains to express desired states and actions)
+//! Upstream: mind::knowledge (MindGraph, Triple, Node, Predicate, Value)
+//! Downstream: all brain systems, belief_state, nervous_system::cns (goal formulation)
+
 use crate::agent::actions::ActionType;
 use crate::agent::mind::knowledge::{Node, Predicate, Triple, Value};
 use bevy::prelude::*;

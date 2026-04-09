@@ -1,3 +1,10 @@
+//! Agent knowledge graph: MindGraph stores the agent's beliefs as subject-predicate-object triples.
+//!
+//! Reads: world observations (via perception), action outcomes (via belief_updater), shared knowledge (via conversation)
+//! Writes: MindGraph (triple store), Ontology (concept hierarchy), Node, Predicate, Value types
+//! Upstream: perception (observes world), belief_updater (processes action outcomes), conversation (receives shared triples)
+//! Downstream: all brain systems, thinking (TriplePattern queries), belief_state, nervous_system::cns
+
 use bevy::prelude::*;
 use std::collections::HashMap;
 use std::sync::Arc;

@@ -1,3 +1,10 @@
+//! Belief state: wraps MindGraph to provide confidence-weighted pattern queries for planning.
+//!
+//! Reads: MindGraph (triple store), TriplePattern (query spec)
+//! Writes: confidence values (f32) and boolean existence checks for callers
+//! Upstream: mind::knowledge (MindGraph), brains::thinking (TriplePattern)
+//! Downstream: rational brain, planner (uses confidence to evaluate preconditions and effects)
+
 use crate::agent::brains::thinking::TriplePattern;
 use crate::agent::mind::knowledge::MindGraph;
 
