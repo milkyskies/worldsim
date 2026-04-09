@@ -17,4 +17,8 @@ include = [
 exclude = [
     "monorepo.md",
     ".claude/rules/testing.md",
+    # Worldsim-specific overrides — see commit history.
+    # Bevy compile is too slow for the full check trinity locally.
+    ".mise/tasks/check/rust",
+    ".claude/skills/ship/SKILL.md",
 ]

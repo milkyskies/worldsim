@@ -1,7 +1,8 @@
 #!/bin/bash
-#MISE description="Format check, lint, and test Rust"
+#MISE description="Format check only — clippy + tests run in CI"
 set -euo pipefail
 
+# Worldsim's Bevy compile is too slow to run the full check trinity
+# locally on every push. CI runs fmt + clippy + nextest on a fast
+# runner with caching. Locally we only enforce fmt.
 cargo fmt --check
-cargo clippy -- -D warnings
-RUSTFLAGS="-D warnings" cargo nextest run

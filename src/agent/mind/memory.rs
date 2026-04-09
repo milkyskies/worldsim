@@ -202,8 +202,8 @@ fn record_interaction_event(
     let importance = if is_self { 1.0 } else { 0.5 };
     let salience = intensity * importance;
 
-    let target_idx = target.map_or(0, |t| t.index());
-    let event_id = item.timestamp + (*actor).index() as u64 + target_idx as u64;
+    let target_idx = target.map_or(0, |t| t.index_u32());
+    let event_id = item.timestamp + (*actor).index_u32() as u64 + target_idx as u64;
 
     let meta = Metadata {
         source: crate::agent::mind::knowledge::Source::Experienced,
@@ -283,7 +283,7 @@ fn record_social_interaction(
         )
     };
 
-    let event_id = item.timestamp + (*actor).index() as u64 + (*target).index() as u64;
+    let event_id = item.timestamp + (*actor).index_u32() as u64 + (*target).index_u32() as u64;
 
     let meta = Metadata {
         source: crate::agent::mind::knowledge::Source::Experienced,
@@ -382,7 +382,7 @@ pub fn decay_stale_knowledge(
     // Stagger decay across agents to spread load
     for (entity, mut mind) in agents.iter_mut() {
         // Only run decay every N ticks, staggered by entity
-        if !(entity.index() as u64 + current_time).is_multiple_of(decay_config.decay_interval) {
+        if !(entity.index_u32() as u64 + current_time).is_multiple_of(decay_config.decay_interval) {
             continue;
         }
 
