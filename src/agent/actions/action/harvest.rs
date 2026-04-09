@@ -55,12 +55,12 @@ impl Action for HarvestAction {
         true // Must be at target location to harvest
     }
 
-    fn body_channels(&self) -> Vec<ChannelUsage> {
-        // Hands fully engaged manipulating the resource, legs lightly bracing.
-        vec![
+    fn body_channels(&self) -> &'static [ChannelUsage] {
+        const CHANNELS: &[ChannelUsage] = &[
             ChannelUsage::new(BodyChannel::Hands, 0.9),
             ChannelUsage::new(BodyChannel::Legs, 0.2),
-        ]
+        ];
+        CHANNELS
     }
 
     // Execution: Must have a target entity

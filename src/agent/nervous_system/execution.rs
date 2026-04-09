@@ -9,7 +9,6 @@
 
 use crate::agent::TargetPosition;
 use crate::agent::actions::ActionType;
-use crate::agent::actions::channel::ChannelLoad;
 use crate::agent::actions::registry::{
     ActionContext, ActionKind, ActionRegistry, ActionState, ActiveActions,
 };
@@ -100,7 +99,7 @@ pub fn start_actions(
 
             // Resolve hard conflicts by preempting interruptible actions.
             let requirements = action_def.body_channels();
-            if !preempt_to_make_room(&mut active, &registry, &requirements, body, &mut target) {
+            if !preempt_to_make_room(&mut active, &registry, requirements, body, &mut target) {
                 game_log.log_debug(format!(
                     "{} could not start {:?}: hard conflict with uninterruptible actions",
                     name.as_str(),
@@ -211,7 +210,8 @@ pub fn tick_actions(
                 continue;
             };
 
-            let degradation = load.degradation_factor(&action_def.body_channels(), body);
+            let channels = action_def.body_channels();
+            let degradation = load.degradation_factor(channels, body);
 
             let completed = match action_def.kind() {
                 ActionKind::Instant => true,
@@ -220,21 +220,16 @@ pub fn tick_actions(
                         // Indefinite (Sleep, Idle) - never autocompletes here.
                         false
                     } else {
-                        // Degradation slows the countdown by skipping ticks
-                        // proportionally - 0.5 degradation halves progress.
-                        let progress = if degradation >= 1.0 {
-                            1
-                        } else {
-                            // Probabilistic skipping keeps tick counters integral.
-                            let mut rng = rand::rng();
-                            if rng.random::<f32>() < degradation {
-                                1
-                            } else {
-                                0
-                            }
-                        };
-                        action_state.ticks_remaining =
-                            action_state.ticks_remaining.saturating_sub(progress);
+                        // Deterministic fractional progress: each tick contributes
+                        // `degradation` units, and `ticks_remaining` decrements
+                        // every time the accumulator crosses 1.0. Replay-safe.
+                        action_state.progress_accumulator += degradation;
+                        while action_state.progress_accumulator >= 1.0
+                            && action_state.ticks_remaining > 0
+                        {
+                            action_state.progress_accumulator -= 1.0;
+                            action_state.ticks_remaining -= 1;
+                        }
                         action_state.ticks_remaining == 0
                     }
                 }
@@ -287,12 +282,9 @@ pub fn tick_actions(
 
         // Process completions: run on_complete + emit social events.
         for action_type in &completed_types {
-            // Snapshot the action state we're completing so we can rebuild context.
-            let snapshot = active
-                .get(*action_type)
-                .cloned()
-                .unwrap_or_else(|| ActionState::new(*action_type, current_tick));
-
+            let Some(snapshot) = active.get(*action_type).cloned() else {
+                continue;
+            };
             let Some(action_def) = registry.get(*action_type) else {
                 continue;
             };
@@ -374,7 +366,7 @@ pub fn apply_action_effects(
                 continue;
             };
             let effects = action_def.runtime_effects();
-            let degradation = load.degradation_factor(&action_def.body_channels(), body);
+            let degradation = load.degradation_factor(action_def.body_channels(), body);
 
             physical.energy =
                 (physical.energy + effects.energy_per_sec * dt * degradation).clamp(0.0, 100.0);
@@ -394,6 +386,9 @@ pub fn apply_action_effects(
 /// Try to admit `requirements` into `active`, preempting interruptible actions
 /// until there's no hard conflict. Returns false if preemption can't make room
 /// (e.g. an uninterruptible action holds a conflicting channel).
+///
+/// Victim selection only considers actions that contribute to a *saturated*
+/// channel - removing a Walk wouldn't help relieve a Mouth conflict.
 fn preempt_to_make_room(
     active: &mut ActiveActions,
     registry: &ActionRegistry,
@@ -404,8 +399,20 @@ fn preempt_to_make_room(
     let mut load = active.channel_load(registry);
 
     while load.would_hard_conflict(requirements, body) {
-        // Find the lowest-intensity interruptible action that contributes to a
-        // saturated channel; preempt it.
+        // Which channels are over the hard threshold given the new requirements?
+        let saturated: [bool; crate::agent::actions::channel::CHANNEL_COUNT] = {
+            let mut s = [false; crate::agent::actions::channel::CHANNEL_COUNT];
+            for usage in requirements {
+                let cap = usage.channel.max_capacity(body);
+                let projected = load.saturation(usage.channel) + usage.intensity;
+                if projected > crate::agent::actions::channel::HARD_CONFLICT_THRESHOLD * cap {
+                    s[usage.channel.idx()] = true;
+                }
+            }
+            s
+        };
+
+        // Pick the smallest interruptible action that touches a saturated channel.
         let preempt_target = active
             .iter()
             .filter_map(|s| {
@@ -414,17 +421,19 @@ fn preempt_to_make_room(
                     return None;
                 }
                 let channels = def.body_channels();
+                if !channels.iter().any(|c| saturated[c.channel.idx()]) {
+                    return None;
+                }
                 let total_intensity: f32 = channels.iter().map(|c| c.intensity).sum();
                 Some((s.action_type, total_intensity, channels))
             })
             .min_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
 
         let Some((victim_type, _intensity, victim_channels)) = preempt_target else {
-            // No interruptible victims left.
             return false;
         };
 
-        load.remove(&victim_channels);
+        load.remove(victim_channels);
         active.remove(victim_type);
 
         if matches!(
@@ -588,7 +597,7 @@ mod tests {
         let admitted = preempt_to_make_room(
             &mut active,
             &registry,
-            &flee_def.body_channels(),
+            flee_def.body_channels(),
             None,
             &mut target,
         );
@@ -609,7 +618,7 @@ mod tests {
         let admitted = preempt_to_make_room(
             &mut active,
             &registry,
-            &sleep_def.body_channels(),
+            sleep_def.body_channels(),
             None,
             &mut target,
         );
@@ -625,14 +634,12 @@ mod tests {
         let mut active = ActiveActions::empty();
         active.insert(ActionState::new(ActionType::Sleep, 0));
 
-        // Try to start a second Sleep - the existing Sleep is uninterruptible
-        // so the second one cannot find room.
         let sleep_def = registry.get(ActionType::Sleep).unwrap();
         let mut target = TargetPosition::default();
         let admitted = preempt_to_make_room(
             &mut active,
             &registry,
-            &sleep_def.body_channels(),
+            sleep_def.body_channels(),
             None,
             &mut target,
         );
@@ -649,10 +656,37 @@ mod tests {
         active.insert(ActionState::new(ActionType::Talk, 0).with_duration(60));
 
         let load = active.channel_load(&registry);
-        // Mouth: 0.7 + 0.6 = 1.3 -> soft conflict, degradation factor < 1
         let eat_channels = registry.get(ActionType::Eat).unwrap().body_channels();
-        let factor = load.degradation_factor(&eat_channels, None);
-        assert!(factor < 1.0);
-        assert!(factor > 0.7);
+        let factor = load.degradation_factor(eat_channels, None);
+        let expected = 1.0 / 1.3;
+        assert!((factor - expected).abs() < 1e-4);
+    }
+
+    #[test]
+    fn preemption_skips_actions_that_dont_overlap_saturated_channel() {
+        // A Walk (Legs) should not be preempted to make room for a Mouth-only
+        // overload, because removing it doesn't relieve the conflict.
+        let registry = build_registry();
+        let mut active = ActiveActions::empty();
+        active.insert(ActionState::new(ActionType::Walk, 0));
+        active.insert(ActionState::new(ActionType::Sleep, 0));
+
+        // Walk is interruptible but doesn't touch FullBody. Sleep is uninterruptible.
+        // Trying to start another FullBody-heavy action can't succeed by removing Walk.
+        let mut target = TargetPosition::default();
+        let admitted = preempt_to_make_room(
+            &mut active,
+            &registry,
+            &[crate::agent::actions::channel::ChannelUsage::new(
+                crate::agent::actions::channel::BodyChannel::FullBody,
+                1.0,
+            )],
+            None,
+            &mut target,
+        );
+
+        assert!(!admitted);
+        assert!(active.contains(ActionType::Walk));
+        assert!(active.contains(ActionType::Sleep));
     }
 }

@@ -24,10 +24,9 @@ impl Action for WalkAction {
         ActionKind::Movement
     }
 
-    fn body_channels(&self) -> Vec<ChannelUsage> {
-        // Walking is a low-effort leg activity. Compatible with hand and
-        // mouth actions (Eat, Talk, Wave).
-        vec![ChannelUsage::new(BodyChannel::Legs, 0.4)]
+    fn body_channels(&self) -> &'static [ChannelUsage] {
+        const CHANNELS: &[ChannelUsage] = &[ChannelUsage::new(BodyChannel::Legs, 0.4)];
+        CHANNELS
     }
 
     // Walk effects depend on target - set LocatedAt to destination

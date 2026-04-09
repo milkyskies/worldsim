@@ -26,13 +26,12 @@ impl Action for FleeAction {
         BASE_COST
     }
 
-    fn body_channels(&self) -> Vec<ChannelUsage> {
-        // Flee maxes out the legs and engages the whole body. Hard-conflicts
-        // with anything else using legs (Walk, Wander, Explore).
-        vec![
+    fn body_channels(&self) -> &'static [ChannelUsage] {
+        const CHANNELS: &[ChannelUsage] = &[
             ChannelUsage::new(BodyChannel::Legs, 1.0),
             ChannelUsage::new(BodyChannel::FullBody, 0.5),
-        ]
+        ];
+        CHANNELS
     }
 
     fn runtime_effects(&self) -> RuntimeEffects {

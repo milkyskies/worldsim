@@ -26,9 +26,9 @@ impl Action for WakeUpAction {
         )]
     }
 
-    fn body_channels(&self) -> Vec<ChannelUsage> {
-        // Briefly engages the whole body to rouse - prevents simultaneous Sleep.
-        vec![ChannelUsage::new(BodyChannel::FullBody, 0.4)]
+    fn body_channels(&self) -> &'static [ChannelUsage] {
+        const CHANNELS: &[ChannelUsage] = &[ChannelUsage::new(BodyChannel::FullBody, 0.4)];
+        CHANNELS
     }
 
     fn runtime_effects(&self) -> RuntimeEffects {

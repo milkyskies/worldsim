@@ -34,10 +34,9 @@ impl Action for SleepAction {
         BASE_COST
     }
 
-    fn body_channels(&self) -> Vec<ChannelUsage> {
-        // Sleep occupies the entire body - hard-conflicts with everything
-        // except pure-cognitive actions, which is what clears the slot list.
-        vec![ChannelUsage::new(BodyChannel::FullBody, 1.0)]
+    fn body_channels(&self) -> &'static [ChannelUsage] {
+        const CHANNELS: &[ChannelUsage] = &[ChannelUsage::new(BodyChannel::FullBody, 1.0)];
+        CHANNELS
     }
 
     fn interruptible(&self) -> bool {

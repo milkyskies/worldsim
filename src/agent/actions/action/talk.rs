@@ -60,11 +60,9 @@ impl Action for TalkAction {
         true // Must be near target to talk
     }
 
-    fn body_channels(&self) -> Vec<ChannelUsage> {
-        // Talking only needs the mouth - leaves legs and hands free for
-        // walking, harvesting, eating in parallel (eating triggers a soft
-        // mouth conflict by design).
-        vec![ChannelUsage::new(BodyChannel::Mouth, 0.6)]
+    fn body_channels(&self) -> &'static [ChannelUsage] {
+        const CHANNELS: &[ChannelUsage] = &[ChannelUsage::new(BodyChannel::Mouth, 0.6)];
+        CHANNELS
     }
 
     // Override to_template to set default topic

@@ -84,35 +84,11 @@ pub fn calculate_brain_powers(
     }
 }
 
-/// Arbitrate between brain proposals.
-///
-/// Returns the highest-scoring proposal (legacy single-winner) for callers
-/// that still need a singular "winner" brain attribution.
-pub fn arbitrate(
-    proposals: &[Option<BrainProposal>],
-    powers: &BrainPowers,
-) -> Option<(BrainType, BrainProposal)> {
-    let mut best_score = 0.0;
-    let mut winner = None;
-
-    for proposal in proposals.iter().flatten() {
-        let score = score_proposal(proposal, powers);
-
-        if score > best_score {
-            best_score = score;
-            winner = Some((proposal.brain, proposal.clone()));
-        }
-    }
-
-    winner
-}
-
 /// Multi-action arbitration: greedy admission of proposals into a parallel set.
 ///
 /// 1. Sort proposals by score (urgency * brain power), descending.
 /// 2. For each proposal in score order, admit it if its body channels do not
-///    hard-conflict with the already-admitted set, accounting for the agent's
-///    body capacity (which defaults to full until issue #49 wires biology).
+///    hard-conflict with the already-admitted set.
 /// 3. Soft conflicts are accepted - both contributing actions will degrade
 ///    proportionally during execution.
 ///
@@ -126,7 +102,6 @@ pub fn arbitrate_parallel(
 ) -> Vec<BrainProposal> {
     use crate::agent::actions::channel::ChannelLoad;
 
-    // Score and sort high-to-low.
     let mut scored: Vec<(f32, &BrainProposal)> = proposals
         .iter()
         .flatten()
@@ -143,7 +118,6 @@ pub fn arbitrate_parallel(
             continue;
         };
 
-        // Skip if a proposal for the same action_type was already admitted.
         if admitted
             .iter()
             .any(|a| a.action.action_type == proposal.action.action_type)
@@ -153,12 +127,11 @@ pub fn arbitrate_parallel(
 
         let requirements = action_def.body_channels();
 
-        if load.would_hard_conflict(&requirements, body) {
-            // Lower-scoring proposal can't preempt the already-admitted set.
+        if load.would_hard_conflict(requirements, body) {
             continue;
         }
 
-        load.add(&requirements);
+        load.add(requirements);
         admitted.push(proposal.clone());
     }
 

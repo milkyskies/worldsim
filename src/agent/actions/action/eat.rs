@@ -25,13 +25,12 @@ impl Action for EatAction {
         }
     }
 
-    fn body_channels(&self) -> Vec<ChannelUsage> {
-        // Eating: hands hold food, mouth chews. Combined with Talk (Mouth 0.6)
-        // this lands in the soft band so both degrade but coexist.
-        vec![
+    fn body_channels(&self) -> &'static [ChannelUsage] {
+        const CHANNELS: &[ChannelUsage] = &[
             ChannelUsage::new(BodyChannel::Hands, 0.5),
             ChannelUsage::new(BodyChannel::Mouth, 0.7),
-        ]
+        ];
+        CHANNELS
     }
 
     // Planning: Need to have food to eat

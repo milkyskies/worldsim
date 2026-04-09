@@ -176,24 +176,16 @@ pub trait Action: Send + Sync + 'static {
 
     /// Body channels this action occupies, with intensity 0.0..=1.0 each.
     ///
+    /// Returns a `'static` slice so the hot tick loop never allocates.
     /// Default: no channels - the action is purely cognitive (Idle, planning).
-    /// The arbitration + execution layers use this to detect conflicts and
-    /// allow parallel execution when channels don't overlap.
-    fn body_channels(&self) -> Vec<ChannelUsage> {
-        Vec::new()
+    fn body_channels(&self) -> &'static [ChannelUsage] {
+        &[]
     }
 
     /// Whether this action can be preempted mid-execution. Some actions
-    /// (Sleep, Eat) resist arbitrary interruption; others (Walk, Idle) yield
-    /// freely. Currently advisory - hard conflicts always preempt.
+    /// (Sleep) resist arbitrary interruption; others (Walk, Idle) yield freely.
     fn interruptible(&self) -> bool {
         true
-    }
-
-    /// Penalty incurred (stress, relationship damage) when this action is
-    /// abruptly preempted. Reserved for downstream tuning - currently unused.
-    fn preemption_cost(&self) -> f32 {
-        0.0
     }
 
     /// Called when action completes - action applies its own effects!
@@ -257,9 +249,9 @@ pub trait Action: Send + Sync + 'static {
 
 /// Runtime state for one active action.
 ///
-/// No longer a Component on its own - lives inside [`ActiveActions`] which
-/// is the actual ECS component. An agent can have many `ActionState`s running
-/// in parallel as long as their body channels don't hard-conflict.
+/// Lives inside [`ActiveActions`] (the ECS component). An agent can have
+/// many `ActionState`s running in parallel as long as their body channels
+/// don't hard-conflict.
 #[derive(Debug, Clone, Default, Reflect)]
 pub struct ActionState {
     /// The action type being executed
@@ -274,6 +266,11 @@ pub struct ActionState {
     pub ticks_remaining: u32,
     /// Movement state - last tick for delta calculation
     pub last_movement_tick: u64,
+    /// Fractional tick progress for degraded actions. When the channel load
+    /// degrades a timed action, only a fraction of each tick "counts" -
+    /// progress accumulates here and decrements `ticks_remaining` each time
+    /// it crosses 1.0. Deterministic and replay-safe.
+    pub progress_accumulator: f32,
     /// Topic for conversation actions
     pub topic: Option<crate::agent::mind::conversation::Topic>,
     /// Content for conversation actions
@@ -287,6 +284,7 @@ impl ActionState {
             started_tick: tick,
             last_movement_tick: tick.saturating_sub(1),
             ticks_remaining: 0,
+            progress_accumulator: 0.0,
             target_entity: None,
             target_position: None,
             topic: None,
@@ -412,21 +410,23 @@ impl ActiveActions {
 
     /// "Primary" action - the most demanding currently running action by total
     /// channel intensity. Falls back to the first slot. Used by legacy callers
-    /// that previously read a single `ActionState` (UI, perception).
+    /// (UI, perception) that need a single `ActionState`.
     pub fn primary<'a>(&'a self, registry: &ActionRegistry) -> Option<&'a ActionState> {
-        self.running.iter().max_by(|a, b| {
-            let a_load: f32 = registry
-                .get(a.action_type)
-                .map(|d| d.body_channels().iter().map(|c| c.intensity).sum())
-                .unwrap_or(0.0);
-            let b_load: f32 = registry
-                .get(b.action_type)
-                .map(|d| d.body_channels().iter().map(|c| c.intensity).sum())
-                .unwrap_or(0.0);
-            a_load
-                .partial_cmp(&b_load)
-                .unwrap_or(std::cmp::Ordering::Equal)
-        })
+        // Cache total intensity once per action so the comparator is O(n) total,
+        // not O(n log n) registry hits.
+        let mut scored: Vec<(f32, &ActionState)> = self
+            .running
+            .iter()
+            .map(|s| {
+                let intensity: f32 = registry
+                    .get(s.action_type)
+                    .map(|d| d.body_channels().iter().map(|c| c.intensity).sum())
+                    .unwrap_or(0.0);
+                (intensity, s)
+            })
+            .collect();
+        scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+        scored.first().map(|(_, s)| *s)
     }
 
     /// Build the [`crate::agent::actions::channel::ChannelLoad`] aggregate over
@@ -438,7 +438,7 @@ impl ActiveActions {
         let mut load = crate::agent::actions::channel::ChannelLoad::new();
         for action in &self.running {
             if let Some(def) = registry.get(action.action_type) {
-                load.add(&def.body_channels());
+                load.add(def.body_channels());
             }
         }
         load

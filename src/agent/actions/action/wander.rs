@@ -26,8 +26,9 @@ impl Action for WanderAction {
         BASE_COST
     }
 
-    fn body_channels(&self) -> Vec<ChannelUsage> {
-        vec![ChannelUsage::new(BodyChannel::Legs, 0.4)]
+    fn body_channels(&self) -> &'static [ChannelUsage] {
+        const CHANNELS: &[ChannelUsage] = &[ChannelUsage::new(BodyChannel::Legs, 0.4)];
+        CHANNELS
     }
 
     fn runtime_effects(&self) -> RuntimeEffects {

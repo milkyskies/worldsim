@@ -32,13 +32,13 @@ impl Action for AttackAction {
         TargetType::Entity
     }
 
-    fn body_channels(&self) -> Vec<ChannelUsage> {
-        // Hands strike, legs power the swing, whole body commits.
-        vec![
+    fn body_channels(&self) -> &'static [ChannelUsage] {
+        const CHANNELS: &[ChannelUsage] = &[
             ChannelUsage::new(BodyChannel::Hands, 0.9),
             ChannelUsage::new(BodyChannel::Legs, 0.6),
             ChannelUsage::new(BodyChannel::FullBody, 0.7),
-        ]
+        ];
+        CHANNELS
     }
 
     fn preconditions(&self) -> Vec<crate::agent::brains::thinking::TriplePattern> {
