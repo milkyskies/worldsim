@@ -125,11 +125,31 @@ If you're debugging a failing test (not a headless run), call these BEFORE the f
 
 The full list of inspection methods is in `src/testing/world.rs` — search for `pub fn print_` and `pub fn query_`.
 
+## Reproducing the exact game world headless
+
+Use `--game-defaults` to run with the same 128×128 noise map and Realistic placement algorithm as `cargo run`. Individual counts can still be overridden.
+
+```bash
+# Exact game world for 5000 ticks
+cargo run --release -- --headless --game-defaults --ticks 5000 --seed 42 --log events.jsonl
+
+# Same world, 10 humans instead of the default 6
+cargo run --release -- --headless --game-defaults --humans 10 --ticks 5000 --seed 42
+```
+
+In tests, `TestWorld::game_defaults(seed)` is the in-process equivalent — same positions and counts:
+
+```rust
+let world = TestWorld::game_defaults(42);
+```
+
+Without `--game-defaults`, headless uses a 64×64 flat map with uniform random scatter (fast, minimal setup).
+
 ## Debugging recipes
 
 ### "Why did agent X do Y?"
 
-1. Reproduce headless with the same seed: `cargo run --release -- --headless --ticks N --seed S`
+1. Reproduce headless with the same seed: `cargo run --release -- --headless --game-defaults --ticks N --seed S`
 2. Trace that agent: add `--trace agent:X`
 3. Look at the trace around the moment Y happened — find the winning brain, urgency, and proposals
 4. If the trace is too noisy, narrow with `--trace-ticks START-END`
