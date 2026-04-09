@@ -395,6 +395,14 @@ impl TestWorld {
         spawn_test_apple_tree(self.app.world_mut(), pos, apples)
     }
 
+    /// Sets a tile type at the given tile coordinates.
+    pub fn set_tile(&mut self, x: u32, y: u32, tile: crate::world::map::TileType) {
+        self.app
+            .world_mut()
+            .resource_mut::<WorldMap>()
+            .set_tile(x, y, tile);
+    }
+
     // ─── Simulation ────────────────────────────────────────────────────────
 
     /// Advances the simulation by `n` ticks. Each tick is one full Bevy `update()`
@@ -516,6 +524,11 @@ impl TestWorld {
     /// Returns the agent's hunger value (0.0–100.0).
     pub fn agent_hunger(&self, agent: Entity) -> f32 {
         self.get::<PhysicalNeeds>(agent).hunger
+    }
+
+    /// Returns the agent's thirst value (0.0–100.0).
+    pub fn agent_thirst(&self, agent: Entity) -> f32 {
+        self.get::<PhysicalNeeds>(agent).thirst
     }
 
     /// Returns the agent's energy value (0.0–100.0).

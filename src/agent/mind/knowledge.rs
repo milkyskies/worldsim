@@ -88,8 +88,9 @@ pub enum Concept {
     Deer,
 
     // ─── Traits/Properties (adjectives) ───
-    Edible, // Items that can be eaten (Apple, Berry, Meat)
-    Prey,   // Creatures that can be hunted (Deer, Rabbit) → yields Meat
+    Edible,    // Items that can be eaten (Apple, Berry, Meat)
+    Drinkable, // Tiles/items that can provide water (ShallowWater, Water)
+    Prey,      // Creatures that can be hunted (Deer, Rabbit) → yields Meat
     Dangerous,
     Safe,
     Friendly,
@@ -148,6 +149,7 @@ pub enum Predicate {
 
     // ─── Agent state ───
     Hunger,      // (Self, Hunger, Int)
+    Thirst,      // (Self, Thirst, Int)
     Energy,      // (Self, Energy, Int)
     Pain,        // (Self, Pain, Int)
     SocialDrive, // (Self, SocialDrive, Int) - 0 = satisfied, 100 = lonely
@@ -192,6 +194,7 @@ impl Predicate {
             self,
             Predicate::LocatedAt
                 | Predicate::Hunger
+                | Predicate::Thirst
                 | Predicate::Energy
                 | Predicate::RegenerationRate
                 | Predicate::LastObserved
@@ -1003,6 +1006,7 @@ pub fn setup_ontology() -> Ontology {
 
     // ─── Properties (HasTrait) ───
     add(c(Food), HasTrait, v(Edible));
+    add(c(Water), HasTrait, v(Drinkable));
     add(c(Person), HasTrait, v(Sentient));
     add(c(Animal), HasTrait, v(Sentient));
     add(c(Plant), HasTrait, v(Harvestable));
@@ -1023,6 +1027,7 @@ pub fn setup_ontology() -> Ontology {
     add(act(ActionType::Walk), IsA, val_act(MovementAction));
     add(act(ActionType::Wander), IsA, val_act(MovementAction));
     add(act(ActionType::Harvest), IsA, val_act(SurvivalAction));
+    add(act(ActionType::Drink), IsA, val_act(SurvivalAction));
 
     // ─── Action Emotional Triggers ───
     // Base emotions triggered by actions
@@ -1038,6 +1043,11 @@ pub fn setup_ontology() -> Ontology {
     );
     add(
         act(ActionType::Eat),
+        TriggersEmotion,
+        Value::Emotion(crate::agent::psyche::emotions::EmotionType::Joy, 0.3),
+    );
+    add(
+        act(ActionType::Drink),
         TriggersEmotion,
         Value::Emotion(crate::agent::psyche::emotions::EmotionType::Joy, 0.3),
     );

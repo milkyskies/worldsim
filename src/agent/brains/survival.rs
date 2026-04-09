@@ -16,7 +16,8 @@ use crate::agent::psyche::emotions::{EmotionType, EmotionalState};
 use crate::constants::brains::survival::{
     EXHAUSTION_RELEASE, EXHAUSTION_TRIGGER, FEAR_HIGH, FEAR_LOW, HUNGER_HIGH, HUNGER_LOW,
     PAIN_HIGH, PAIN_LOW, SNAP_EXHAUSTION_ENERGY_THRESHOLD, SNAP_HUNGER_THRESHOLD,
-    SNAP_SEARCH_HUNGER_THRESHOLD, STRESS_SNAP_HIGH, STRESS_SNAP_LOW, WAKE_ENERGY_THRESHOLD,
+    SNAP_SEARCH_HUNGER_THRESHOLD, SNAP_THIRST_THRESHOLD, STRESS_SNAP_HIGH, STRESS_SNAP_LOW,
+    THIRST_HIGH, THIRST_LOW, WAKE_ENERGY_THRESHOLD,
 };
 use bevy::prelude::*;
 
@@ -70,7 +71,19 @@ pub fn survival_brain_propose(
             });
         }
 
-        // 2. Extreme Hunger Search Snap
+        // 2. Extreme Thirst Snap
+        if context.physical.thirst > SNAP_THIRST_THRESHOLD
+            && let Some(action) = action_registry.get(ActionType::Drink)
+        {
+            return Some(BrainProposal {
+                brain: BrainType::Survival,
+                action: action.to_template(None, None),
+                urgency: 100.0,
+                reasoning: format!("THE SNAP! Stress {:.0} - desperately drinking!", stress),
+            });
+        }
+
+        // 3. Extreme Hunger Search Snap
         if context.physical.hunger > SNAP_SEARCH_HUNGER_THRESHOLD
             && let Some(action) = action_registry.get(ActionType::Explore)
         {
@@ -82,7 +95,7 @@ pub fn survival_brain_propose(
             });
         }
 
-        // 3. Exhaustion Snap
+        // 4. Exhaustion Snap
         if context.physical.energy < SNAP_EXHAUSTION_ENERGY_THRESHOLD
             && let Some(action) = action_registry.get(ActionType::Sleep)
         {
@@ -97,7 +110,7 @@ pub fn survival_brain_propose(
             });
         }
 
-        // 4. Panic Hide Snap (Default if others don't fire)
+        // 5. Panic Hide Snap (Default if others don't fire)
         // Seek safety usually implies Walk to safety or Flee
         // Using WalkAction for now as "Seek Safety" creates variable destination
         // But for now, let's use Flee with no target (run away randomly?) or fallback
@@ -153,7 +166,24 @@ pub fn survival_brain_propose(
     // If no food, survival brain might panic search?
     // For now, let Rational handle searching unless it's a "Snap".
 
-    // 3. Exhaustion Response
+    // 3. Dehydration Response
+    let thirst_threshold = if was_survival {
+        THIRST_LOW
+    } else {
+        THIRST_HIGH
+    };
+    if context.physical.thirst > thirst_threshold
+        && let Some(action) = action_registry.get(ActionType::Drink)
+    {
+        return Some(BrainProposal {
+            brain: BrainType::Survival,
+            action: action.to_template(None, None),
+            urgency: context.physical.thirst,
+            reasoning: format!("DEHYDRATED! {:.0} - must drink!", context.physical.thirst),
+        });
+    }
+
+    // 4. Exhaustion Response
     // Low energy triggers sleep. Hysteresis: sleep until EXHAUSTION_RELEASE, triggered below EXHAUSTION_TRIGGER.
     let exhaustion_threshold = if was_survival {
         EXHAUSTION_RELEASE

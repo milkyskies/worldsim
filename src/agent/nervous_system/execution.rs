@@ -92,6 +92,7 @@ pub fn start_actions(
             let ctx = ActionContext {
                 inventory,
                 mind,
+                world_map: &world_map,
                 target_entity: action_template.target_entity,
                 target_position: action_template.target_position,
                 agent_position: transform.translation.truncate(),

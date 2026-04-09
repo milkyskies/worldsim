@@ -2,6 +2,7 @@
 
 pub mod attack;
 pub mod converse;
+pub mod drink;
 pub mod eat;
 pub mod explore;
 pub mod flee;
@@ -14,6 +15,7 @@ pub mod wander;
 
 pub use attack::AttackAction;
 pub use converse::ConverseAction;
+pub use drink::DrinkAction;
 pub use eat::EatAction;
 pub use explore::ExploreAction;
 pub use flee::FleeAction;

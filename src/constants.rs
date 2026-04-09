@@ -59,6 +59,12 @@ pub mod actions {
         pub const ENERGY_GAIN: f32 = 10.0;
     }
 
+    pub mod drink {
+        pub const DURATION_TICKS: u32 = 15;
+        pub const THIRST_REDUCTION: f32 = 50.0;
+        pub const ENERGY_GAIN: f32 = 5.0;
+    }
+
     pub mod harvest {
         pub const DURATION_TICKS: u32 = 30;
         pub const ENERGY_PER_SEC: f32 = -0.2;
@@ -116,12 +122,15 @@ pub mod brains {
         pub const STRESS_SNAP_HIGH: f32 = 90.0;
         pub const STRESS_SNAP_LOW: f32 = 70.0;
         pub const SNAP_HUNGER_THRESHOLD: f32 = 30.0;
+        pub const SNAP_THIRST_THRESHOLD: f32 = 30.0;
         pub const SNAP_SEARCH_HUNGER_THRESHOLD: f32 = 50.0;
         pub const SNAP_EXHAUSTION_ENERGY_THRESHOLD: f32 = 50.0;
         pub const PAIN_HIGH: f32 = 70.0;
         pub const PAIN_LOW: f32 = 50.0;
         pub const HUNGER_HIGH: f32 = 80.0;
         pub const HUNGER_LOW: f32 = 60.0;
+        pub const THIRST_HIGH: f32 = 80.0;
+        pub const THIRST_LOW: f32 = 60.0;
         /// Energy below this triggers sleep (or keeps agent asleep)
         pub const EXHAUSTION_TRIGGER: f32 = 15.0;
         /// Energy above this allows the agent to stop sleeping from exhaustion
