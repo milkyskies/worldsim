@@ -80,6 +80,7 @@ pub fn update_rational_brain(
     mut query: Query<(
         Entity,
         &mut RationalBrain,
+        &mut crate::agent::brains::proposal::BrainState,
         &Consciousness,
         &ItemSlots,
         &Transform,
@@ -105,8 +106,17 @@ pub fn update_rational_brain(
     };
     let mut plan_attempts = 0;
 
-    for (entity, mut brain, consciousness, _inventory, _transform, _visible, cns, mind) in
-        query.iter_mut()
+    for (
+        entity,
+        mut brain,
+        mut brain_state,
+        consciousness,
+        _inventory,
+        _transform,
+        _visible,
+        cns,
+        mind,
+    ) in query.iter_mut()
     {
         // 1. Plan Verification
         let mut plan_finished = false;
@@ -163,10 +173,18 @@ pub fn update_rational_brain(
             } else {
                 brain.current_goal.take()
             };
+            if plan_invalid {
+                // update_rational_brain runs before start_actions (data-conflict ordering).
+                // Clearing chosen_actions here prevents start_actions from re-starting the
+                // stale action this tick and on subsequent ticks until three_brains_system
+                // next fires and re-populates the list with a valid proposal.
+                brain_state.chosen_actions.clear();
+            }
         }
 
         // 2. Heavy Thinking (Replanning)
-        if !tick.should_run(entity, ns_config.thinking_interval) {
+        let should_replan = plan_invalid || tick.should_run(entity, ns_config.thinking_interval);
+        if !should_replan {
             continue;
         }
 
