@@ -259,12 +259,13 @@ impl TestWorld {
     }
 
     /// Returns the action type the agent is currently executing. Returns
-    /// `Some(Idle)` when the agent has no active action.
+    /// `Some(Idle)` when the agent has no active action. With parallel
+    /// channels, this reports the *primary* (highest-intensity) running action.
     pub fn current_action(&self, agent: Entity) -> Option<ActionType> {
-        self.app
-            .world()
-            .get::<crate::agent::actions::ActionState>(agent)
-            .map(|s| s.action_type)
+        let world = self.app.world();
+        let active = world.get::<crate::agent::actions::ActiveActions>(agent)?;
+        let registry = world.resource::<crate::agent::actions::ActionRegistry>();
+        active.primary(registry).map(|s| s.action_type)
     }
 
     /// Returns true if the action registry contains an entry for the given action.

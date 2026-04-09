@@ -88,7 +88,8 @@ pub fn calculate_brain_powers(
 ///
 /// 1. Sort proposals by score (urgency * brain power), descending.
 /// 2. For each proposal in score order, admit it if its body channels do not
-///    hard-conflict with the already-admitted set.
+///    hard-conflict with the already-admitted set, accounting for the agent's
+///    body capacity (injuries / incapacitation / exhaustion).
 /// 3. Soft conflicts are accepted - both contributing actions will degrade
 ///    proportionally during execution.
 ///
@@ -98,6 +99,7 @@ pub fn arbitrate_parallel(
     proposals: &[Option<BrainProposal>],
     powers: &BrainPowers,
     body: Option<&Body>,
+    physical: Option<&PhysicalNeeds>,
     registry: &crate::agent::actions::ActionRegistry,
 ) -> Vec<BrainProposal> {
     use crate::agent::actions::channel::ChannelLoad;
@@ -127,7 +129,7 @@ pub fn arbitrate_parallel(
 
         let requirements = action_def.body_channels();
 
-        if load.would_hard_conflict(requirements, body) {
+        if load.would_hard_conflict(requirements, body, physical) {
             continue;
         }
 

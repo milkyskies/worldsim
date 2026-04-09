@@ -51,12 +51,23 @@ pub fn start_actions(
         &MindGraph,
         &Inventory,
         Option<&Body>,
+        Option<&PhysicalNeeds>,
     )>,
     entity_transforms: Query<&GlobalTransform>,
     mut outcome_events: MessageWriter<ActionOutcomeEvent>,
 ) {
-    for (entity, name, transform, mut target, mut active, brain_state, mind, inventory, body) in
-        agents.iter_mut()
+    for (
+        entity,
+        name,
+        transform,
+        mut target,
+        mut active,
+        brain_state,
+        mind,
+        inventory,
+        body,
+        physical,
+    ) in agents.iter_mut()
     {
         for action_template in &brain_state.chosen_actions {
             let wanted_action = action_template.action_type;
@@ -99,7 +110,14 @@ pub fn start_actions(
 
             // Resolve hard conflicts by preempting interruptible actions.
             let requirements = action_def.body_channels();
-            if !preempt_to_make_room(&mut active, &registry, requirements, body, &mut target) {
+            if !preempt_to_make_room(
+                &mut active,
+                &registry,
+                requirements,
+                body,
+                physical,
+                &mut target,
+            ) {
                 game_log.log_debug(format!(
                     "{} could not start {:?}: hard conflict with uninterruptible actions",
                     name.as_str(),
@@ -211,7 +229,7 @@ pub fn tick_actions(
             };
 
             let channels = action_def.body_channels();
-            let degradation = load.degradation_factor(channels, body);
+            let degradation = load.degradation_factor(channels, body, Some(&*physical));
 
             let completed = match action_def.kind() {
                 ActionKind::Instant => true,
@@ -360,13 +378,17 @@ pub fn apply_action_effects(
 
     for (active, mut physical, mut consciousness, body) in agents.iter_mut() {
         let load = active.channel_load(&registry);
+        // Snapshot energy before applying effects so degradation reflects the
+        // start-of-tick state and doesn't compound mid-iteration.
+        let physical_snapshot = physical.clone();
 
         for action_state in active.iter() {
             let Some(action_def) = registry.get(action_state.action_type) else {
                 continue;
             };
             let effects = action_def.runtime_effects();
-            let degradation = load.degradation_factor(action_def.body_channels(), body);
+            let degradation =
+                load.degradation_factor(action_def.body_channels(), body, Some(&physical_snapshot));
 
             physical.energy =
                 (physical.energy + effects.energy_per_sec * dt * degradation).clamp(0.0, 100.0);
@@ -394,16 +416,17 @@ fn preempt_to_make_room(
     registry: &ActionRegistry,
     requirements: &[crate::agent::actions::channel::ChannelUsage],
     body: Option<&Body>,
+    physical: Option<&PhysicalNeeds>,
     target: &mut TargetPosition,
 ) -> bool {
     let mut load = active.channel_load(registry);
 
-    while load.would_hard_conflict(requirements, body) {
+    while load.would_hard_conflict(requirements, body, physical) {
         // Which channels are over the hard threshold given the new requirements?
         let saturated: [bool; crate::agent::actions::channel::CHANNEL_COUNT] = {
             let mut s = [false; crate::agent::actions::channel::CHANNEL_COUNT];
             for usage in requirements {
-                let cap = usage.channel.max_capacity(body);
+                let cap = usage.channel.max_capacity(body, physical);
                 let projected = load.saturation(usage.channel) + usage.intensity;
                 if projected > crate::agent::actions::channel::HARD_CONFLICT_THRESHOLD * cap {
                     s[usage.channel.idx()] = true;
@@ -582,7 +605,7 @@ mod tests {
 
         let load = active.channel_load(&registry);
         // Walk(Legs 0.4) + Eat(Hands 0.5, Mouth 0.7) - no overlap
-        assert!(!load.would_hard_conflict(&[], None));
+        assert!(!load.would_hard_conflict(&[], None, None));
         assert_eq!(active.len(), 2);
     }
 
@@ -598,6 +621,7 @@ mod tests {
             &mut active,
             &registry,
             flee_def.body_channels(),
+            None,
             None,
             &mut target,
         );
@@ -620,6 +644,7 @@ mod tests {
             &registry,
             sleep_def.body_channels(),
             None,
+            None,
             &mut target,
         );
 
@@ -641,6 +666,7 @@ mod tests {
             &registry,
             sleep_def.body_channels(),
             None,
+            None,
             &mut target,
         );
 
@@ -657,7 +683,7 @@ mod tests {
 
         let load = active.channel_load(&registry);
         let eat_channels = registry.get(ActionType::Eat).unwrap().body_channels();
-        let factor = load.degradation_factor(eat_channels, None);
+        let factor = load.degradation_factor(eat_channels, None, None);
         let expected = 1.0 / 1.3;
         assert!((factor - expected).abs() < 1e-4);
     }
@@ -681,6 +707,7 @@ mod tests {
                 crate::agent::actions::channel::BodyChannel::FullBody,
                 1.0,
             )],
+            None,
             None,
             &mut target,
         );

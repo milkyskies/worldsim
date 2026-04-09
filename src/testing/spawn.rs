@@ -7,8 +7,8 @@
 
 use bevy::prelude::*;
 
-use crate::agent::actions::ActionState;
 use crate::agent::actions::ActionType;
+use crate::agent::actions::ActiveActions;
 use crate::agent::affordance::Affordance;
 use crate::agent::biology::body::Body;
 use crate::agent::body::needs::{Consciousness, PhysicalNeeds, PsychologicalDrives};
@@ -77,7 +77,7 @@ pub(super) fn spawn_test_person(
                 social: config.social_drive,
                 ..Default::default()
             },
-            ActionState::default(),
+            ActiveActions::default(),
             EmotionalState::default(),
             // Body is normally added by `setup_biology` on the next Update;
             // pre-insert it so brain queries that read `Option<&Body>` see it
@@ -151,7 +151,7 @@ pub(super) fn spawn_test_deer(world: &mut World, ontology: Ontology, pos: Vec2) 
             CentralNervousSystem::default(),
             PhysicalNeeds::default(),
             Consciousness::default(),
-            ActionState::default(),
+            ActiveActions::default(),
             EmotionalState::default(),
         ))
         .id()
