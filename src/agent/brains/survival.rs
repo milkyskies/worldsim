@@ -55,15 +55,15 @@ pub fn survival_brain_propose(
 
     match top.source {
         UrgencySource::Hunger => {
-            if inventory.has_edible(ontology) {
-                if let Some(action) = action_registry.get(ActionType::Eat) {
-                    return Some(BrainProposal {
-                        brain: BrainType::Survival,
-                        action: action.to_template(None, None),
-                        urgency: urgency_score,
-                        reasoning: format!("Hunger urgency {:.2} — eating!", top.value),
-                    });
-                }
+            if inventory.has_edible(ontology)
+                && let Some(action) = action_registry.get(ActionType::Eat)
+            {
+                return Some(BrainProposal {
+                    brain: BrainType::Survival,
+                    action: action.to_template(None, None),
+                    urgency: urgency_score,
+                    reasoning: format!("Hunger urgency {:.2} — eating!", top.value),
+                });
             }
             // No food in inventory — search for some.
             if let Some(action) = action_registry.get(ActionType::Explore) {
