@@ -18,6 +18,7 @@ pub enum UrgencySource {
     Fear,
     Pain,
     Boredom,
+    Territoriality,
 }
 
 #[derive(Debug, Clone, Reflect)]
@@ -94,6 +95,7 @@ pub fn generate_urgency(
                 // Social Drive (0-1)
                 UrgencySource::Social => drives.map(|d| d.social).unwrap_or(0.0),
                 UrgencySource::Fun => drives.map(|d| d.fun).unwrap_or(0.0),
+                UrgencySource::Territoriality => drives.map(|d| d.territoriality).unwrap_or(0.0),
                 UrgencySource::Fear => emotions
                     .get_emotion_intensity(crate::agent::psyche::emotions::EmotionType::Fear),
 

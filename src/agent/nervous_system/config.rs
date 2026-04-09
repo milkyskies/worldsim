@@ -270,6 +270,34 @@ impl Default for NervousSystemConfig {
                     min_threshold: 0.0,
                     bypasses_gating: true,
                 },
+                // TERRITORIALITY — raised externally by update_territoriality when
+                // intruders are perceived on owned tiles. Dampened by fear so
+                // an overwhelmed agent flees rather than defends.
+                DriveConfig {
+                    name: "Territoriality".to_string(),
+                    source: UrgencySource::Territoriality,
+                    base_constant: 0.0,
+                    curve: ResponseCurve::Sigmoid {
+                        k: 8.0,
+                        midpoint: 0.4,
+                    },
+                    sensitivity: PersonalityMod {
+                        // Less agreeable (more aggressive) personalities feel this more keenly
+                        trait_type: PersonalityTrait::Agreeableness,
+                        base: 1.3,
+                        scale: -0.6, // high agreeableness → 0.7×, low agreeableness → 1.3×
+                    },
+                    modifiers: vec![
+                        // High fear dampens territorial response — being overwhelmed → flee
+                        ContextModifier {
+                            input_source: UrgencySource::Fear,
+                            operation: ModifierOp::DampenByHigh,
+                            factor: 0.8,
+                        },
+                    ],
+                    min_threshold: 0.01,
+                    bypasses_gating: false,
+                },
                 // BOREDOM
                 DriveConfig {
                     name: "Boredom".to_string(),
@@ -295,7 +323,11 @@ impl Default for NervousSystemConfig {
                 ],
             },
             exteroception: SensoryChannelConfig {
-                sources: vec![UrgencySource::Social, UrgencySource::Fear],
+                sources: vec![
+                    UrgencySource::Social,
+                    UrgencySource::Fear,
+                    UrgencySource::Territoriality,
+                ],
             },
             proprioception: SensoryChannelConfig {
                 sources: vec![
