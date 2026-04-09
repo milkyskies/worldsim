@@ -152,13 +152,14 @@ fn score_proposal(proposal: &BrainProposal, powers: &BrainPowers) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::agent::brains::thinking::ActionTemplate;
     use crate::agent::psyche::emotions::{Emotion, EmotionType};
 
     #[test]
     fn test_survival_power_hunger() {
-        let mut physical = PhysicalNeeds::default();
-        physical.hunger = 90.0; // Critical hunger
+        let physical = PhysicalNeeds {
+            hunger: 90.0, // Critical hunger
+            ..Default::default()
+        };
         let consciousness = Consciousness::default();
         let emotions = EmotionalState::default();
         let personality = Personality::default();

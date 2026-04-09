@@ -36,7 +36,6 @@ impl Action for ExploreAction {
             energy_per_sec: ENERGY_PER_SEC,
             hunger_per_sec: HUNGER_PER_SEC,
             alertness_per_sec: ALERTNESS_PER_SEC,
-            ..Default::default()
         }
     }
 
