@@ -1,3 +1,9 @@
+---
+paths:
+  - "src/**"
+  - "tests/**"
+---
+
 # Testing
 
 **Write tests for any logic you add or change.** Don't ask — just write them. If a function matches the "worth testing" criteria below, it must have tests before shipping.
@@ -60,31 +66,103 @@ Use `proptest` for functions with wide input spaces (parsers, serialization roun
 
 ## Worldsim Agent Tests
 
-Project-specific rules for testing the agent simulation.
+Project-specific rules for testing the agent simulation. The testing infrastructure lives in `src/testing/` and is re-exported from the `worldsim::testing` module.
 
 ### Use the TestWorld harness
 
-All agent behavior tests use the `TestWorld` harness from `tests/common/test_world.rs`. Never spin up a full Bevy `App` in tests unless you're specifically testing Bevy integration.
+All agent behavior tests use the `TestWorld` harness from `src/testing/world.rs`. Never spin up a full Bevy `App` directly — `TestWorld` gives you a real headless Bevy app with all simulation plugins loaded, just without rendering or input.
 
 ```rust
+use worldsim::testing::{TestWorld, AgentConfig};
+use bevy::math::Vec2;
+
 #[test]
 fn hungry_agent_near_food_eats() {
-    let mut world = TestWorld::new();
-    let agent = world.spawn_agent(AgentConfig { hunger: 90.0, pos: (10.0, 10.0), ..default() });
-    let _bush = world.spawn_berry_bush((12.0, 10.0));
+    let mut world = TestWorld::with_seed(42);
+    let agent = world.spawn_agent(AgentConfig {
+        pos: Vec2::new(10.0, 10.0),
+        hunger: 90.0,
+        ..Default::default()
+    });
+    world.spawn_berry_bush(Vec2::new(12.0, 10.0), 5);
 
-    world.tick(100);
+    world.tick(200);
 
     assert!(world.agent_hunger(agent) < 50.0);
 }
 ```
 
+### TestWorld API
+
+**Construction (always deterministic):**
+- `TestWorld::new()` — seed 0
+- `TestWorld::with_seed(seed: u64)` — use this when the test needs reproducibility
+- `world.seed() -> u64`
+
+**Spawning:**
+- `world.spawn_agent(config: AgentConfig) -> Entity`
+- `world.spawn_agent_cluster(n: usize, near: Vec2) -> Vec<Entity>`
+- `world.spawn_deer(pos: Vec2) -> Entity`
+- `world.spawn_berry_bush(pos: Vec2, berries: u32) -> Entity`
+- `world.spawn_apple_tree(pos: Vec2, apples: u32) -> Entity`
+
+**Simulation:**
+- `world.tick(n: u64)` — advance N ticks; all simulation systems run
+- `world.current_tick() -> u64`
+
+**Inspection:**
+- `world.get::<Component>(entity) -> &Component`
+- `world.get_mut::<Component>(entity) -> Mut<Component>`
+- `world.entity_exists(entity) -> bool`
+- `world.distance(a, b) -> f32`
+- `world.all_agents() -> Vec<Entity>`
+
+**Convenience queries (prefer these over raw `get`):**
+- `world.agent_knows(agent, other) -> bool`
+- `world.agent_trust(agent, other) -> f32`
+- `world.agent_hunger(agent) -> f32`
+- `world.agent_energy(agent) -> f32`
+- `world.has_item(entity, concept) -> bool`
+- `world.item_count(entity, concept) -> u32`
+- `world.current_action(agent) -> Option<ActionType>`
+- `world.has_registered_action(action) -> bool`
+
 ### When to write which kind of test
 
 - **Unit test** — pure function with clear inputs/outputs (urgency math, decay formulas, triple queries). Lives in `#[cfg(test)] mod tests` next to the code.
-- **Scenario test** — behavioral chain spanning multiple systems (perception → brain → action → outcome). Lives in `tests/scenarios/`.
-- **Statistical test** — emergent properties that are probabilistic (leaders emerge, gossip spreads). Lives in `tests/statistical/`. Run 50+ iterations with different seeds.
-- **Invariant** — continuous validity checks (no negative hunger, no dead entities in conversations). Added to the `InvariantPlugin`.
+- **Scenario test** — behavioral chain spanning multiple systems (perception → brain → action → outcome). Uses `TestWorld`. Lives in `#[cfg(test)] mod tests` next to the relevant system OR in a top-level integration test file under `tests/`.
+- **Statistical test** — emergent properties that are probabilistic (leaders emerge, gossip spreads). Uses `TestWorld::with_seed()` + a loop of N iterations with different seeds. Lives under `tests/statistical/` (when that directory is created).
+- **Invariant** — continuous validity checks. Added to `InvariantPlugin` in `src/agent/invariants.rs`. Runs every tick in debug builds via the `Last` schedule.
+
+### Headless mode CLI
+
+For batch runs and manual exploration beyond unit tests:
+
+```bash
+# Run headless for 5000 ticks with seed 42, print report on exit
+cargo run --release -- --headless --ticks 5000 --seed 42 --report
+
+# Control population
+cargo run --release -- --headless --ticks 1000 --humans 10 --deer 5 --berry-bushes 15 --apple-trees 8
+
+# Standard unit/scenario tests
+cargo test
+```
+
+Flags (all optional): `--headless`, `--ticks N` (default 1000), `--seed N` (default 0), `--report`, `--humans N`, `--berry-bushes N`, `--apple-trees N`, `--deer N`.
+
+### Invariants (automatic in debug builds)
+
+The `InvariantPlugin` runs every tick in debug builds (including `cargo test`) and panics immediately on invalid state. It checks:
+
+- `PhysicalNeeds` — hunger/thirst/energy/health ∈ [0, 100]
+- `Consciousness.alertness` ∈ [0, 1]
+- `PsychologicalDrives` — all drives ∈ [0, 1]
+- `EmotionalState.mood` ∈ [-1, 1], `stress_level` ∈ [0, 100], emotion intensity/fuel valid
+- `Body` — each part's `function_rate` ∈ [0, 1], `current_hp ≤ max_hp`
+- `InConversation` references existing conversations (no dangling conversation IDs)
+
+When adding a new component or invariant to uphold, extend `check_invariants_system` in `src/agent/invariants.rs`.
 
 ### Feature issues must ship with tests
 
@@ -92,8 +170,8 @@ Before closing a feature issue, there must be at least one test for the behavior
 
 ### Deterministic only
 
-All tests use seeded RNG via `TestWorld::with_seed(42)`. No test depends on wall-clock time or unseeded randomness.
+All tests use seeded RNG via `TestWorld::with_seed(42)`. No test depends on wall-clock time or unseeded randomness. If a test is flaky, the root cause is non-determinism — fix that before adding retries.
 
 ### Don't test emergent properties with single runs
 
-Emergent behavior is probabilistic. A single run proving "a leader emerged" means nothing. Either test the individual mechanism (unit/scenario) OR write a statistical test that runs N times and asserts the property appears in >X% of runs.
+Emergent behavior is probabilistic. A single run proving "a leader emerged" means nothing. Either test the individual mechanism (unit/scenario) OR write a statistical test that runs N iterations with different seeds and asserts the property appears in >X% of runs.
