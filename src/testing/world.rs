@@ -1483,7 +1483,7 @@ mod tests {
 
     #[test]
     fn game_defaults_spawns_correct_agent_count() {
-        let world = TestWorld::game_defaults(42);
+        let mut world = TestWorld::game_defaults(42);
         let game_config = WorldSpawnConfig::game_defaults();
         assert_eq!(
             world.all_agents().len(),
@@ -1493,7 +1493,7 @@ mod tests {
 
     #[test]
     fn game_defaults_humans_match_game_config() {
-        let world = TestWorld::game_defaults(42);
+        let mut world = TestWorld::game_defaults(42);
         let game_config = WorldSpawnConfig::game_defaults();
         let all = world.all_agents();
         let humans: Vec<_> = all
@@ -1505,8 +1505,8 @@ mod tests {
 
     #[test]
     fn game_defaults_same_seed_produces_same_positions() {
-        let world_a = TestWorld::game_defaults(42);
-        let world_b = TestWorld::game_defaults(42);
+        let mut world_a = TestWorld::game_defaults(42);
+        let mut world_b = TestWorld::game_defaults(42);
 
         let agents_a = world_a.all_agents();
         let agents_b = world_b.all_agents();
