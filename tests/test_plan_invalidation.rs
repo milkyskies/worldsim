@@ -46,6 +46,11 @@ fn plan_invalidation_clears_stale_chosen_actions_immediately() {
         .resource_mut::<NervousSystemConfig>()
         .thinking_interval = 10_000;
 
+    // Advance past tick 0 before injecting state. At tick 0, entity 0's thinking
+    // interval satisfies (0 + entity_id=0) % interval == 0 for ALL intervals,
+    // which would fire three_brains_system and overwrite chosen_actions immediately.
+    world.tick(1);
+
     let stale = failing_harvest_template();
 
     // Inject a stale plan with a failing precondition and the matching stale
