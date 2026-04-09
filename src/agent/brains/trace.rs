@@ -12,7 +12,6 @@ use bevy::prelude::*;
 use serde::Serialize;
 
 use crate::agent::Agent;
-use crate::agent::brains::proposal::BrainType;
 use crate::agent::events::SimEvent;
 
 // ─── Config ──────────────────────────────────────────────────────────────────
@@ -231,24 +230,6 @@ impl DecisionTraceBuffer {
     }
 }
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
-
-fn brain_name(bt: BrainType) -> &'static str {
-    match bt {
-        BrainType::Survival => "Survival",
-        BrainType::Emotional => "Emotional",
-        BrainType::Rational => "Rational",
-    }
-}
-
-fn power_for(brain: BrainType, powers: &crate::agent::brains::proposal::BrainPowers) -> f32 {
-    match brain {
-        BrainType::Survival => powers.survival,
-        BrainType::Emotional => powers.emotional,
-        BrainType::Rational => powers.rational,
-    }
-}
-
 // ─── System ──────────────────────────────────────────────────────────────────
 
 /// Bevy system (runs in `Last` schedule): reads SimEvents and records them in
@@ -265,9 +246,16 @@ pub fn update_decision_trace(
     }
 
     let buf_size = config.effective_buffer_size();
-    let events: Vec<_> = sim_events.read().cloned().collect();
+    // Resolve entity → display name, returning "" for non-agent or unknown entities.
+    let agent_name = |entity: Entity| -> String {
+        agent_names
+            .get(entity)
+            .map(|n| n.as_str())
+            .unwrap_or("?")
+            .to_string()
+    };
 
-    for event in events {
+    for event in sim_events.read() {
         match event {
             SimEvent::Decision {
                 agent,
@@ -277,28 +265,24 @@ pub fn update_decision_trace(
                 powers,
                 proposals,
             } => {
-                if !config.in_tick_range(tick) {
+                if !config.in_tick_range(*tick) {
                     continue;
                 }
-                let name = agent_names
-                    .get(agent)
-                    .map(|n| n.as_str())
-                    .unwrap_or("?")
-                    .to_string();
+                let name = agent_name(*agent);
                 if !config.matches_agent(&name) {
                     continue;
                 }
-                buffer.set_name(agent, name);
+                buffer.set_name(*agent, name);
 
                 for proposal in proposals.iter() {
-                    let power = power_for(proposal.brain, &powers);
+                    let power = proposal.brain.power(powers);
                     let score = proposal.urgency * power;
                     let admitted = chosen_actions.contains(&proposal.action.action_type);
                     buffer.push(
-                        agent,
+                        *agent,
                         TraceRecord::ProposalMade {
-                            tick,
-                            brain: brain_name(proposal.brain).to_string(),
+                            tick: *tick,
+                            brain: proposal.brain.display_name().to_string(),
                             action: proposal.action.name.clone(),
                             urgency: proposal.urgency,
                             power,
@@ -313,10 +297,10 @@ pub fn update_decision_trace(
                     let action_names: Vec<String> =
                         chosen_actions.iter().map(|a| format!("{a:?}")).collect();
                     buffer.push(
-                        agent,
+                        *agent,
                         TraceRecord::DecisionWinner {
-                            tick,
-                            brain: brain_name(winning_brain).to_string(),
+                            tick: *tick,
+                            brain: winning_brain.display_name().to_string(),
                             actions: action_names,
                         },
                         buf_size,
@@ -330,22 +314,18 @@ pub fn update_decision_trace(
                 action,
                 ..
             } => {
-                if !config.in_tick_range(tick) {
+                if !config.in_tick_range(*tick) {
                     continue;
                 }
-                let name = agent_names
-                    .get(agent)
-                    .map(|n| n.as_str())
-                    .unwrap_or("?")
-                    .to_string();
+                let name = agent_name(*agent);
                 if !config.matches_agent(&name) {
                     continue;
                 }
-                buffer.set_name(agent, name);
+                buffer.set_name(*agent, name);
                 buffer.push(
-                    agent,
+                    *agent,
                     TraceRecord::ActionStarted {
-                        tick,
+                        tick: *tick,
                         action: format!("{action:?}"),
                     },
                     buf_size,
@@ -357,22 +337,18 @@ pub fn update_decision_trace(
                 tick,
                 action,
             } => {
-                if !config.in_tick_range(tick) {
+                if !config.in_tick_range(*tick) {
                     continue;
                 }
-                let name = agent_names
-                    .get(agent)
-                    .map(|n| n.as_str())
-                    .unwrap_or("?")
-                    .to_string();
+                let name = agent_name(*agent);
                 if !config.matches_agent(&name) {
                     continue;
                 }
-                buffer.set_name(agent, name);
+                buffer.set_name(*agent, name);
                 buffer.push(
-                    agent,
+                    *agent,
                     TraceRecord::ActionCompleted {
-                        tick,
+                        tick: *tick,
                         action: format!("{action:?}"),
                     },
                     buf_size,
@@ -384,22 +360,18 @@ pub fn update_decision_trace(
                 tick,
                 preempted_action,
             } => {
-                if !config.in_tick_range(tick) {
+                if !config.in_tick_range(*tick) {
                     continue;
                 }
-                let name = agent_names
-                    .get(agent)
-                    .map(|n| n.as_str())
-                    .unwrap_or("?")
-                    .to_string();
+                let name = agent_name(*agent);
                 if !config.matches_agent(&name) {
                     continue;
                 }
-                buffer.set_name(agent, name);
+                buffer.set_name(*agent, name);
                 buffer.push(
-                    agent,
+                    *agent,
                     TraceRecord::ActionPreempted {
-                        tick,
+                        tick: *tick,
                         preempted: format!("{preempted_action:?}"),
                     },
                     buf_size,
@@ -412,22 +384,18 @@ pub fn update_decision_trace(
                 action,
                 reason,
             } => {
-                if !config.in_tick_range(tick) {
+                if !config.in_tick_range(*tick) {
                     continue;
                 }
-                let name = agent_names
-                    .get(agent)
-                    .map(|n| n.as_str())
-                    .unwrap_or("?")
-                    .to_string();
+                let name = agent_name(*agent);
                 if !config.matches_agent(&name) {
                     continue;
                 }
-                buffer.set_name(agent, name);
+                buffer.set_name(*agent, name);
                 buffer.push(
-                    agent,
+                    *agent,
                     TraceRecord::ActionFailed {
-                        tick,
+                        tick: *tick,
                         action: format!("{action:?}"),
                         reason: format!("{reason:?}"),
                     },
@@ -441,24 +409,20 @@ pub fn update_decision_trace(
                 emotion,
                 intensity,
             } => {
-                if !config.in_tick_range(tick) {
+                if !config.in_tick_range(*tick) {
                     continue;
                 }
-                let name = agent_names
-                    .get(agent)
-                    .map(|n| n.as_str())
-                    .unwrap_or("?")
-                    .to_string();
+                let name = agent_name(*agent);
                 if !config.matches_agent(&name) {
                     continue;
                 }
-                buffer.set_name(agent, name);
+                buffer.set_name(*agent, name);
                 buffer.push(
-                    agent,
+                    *agent,
                     TraceRecord::EmotionTriggered {
-                        tick,
+                        tick: *tick,
                         emotion: format!("{emotion:?}"),
-                        intensity,
+                        intensity: *intensity,
                     },
                     buf_size,
                 );
@@ -469,26 +433,22 @@ pub fn update_decision_trace(
                 tick,
                 target,
             } => {
-                if !config.in_tick_range(tick) {
+                if !config.in_tick_range(*tick) {
                     continue;
                 }
-                let name = agent_names
-                    .get(agent)
-                    .map(|n| n.as_str())
-                    .unwrap_or("?")
-                    .to_string();
+                let name = agent_name(*agent);
                 if !config.matches_agent(&name) {
                     continue;
                 }
-                buffer.set_name(agent, name);
+                buffer.set_name(*agent, name);
                 let target_name = all_names
-                    .get(target)
+                    .get(*target)
                     .map(|n| n.to_string())
                     .unwrap_or_else(|_| format!("{target:?}"));
                 buffer.push(
-                    agent,
+                    *agent,
                     TraceRecord::EntityPerceived {
-                        tick,
+                        tick: *tick,
                         target: target_name,
                     },
                     buf_size,
