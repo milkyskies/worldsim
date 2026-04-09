@@ -27,7 +27,7 @@ impl TickCount {
     /// Check if this entity should run on this tick (for staggered updates)
     /// Usage: `if !tick.should_run(entity, 10) { continue; }`
     pub fn should_run(&self, entity: Entity, interval: u64) -> bool {
-        let entity_id = entity.index() as u64;
+        let entity_id = entity.index_u32() as u64;
         (self.current + entity_id).is_multiple_of(interval.max(1))
     }
 }
