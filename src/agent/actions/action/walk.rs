@@ -77,11 +77,9 @@ impl Action for WalkAction {
             action_type: self.action_type(),
             target_entity,
             target_position,
-            content: Vec::new(),
             preconditions: self.preconditions(),
             effects,
             base_cost: 0.0,
-            topic: None,
         }
     }
 }

@@ -221,14 +221,6 @@ pub fn update_rational_brain(
                             &mut processed_entities,
                             &mut actions,
                         );
-                        collect_social_targets(
-                            action,
-                            entity,
-                            mind,
-                            &affordances,
-                            &mut processed_entities,
-                            &mut actions,
-                        );
                     }
                     TargetType::Position => {
                         // Position-targeted actions: Walk
@@ -284,7 +276,7 @@ pub fn rational_brain_propose(
     _inventory: &Inventory, // Kept but unused
     transform: &Transform,
     mind: &MindGraph,
-    visible: &crate::agent::mind::perception::VisibleObjects,
+    _visible: &crate::agent::mind::perception::VisibleObjects,
     _world_map: &WorldMap,
     action_registry: &crate::agent::actions::ActionRegistry,
     affordances: &Query<(
@@ -351,14 +343,8 @@ pub fn rational_brain_propose(
             }
         }
 
-        // EPISTEMIC: Before exploring, try asking a nearby known agent
-        if let Some(proposal) =
-            propose_epistemic_ask(goal, visible, mind, affordances, action_registry)
-        {
-            return Some(proposal);
-        }
-
         // Fallback: Explore to find resources ourselves
+        // TODO(#46): reintroduce epistemic ask via CommunicationPlugin
         let explore_action = action_registry
             .get(ActionType::Explore)
             .map(|a| a.to_template(None, None))
@@ -431,71 +417,6 @@ fn collect_resource_targets(
     }
 }
 
-/// Extends `actions` with templates for social entity targets (Introduce, Talk).
-/// Only runs for social action types; skips self and already-processed entities.
-fn collect_social_targets(
-    action: &dyn crate::agent::actions::Action,
-    self_entity: Entity,
-    mind: &MindGraph,
-    affordances: &Query<(
-        &GlobalTransform,
-        Option<&crate::agent::affordance::Affordance>,
-    )>,
-    processed: &mut std::collections::HashSet<Entity>,
-    actions: &mut Vec<ActionTemplate>,
-) {
-    if action.action_type() != ActionType::Introduce && action.action_type() != ActionType::Talk {
-        return;
-    }
-
-    let perceived_people = mind.query(
-        None,
-        Some(Predicate::IsA),
-        Some(&Value::Concept(
-            crate::agent::mind::knowledge::Concept::Person,
-        )),
-    );
-
-    for triple in perceived_people {
-        let Node::Entity(agent_entity) = triple.subject else {
-            continue;
-        };
-        if agent_entity == self_entity {
-            continue;
-        }
-        if processed.contains(&agent_entity) {
-            continue;
-        }
-
-        let Ok((target_transform, _)) = affordances.get(agent_entity) else {
-            continue;
-        };
-        processed.insert(agent_entity);
-
-        // Strangers get Introduce; known agents get Talk
-        let is_stranger = mind
-            .query(
-                Some(&Node::Entity(agent_entity)),
-                Some(Predicate::Knows),
-                Some(&Value::Boolean(true)),
-            )
-            .is_empty();
-
-        let should_add = match action.action_type() {
-            ActionType::Introduce => is_stranger,
-            ActionType::Talk => !is_stranger,
-            _ => true,
-        };
-
-        if should_add {
-            actions.push(action.to_template(
-                Some(agent_entity),
-                Some(target_transform.translation().truncate()),
-            ));
-        }
-    }
-}
-
 /// Extends `actions` with templates for entity targets that have a matching Affordance component.
 /// Uses `is_plan_valid` rather than belief confidence — used by the proposal (not planning) path.
 fn collect_affordance_targets(
@@ -540,59 +461,4 @@ fn collect_affordance_targets(
         template.base_cost += dist;
         actions.push(template);
     }
-}
-
-/// Ask a nearby known agent about a needed resource before falling back to exploring.
-fn propose_epistemic_ask(
-    goal: &Goal,
-    visible: &VisibleObjects,
-    mind: &MindGraph,
-    affordances: &Query<(
-        &GlobalTransform,
-        Option<&crate::agent::affordance::Affordance>,
-    )>,
-    action_registry: &crate::agent::actions::ActionRegistry,
-) -> Option<BrainProposal> {
-    use crate::constants::brains::rational::ASK_FOR_HELP_PRIORITY_MULTIPLIER;
-
-    let needed_concept = goal.conditions.iter().find_map(|cond| {
-        if let Some(Value::Item(concept, _)) = &cond.object {
-            Some(*concept)
-        } else {
-            None
-        }
-    })?;
-
-    let talk_action = action_registry.get(ActionType::Talk)?;
-
-    for visible_entity in visible.entities.iter() {
-        let is_known = !mind
-            .query(
-                Some(&Node::Entity(*visible_entity)),
-                Some(Predicate::Knows),
-                Some(&Value::Boolean(true)),
-            )
-            .is_empty();
-
-        if !is_known {
-            continue;
-        }
-
-        if let Ok((target_transform, _)) = affordances.get(*visible_entity) {
-            let vis_pos = target_transform.translation().truncate();
-            let mut template = talk_action.to_template(Some(*visible_entity), Some(vis_pos));
-            template.topic = Some(crate::agent::mind::conversation::Topic::Location(
-                needed_concept,
-            ));
-
-            return Some(BrainProposal {
-                brain: BrainType::Rational,
-                action: template,
-                urgency: goal.priority * ASK_FOR_HELP_PRIORITY_MULTIPLIER,
-                reasoning: format!("Asking {:?} about {:?}", visible_entity, needed_concept),
-            });
-        }
-    }
-
-    None
 }

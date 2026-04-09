@@ -6,7 +6,7 @@
 //! conflict and allowing soft conflicts. `tick_actions` advances every running
 //! action and removes completed ones, scaling speed by channel saturation.
 //! `apply_action_effects` sums per-tick effects across all running actions.
-//! Emits SimEvent (ActionStarted, ActionCompleted, ActionPreempted, ActionFailed, KnowledgeShared).
+//! Emits SimEvent (ActionStarted, ActionCompleted, ActionPreempted, ActionFailed).
 
 use crate::agent::TargetPosition;
 use crate::agent::actions::ActionType;
@@ -160,10 +160,6 @@ pub fn start_actions(
             if let Some(tp) = action_template.target_position {
                 new_state = new_state.with_target_position(tp);
             }
-            if let Some(topic) = action_template.topic {
-                new_state.topic = Some(topic);
-            }
-            new_state.content = action_template.content.clone();
 
             if let ActionKind::Timed { duration_ticks } = action_def.kind() {
                 new_state = new_state.with_duration(duration_ticks);
@@ -219,9 +215,7 @@ pub fn tick_actions(
     tick: Res<TickCount>,
     world_map: Res<WorldMap>,
     mut game_log: ResMut<GameLog>,
-    mut event_writer: MessageWriter<crate::agent::events::GameEvent>,
     mut sim_events: MessageWriter<crate::agent::events::SimEvent>,
-    mut conversation_manager: Option<ResMut<crate::agent::mind::conversation::ConversationManager>>,
     mut agents: Query<(
         Entity,
         &Name,
@@ -333,7 +327,7 @@ pub fn tick_actions(
             }
         }
 
-        // Process completions: run on_complete + emit social events.
+        // Process completions: run on_complete.
         for action_type in &completed_types {
             let Some(snapshot) = active.get(*action_type).cloned() else {
                 continue;
@@ -345,11 +339,6 @@ pub fn tick_actions(
             let mut target_inv = snapshot
                 .target_entity
                 .and_then(|e| target_inventories.get_mut(e).ok());
-
-            let mut conv_mgr_ptr = None;
-            if let Some(ref mut mgr) = conversation_manager {
-                conv_mgr_ptr = Some(mgr.as_mut());
-            }
             let target_inv_ptr = target_inv.as_deref_mut();
 
             let mut ctx = crate::agent::actions::registry::CompletionContext {
@@ -357,35 +346,17 @@ pub fn tick_actions(
                 inventory: &mut inventory,
                 drives: drives.as_deref_mut(),
                 target_inventory: target_inv_ptr,
-                conversation_manager: conv_mgr_ptr,
-                topic: snapshot.topic,
                 target_entity: snapshot.target_entity,
-                actor: entity,
-                content: snapshot.content.clone(),
                 tick: current_tick,
             };
 
             action_def.on_complete(&mut ctx);
-
-            emit_social_interaction_events(entity, *action_type, &snapshot, &mut event_writer);
 
             sim_events.write(crate::agent::events::SimEvent::ActionCompleted {
                 agent: entity,
                 tick: current_tick,
                 action: *action_type,
             });
-
-            if *action_type == ActionType::Talk
-                && !snapshot.content.is_empty()
-                && let Some(listener) = snapshot.target_entity
-            {
-                sim_events.write(crate::agent::events::SimEvent::KnowledgeShared {
-                    speaker: entity,
-                    listener,
-                    tick: current_tick,
-                    triple_count: snapshot.content.len(),
-                });
-            }
 
             if let Some(msg) = action_def.complete_log() {
                 game_log.action(name.as_str(), msg, None, Some(entity));
@@ -587,53 +558,6 @@ fn pick_random_walkable_target(
     None
 }
 
-fn emit_social_interaction_events(
-    entity: Entity,
-    action_type: ActionType,
-    action_state: &ActionState,
-    event_writer: &mut MessageWriter<crate::agent::events::GameEvent>,
-) {
-    if action_type != ActionType::Introduce && action_type != ActionType::Talk {
-        return;
-    }
-
-    let Some(target_entity) = action_state.target_entity else {
-        return;
-    };
-
-    event_writer.write(crate::agent::events::GameEvent::SocialInteraction {
-        actor: entity,
-        target: target_entity,
-        action: action_type,
-        topic: action_state.topic.map(|t| match t {
-            crate::agent::mind::conversation::Topic::General => {
-                crate::agent::events::ConversationTopic::Greetings
-            }
-            crate::agent::mind::conversation::Topic::Location(_) => {
-                crate::agent::events::ConversationTopic::Request
-            }
-            crate::agent::mind::conversation::Topic::State(_) => {
-                crate::agent::events::ConversationTopic::Knowledge
-            }
-            crate::agent::mind::conversation::Topic::Person(_) => {
-                crate::agent::events::ConversationTopic::Gossip
-            }
-            crate::agent::mind::conversation::Topic::Help => {
-                crate::agent::events::ConversationTopic::Request
-            }
-        }),
-        valence: 0.5,
-    });
-
-    if action_type == ActionType::Talk && !action_state.content.is_empty() {
-        event_writer.write(crate::agent::events::GameEvent::KnowledgeShared {
-            speaker: entity,
-            listener: target_entity,
-            content: action_state.content.clone(),
-        });
-    }
-}
-
 // ============================================================================
 // TESTS
 // ============================================================================
@@ -703,11 +627,11 @@ mod tests {
     }
 
     #[test]
-    fn eat_plus_talk_creates_soft_conflict_with_degradation() {
+    fn eat_plus_converse_creates_soft_conflict_with_degradation() {
         let registry = build_registry();
         let mut active = ActiveActions::empty();
         active.insert(ActionState::new(ActionType::Eat, 0).with_duration(20));
-        active.insert(ActionState::new(ActionType::Talk, 0).with_duration(60));
+        active.insert(ActionState::new(ActionType::Converse, 0));
 
         let load = active.channel_load(&registry);
         let eat_channels = registry.get(ActionType::Eat).unwrap().body_channels();
@@ -718,14 +642,14 @@ mod tests {
 
     #[test]
     fn preemption_only_removes_actions_touching_saturated_channels() {
-        // Walk(Legs 0.4) and Talk(Mouth 0.6) both running. Admitting
+        // Walk(Legs 0.4) and Converse(Mouth 0.6) both running. Admitting
         // Flee(Legs 1.0, FullBody 0.5) saturates Legs at 1.4 - exactly the
         // hard threshold. The preemption pass should drop Walk (Legs is
-        // saturated) and leave Talk alone (Mouth is not).
+        // saturated) and leave Converse alone (Mouth is not).
         let registry = build_registry();
         let mut active = ActiveActions::empty();
         active.insert(ActionState::new(ActionType::Walk, 0));
-        active.insert(ActionState::new(ActionType::Talk, 0).with_duration(60));
+        active.insert(ActionState::new(ActionType::Converse, 0));
 
         let flee_def = registry.get(ActionType::Flee).unwrap();
         let mut target = TargetPosition::default();
@@ -739,6 +663,6 @@ mod tests {
 
         assert!(admitted);
         assert!(!active.contains(ActionType::Walk));
-        assert!(active.contains(ActionType::Talk));
+        assert!(active.contains(ActionType::Converse));
     }
 }

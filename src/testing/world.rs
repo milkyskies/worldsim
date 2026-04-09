@@ -59,6 +59,12 @@ impl SimEventLog {
             .iter()
             .filter(move |e| sim_event_tick(e) >= cutoff)
     }
+
+    /// Read-only access to all collected events. Tests use this to assert
+    /// specific SimEvent variants fired during a run.
+    pub fn all(&self) -> &[SimEvent] {
+        &self.events
+    }
 }
 
 /// Bevy system that drains incoming SimEvents into `SimEventLog`.
@@ -468,6 +474,12 @@ impl TestWorld {
         self.app.world().resource::<TickCount>().current
     }
 
+    /// Borrows the SimEventLog for assertion in tests.
+    /// Use this to check that specific SimEvent variants were emitted.
+    pub fn sim_events(&self) -> &SimEventLog {
+        self.app.world().resource::<SimEventLog>()
+    }
+
     // ─── Inspection ────────────────────────────────────────────────────────
 
     /// Returns the underlying Bevy `App` for advanced introspection. Prefer the
@@ -611,6 +623,23 @@ impl TestWorld {
                 .map(|s| s.action_type)
                 .unwrap_or(ActionType::Idle),
         )
+    }
+
+    /// Returns true if the agent is currently in a conversation.
+    pub fn in_conversation(&self, agent: Entity) -> bool {
+        self.app
+            .world()
+            .get::<crate::agent::mind::conversation::InConversation>(agent)
+            .is_some()
+    }
+
+    /// Returns the number of active (non-ended) conversations in the world.
+    pub fn active_conversation_count(&self) -> usize {
+        self.app
+            .world()
+            .resource::<crate::agent::mind::conversation::ConversationManager>()
+            .active_conversations()
+            .count()
     }
 
     /// Returns true if the action registry contains an entry for the given action.
@@ -920,17 +949,14 @@ impl TestWorld {
             "  conversation_id={}  partner={partner_name} [{:?}]",
             in_conv.conversation_id, in_conv.partner
         );
-        eprintln!(
-            "  my_turn={}  owes_response={}",
-            in_conv.my_turn, in_conv.owes_response
-        );
 
         if let Some(conv) = manager.conversations.get(&in_conv.conversation_id) {
             eprintln!(
-                "  State: {:?}  started=t{}  last_activity=t{}  turns={}",
+                "  State: {:?}  started=t{}  last_turn=t{}  turn_index={}  turns={}",
                 conv.state,
                 conv.started_at,
-                conv.last_activity,
+                conv.last_turn_at,
+                conv.turn,
                 conv.turns.len()
             );
             for (i, turn) in conv.turns.iter().enumerate() {
@@ -1210,7 +1236,7 @@ mod tests {
             ActionType::Walk,
             ActionType::Harvest,
             ActionType::Wander,
-            ActionType::Talk,
+            ActionType::Converse,
         ] {
             assert!(
                 world.has_registered_action(action),

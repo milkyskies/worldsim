@@ -143,9 +143,6 @@ pub mod brains {
 
     /// Emotional brain urgency scores and emotion intensity thresholds
     pub mod emotional {
-        pub const CONVERSATION_RESPONSE_URGENCY: f32 = 90.0;
-        pub const CONVERSATION_SOCIAL_THRESHOLD: f32 = 0.2;
-        pub const CONVERSATION_CONTINUE_URGENCY: f32 = 70.0;
         pub const FEAR_ENTITY_THRESHOLD: f32 = 0.3;
         pub const FEAR_ENTITY_URGENCY_MULTIPLIER: f32 = 80.0;
         pub const JOY_ENTITY_THRESHOLD: f32 = 0.3;
@@ -154,10 +151,6 @@ pub mod brains {
         pub const ANGER_ENTITY_URGENCY_MULTIPLIER: f32 = 60.0;
         pub const FEAR_GENERAL_THRESHOLD: f32 = 0.7;
         pub const FEAR_GENERAL_URGENCY_MULTIPLIER: f32 = 90.0;
-        pub const SOCIAL_SEEK_THRESHOLD: f32 = 0.3;
-        pub const TALK_SOCIAL_URGENCY_MULTIPLIER: f32 = 40.0;
-        pub const TALK_TRUST_URGENCY_BONUS: f32 = 10.0;
-        pub const INTRODUCE_SOCIAL_URGENCY_MULTIPLIER: f32 = 35.0;
     }
 
     /// Rational brain planning urgency scores and thresholds
@@ -166,8 +159,6 @@ pub mod brains {
         pub const MIN_ALERTNESS_FOR_PLANNING: f32 = 0.3;
         pub const PLAN_CONTINUATION_URGENCY: f32 = 30.0;
         pub const GOAL_SATISFIED_WANDER_URGENCY: f32 = 5.0;
-        /// Multiplier applied to goal priority when asking another agent for help
-        pub const ASK_FOR_HELP_PRIORITY_MULTIPLIER: f32 = 0.5;
         /// Multiplier applied to goal priority when falling back to exploration
         pub const EXPLORE_FALLBACK_PRIORITY_MULTIPLIER: f32 = 0.3;
         pub const IDLE_WANDER_URGENCY: f32 = 10.0;

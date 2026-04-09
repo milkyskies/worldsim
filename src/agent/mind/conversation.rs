@@ -1,93 +1,132 @@
-//! Conversation system: models multi-turn dialogue between agents with intents, topics, and shared knowledge triples.
+//! Conversation data types: shared state between two agents talking, owned by the [`CommunicationPlugin`](crate::agent::communication::CommunicationPlugin).
 //!
-//! Reads: ActionType, ActiveActions, Emotion, Triple (knowledge content), TickCount
-//! Writes: Conversation, Turn, InConversation (ECS marker), ConversationState, SimEvent (ConversationStarted/Ended/Abandoned)
-//! Upstream: mind::knowledge (triples shared as content), psyche::emotions (emotional coloring of turns)
-//! Downstream: brain_system (InConversation affects rational/emotional brain proposals), belief_updater (KnowledgeShared events), SimEvent consumers
+//! Reads: nothing (pure data)
+//! Writes: nothing (pure data)
+//! Upstream: knowledge::Triple (turn content), psyche::emotions::Emotion (turn coloring)
+//! Downstream: agent::communication (the plugin that owns and mutates these), ui (read-only display)
 
-use crate::agent::actions::ActionType;
-use crate::agent::actions::registry::ActiveActions;
 use crate::agent::mind::knowledge::{Concept, Triple};
 use crate::agent::psyche::emotions::Emotion;
-use crate::core::tick::TickCount;
 use bevy::prelude::*;
 
-/// An active conversation between two or more agents
+/// An active conversation between two agents.
+///
+/// Owned exclusively by [`ConversationManager`] inside the
+/// [`CommunicationPlugin`](crate::agent::communication::CommunicationPlugin).
+/// Turn ownership is encoded in the `turn` index — no flag on participant
+/// components, so there's no race condition possible.
 #[derive(Debug, Clone, Reflect)]
 pub struct Conversation {
     pub id: u64,
-    pub participants: Vec<Entity>,
-    pub turns: Vec<Turn>,
+    pub participants: [Entity; 2],
+    /// Index into `participants` of the agent whose turn it currently is.
+    pub turn: usize,
     pub state: ConversationState,
-    pub started_at: u64,    // tick
-    pub last_activity: u64, // tick - for stale detection
+    pub started_at: u64,
+    pub last_turn_at: u64,
+    pub turns: Vec<Turn>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Reflect, Default)]
 pub enum ConversationState {
     #[default]
-    Greeting, // Just started
-    Active,   // Mid-conversation
-    Wrapping, // Saying goodbye
-    Ended,    // Done
+    Greeting,
+    Active,
+    Wrapping,
+    Ended,
 }
 
-/// One "turn" in a conversation - what one agent says
+/// One turn in a conversation - what one agent says.
 #[derive(Debug, Clone, Reflect)]
 pub struct Turn {
     pub speaker: Entity,
     pub intent: Intent,
     pub topic: Topic,
-    pub emotion: Option<Emotion>, // Emotional coloring
-    pub content: Vec<Triple>,     // Information being shared
+    pub emotion: Option<Emotion>,
+    pub content: Vec<Triple>,
     pub timestamp: u64,
-    pub expects_response: bool, // Did this turn ask something?
+    pub expects_response: bool,
 }
 
-/// What the speaker is trying to DO
+/// What the speaker is trying to do.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Reflect)]
 pub enum Intent {
-    Greet,       // "Hello!"
-    Ask,         // Requesting information
-    Answer,      // Responding to a question
-    Share,       // Volunteering information
-    Empathize,   // "That sounds hard"
-    Agree,       // "You're right"
-    Disagree,    // "I don't think so"
-    Thank,       // "Thanks"
-    Farewell,    // "Goodbye!"
-    Acknowledge, // "Got it" / "I understand"
+    Greet,
+    Ask,
+    Answer,
+    Share,
+    Empathize,
+    Agree,
+    Disagree,
+    Thank,
+    Farewell,
+    Acknowledge,
 }
 
-/// What they're talking about
+/// What they're talking about.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Reflect)]
 pub enum Topic {
-    General,           // Small talk
-    Location(Concept), // "Where is X?"
-    State(Entity),     // "How is X?" or "Is X ...?"
-    Person(Entity),    // "What about Bob?"
-    Help,              // "Can you help?"
+    General,
+    Location(Concept),
+    State(Entity),
+    Person(Entity),
+    Help,
 }
 
 impl Conversation {
-    pub fn new(id: u64, participants: Vec<Entity>, started_at: u64) -> Self {
+    pub fn new(id: u64, participants: [Entity; 2], started_at: u64) -> Self {
         Self {
             id,
             participants,
-            turns: Vec::new(),
+            turn: 0,
             state: ConversationState::Greeting,
             started_at,
-            last_activity: started_at,
+            last_turn_at: started_at,
+            turns: Vec::new(),
         }
     }
 
+    /// Append a turn and bump `last_turn_at`. Does not advance `turn` —
+    /// callers should call [`Conversation::advance_turn`] separately.
     pub fn add_turn(&mut self, turn: Turn) {
-        self.last_activity = turn.timestamp;
+        self.last_turn_at = turn.timestamp;
         self.turns.push(turn);
+    }
+
+    /// Flip turn ownership to the other participant.
+    pub fn advance_turn(&mut self) {
+        self.turn = 1 - self.turn;
+    }
+
+    /// Returns the entity whose turn it currently is.
+    pub fn current_speaker(&self) -> Entity {
+        self.participants[self.turn]
+    }
+
+    /// Returns the entity whose turn it currently is *not*.
+    pub fn current_listener(&self) -> Entity {
+        self.participants[1 - self.turn]
+    }
+
+    /// Returns the other participant given one of the two.
+    pub fn other_participant(&self, speaker: Entity) -> Entity {
+        if self.participants[0] == speaker {
+            self.participants[1]
+        } else {
+            self.participants[0]
+        }
+    }
+
+    /// True if the most recent turn was a question expecting a response.
+    pub fn last_turn_expects_response(&self) -> bool {
+        self.turns
+            .last()
+            .map(|t| t.expects_response)
+            .unwrap_or(false)
     }
 }
 
-/// Resource to track all active conversations
+/// Resource owned by the [`CommunicationPlugin`](crate::agent::communication::CommunicationPlugin) — the single source of truth for conversation state.
 #[derive(Resource, Default, Reflect)]
 #[reflect(Resource)]
 pub struct ConversationManager {
@@ -96,29 +135,31 @@ pub struct ConversationManager {
 }
 
 impl ConversationManager {
-    pub fn start_conversation(&mut self, participants: Vec<Entity>, tick: u64) -> u64 {
+    pub fn start_conversation(&mut self, participants: [Entity; 2], tick: u64) -> u64 {
         let id = self.next_id;
         self.next_id += 1;
-
-        let conversation = Conversation::new(id, participants.clone(), tick);
-        self.conversations.insert(id, conversation);
-
+        self.conversations
+            .insert(id, Conversation::new(id, participants, tick));
         id
+    }
+
+    pub fn get(&self, id: u64) -> Option<&Conversation> {
+        self.conversations.get(&id)
     }
 
     pub fn get_mut(&mut self, id: u64) -> Option<&mut Conversation> {
         self.conversations.get_mut(&id)
     }
 
-    /// Find active conversation involving these participants
-    pub fn find_active(&self, participants: &[Entity]) -> Option<&Conversation> {
+    /// Find an active (non-ended) conversation containing both participants.
+    pub fn find_active(&self, a: Entity, b: Entity) -> Option<&Conversation> {
         self.conversations.values().find(|c| {
             c.state != ConversationState::Ended
-                && participants.iter().all(|p| c.participants.contains(p))
+                && c.participants.contains(&a)
+                && c.participants.contains(&b)
         })
     }
 
-    /// Get all active conversations (not Ended)
     pub fn active_conversations(&self) -> impl Iterator<Item = &Conversation> {
         self.conversations
             .values()
@@ -126,206 +167,23 @@ impl ConversationManager {
     }
 }
 
-/// Component attached to agents currently in a conversation
+/// Component attached to agents currently in a conversation.
+///
+/// Carries only the conversation handle and partner entity. Turn ownership
+/// lives on [`Conversation::turn`] — keeping it off the component eliminates
+/// the dual-write race that the old `my_turn`/`owes_response` flags suffered.
 #[derive(Component, Debug, Clone, Reflect)]
 #[reflect(Component)]
 pub struct InConversation {
     pub conversation_id: u64,
     pub partner: Entity,
-    pub my_turn: bool,
-    pub owes_response: bool, // Partner asked me something
 }
 
-// ============================================================================
-// CONVERSATION MANAGEMENT SYSTEMS
-// ============================================================================
-
-/// System to sync InConversation components when Talk actions complete
-pub fn sync_conversation_state(
-    mut commands: Commands,
-    mut conv_manager: ResMut<ConversationManager>,
-    agents: Query<(Entity, &ActiveActions)>,
-    mut in_conversation: Query<&mut InConversation>,
-    tick: Res<TickCount>,
-    mut sim_events: MessageWriter<crate::agent::events::SimEvent>,
-) {
-    // Find agents that just completed a Talk action
-    for (entity, active) in agents.iter() {
-        // No Talk action currently running - treat as "just finished talking".
-        if !active.contains(ActionType::Talk) {
-            // Check if they have InConversation - if so, update it
-            if let Ok(in_conv) = in_conversation.get(entity) {
-                let conversation_id = in_conv.conversation_id;
-                let partner = in_conv.partner;
-
-                // Get the conversation to check its state
-                if let Some(conv) = conv_manager.get_mut(conversation_id) {
-                    // If conversation ended, remove InConversation from both participants
-                    if conv.state == ConversationState::Ended {
-                        for participant in &conv.participants {
-                            commands.entity(*participant).remove::<InConversation>();
-                        }
-                    } else {
-                        // Flip turns - if it was my turn, now it's partner's turn
-                        let expects_response = conv
-                            .turns
-                            .last()
-                            .map(|t| t.expects_response)
-                            .unwrap_or(false);
-
-                        // Update both participants
-                        if let Ok(mut in_conv) = in_conversation.get_mut(entity) {
-                            in_conv.my_turn = false;
-                        }
-
-                        if let Ok(mut partner_conv) = in_conversation.get_mut(partner) {
-                            partner_conv.my_turn = true;
-                            partner_conv.owes_response = expects_response;
-                        }
-                    }
-                }
-            }
-        }
-
-        // Check if this is a newly started Talk action with a target
-        if let Some(talk_state) = active.get(ActionType::Talk)
-            && let Some(target) = talk_state.target_entity
-        {
-            // Check if we need to create InConversation components
-            if in_conversation.get(entity).is_err() {
-                // Find or create conversation
-                let participants = vec![entity, target];
-                let conversation_id = if let Some(c) = conv_manager.find_active(&participants) {
-                    c.id
-                } else {
-                    // This will be created by the action's on_complete,
-                    // but we need the component now
-                    continue;
-                };
-
-                sim_events.write(crate::agent::events::SimEvent::ConversationStarted {
-                    participants: vec![entity, target],
-                    tick: tick.current,
-                    conversation_id,
-                });
-
-                // Add InConversation components
-                commands.entity(entity).insert(InConversation {
-                    conversation_id,
-                    partner: target,
-                    my_turn: true,
-                    owes_response: false,
-                });
-
-                commands.entity(target).insert(InConversation {
-                    conversation_id,
-                    partner: entity,
-                    my_turn: false,
-                    owes_response: false,
-                });
-            }
-        }
-    }
-}
-
-/// System to clean up stale conversations
-pub fn cleanup_stale_conversations(
-    mut commands: Commands,
-    mut conv_manager: ResMut<ConversationManager>,
-    in_conversation: Query<(Entity, &InConversation)>,
-    tick: Res<TickCount>,
-    mut sim_events: MessageWriter<crate::agent::events::SimEvent>,
-) {
-    const STALE_THRESHOLD: u64 = 300; // 5 seconds at 60 ticks/sec
-
-    let mut conversations_to_end = Vec::new();
-
-    // Find stale conversations
-    for conv in conv_manager.active_conversations() {
-        if tick.current.saturating_sub(conv.last_activity) > STALE_THRESHOLD {
-            conversations_to_end.push(conv.id);
-        }
-    }
-
-    // Mark them as ended and remove InConversation components
-    for conv_id in conversations_to_end {
-        if let Some(conv) = conv_manager.get_mut(conv_id) {
-            conv.state = ConversationState::Ended;
-
-            sim_events.write(crate::agent::events::SimEvent::ConversationEnded {
-                participants: conv.participants.clone(),
-                tick: tick.current,
-                conversation_id: conv_id,
-            });
-
-            // Remove InConversation from all participants
-            for (entity, in_conv) in in_conversation.iter() {
-                if in_conv.conversation_id == conv_id {
-                    commands.entity(entity).remove::<InConversation>();
-                }
-            }
-        }
-    }
-}
-
-/// Event for when someone abandons a conversation rudely
+/// Emitted when an agent leaves a conversation without saying goodbye.
+/// Consumed by relationship and emotion systems to apply social penalties.
 #[derive(Message, Debug, Clone)]
 pub struct ConversationAbandoned {
     pub abandoner: Entity,
     pub abandoned: Entity,
     pub conversation_state: ConversationState,
-}
-
-/// System to detect rude conversation exits and apply relationship penalties
-pub fn handle_conversation_exits(
-    mut commands: Commands,
-    mut conv_manager: ResMut<ConversationManager>,
-    in_conversation: Query<(Entity, &InConversation)>,
-    agents: Query<&ActiveActions>,
-    mut abandoned_events: MessageWriter<ConversationAbandoned>,
-    tick: Res<TickCount>,
-    mut sim_events: MessageWriter<crate::agent::events::SimEvent>,
-) {
-    // Check for agents who left a conversation without saying farewell
-    for (entity, in_conv) in in_conversation.iter() {
-        if let Ok(active) = agents.get(entity) {
-            // If they're not doing Talk anymore and it's their turn
-            if !active.contains(ActionType::Talk) && in_conv.my_turn {
-                // Get the conversation
-                if let Some(conv) = conv_manager.get_mut(in_conv.conversation_id) {
-                    // Check if the last turn was a farewell
-                    let last_was_farewell = conv
-                        .turns
-                        .last()
-                        .map(|t| t.intent == Intent::Farewell)
-                        .unwrap_or(false);
-
-                    if !last_was_farewell {
-                        // They abandoned the conversation!
-                        let state = conv.state;
-
-                        // Emit event for relationship penalty system
-                        abandoned_events.write(ConversationAbandoned {
-                            abandoner: entity,
-                            abandoned: in_conv.partner,
-                            conversation_state: state,
-                        });
-
-                        sim_events.write(crate::agent::events::SimEvent::ConversationAbandoned {
-                            abandoner: entity,
-                            abandoned: in_conv.partner,
-                            tick: tick.current,
-                        });
-
-                        // Mark conversation as ended
-                        conv.state = ConversationState::Ended;
-
-                        // Remove InConversation from both
-                        commands.entity(entity).remove::<InConversation>();
-                        commands.entity(in_conv.partner).remove::<InConversation>();
-                    }
-                }
-            }
-        }
-    }
 }

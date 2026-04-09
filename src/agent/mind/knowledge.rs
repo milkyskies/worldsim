@@ -400,6 +400,21 @@ impl Metadata {
             salience: 0.0,
         }
     }
+
+    /// Knowledge learned from another agent during a conversation.
+    /// Confidence starts lower than direct experience and the informant is
+    /// recorded so consumers can weight by trust.
+    pub fn hearsay(timestamp: u64, informant: Entity) -> Self {
+        Self {
+            source: Source::Hearsay,
+            memory_type: MemoryType::Semantic,
+            timestamp,
+            confidence: 0.7,
+            informant: Some(informant),
+            evidence: Vec::new(),
+            salience: 0.0,
+        }
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1004,7 +1019,7 @@ pub fn setup_ontology() -> Ontology {
     let val_act = |c: Concept| Value::Concept(c);
 
     add(act(ActionType::Wave), IsA, val_act(SocialAction));
-    add(act(ActionType::Talk), IsA, val_act(SocialAction));
+    add(act(ActionType::Converse), IsA, val_act(SocialAction));
     add(act(ActionType::Attack), IsA, val_act(ViolentAction));
     add(act(ActionType::Flee), IsA, val_act(ViolentAction));
     add(act(ActionType::Eat), IsA, val_act(SurvivalAction));

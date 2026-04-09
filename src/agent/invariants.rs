@@ -235,8 +235,6 @@ mod tests {
             .insert(InConversation {
                 conversation_id: 9_999,
                 partner: b,
-                my_turn: true,
-                owes_response: false,
             });
         assert_invariants(world.app_mut().world_mut());
     }
