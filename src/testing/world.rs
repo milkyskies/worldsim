@@ -1,7 +1,7 @@
 //! TestWorld: a Bevy `App` configured with all simulation logic plugins but no rendering or input.
 //!
 //! Reads: AgentPlugin, agent components, knowledge ontology, world map types
-//! Writes: TestWorld (App wrapper exposing spawn/tick/inspect APIs)
+//! Writes: TestWorld (App wrapper exposing spawn/tick/inspect APIs), SimEventLog (auto-collected event history)
 //! Upstream: testing::config (AgentConfig), testing::spawn (logic-only spawners)
 //! Downstream: integration tests (scenario, brain, knowledge, planner, perception)
 
@@ -264,12 +264,28 @@ fn format_sim_event(event: &SimEvent) -> String {
     }
 }
 
-/// Format a MindGraph triple as "subject -- predicate --> object".
 fn format_triple(triple: &crate::agent::mind::knowledge::Triple) -> String {
     format!(
         "{:?} --{:?}--> {:?}",
         triple.subject, triple.predicate, triple.object
     )
+}
+
+fn entity_name(world: &World, entity: Entity) -> String {
+    world
+        .get::<Name>(entity)
+        .map(|n| n.as_str().to_string())
+        .unwrap_or_else(|| format!("{entity:?}"))
+}
+
+fn print_section_header(title: &str, name: &str, entity: Entity, tick: u64) {
+    eprintln!("══════════════════════════════════════════════════");
+    eprintln!("  {title} — {name} [{entity:?}] at tick {tick}");
+    eprintln!("══════════════════════════════════════════════════");
+}
+
+fn print_section_footer() {
+    eprintln!("──────────────────────────────────────────────────");
 }
 
 /// A lightweight headless simulation harness. Wraps a Bevy `App` configured with
@@ -534,14 +550,8 @@ impl TestWorld {
     pub fn print_agent_state(&self, agent: Entity) {
         let world = self.app.world();
         let tick = world.resource::<TickCount>().current;
-        let name = world
-            .get::<Name>(agent)
-            .map(|n| n.as_str().to_string())
-            .unwrap_or_else(|| format!("{agent:?}"));
-
-        eprintln!("══════════════════════════════════════════════════");
-        eprintln!("  Agent state — {name} [{agent:?}] at tick {tick}");
-        eprintln!("══════════════════════════════════════════════════");
+        let name = entity_name(world, agent);
+        print_section_header("Agent state", &name, agent, tick);
 
         // Position
         if let Some(tf) = world.get::<Transform>(agent) {
@@ -644,7 +654,7 @@ impl TestWorld {
             }
         }
 
-        eprintln!("──────────────────────────────────────────────────");
+        print_section_footer();
     }
 
     /// Print the last brain decision for `agent` to stderr: all proposals, their
@@ -652,18 +662,12 @@ impl TestWorld {
     pub fn print_brain_decision(&self, agent: Entity) {
         let world = self.app.world();
         let tick = world.resource::<TickCount>().current;
-        let name = world
-            .get::<Name>(agent)
-            .map(|n| n.as_str().to_string())
-            .unwrap_or_else(|| format!("{agent:?}"));
-
-        eprintln!("══════════════════════════════════════════════════");
-        eprintln!("  Brain decision — {name} [{agent:?}] at tick {tick}");
-        eprintln!("══════════════════════════════════════════════════");
+        let name = entity_name(world, agent);
+        print_section_header("Brain decision", &name, agent, tick);
 
         let Some(brain) = world.get::<BrainState>(agent) else {
             eprintln!("  (no BrainState component)");
-            eprintln!("──────────────────────────────────────────────────");
+            print_section_footer();
             return;
         };
 
@@ -698,7 +702,7 @@ impl TestWorld {
             }
         }
 
-        eprintln!("──────────────────────────────────────────────────");
+        print_section_footer();
     }
 
     /// Print the full MindGraph for `agent` to stderr: all triples across the
@@ -706,18 +710,12 @@ impl TestWorld {
     pub fn print_mind_graph(&self, agent: Entity) {
         let world = self.app.world();
         let tick = world.resource::<TickCount>().current;
-        let name = world
-            .get::<Name>(agent)
-            .map(|n| n.as_str().to_string())
-            .unwrap_or_else(|| format!("{agent:?}"));
-
-        eprintln!("══════════════════════════════════════════════════");
-        eprintln!("  MindGraph — {name} [{agent:?}] at tick {tick}");
-        eprintln!("══════════════════════════════════════════════════");
+        let name = entity_name(world, agent);
+        print_section_header("MindGraph", &name, agent, tick);
 
         let Some(mind) = world.get::<MindGraph>(agent) else {
             eprintln!("  (no MindGraph component)");
-            eprintln!("──────────────────────────────────────────────────");
+            print_section_footer();
             return;
         };
 
@@ -746,7 +744,7 @@ impl TestWorld {
             );
         }
 
-        eprintln!("──────────────────────────────────────────────────");
+        print_section_footer();
     }
 
     /// Print all relationships (Trust, Affection, Respect) that `agent` holds
@@ -754,23 +752,25 @@ impl TestWorld {
     pub fn print_relationships(&self, agent: Entity) {
         let world = self.app.world();
         let tick = world.resource::<TickCount>().current;
-        let name = world
-            .get::<Name>(agent)
-            .map(|n| n.as_str().to_string())
-            .unwrap_or_else(|| format!("{agent:?}"));
-
-        eprintln!("══════════════════════════════════════════════════");
-        eprintln!("  Relationships — {name} [{agent:?}] at tick {tick}");
-        eprintln!("══════════════════════════════════════════════════");
+        let name = entity_name(world, agent);
+        print_section_header("Relationships", &name, agent, tick);
 
         let Some(mind) = world.get::<MindGraph>(agent) else {
             eprintln!("  (no MindGraph component)");
-            eprintln!("──────────────────────────────────────────────────");
+            print_section_footer();
             return;
         };
 
-        // Collect all Entity subjects that have at least one relationship predicate.
-        let mut entities: std::collections::HashSet<Entity> = std::collections::HashSet::new();
+        // Single pass: collect (trust, affection, respect, knows) per Entity subject.
+        #[derive(Default)]
+        struct RelEntry {
+            trust: Option<f32>,
+            affection: Option<f32>,
+            respect: Option<f32>,
+            knows: bool,
+        }
+        let mut by_entity: std::collections::HashMap<Entity, RelEntry> =
+            std::collections::HashMap::new();
         for pred in [
             Predicate::Trust,
             Predicate::Affection,
@@ -779,114 +779,62 @@ impl TestWorld {
         ] {
             for triple in mind.query(None, Some(pred), None) {
                 if let MindNode::Entity(e) = &triple.subject {
-                    entities.insert(*e);
+                    let entry = by_entity.entry(*e).or_default();
+                    match (pred, &triple.object) {
+                        (Predicate::Trust, Value::Float(f)) => entry.trust = Some(*f),
+                        (Predicate::Affection, Value::Float(f)) => entry.affection = Some(*f),
+                        (Predicate::Respect, Value::Float(f)) => entry.respect = Some(*f),
+                        (Predicate::Knows, _) => entry.knows = true,
+                        _ => {}
+                    }
                 }
             }
         }
 
-        if entities.is_empty() {
+        if by_entity.is_empty() {
             eprintln!("  (no relationship entries)");
         } else {
-            for other in &entities {
-                let other_name = world
-                    .get::<Name>(*other)
-                    .map(|n| n.as_str().to_string())
-                    .unwrap_or_else(|| format!("{other:?}"));
-
-                let trust = mind
-                    .query(
-                        Some(&MindNode::Entity(*other)),
-                        Some(Predicate::Trust),
-                        None,
-                    )
-                    .into_iter()
-                    .find_map(|t| {
-                        if let Value::Float(f) = &t.object {
-                            Some(*f)
-                        } else {
-                            None
-                        }
-                    });
-                let affection = mind
-                    .query(
-                        Some(&MindNode::Entity(*other)),
-                        Some(Predicate::Affection),
-                        None,
-                    )
-                    .into_iter()
-                    .find_map(|t| {
-                        if let Value::Float(f) = &t.object {
-                            Some(*f)
-                        } else {
-                            None
-                        }
-                    });
-                let respect = mind
-                    .query(
-                        Some(&MindNode::Entity(*other)),
-                        Some(Predicate::Respect),
-                        None,
-                    )
-                    .into_iter()
-                    .find_map(|t| {
-                        if let Value::Float(f) = &t.object {
-                            Some(*f)
-                        } else {
-                            None
-                        }
-                    });
-                let knows = !mind
-                    .query(
-                        Some(&MindNode::Entity(*other)),
-                        Some(Predicate::Knows),
-                        None,
-                    )
-                    .is_empty();
-
+            for (other, rel) in &by_entity {
+                let other_name = entity_name(world, *other);
                 eprintln!(
                     "  {other_name} [{other:?}]  knows={knows}  trust={trust}  affection={affection}  respect={respect}",
-                    trust = trust
+                    knows = rel.knows,
+                    trust = rel
+                        .trust
                         .map(|f| format!("{f:.3}"))
                         .unwrap_or_else(|| "-".to_string()),
-                    affection = affection
+                    affection = rel
+                        .affection
                         .map(|f| format!("{f:.3}"))
                         .unwrap_or_else(|| "-".to_string()),
-                    respect = respect
+                    respect = rel
+                        .respect
                         .map(|f| format!("{f:.3}"))
                         .unwrap_or_else(|| "-".to_string()),
                 );
             }
         }
 
-        eprintln!("──────────────────────────────────────────────────");
+        print_section_footer();
     }
 
     /// Print the current conversation state for `agent` to stderr (if any).
     pub fn print_conversation(&self, agent: Entity) {
         let world = self.app.world();
         let tick = world.resource::<TickCount>().current;
-        let name = world
-            .get::<Name>(agent)
-            .map(|n| n.as_str().to_string())
-            .unwrap_or_else(|| format!("{agent:?}"));
-
-        eprintln!("══════════════════════════════════════════════════");
-        eprintln!("  Conversation — {name} [{agent:?}] at tick {tick}");
-        eprintln!("══════════════════════════════════════════════════");
+        let name = entity_name(world, agent);
+        print_section_header("Conversation", &name, agent, tick);
 
         let in_conv = world.get::<InConversation>(agent);
         let manager = world.resource::<ConversationManager>();
 
         let Some(in_conv) = in_conv else {
             eprintln!("  (agent is not currently in a conversation)");
-            eprintln!("──────────────────────────────────────────────────");
+            print_section_footer();
             return;
         };
 
-        let partner_name = world
-            .get::<Name>(in_conv.partner)
-            .map(|n| n.as_str().to_string())
-            .unwrap_or_else(|| format!("{:?}", in_conv.partner));
+        let partner_name = entity_name(world, in_conv.partner);
 
         eprintln!(
             "  conversation_id={}  partner={partner_name} [{:?}]",
@@ -906,10 +854,7 @@ impl TestWorld {
                 conv.turns.len()
             );
             for (i, turn) in conv.turns.iter().enumerate() {
-                let speaker_name = world
-                    .get::<Name>(turn.speaker)
-                    .map(|n| n.as_str().to_string())
-                    .unwrap_or_else(|| format!("{:?}", turn.speaker));
+                let speaker_name = entity_name(world, turn.speaker);
                 eprintln!(
                     "  Turn {i}: [{speaker_name}] intent={:?}  topic={:?}  triples={}",
                     turn.intent,
@@ -919,7 +864,7 @@ impl TestWorld {
             }
         }
 
-        eprintln!("──────────────────────────────────────────────────");
+        print_section_footer();
     }
 
     /// Search the agent's full MindGraph (ontology + shared + personal) for
@@ -957,7 +902,6 @@ impl TestWorld {
         let world = self.app.world();
         let tick = world.resource::<TickCount>().current;
         let log = world.resource::<SimEventLog>();
-
         let events: Vec<_> = log.events_since(tick, last_n_ticks).collect();
 
         eprintln!("══════════════════════════════════════════════════");
@@ -966,7 +910,6 @@ impl TestWorld {
             events.len()
         );
         eprintln!("══════════════════════════════════════════════════");
-
         if events.is_empty() {
             eprintln!("  (none)");
         } else {
@@ -974,20 +917,15 @@ impl TestWorld {
                 eprintln!("  {}", format_sim_event(event));
             }
         }
-
-        eprintln!("──────────────────────────────────────────────────");
+        print_section_footer();
     }
 
     /// Print all SimEvents involving `agent` in the last `last_n_ticks` ticks to stderr.
     pub fn print_agent_events(&self, agent: Entity, last_n_ticks: u64) {
         let world = self.app.world();
         let tick = world.resource::<TickCount>().current;
-        let name = world
-            .get::<Name>(agent)
-            .map(|n| n.as_str().to_string())
-            .unwrap_or_else(|| format!("{agent:?}"));
+        let name = entity_name(world, agent);
         let log = world.resource::<SimEventLog>();
-
         let events: Vec<_> = log
             .events_since(tick, last_n_ticks)
             .filter(|e| sim_event_involves(e, agent))
@@ -999,7 +937,6 @@ impl TestWorld {
             events.len()
         );
         eprintln!("══════════════════════════════════════════════════");
-
         if events.is_empty() {
             eprintln!("  (none)");
         } else {
@@ -1007,8 +944,7 @@ impl TestWorld {
                 eprintln!("  {}", format_sim_event(event));
             }
         }
-
-        eprintln!("──────────────────────────────────────────────────");
+        print_section_footer();
     }
 }
 
@@ -1051,20 +987,20 @@ mod tests {
 
     #[test]
     fn new_world_starts_at_tick_zero() {
-        let world = TestWorld::new();
+        let world = TestWorld::with_seed(42);
         assert_eq!(world.current_tick(), 0);
     }
 
     #[test]
     fn tick_advances_logical_tick_count() {
-        let mut world = TestWorld::new();
+        let mut world = TestWorld::with_seed(42);
         world.tick(10);
         assert_eq!(world.current_tick(), 10);
     }
 
     #[test]
     fn spawn_agent_creates_person_with_logic_components() {
-        let mut world = TestWorld::new();
+        let mut world = TestWorld::with_seed(42);
         let agent = world.spawn_agent(AgentConfig::default());
 
         // Core markers
@@ -1085,7 +1021,7 @@ mod tests {
 
     #[test]
     fn spawn_agent_uses_config_values() {
-        let mut world = TestWorld::new();
+        let mut world = TestWorld::with_seed(42);
         let agent = world.spawn_agent(AgentConfig {
             pos: Vec2::new(50.0, 75.0),
             hunger: 80.0,
@@ -1102,7 +1038,7 @@ mod tests {
 
     #[test]
     fn spawn_agent_cluster_returns_n_agents_near_center() {
-        let mut world = TestWorld::new();
+        let mut world = TestWorld::with_seed(42);
         let center = Vec2::new(100.0, 100.0);
         let agents = world.spawn_agent_cluster(9, center);
         assert_eq!(agents.len(), 9);
@@ -1116,21 +1052,21 @@ mod tests {
 
     #[test]
     fn spawn_berry_bush_starts_with_berry_inventory() {
-        let mut world = TestWorld::new();
+        let mut world = TestWorld::with_seed(42);
         let bush = world.spawn_berry_bush(Vec2::new(10.0, 10.0), 5);
         assert_eq!(world.item_count(bush, Concept::Berry), 5);
     }
 
     #[test]
     fn spawn_apple_tree_starts_with_apple_inventory() {
-        let mut world = TestWorld::new();
+        let mut world = TestWorld::with_seed(42);
         let tree = world.spawn_apple_tree(Vec2::new(20.0, 20.0), 7);
         assert_eq!(world.item_count(tree, Concept::Apple), 7);
     }
 
     #[test]
     fn spawn_deer_creates_agent_with_dangerous_person_belief() {
-        let mut world = TestWorld::new();
+        let mut world = TestWorld::with_seed(42);
         let deer = world.spawn_deer(Vec2::new(40.0, 40.0));
         assert!(world.app().world().get::<Agent>(deer).is_some());
         assert!(
@@ -1156,7 +1092,7 @@ mod tests {
 
     #[test]
     fn distance_returns_euclidean_distance_between_entities() {
-        let mut world = TestWorld::new();
+        let mut world = TestWorld::with_seed(42);
         let a = world.spawn_agent(AgentConfig::at(Vec2::new(0.0, 0.0)));
         let b = world.spawn_agent(AgentConfig::at(Vec2::new(3.0, 4.0)));
         assert_eq!(world.distance(a, b), 5.0);
@@ -1164,7 +1100,7 @@ mod tests {
 
     #[test]
     fn entity_exists_reflects_world_state() {
-        let mut world = TestWorld::new();
+        let mut world = TestWorld::with_seed(42);
         let agent = world.spawn_agent(AgentConfig::default());
         assert!(world.entity_exists(agent));
 
@@ -1174,7 +1110,7 @@ mod tests {
 
     #[test]
     fn all_agents_returns_only_agent_marker_entities() {
-        let mut world = TestWorld::new();
+        let mut world = TestWorld::with_seed(42);
         let person = world.spawn_agent(AgentConfig::default());
         let deer = world.spawn_deer(Vec2::new(20.0, 20.0));
         let _bush = world.spawn_berry_bush(Vec2::new(30.0, 30.0), 3);
@@ -1187,7 +1123,7 @@ mod tests {
 
     #[test]
     fn registered_actions_include_core_action_set() {
-        let world = TestWorld::new();
+        let world = TestWorld::with_seed(42);
         for action in [
             ActionType::Eat,
             ActionType::Sleep,
@@ -1207,7 +1143,7 @@ mod tests {
     fn config_with_pre_loaded_knowledge_is_applied_to_mind() {
         use crate::agent::mind::knowledge::{Metadata, Triple};
 
-        let mut world = TestWorld::new();
+        let mut world = TestWorld::with_seed(42);
         let agent = world.spawn_agent(AgentConfig {
             knowledge: vec![Triple::with_meta(
                 MindNode::Concept(Concept::AppleTree),
@@ -1235,7 +1171,7 @@ mod tests {
         // This is the smoke test that proves the full system stack is wired up.
         // A bare agent with default needs should be tickable for many frames
         // without any system panicking on missing resources or components.
-        let mut world = TestWorld::new();
+        let mut world = TestWorld::with_seed(42);
         let _ = world.spawn_agent(AgentConfig {
             hunger: 50.0,
             ..Default::default()
@@ -1249,7 +1185,7 @@ mod tests {
 
     #[test]
     fn print_agent_state_does_not_panic() {
-        let mut world = TestWorld::new();
+        let mut world = TestWorld::with_seed(42);
         let agent = world.spawn_agent(AgentConfig {
             hunger: 60.0,
             energy: 40.0,
@@ -1262,7 +1198,7 @@ mod tests {
 
     #[test]
     fn print_brain_decision_does_not_panic() {
-        let mut world = TestWorld::new();
+        let mut world = TestWorld::with_seed(42);
         let agent = world.spawn_agent(AgentConfig {
             hunger: 80.0,
             ..Default::default()
@@ -1275,7 +1211,7 @@ mod tests {
 
     #[test]
     fn print_mind_graph_does_not_panic() {
-        let mut world = TestWorld::new();
+        let mut world = TestWorld::with_seed(42);
         let agent = world.spawn_agent(AgentConfig::default());
         world.tick(5);
         world.print_mind_graph(agent);
@@ -1283,7 +1219,7 @@ mod tests {
 
     #[test]
     fn print_relationships_does_not_panic() {
-        let mut world = TestWorld::new();
+        let mut world = TestWorld::with_seed(42);
         let agent = world.spawn_agent(AgentConfig::at(Vec2::new(10.0, 10.0)));
         world.spawn_agent(AgentConfig::at(Vec2::new(12.0, 10.0)));
         world.tick(50);
@@ -1292,7 +1228,7 @@ mod tests {
 
     #[test]
     fn print_conversation_does_not_panic_when_not_in_conversation() {
-        let mut world = TestWorld::new();
+        let mut world = TestWorld::with_seed(42);
         let agent = world.spawn_agent(AgentConfig::default());
         world.print_conversation(agent);
     }
@@ -1301,7 +1237,7 @@ mod tests {
     fn query_knowledge_returns_matching_triples() {
         use crate::agent::mind::knowledge::{Metadata, Triple};
 
-        let mut world = TestWorld::new();
+        let mut world = TestWorld::with_seed(42);
         let agent = world.spawn_agent(AgentConfig {
             knowledge: vec![Triple::with_meta(
                 MindNode::Concept(Concept::AppleTree),
@@ -1321,7 +1257,7 @@ mod tests {
 
     #[test]
     fn query_knowledge_returns_empty_for_no_match() {
-        let mut world = TestWorld::new();
+        let mut world = TestWorld::with_seed(42);
         let agent = world.spawn_agent(AgentConfig::default());
         let results = world.query_knowledge(agent, "xyzzy_no_match");
         assert!(results.is_empty());
@@ -1329,13 +1265,13 @@ mod tests {
 
     #[test]
     fn print_recent_events_does_not_panic_with_no_events() {
-        let world = TestWorld::new();
+        let world = TestWorld::with_seed(42);
         world.print_recent_events(10);
     }
 
     #[test]
     fn print_recent_events_shows_events_after_ticking() {
-        let mut world = TestWorld::new();
+        let mut world = TestWorld::with_seed(42);
         let agent = world.spawn_agent(AgentConfig {
             hunger: 50.0,
             ..Default::default()
@@ -1356,7 +1292,7 @@ mod tests {
 
     #[test]
     fn print_agent_events_filters_to_agent() {
-        let mut world = TestWorld::new();
+        let mut world = TestWorld::with_seed(42);
         let agent_a = world.spawn_agent(AgentConfig::at(Vec2::new(0.0, 0.0)));
         let _agent_b = world.spawn_agent(AgentConfig::at(Vec2::new(200.0, 200.0)));
         world.tick(100);
