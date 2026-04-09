@@ -1,0 +1,58 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main, "feature/**"]
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  # Override the absolute target-dir in .cargo/config.toml (that path
+  # only exists on the author's machine).
+  CARGO_TARGET_DIR: target
+
+jobs:
+  rust:
+    name: Rust (fmt · clippy · test)
+    runs-on: ubicloud-standard-2
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: stable
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install Bevy system deps + mold + clang
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libasound2-dev \
+            libudev-dev \
+            libwayland-dev \
+            libxkbcommon-dev \
+            mold \
+            clang
+
+      - name: Install nextest
+        uses: taiki-e/install-action@nextest
+
+      - name: fmt
+        run: cargo fmt --all -- --check
+
+      - name: clippy
+        run: cargo clippy --all-targets -- -D warnings
+        env:
+          RUSTFLAGS: "-D warnings"
+
+      - name: test
+        run: cargo nextest run
+        env:
+          RUSTFLAGS: "-D warnings"
