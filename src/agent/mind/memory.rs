@@ -119,16 +119,49 @@ pub fn process_working_memory(
             item.processed = true;
 
             match &item.event {
-                crate::agent::events::GameEvent::Interaction { actor, action, target, .. } => {
-                    record_interaction_event(entity, item, actor, action, target, &mut mind, &mut game_log);
+                crate::agent::events::GameEvent::Interaction {
+                    actor,
+                    action,
+                    target,
+                    ..
+                } => {
+                    record_interaction_event(
+                        entity,
+                        item,
+                        actor,
+                        action,
+                        target,
+                        &mut mind,
+                        &mut game_log,
+                    );
                 }
 
-                crate::agent::events::GameEvent::SocialInteraction { actor, target, action, valence, .. } => {
-                    record_social_interaction(entity, item, actor, target, action, *valence, &mut mind);
+                crate::agent::events::GameEvent::SocialInteraction {
+                    actor,
+                    target,
+                    action,
+                    valence,
+                    ..
+                } => {
+                    record_social_interaction(
+                        entity, item, actor, target, action, *valence, &mut mind,
+                    );
                 }
 
-                crate::agent::events::GameEvent::KnowledgeShared { speaker, listener, content } => {
-                    record_knowledge_shared(entity, item, speaker, listener, content, &mut mind, &mut game_log);
+                crate::agent::events::GameEvent::KnowledgeShared {
+                    speaker,
+                    listener,
+                    content,
+                } => {
+                    record_knowledge_shared(
+                        entity,
+                        item,
+                        speaker,
+                        listener,
+                        content,
+                        &mut mind,
+                        &mut game_log,
+                    );
                 }
             }
         }
@@ -184,18 +217,47 @@ fn record_interaction_event(
         salience,
     };
 
-    mind.assert(Triple::with_meta(Node::Event(event_id), Predicate::Actor, Value::Entity(*actor), meta.clone()));
-    mind.assert(Triple::with_meta(Node::Event(event_id), Predicate::Action, Value::Action(*action), meta.clone()));
+    mind.assert(Triple::with_meta(
+        Node::Event(event_id),
+        Predicate::Actor,
+        Value::Entity(*actor),
+        meta.clone(),
+    ));
+    mind.assert(Triple::with_meta(
+        Node::Event(event_id),
+        Predicate::Action,
+        Value::Action(*action),
+        meta.clone(),
+    ));
 
     if let Some(t) = target {
-        mind.assert(Triple::with_meta(Node::Event(event_id), Predicate::Target, Value::Entity(*t), meta.clone()));
+        mind.assert(Triple::with_meta(
+            Node::Event(event_id),
+            Predicate::Target,
+            Value::Entity(*t),
+            meta.clone(),
+        ));
     }
 
-    mind.assert(Triple::with_meta(Node::Event(event_id), Predicate::Timestamp, Value::Int(item.timestamp as i32), meta.clone()));
-    mind.assert(Triple::with_meta(Node::Event(event_id), Predicate::FeltEmotion, Value::Emotion(emotion, intensity), meta.clone()));
+    mind.assert(Triple::with_meta(
+        Node::Event(event_id),
+        Predicate::Timestamp,
+        Value::Int(item.timestamp as i32),
+        meta.clone(),
+    ));
+    mind.assert(Triple::with_meta(
+        Node::Event(event_id),
+        Predicate::FeltEmotion,
+        Value::Emotion(emotion, intensity),
+        meta.clone(),
+    ));
 
     if is_self {
-        game_log.perception(&format!("{:?}", entity), &format!("observed: {}", action), Some(entity));
+        game_log.perception(
+            &format!("{:?}", entity),
+            &format!("observed: {}", action),
+            Some(entity),
+        );
     }
 }
 
@@ -217,7 +279,10 @@ fn record_social_interaction(
     let (emotion, intensity) = if valence > 0.0 {
         (crate::agent::psyche::emotions::EmotionType::Joy, valence)
     } else {
-        (crate::agent::psyche::emotions::EmotionType::Sadness, valence.abs())
+        (
+            crate::agent::psyche::emotions::EmotionType::Sadness,
+            valence.abs(),
+        )
     };
 
     let event_id = item.timestamp + (*actor).index() as u64 + (*target).index() as u64;
@@ -232,10 +297,30 @@ fn record_social_interaction(
         salience: intensity,
     };
 
-    mind.assert(Triple::with_meta(Node::Event(event_id), Predicate::Actor, Value::Entity(*actor), meta.clone()));
-    mind.assert(Triple::with_meta(Node::Event(event_id), Predicate::Action, Value::Action(*action), meta.clone()));
-    mind.assert(Triple::with_meta(Node::Event(event_id), Predicate::Target, Value::Entity(*target), meta.clone()));
-    mind.assert(Triple::with_meta(Node::Event(event_id), Predicate::FeltEmotion, Value::Emotion(emotion, intensity), meta.clone()));
+    mind.assert(Triple::with_meta(
+        Node::Event(event_id),
+        Predicate::Actor,
+        Value::Entity(*actor),
+        meta.clone(),
+    ));
+    mind.assert(Triple::with_meta(
+        Node::Event(event_id),
+        Predicate::Action,
+        Value::Action(*action),
+        meta.clone(),
+    ));
+    mind.assert(Triple::with_meta(
+        Node::Event(event_id),
+        Predicate::Target,
+        Value::Entity(*target),
+        meta.clone(),
+    ));
+    mind.assert(Triple::with_meta(
+        Node::Event(event_id),
+        Predicate::FeltEmotion,
+        Value::Emotion(emotion, intensity),
+        meta.clone(),
+    ));
 }
 
 fn record_knowledge_shared(
@@ -272,7 +357,12 @@ fn record_knowledge_shared(
         ));
     }
 
-    game_log.log_debug(format!("{:?} learned {} facts from {:?}", listener, content.len(), speaker));
+    game_log.log_debug(format!(
+        "{:?} learned {} facts from {:?}",
+        listener,
+        content.len(),
+        speaker
+    ));
 }
 
 /// Decay stale knowledge using exponential decay based on memory type and salience.
