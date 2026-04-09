@@ -131,7 +131,82 @@ fn hungry_agent_near_food_eats() {
 - `world.current_action(agent) -> Option<ActionType>`
 - `world.has_registered_action(action) -> bool`
 
-**Text inspection (debugging failing tests — output goes to stderr):**
+### Scenario Builder (preferred for non-trivial setups)
+
+For any test beyond a single agent, use `TestWorld::scenario(seed)` instead of raw `spawn_*` calls. The builder handles map sizing, terrain, named agents, groups, relationships, and resources in one fluent chain.
+
+```rust
+use worldsim::testing::TestWorld;
+use bevy::math::Vec2;
+
+#[test]
+fn alice_warns_bob_about_wolf() {
+    let (mut world, agents) = TestWorld::scenario(42)
+        .map_size(16, 16)
+        .noise_biomes(false)
+        .agent("alice")
+            .pos(Vec2::new(40.0, 40.0))
+            .personality(|p| p.extraversion(0.8).neuroticism(0.6))
+            .knowledge(vec![/* wolf sighting triple */])
+            .done()
+        .agent("bob")
+            .pos(Vec2::new(42.0, 40.0))
+            .personality(|p| p.agreeableness(0.9))
+            .done()
+        .relationship("alice", "bob", |r| r.trust(0.8).affection(0.7))
+        .build();
+
+    let alice = agents["alice"];
+    let bob = agents["bob"];
+
+    world.tick(200);
+
+    // assert bob now knows about the wolf
+}
+```
+
+**ScenarioBuilder methods:**
+- `.map_size(width, height)` — smaller is faster (default 128x128, prefer 16x16 or 32x32 for unit tests)
+- `.tile_at(x, y, tile_type)` — place a single tile
+- `.fill_rect(x, y, w, h, tile_type)` — fill a region
+- `.noise_biomes(false)` — disable noise gen for flat-grass speed
+- `.agent(name)` — start an `AgentBuilder` (terminate with `.done()`)
+- `.group(name)` — start a `GroupBuilder` (terminate with `.done()`)
+- `.relationship(a, b, |r| r.trust(0.8))` — set pre-existing relationship
+- `.berry_bushes(count, near)` / `.apple_trees(count, near)` — clustered resources
+- `.build() -> (TestWorld, ScenarioEntities)`
+
+**AgentBuilder methods:**
+- `.pos(Vec2)` / `.hunger(f32)` / `.energy(f32)` / `.social_drive(f32)`
+- `.personality(|p| p.extraversion(0.8).neuroticism(0.6))`
+- `.in_group(name)` — assign to a previously declared group
+- `.knowledge(Vec<Triple>)` — pre-load MindGraph triples
+- `.done()` — return to ScenarioBuilder
+
+**GroupBuilder methods:**
+- `.agents(n)` — how many to spawn
+- `.near(Vec2)` — cluster center
+- `.personality(|p| ...)` / `.hunger(f32)` / `.energy(f32)` — shared traits
+- `.knows_each_other(true)` — write mutual `Knows` triples
+- `.done()` — return to ScenarioBuilder
+
+**PersonalityBuilder:** `.openness`, `.conscientiousness`, `.extraversion`, `.agreeableness`, `.neuroticism` (all clamped 0..1)
+
+**RelBuilder:** `.trust`, `.affection`, `.respect` (all clamped 0..1)
+
+**ScenarioEntities access:**
+- `agents["alice"]` — index by name (panics if not found)
+- `agents.get("alice")` — same as index
+- `agents.group("village_a") -> &[Entity]` — group lookup
+
+**Presets** (thin wrappers — use the builder for anything custom):
+- `TestWorld::solo_agent(seed) -> (Self, Entity)`
+- `TestWorld::two_strangers(seed) -> (Self, Entity, Entity)`
+
+### Text inspection (debugging failing tests)
+
+Output goes to stderr — visible in `cargo test -- --nocapture` and CI logs.
+
 - `world.print_agent_state(agent)` — full snapshot: position, action, brain, needs, emotions, body
 - `world.print_brain_decision(agent)` — last brain decision with all proposals, urgencies, powers
 - `world.print_mind_graph(agent)` — full MindGraph dump with metadata
