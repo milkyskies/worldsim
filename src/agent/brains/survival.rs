@@ -1,221 +1,121 @@
 //! Survival brain: reflexive responses to physical threats and urgent needs.
 //!
-//! Reads: PhysicalNeeds, Consciousness, EmotionalState, Body, ItemSlots, VisibleObjects
+//! Reads: PhysicalNeeds, CentralNervousSystem (urgencies), ItemSlots, ActiveActions
 //! Writes: BrainProposal
-//! Upstream: body (needs, body), psyche (emotions), item_slots
+//! Upstream: nervous_system::urgency (produces urgency scores), item_slots
 //! Downstream: brains::proposal (winner selection)
 
 use super::proposal::{BrainProposal, BrainType};
 use crate::agent::actions::{ActionType, ActiveActions};
-use crate::agent::biology::body::Body;
-use crate::agent::body::needs::{Consciousness, PhysicalNeeds};
+use crate::agent::body::needs::PhysicalNeeds;
 use crate::agent::item_slots::ItemSlots;
 use crate::agent::mind::knowledge::Ontology;
-use crate::agent::mind::perception::VisibleObjects;
-use crate::agent::psyche::emotions::{EmotionType, EmotionalState};
-use crate::constants::brains::survival::{
-    EXHAUSTION_RELEASE, EXHAUSTION_TRIGGER, FEAR_HIGH, FEAR_LOW, HUNGER_HIGH, HUNGER_LOW,
-    PAIN_HIGH, PAIN_LOW, SNAP_EXHAUSTION_ENERGY_THRESHOLD, SNAP_HUNGER_THRESHOLD,
-    SNAP_SEARCH_HUNGER_THRESHOLD, SNAP_THIRST_THRESHOLD, STRESS_SNAP_HIGH, STRESS_SNAP_LOW,
-    THIRST_HIGH, THIRST_LOW, WAKE_ENERGY_THRESHOLD,
-};
+use crate::agent::nervous_system::cns::CentralNervousSystem;
+use crate::agent::nervous_system::urgency::UrgencySource;
+use crate::constants::brains::survival::WAKE_ENERGY_THRESHOLD;
 use bevy::prelude::*;
-
-// ============================================================================
-// SURVIVAL BRAIN
-// ============================================================================
 
 pub struct SurvivalBrainContext<'a> {
     pub physical: &'a PhysicalNeeds,
-    pub consciousness: &'a Consciousness,
-    pub emotions: &'a EmotionalState,
-    pub body: Option<&'a Body>,
+    pub cns: &'a CentralNervousSystem,
 }
 
+/// Propose a survival action based on the highest urgency drive.
+///
+/// Hysteresis is handled by the nervous system's momentum bonus — no manual
+/// `was_survival` threshold switching needed here.
 pub fn survival_brain_propose(
     context: SurvivalBrainContext,
     inventory: &ItemSlots,
-    _visible: &VisibleObjects,
-    previous_winner: Option<BrainType>,
     active: &ActiveActions,
     ontology: &Ontology,
     action_registry: &crate::agent::actions::ActionRegistry,
 ) -> Option<BrainProposal> {
-    let was_survival = previous_winner == Some(BrainType::Survival);
-
-    // Sleep/Wake Check (Separate logic)
+    // Sleep/Wake state machine — not urgency-driven; handles the wake threshold.
     if let Some(proposal) = check_sleep_wake(&context, active, action_registry) {
         return Some(proposal);
     }
 
-    // --- THE SNAP (Extreme Stress) ---
-    // Threshold hysteresis: Needs STRESS_SNAP_HIGH to start, drops to STRESS_SNAP_LOW to stop
-    let stress = context.emotions.stress_level;
-    let snap_threshold = if was_survival {
-        STRESS_SNAP_LOW
-    } else {
-        STRESS_SNAP_HIGH
-    };
+    // Find the top survival-relevant urgency (urgencies are sorted highest-first).
+    let survival_sources = [
+        UrgencySource::Hunger,
+        UrgencySource::Thirst,
+        UrgencySource::Energy,
+        UrgencySource::Pain,
+        UrgencySource::Fear,
+    ];
 
-    if stress > snap_threshold {
-        // 1. Extreme Hunger Snap
-        if context.physical.hunger > SNAP_HUNGER_THRESHOLD
-            && inventory.has_edible(ontology)
-            && let Some(action) = action_registry.get(ActionType::Eat)
-        {
-            return Some(BrainProposal {
-                brain: BrainType::Survival,
-                action: action.to_template(None, None),
-                urgency: 100.0,
-                reasoning: format!("THE SNAP! Stress {:.0} - desperately eating!", stress),
-            });
+    let top = context
+        .cns
+        .urgencies
+        .iter()
+        .find(|u| survival_sources.contains(&u.source))?;
+
+    let urgency_score = top.value * 100.0;
+
+    match top.source {
+        UrgencySource::Hunger => {
+            if inventory.has_edible(ontology) {
+                if let Some(action) = action_registry.get(ActionType::Eat) {
+                    return Some(BrainProposal {
+                        brain: BrainType::Survival,
+                        action: action.to_template(None, None),
+                        urgency: urgency_score,
+                        reasoning: format!("Hunger urgency {:.2} — eating!", top.value),
+                    });
+                }
+            }
+            // No food in inventory — search for some.
+            if let Some(action) = action_registry.get(ActionType::Explore) {
+                return Some(BrainProposal {
+                    brain: BrainType::Survival,
+                    action: action.to_template(None, None),
+                    urgency: urgency_score * 0.7,
+                    reasoning: format!("Hunger urgency {:.2} — searching for food!", top.value),
+                });
+            }
         }
-
-        // 2. Extreme Thirst Snap
-        if context.physical.thirst > SNAP_THIRST_THRESHOLD
-            && let Some(action) = action_registry.get(ActionType::Drink)
-        {
-            return Some(BrainProposal {
-                brain: BrainType::Survival,
-                action: action.to_template(None, None),
-                urgency: 100.0,
-                reasoning: format!("THE SNAP! Stress {:.0} - desperately drinking!", stress),
-            });
+        UrgencySource::Thirst => {
+            if let Some(action) = action_registry.get(ActionType::Drink) {
+                return Some(BrainProposal {
+                    brain: BrainType::Survival,
+                    action: action.to_template(None, None),
+                    urgency: urgency_score,
+                    reasoning: format!("Thirst urgency {:.2} — drinking!", top.value),
+                });
+            }
         }
-
-        // 3. Extreme Hunger Search Snap
-        if context.physical.hunger > SNAP_SEARCH_HUNGER_THRESHOLD
-            && let Some(action) = action_registry.get(ActionType::Explore)
-        {
-            return Some(BrainProposal {
-                brain: BrainType::Survival,
-                action: action.to_template(None, None),
-                urgency: 95.0,
-                reasoning: format!("THE SNAP! Stress {:.0} - desperately seeking food!", stress),
-            });
+        UrgencySource::Energy => {
+            if let Some(action) = action_registry.get(ActionType::Sleep) {
+                return Some(BrainProposal {
+                    brain: BrainType::Survival,
+                    action: action.to_template(None, None),
+                    urgency: urgency_score,
+                    reasoning: format!("Fatigue urgency {:.2} — sleeping!", top.value),
+                });
+            }
         }
-
-        // 4. Exhaustion Snap
-        if context.physical.energy < SNAP_EXHAUSTION_ENERGY_THRESHOLD
-            && let Some(action) = action_registry.get(ActionType::Sleep)
-        {
-            return Some(BrainProposal {
-                brain: BrainType::Survival,
-                action: action.to_template(None, None),
-                urgency: 100.0,
-                reasoning: format!(
-                    "THE SNAP! Stress {:.0} - collapsing from exhaustion!",
-                    stress
-                ),
-            });
+        UrgencySource::Pain => {
+            if let Some(action) = action_registry.get(ActionType::Idle) {
+                return Some(BrainProposal {
+                    brain: BrainType::Survival,
+                    action: action.to_template(None, None),
+                    urgency: urgency_score,
+                    reasoning: format!("Pain urgency {:.2} — can't move!", top.value),
+                });
+            }
         }
-
-        // 5. Panic Hide Snap (Default if others don't fire)
-        // Seek safety usually implies Walk to safety or Flee
-        // Using WalkAction for now as "Seek Safety" creates variable destination
-        // But for now, let's use Flee with no target (run away randomly?) or fallback
-        if let Some(action) = action_registry.get(ActionType::Flee) {
-            return Some(BrainProposal {
-                brain: BrainType::Survival,
-                action: action.to_template(None, None),
-                urgency: 90.0,
-                reasoning: format!("THE SNAP! Stress {:.0} - hiding!", stress),
-            });
+        UrgencySource::Fear => {
+            if let Some(action) = action_registry.get(ActionType::Flee) {
+                return Some(BrainProposal {
+                    brain: BrainType::Survival,
+                    action: action.to_template(None, None),
+                    urgency: urgency_score,
+                    reasoning: format!("Fear urgency {:.2} — fleeing!", top.value),
+                });
+            }
         }
-    }
-
-    // --- STANDARD SURVIVAL REFLEXES ---
-
-    // 1. Pain Response
-    let pain = context.body.map(|b| b.total_pain()).unwrap_or(0.0);
-    let pain_threshold = if was_survival { PAIN_LOW } else { PAIN_HIGH };
-    if pain > pain_threshold {
-        // Idle/CurlUp
-        if let Some(action) = action_registry.get(ActionType::Idle) {
-            return Some(BrainProposal {
-                brain: BrainType::Survival,
-                action: action.to_template(None, None),
-                urgency: pain, // Urgency scales with pain
-                reasoning: format!("PAIN! {:.0} - can't move!", pain),
-            });
-        }
-    }
-
-    // 2. Starvation Response
-    let hunger_threshold = if was_survival {
-        HUNGER_LOW
-    } else {
-        HUNGER_HIGH
-    };
-    if context.physical.hunger > hunger_threshold
-        && inventory.has_edible(ontology)
-        && let Some(action) = action_registry.get(ActionType::Eat)
-    {
-        return Some(BrainProposal {
-            brain: BrainType::Survival,
-            action: action.to_template(None, None), // Target will be found by execution or planner?
-            // Wait, EatAction to_template might need a target if we want specific target.
-            // But standard Survival Eat response was "Eat Nearest".
-            // Generic EatAction usually implies finding food.
-            // Let's assume generic template is fine or check if EatAction supports None.
-            // EatAction::to_template implementation (checked earlier) supports None for "find something".
-            urgency: context.physical.hunger,
-            reasoning: format!("STARVING! {:.0} - must eat!", context.physical.hunger),
-        });
-    }
-    // If no food, survival brain might panic search?
-    // For now, let Rational handle searching unless it's a "Snap".
-
-    // 3. Dehydration Response
-    let thirst_threshold = if was_survival {
-        THIRST_LOW
-    } else {
-        THIRST_HIGH
-    };
-    if context.physical.thirst > thirst_threshold
-        && let Some(action) = action_registry.get(ActionType::Drink)
-    {
-        return Some(BrainProposal {
-            brain: BrainType::Survival,
-            action: action.to_template(None, None),
-            urgency: context.physical.thirst,
-            reasoning: format!("DEHYDRATED! {:.0} - must drink!", context.physical.thirst),
-        });
-    }
-
-    // 4. Exhaustion Response
-    // Low energy triggers sleep. Hysteresis: sleep until EXHAUSTION_RELEASE, triggered below EXHAUSTION_TRIGGER.
-    let exhaustion_threshold = if was_survival {
-        EXHAUSTION_RELEASE
-    } else {
-        EXHAUSTION_TRIGGER
-    };
-    if context.physical.energy < exhaustion_threshold
-        && let Some(action) = action_registry.get(ActionType::Sleep)
-    {
-        return Some(BrainProposal {
-            brain: BrainType::Survival,
-            action: action.to_template(None, None), // Sleep here
-            urgency: 100.0 - context.physical.energy,
-            reasoning: format!(
-                "EXHAUSTED! {:.0} energy - collapsing!",
-                context.physical.energy
-            ),
-        });
-    }
-
-    // 4. Fear Response
-    let fear = context.emotions.get_emotion_intensity(EmotionType::Fear);
-    let fear_threshold = if was_survival { FEAR_LOW } else { FEAR_HIGH };
-    if fear > fear_threshold
-        && let Some(action) = action_registry.get(ActionType::Flee)
-    {
-        return Some(BrainProposal {
-            brain: BrainType::Survival,
-            action: action.to_template(None, None),
-            urgency: fear * 100.0,
-            reasoning: format!("TERROR! {:.2} - must hide!", fear),
-        });
+        _ => {}
     }
 
     None
@@ -239,22 +139,15 @@ fn check_sleep_wake(
                 brain: BrainType::Survival,
                 action: wake_action,
                 urgency: 50.0,
-                reasoning: format!("Rested! Energy {:.0} - waking up", energy),
+                reasoning: format!("Rested! Energy {:.0} — waking up", energy),
             });
-        } else {
-            // Stay asleep
-            // Survival brain keeps proposing "Sleep Here" essentially to maintain state?
-            // Or if we return Some, we override rational.
-            // If we are already sleeping, Rational might not propose anything else, so maybe we don't need to force it.
-            // But if we want to ensure we don't wake up until rested:
-            if let Some(action) = action_registry.get(ActionType::Sleep) {
-                return Some(BrainProposal {
-                    brain: BrainType::Survival,
-                    action: action.to_template(None, None),
-                    urgency: 100.0 - energy,
-                    reasoning: format!("Still tired... {:.0} energy", energy),
-                });
-            }
+        } else if let Some(action) = action_registry.get(ActionType::Sleep) {
+            return Some(BrainProposal {
+                brain: BrainType::Survival,
+                action: action.to_template(None, None),
+                urgency: 100.0 - energy,
+                reasoning: format!("Still tired... {:.0} energy", energy),
+            });
         }
     }
     None
@@ -263,46 +156,127 @@ fn check_sleep_wake(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::agent::mind::knowledge::Concept;
     use crate::agent::mind::knowledge::setup_ontology;
+    use crate::agent::nervous_system::urgency::Urgency;
 
-    fn mock_context<'a>(
+    fn context_with_urgency<'a>(
         physical: &'a PhysicalNeeds,
-        consciousness: &'a Consciousness,
-        emotions: &'a EmotionalState,
+        cns: &'a CentralNervousSystem,
     ) -> SurvivalBrainContext<'a> {
-        SurvivalBrainContext {
-            physical,
-            consciousness,
-            emotions,
-            body: None, // Body difficult to mock easily here without complex setup
-        }
+        SurvivalBrainContext { physical, cns }
+    }
+
+    fn cns_with_top(source: UrgencySource, value: f32) -> CentralNervousSystem {
+        let mut cns = CentralNervousSystem::default();
+        cns.urgencies.push(Urgency::new(source, value));
+        cns
     }
 
     #[test]
-    fn test_survival_hunger_response() {
+    fn high_hunger_urgency_proposes_eat_when_food_available() {
         let ontology = setup_ontology();
-        let physical = PhysicalNeeds {
-            hunger: 90.0,
-            ..Default::default()
-        };
-        let consciousness = Consciousness::default();
-        let emotions = EmotionalState::default();
+        let physical = PhysicalNeeds::default();
+        let cns = cns_with_top(UrgencySource::Hunger, 0.9);
+        let context = context_with_urgency(&physical, &cns);
 
-        let context = mock_context(&physical, &consciousness, &emotions);
-        let mut inventory = ItemSlots::agent_carry();
-        inventory.add(Concept::Apple, 1);
-        let visible = VisibleObjects::default();
+        let mut inventory = crate::agent::item_slots::ItemSlots::agent_carry();
+        inventory.add(crate::agent::mind::knowledge::Concept::Apple, 1);
         let active = ActiveActions::default();
 
         let mut registry = crate::agent::actions::ActionRegistry::default();
         registry.register(crate::agent::actions::action::EatAction);
 
-        let proposal = survival_brain_propose(
-            context, &inventory, &visible, None, &active, &ontology, &registry,
-        );
+        let proposal = survival_brain_propose(context, &inventory, &active, &ontology, &registry);
 
         assert!(proposal.is_some());
         assert_eq!(proposal.unwrap().action.name, "Eat");
+    }
+
+    #[test]
+    fn high_hunger_urgency_proposes_explore_when_no_food() {
+        let ontology = setup_ontology();
+        let physical = PhysicalNeeds::default();
+        let cns = cns_with_top(UrgencySource::Hunger, 0.9);
+        let context = context_with_urgency(&physical, &cns);
+
+        let inventory = crate::agent::item_slots::ItemSlots::agent_carry(); // empty
+        let active = ActiveActions::default();
+
+        let mut registry = crate::agent::actions::ActionRegistry::default();
+        registry.register(crate::agent::actions::action::ExploreAction);
+
+        let proposal = survival_brain_propose(context, &inventory, &active, &ontology, &registry);
+
+        assert!(proposal.is_some());
+        assert_eq!(proposal.unwrap().action.name, "Explore");
+    }
+
+    #[test]
+    fn low_urgency_returns_none_when_action_missing_from_registry() {
+        let ontology = setup_ontology();
+        let physical = PhysicalNeeds::default();
+        let cns = cns_with_top(UrgencySource::Hunger, 0.9);
+        let context = context_with_urgency(&physical, &cns);
+
+        let inventory = crate::agent::item_slots::ItemSlots::agent_carry();
+        let active = ActiveActions::default();
+        let registry = crate::agent::actions::ActionRegistry::default(); // no actions
+
+        let proposal = survival_brain_propose(context, &inventory, &active, &ontology, &registry);
+        assert!(proposal.is_none());
+    }
+
+    #[test]
+    fn no_survival_urgency_returns_none() {
+        let ontology = setup_ontology();
+        let physical = PhysicalNeeds::default();
+        // Only social urgency — not a survival concern
+        let cns = cns_with_top(UrgencySource::Social, 0.9);
+        let context = context_with_urgency(&physical, &cns);
+
+        let inventory = crate::agent::item_slots::ItemSlots::agent_carry();
+        let active = ActiveActions::default();
+        let registry = crate::agent::actions::ActionRegistry::default();
+
+        let proposal = survival_brain_propose(context, &inventory, &active, &ontology, &registry);
+        assert!(proposal.is_none());
+    }
+
+    #[test]
+    fn urgency_score_scales_with_urgency_value() {
+        let ontology = setup_ontology();
+        let physical = PhysicalNeeds::default();
+
+        let active = ActiveActions::default();
+        let mut registry = crate::agent::actions::ActionRegistry::default();
+        registry.register(crate::agent::actions::action::EatAction);
+
+        let mut inventory = crate::agent::item_slots::ItemSlots::agent_carry();
+        inventory.add(crate::agent::mind::knowledge::Concept::Apple, 1);
+
+        let cns_high = cns_with_top(UrgencySource::Hunger, 0.9);
+        let cns_low = cns_with_top(UrgencySource::Hunger, 0.3);
+
+        let high_proposal = survival_brain_propose(
+            context_with_urgency(&physical, &cns_high),
+            &inventory,
+            &active,
+            &ontology,
+            &registry,
+        )
+        .unwrap();
+        let low_proposal = survival_brain_propose(
+            context_with_urgency(&physical, &cns_low),
+            &inventory,
+            &active,
+            &ontology,
+            &registry,
+        )
+        .unwrap();
+
+        assert!(
+            high_proposal.urgency > low_proposal.urgency,
+            "higher urgency input should produce higher urgency proposal"
+        );
     }
 }
