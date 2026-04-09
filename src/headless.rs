@@ -7,6 +7,7 @@
 
 use std::time::{Duration, Instant};
 
+use bevy::ecs::entity::Entity;
 use bevy::math::Vec2;
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha8Rng;
@@ -110,7 +111,7 @@ pub fn run_headless(config: HeadlessConfig) -> HeadlessReport {
     world.tick(config.ticks);
     let elapsed = start.elapsed();
 
-    collect_report(&world, &config, spawned, elapsed)
+    collect_report(&mut world, &config, spawned, elapsed)
 }
 
 /// Spawns the configured population into the TestWorld using a seeded RNG for
@@ -145,7 +146,7 @@ fn random_position(rng: &mut ChaCha8Rng) -> Vec2 {
 }
 
 fn collect_report(
-    world: &TestWorld,
+    world: &mut TestWorld,
     config: &HeadlessConfig,
     spawned: u64,
     elapsed: Duration,
@@ -157,25 +158,26 @@ fn collect_report(
         f64::INFINITY
     };
 
+    let agent_entities = world.all_agents();
     HeadlessReport {
         ticks: config.ticks,
         seed: config.seed,
         elapsed_secs,
         ticks_per_second,
-        agents: collect_agent_stats(world, spawned),
+        agents: collect_agent_stats(world, &agent_entities, spawned),
         conversations: collect_conversation_stats(world),
-        physical_means: collect_physical_means(world),
-        emotions: collect_emotion_stats(world),
+        physical_means: collect_physical_means(world, &agent_entities),
+        emotions: collect_emotion_stats(world, &agent_entities),
     }
 }
 
-fn collect_agent_stats(world: &TestWorld, spawned: u64) -> AgentStats {
-    let alive = world.all_agents().len() as u64;
+fn collect_agent_stats(world: &TestWorld, agents: &[Entity], spawned: u64) -> AgentStats {
+    let alive = agents.len() as u64;
     let died = spawned.saturating_sub(alive);
 
     let mut unconscious = 0u64;
-    for entity in world.all_agents() {
-        if let Some(c) = world.app().world().get::<Consciousness>(entity)
+    for entity in agents {
+        if let Some(c) = world.app().world().get::<Consciousness>(*entity)
             && c.alertness < 0.5
         {
             unconscious += 1;
@@ -217,17 +219,7 @@ fn collect_conversation_stats(world: &TestWorld) -> ConversationStats {
     }
 }
 
-fn collect_physical_means(world: &TestWorld) -> PhysicalMeans {
-    let agents = world.all_agents();
-    if agents.is_empty() {
-        return PhysicalMeans {
-            hunger: 0.0,
-            thirst: 0.0,
-            energy: 0.0,
-            health: 0.0,
-        };
-    }
-
+fn collect_physical_means(world: &TestWorld, agents: &[Entity]) -> PhysicalMeans {
     let mut sum = PhysicalMeans {
         hunger: 0.0,
         thirst: 0.0,
@@ -235,7 +227,7 @@ fn collect_physical_means(world: &TestWorld) -> PhysicalMeans {
         health: 0.0,
     };
     let mut count = 0.0f32;
-    for entity in &agents {
+    for entity in agents {
         if let Some(needs) = world.app().world().get::<PhysicalNeeds>(*entity) {
             sum.hunger += needs.hunger;
             sum.thirst += needs.thirst;
@@ -253,7 +245,7 @@ fn collect_physical_means(world: &TestWorld) -> PhysicalMeans {
     sum
 }
 
-fn collect_emotion_stats(world: &TestWorld) -> EmotionStats {
+fn collect_emotion_stats(world: &TestWorld, agents: &[Entity]) -> EmotionStats {
     let mut stats = EmotionStats {
         joy: 0,
         sadness: 0,
@@ -262,8 +254,8 @@ fn collect_emotion_stats(world: &TestWorld) -> EmotionStats {
         disgust: 0,
         surprise: 0,
     };
-    for entity in world.all_agents() {
-        let Some(state) = world.app().world().get::<EmotionalState>(entity) else {
+    for entity in agents {
+        let Some(state) = world.app().world().get::<EmotionalState>(*entity) else {
             continue;
         };
         for emotion in &state.active_emotions {
@@ -329,13 +321,13 @@ mod tests {
         populate(&mut world_a, &cfg);
         populate(&mut world_b, &cfg);
 
-        let positions_a: Vec<_> = world_a
-            .all_agents()
+        let entities_a = world_a.all_agents();
+        let entities_b = world_b.all_agents();
+        let positions_a: Vec<_> = entities_a
             .iter()
             .map(|e| world_a.get::<bevy::prelude::Transform>(*e).translation)
             .collect();
-        let positions_b: Vec<_> = world_b
-            .all_agents()
+        let positions_b: Vec<_> = entities_b
             .iter()
             .map(|e| world_b.get::<bevy::prelude::Transform>(*e).translation)
             .collect();
