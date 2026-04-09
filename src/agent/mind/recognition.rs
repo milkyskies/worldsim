@@ -152,7 +152,7 @@ pub fn initialize_relationship(mind: &mut MindGraph, entity: Entity, name: &str,
     mind.assert(Triple::with_meta(
         target.clone(),
         Predicate::NameOf,
-        Value::Text(name.to_string()),
+        Value::Text(crate::agent::mind::knowledge::AgentName(name.to_string())),
         Metadata::semantic(timestamp),
     ));
 

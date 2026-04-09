@@ -25,81 +25,83 @@ pub fn process_action_outcomes(
                     gained,
                     consumed,
                     ..
-                } => {
-                    // Update belief about what we gained
-                    if let Some((concept, qty)) = gained {
-                        // Get current count and add
-                        let current = mind.count_of(&Node::Self_, *concept);
-                        mind.perceive_self(
-                            Predicate::Contains,
-                            Value::Item(*concept, current + qty),
-                            current_time,
-                        );
-                    }
-
-                    // Update belief about what we consumed
-                    if let Some((concept, qty)) = consumed {
-                        let current = mind.count_of(&Node::Self_, *concept);
-                        let new_count = current.saturating_sub(*qty);
-                        mind.perceive_self(
-                            Predicate::Contains,
-                            Value::Item(*concept, new_count),
-                            current_time,
-                        );
-                    }
-
-                    // If we took from a target, we know it had resources (but not exact count)
-                    if let (Some(target_entity), Some((concept, _))) = (target, gained) {
-                        // Don't assume it's empty - just note we took from it
-                        // Recoding "HasTrait" is a bit vague, but matches original logic.
-                        mind.assert(Triple::with_meta(
-                            Node::Entity(*target_entity),
-                            Predicate::HasTrait,
-                            Value::Concept(*concept), // "This thing has apples (or had)"
-                            Metadata::experience(current_time),
-                        ));
-                    }
-                }
+                } => handle_success_outcome(&mut mind, target, gained, consumed, current_time),
 
                 ActionOutcome::Failed { target, reason, .. } => {
-                    match reason {
-                        FailureReason::ResourceDepleted => {
-                            if let Some(target_entity) = target {
-                                // Mark it as empty
-                                mind.assert(Triple::with_meta(
-                                    Node::Entity(*target_entity),
-                                    Predicate::Contains,
-                                    Value::Item(Concept::Apple, 0),
-                                    Metadata::experience(current_time),
-                                ));
-                            }
-                        }
-                        FailureReason::MissingItem(concept) => {
-                            // We don't have this
-                            mind.perceive_self(
-                                Predicate::Contains,
-                                Value::Item(*concept, 0),
-                                current_time,
-                            );
-                        }
-                        FailureReason::TargetGone => {
-                            // Target doesn't exist - beliefs will decay
-                        }
-                        FailureReason::NoEdibleFood => {
-                            // We have no food! Update beliefs so planner knows
-                            // Assert that we have 0 of the common food types
-                            for food_concept in [Concept::Apple, Concept::Berry] {
-                                mind.perceive_self(
-                                    Predicate::Contains,
-                                    Value::Item(food_concept, 0),
-                                    current_time,
-                                );
-                            }
-                        }
-                        _ => {}
-                    }
+                    handle_failure_outcome(&mut mind, target, reason, current_time)
                 }
             }
         }
+    }
+}
+
+fn handle_success_outcome(
+    mind: &mut MindGraph,
+    target: &Option<Entity>,
+    gained: &Option<(Concept, u32)>,
+    consumed: &Option<(Concept, u32)>,
+    current_time: u64,
+) {
+    if let Some((concept, qty)) = gained {
+        let current = mind.count_of(&Node::Self_, *concept);
+        mind.perceive_self(
+            Predicate::Contains,
+            Value::Item(*concept, current + qty),
+            current_time,
+        );
+    }
+
+    if let Some((concept, qty)) = consumed {
+        let current = mind.count_of(&Node::Self_, *concept);
+        let new_count = current.saturating_sub(*qty);
+        mind.perceive_self(
+            Predicate::Contains,
+            Value::Item(*concept, new_count),
+            current_time,
+        );
+    }
+
+    // Note that the target had resources (don't assume it's now empty)
+    if let (Some(target_entity), Some((concept, _))) = (target, gained) {
+        mind.assert(Triple::with_meta(
+            Node::Entity(*target_entity),
+            Predicate::HasTrait,
+            Value::Concept(*concept),
+            Metadata::experience(current_time),
+        ));
+    }
+}
+
+fn handle_failure_outcome(
+    mind: &mut MindGraph,
+    target: &Option<Entity>,
+    reason: &FailureReason,
+    current_time: u64,
+) {
+    match reason {
+        FailureReason::ResourceDepleted => {
+            if let Some(target_entity) = target {
+                mind.assert(Triple::with_meta(
+                    Node::Entity(*target_entity),
+                    Predicate::Contains,
+                    Value::Item(Concept::Apple, 0),
+                    Metadata::experience(current_time),
+                ));
+            }
+        }
+        FailureReason::MissingItem(concept) => {
+            mind.perceive_self(Predicate::Contains, Value::Item(*concept, 0), current_time);
+        }
+        FailureReason::TargetGone => {}
+        FailureReason::NoEdibleFood => {
+            for food_concept in [Concept::Apple, Concept::Berry] {
+                mind.perceive_self(
+                    Predicate::Contains,
+                    Value::Item(food_concept, 0),
+                    current_time,
+                );
+            }
+        }
+        _ => {}
     }
 }

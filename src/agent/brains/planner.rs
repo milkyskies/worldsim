@@ -190,7 +190,7 @@ fn hash_value<H: std::hash::Hasher>(v: &Value, state: &mut H) {
             f.to_bits().hash(state);
         }
         Value::Attitude(f) => f.to_bits().hash(state),
-        Value::Text(s) => s.hash(state),
+        Value::Text(s) => s.0.hash(state),
     }
 }
 

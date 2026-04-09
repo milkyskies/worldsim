@@ -10,7 +10,7 @@
 use crate::agent::Agent;
 use crate::agent::actions::registry::ActionState;
 use crate::agent::body::needs::PhysicalNeeds;
-use crate::agent::mind::knowledge::{Concept, Metadata, MindGraph, Node, Predicate, Triple, Value};
+use crate::agent::mind::knowledge::{AgentName, Concept, Metadata, MindGraph, Node, Predicate, Triple, Value};
 use crate::agent::mind::perception::VisibleObjects;
 use crate::agent::psyche::emotions::EmotionalState;
 use crate::core::tick::TickCount;
@@ -101,7 +101,7 @@ pub fn perceive_other_agents(
             if !mind.has(
                 &target_node,
                 Predicate::NameOf,
-                &Value::Text(name.to_string()),
+                &Value::Text(AgentName(name.to_string())),
             ) {
                 // Only assert if we've been introduced
                 let introduced = mind.query(
@@ -113,7 +113,7 @@ pub fn perceive_other_agents(
                     mind.assert(Triple::with_meta(
                         target_node.clone(),
                         Predicate::NameOf,
-                        Value::Text(name.to_string()),
+                        Value::Text(AgentName(name.to_string())),
                         Metadata::semantic(current_time),
                     ));
                 }

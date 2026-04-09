@@ -213,110 +213,9 @@ pub fn update_rational_brain(
                         actions.push(action.to_template(None, None));
                     }
                     TargetType::Entity => {
-                        // Entity-targeted actions: Harvest, Introduce, Talk
-
-                        // 1. Find resource targets (Harvest, Attack)
-                        let known_resources = mind.query(None, Some(Predicate::Contains), None);
                         let mut processed_entities = std::collections::HashSet::new();
-
-                        for triple in known_resources {
-                            if let Node::Entity(target_entity) = triple.subject {
-                                if processed_entities.contains(&target_entity) {
-                                    continue;
-                                }
-
-                                if let Ok((target_transform, maybe_affordance)) =
-                                    affordances.get(target_entity)
-                                {
-                                    processed_entities.insert(target_entity);
-
-                                    let vis_pos = target_transform.translation().truncate();
-
-                                    // Check if this entity affords this action type
-                                    if let Some(affordance) = maybe_affordance
-                                        && affordance.action_type == action.action_type()
-                                    {
-                                        // Calculate confidence and cost
-                                        let belief_state =
-                                            crate::agent::mind::belief_state::BeliefState::new(
-                                                mind,
-                                            );
-                                        let pattern = TriplePattern::new(
-                                            Some(Node::Entity(target_entity)),
-                                            Some(Predicate::Contains),
-                                            None,
-                                        );
-                                        let confidence = belief_state.pattern_confidence(&pattern);
-
-                                        if confidence > 0.1 {
-                                            actions.push(
-                                                action.to_template(
-                                                    Some(target_entity),
-                                                    Some(vis_pos),
-                                                ),
-                                            );
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
-                        // 2. Find social targets (Introduce, Talk) - other perceived agents
-                        if action.action_type() == ActionType::Introduce
-                            || action.action_type() == ActionType::Talk
-                        {
-                            // Query for perceived people (set by social_perception system)
-                            let perceived_people = mind.query(
-                                None,
-                                Some(Predicate::IsA),
-                                Some(&Value::Concept(
-                                    crate::agent::mind::knowledge::Concept::Person,
-                                )),
-                            );
-
-                            for triple in perceived_people {
-                                if let Node::Entity(agent_entity) = triple.subject {
-                                    // Skip self
-                                    if agent_entity == entity {
-                                        continue;
-                                    }
-
-                                    if processed_entities.contains(&agent_entity) {
-                                        continue;
-                                    }
-
-                                    // Get position from affordances query
-                                    if let Ok((target_transform, _)) = affordances.get(agent_entity)
-                                    {
-                                        processed_entities.insert(agent_entity);
-                                        let vis_pos = target_transform.translation().truncate();
-
-                                        // For Introduce: prefer strangers
-                                        // For Talk: prefer known people
-                                        let is_stranger = mind
-                                            .query(
-                                                Some(&Node::Entity(agent_entity)),
-                                                Some(Predicate::Knows),
-                                                Some(&Value::Boolean(true)),
-                                            )
-                                            .is_empty(); // invert: empty = stranger
-
-                                        let should_add = match action.action_type() {
-                                            ActionType::Introduce => is_stranger,
-                                            ActionType::Talk => !is_stranger,
-                                            _ => true,
-                                        };
-
-                                        if should_add {
-                                            actions.push(
-                                                action
-                                                    .to_template(Some(agent_entity), Some(vis_pos)),
-                                            );
-                                        }
-                                    }
-                                }
-                            }
-                        }
+                        collect_resource_targets(action, mind, &affordances, &mut processed_entities, &mut actions);
+                        collect_social_targets(action, entity, mind, &affordances, &mut processed_entities, &mut actions);
                     }
                     TargetType::Position => {
                         // Position-targeted actions: Walk
@@ -409,47 +308,7 @@ pub fn rational_brain_propose(
                     actions.push(action.to_template(None, None));
                 }
                 TargetType::Entity => {
-                    // Look for affordances
-                    let known_resources = mind.query(None, Some(Predicate::Contains), None);
-                    let mut processed_entities = std::collections::HashSet::new();
-
-                    for triple in known_resources {
-                        if let Node::Entity(entity) = triple.subject {
-                            if processed_entities.contains(&entity) {
-                                continue;
-                            }
-
-                            if let Ok((vis_transform, maybe_affordance)) = affordances.get(entity) {
-                                processed_entities.insert(entity);
-                                let vis_pos = vis_transform.translation().truncate();
-
-                                // Check 1: Does the entity physically afford this action?
-                                // If the entity has an Affordance component, it must match.
-                                // If it has NO Affordance component, we assume it doesn't afford anything (unless implicit?)
-                                // For now, let's assume specific actions require specific affordances.
-                                if let Some(affordance) = maybe_affordance {
-                                    if affordance.action_type != action.action_type() {
-                                        continue;
-                                    }
-                                } else {
-                                    // No affordance component - assume it doesn't support interaction actions
-                                    // (Unless we want to allow actions on everything, but that's risky)
-                                    continue;
-                                }
-
-                                // Check 2: Does our KNOWLEDGE allow this action? (is_plan_valid)
-                                if !action.is_plan_valid(Some(entity), mind) {
-                                    continue;
-                                }
-
-                                // If we passed checks, calculate cost and propose
-                                let dist = agent_pos.distance(vis_pos);
-                                let mut template = action.to_template(Some(entity), Some(vis_pos));
-                                template.base_cost += dist;
-                                actions.push(template);
-                            }
-                        }
-                    }
+                    collect_affordance_targets(action, mind, affordances, agent_pos, &mut actions);
                 }
                 TargetType::Position => {}
             }
@@ -510,6 +369,109 @@ pub fn rational_brain_propose(
         urgency: IDLE_WANDER_URGENCY,
         reasoning: "Nothing to do, wandering".to_string(),
     })
+}
+
+/// Extends `actions` with templates for resource-type entity targets (e.g. Harvest, Attack).
+/// Uses belief confidence to filter low-certainty targets.
+fn collect_resource_targets(
+    action: &dyn crate::agent::actions::Action,
+    mind: &MindGraph,
+    affordances: &Query<(&GlobalTransform, Option<&crate::agent::affordance::Affordance>)>,
+    processed: &mut std::collections::HashSet<Entity>,
+    actions: &mut Vec<ActionTemplate>,
+) {
+    for triple in mind.query(None, Some(Predicate::Contains), None) {
+        let Node::Entity(target_entity) = triple.subject else { continue };
+        if processed.contains(&target_entity) { continue; }
+
+        let Ok((target_transform, maybe_affordance)) = affordances.get(target_entity) else { continue };
+        processed.insert(target_entity);
+
+        let Some(affordance) = maybe_affordance else { continue };
+        if affordance.action_type != action.action_type() { continue; }
+
+        let belief_state = crate::agent::mind::belief_state::BeliefState::new(mind);
+        let pattern = TriplePattern::new(Some(Node::Entity(target_entity)), Some(Predicate::Contains), None);
+        if belief_state.pattern_confidence(&pattern) > 0.1 {
+            actions.push(action.to_template(Some(target_entity), Some(target_transform.translation().truncate())));
+        }
+    }
+}
+
+/// Extends `actions` with templates for social entity targets (Introduce, Talk).
+/// Only runs for social action types; skips self and already-processed entities.
+fn collect_social_targets(
+    action: &dyn crate::agent::actions::Action,
+    self_entity: Entity,
+    mind: &MindGraph,
+    affordances: &Query<(&GlobalTransform, Option<&crate::agent::affordance::Affordance>)>,
+    processed: &mut std::collections::HashSet<Entity>,
+    actions: &mut Vec<ActionTemplate>,
+) {
+    if action.action_type() != ActionType::Introduce && action.action_type() != ActionType::Talk {
+        return;
+    }
+
+    let perceived_people = mind.query(
+        None,
+        Some(Predicate::IsA),
+        Some(&Value::Concept(crate::agent::mind::knowledge::Concept::Person)),
+    );
+
+    for triple in perceived_people {
+        let Node::Entity(agent_entity) = triple.subject else { continue };
+        if agent_entity == self_entity { continue; }
+        if processed.contains(&agent_entity) { continue; }
+
+        let Ok((target_transform, _)) = affordances.get(agent_entity) else { continue };
+        processed.insert(agent_entity);
+
+        // Strangers get Introduce; known agents get Talk
+        let is_stranger = mind
+            .query(Some(&Node::Entity(agent_entity)), Some(Predicate::Knows), Some(&Value::Boolean(true)))
+            .is_empty();
+
+        let should_add = match action.action_type() {
+            ActionType::Introduce => is_stranger,
+            ActionType::Talk => !is_stranger,
+            _ => true,
+        };
+
+        if should_add {
+            actions.push(action.to_template(Some(agent_entity), Some(target_transform.translation().truncate())));
+        }
+    }
+}
+
+/// Extends `actions` with templates for entity targets that have a matching Affordance component.
+/// Uses `is_plan_valid` rather than belief confidence — used by the proposal (not planning) path.
+fn collect_affordance_targets(
+    action: &dyn crate::agent::actions::Action,
+    mind: &MindGraph,
+    affordances: &Query<(&GlobalTransform, Option<&crate::agent::affordance::Affordance>)>,
+    agent_pos: Vec2,
+    actions: &mut Vec<ActionTemplate>,
+) {
+    let mut processed = std::collections::HashSet::new();
+
+    for triple in mind.query(None, Some(Predicate::Contains), None) {
+        let Node::Entity(entity) = triple.subject else { continue };
+        if processed.contains(&entity) { continue; }
+
+        let Ok((vis_transform, maybe_affordance)) = affordances.get(entity) else { continue };
+        processed.insert(entity);
+
+        let Some(affordance) = maybe_affordance else { continue };
+        if affordance.action_type != action.action_type() { continue; }
+
+        if !action.is_plan_valid(Some(entity), mind) { continue; }
+
+        let vis_pos = vis_transform.translation().truncate();
+        let dist = agent_pos.distance(vis_pos);
+        let mut template = action.to_template(Some(entity), Some(vis_pos));
+        template.base_cost += dist;
+        actions.push(template);
+    }
 }
 
 /// Ask a nearby known agent about a needed resource before falling back to exploring.
