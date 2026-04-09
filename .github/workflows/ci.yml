@@ -18,8 +18,8 @@ env:
 
 jobs:
   rust:
-    name: Rust (fmt · clippy · test)
-    runs-on: ubicloud-standard-2
+    name: Rust (fmt · test · clippy)
+    runs-on: ubicloud-standard-8
     steps:
       - uses: actions/checkout@v4
 
@@ -29,6 +29,10 @@ jobs:
           components: rustfmt, clippy
 
       - uses: Swatinem/rust-cache@v2
+        with:
+          # Cache key includes the profile so the ci profile gets its
+          # own cache (separate from any local-dev profile artifacts).
+          key: ci-profile
 
       - name: Install Bevy system deps + mold + clang
         run: |
@@ -44,15 +48,20 @@ jobs:
       - name: Install nextest
         uses: taiki-e/install-action@nextest
 
+      # fmt first — fail fast on trivial issues, costs ~5s.
       - name: fmt
         run: cargo fmt --all -- --check
 
-      - name: clippy
-        run: cargo clippy --all-targets -- -D warnings
+      # Test before clippy: nextest does the full codegen + link, then
+      # clippy reuses those artifacts instead of recompiling workspace
+      # crates from metadata. Without this reorder, workspace code
+      # gets compiled twice.
+      - name: test
+        run: cargo nextest run --cargo-profile ci
         env:
           RUSTFLAGS: "-D warnings"
 
-      - name: test
-        run: cargo nextest run
+      - name: clippy
+        run: cargo clippy --profile ci --all-targets -- -D warnings
         env:
           RUSTFLAGS: "-D warnings"
