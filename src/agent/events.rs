@@ -1,11 +1,13 @@
-//! Agent event types: GameEvent and ActionOutcomeEvent — the shared message bus for agent interactions.
+//! Agent event types: GameEvent, ActionOutcomeEvent, and SimEvent — the shared message bus for agent interactions.
 //!
 //! Reads: ActionType, Concept (item types), Triple (knowledge content)
-//! Writes: GameEvent (Interaction, SocialInteraction, KnowledgeShared), ActionOutcomeEvent (Success/Failed)
+//! Writes: GameEvent (Interaction, SocialInteraction, KnowledgeShared), ActionOutcomeEvent (Success/Failed), SimEvent (unified observability bus)
 //! Upstream: action execution systems (emit outcomes), conversation system (emits KnowledgeShared)
-//! Downstream: belief_updater (consumes ActionOutcomeEvent), relationship systems (consume SocialInteraction), GameLog
+//! Downstream: belief_updater (consumes ActionOutcomeEvent), relationship systems (consume SocialInteraction), SimEvent consumers (#84, #123, #124, #125)
 
 use super::actions::ActionType;
+use super::brains::proposal::{BrainPowers, BrainProposal, BrainType};
+use super::psyche::emotions::EmotionType;
 use crate::agent::mind::knowledge::Concept;
 use bevy::prelude::*;
 
@@ -102,4 +104,140 @@ pub enum FailureReason {
 pub struct ActionOutcomeEvent {
     pub actor: Entity,
     pub outcome: ActionOutcome,
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// SIM EVENT — Unified observability bus for every meaningful state change
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Unified event bus capturing every meaningful simulation state change.
+///
+/// Every variant carries `agent` and `tick` so consumers can filter by agent
+/// and tick range without knowing variant internals. Bevy events are free if
+/// unread, so there is zero performance impact when no consumer subscribes.
+#[derive(Event, Message, Debug, Clone, Reflect)]
+pub enum SimEvent {
+    // ── Brain decisions ──────────────────────────────────────────────
+    /// A brain decision was made: the arbitration system selected actions.
+    Decision {
+        agent: Entity,
+        tick: u64,
+        winner: Option<BrainType>,
+        chosen_actions: Vec<ActionType>,
+        powers: BrainPowers,
+        #[reflect(ignore)]
+        proposals: Vec<BrainProposal>,
+    },
+
+    // ── Action lifecycle ─────────────────────────────────────────────
+    /// An action was admitted into the running set.
+    ActionStarted {
+        agent: Entity,
+        tick: u64,
+        action: ActionType,
+        target: Option<Entity>,
+    },
+
+    /// An action completed normally.
+    ActionCompleted {
+        agent: Entity,
+        tick: u64,
+        action: ActionType,
+    },
+
+    /// An action was preempted to make room for a higher-priority action.
+    ActionPreempted {
+        agent: Entity,
+        tick: u64,
+        preempted_action: ActionType,
+    },
+
+    /// An action failed its can_start check.
+    ActionFailed {
+        agent: Entity,
+        tick: u64,
+        action: ActionType,
+        reason: FailureReason,
+    },
+
+    // ── Communication ────────────────────────────────────────────────
+    /// A conversation was started between participants.
+    ConversationStarted {
+        participants: Vec<Entity>,
+        tick: u64,
+        conversation_id: u64,
+    },
+
+    /// A conversation ended.
+    ConversationEnded {
+        participants: Vec<Entity>,
+        tick: u64,
+        conversation_id: u64,
+    },
+
+    /// A conversation was abandoned rudely (no farewell).
+    ConversationAbandoned {
+        abandoner: Entity,
+        abandoned: Entity,
+        tick: u64,
+    },
+
+    // ── Relationships ────────────────────────────────────────────────
+    /// A relationship dimension changed between two agents.
+    RelationshipChanged {
+        agent: Entity,
+        other: Entity,
+        tick: u64,
+        dimension: RelationshipDimension,
+        old_value: f32,
+        new_value: f32,
+    },
+
+    // ── Emotions ─────────────────────────────────────────────────────
+    /// An emotion was triggered or reinforced.
+    EmotionTriggered {
+        agent: Entity,
+        tick: u64,
+        emotion: EmotionType,
+        intensity: f32,
+    },
+
+    // ── Life events ──────────────────────────────────────────────────
+    /// An agent died.
+    Death {
+        agent: Entity,
+        tick: u64,
+        cause: String,
+    },
+
+    // ── Perception ───────────────────────────────────────────────────
+    /// An agent perceived a new entity (wasn't visible last tick).
+    EntityPerceived {
+        agent: Entity,
+        tick: u64,
+        target: Entity,
+    },
+
+    /// An agent recognized a stranger (first encounter).
+    StrangerDetected {
+        agent: Entity,
+        tick: u64,
+        stranger: Entity,
+    },
+
+    // ── Knowledge ────────────────────────────────────────────────────
+    /// Knowledge was shared between agents.
+    KnowledgeShared {
+        speaker: Entity,
+        listener: Entity,
+        tick: u64,
+        triple_count: usize,
+    },
+}
+
+/// Which relationship dimension changed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Reflect)]
+pub enum RelationshipDimension {
+    Trust,
+    Affection,
 }

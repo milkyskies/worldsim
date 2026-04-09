@@ -61,6 +61,7 @@ pub fn three_brains_system(
     )>,
     mut game_log: ResMut<crate::core::GameLog>,
     ontology: Res<crate::agent::mind::knowledge::Ontology>,
+    mut sim_events: MessageWriter<crate::agent::events::SimEvent>,
 ) {
     for (
         entity,
@@ -155,5 +156,19 @@ pub fn three_brains_system(
             brain_state.winner = None;
             brain_state.chosen_actions.clear();
         }
+
+        // Emit unified SimEvent for observability
+        sim_events.write(crate::agent::events::SimEvent::Decision {
+            agent: entity,
+            tick: tick.current,
+            winner: brain_state.winner,
+            chosen_actions: brain_state
+                .chosen_actions
+                .iter()
+                .map(|a| a.action_type)
+                .collect(),
+            powers,
+            proposals: brain_state.proposals.clone(),
+        });
     }
 }

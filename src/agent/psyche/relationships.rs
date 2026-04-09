@@ -51,6 +51,7 @@ pub fn update_relationships(
     mut agents: Query<(Entity, &Name, &mut MindGraph, &Personality), With<Agent>>,
     config: Res<RelationshipConfig>,
     tick: Res<TickCount>,
+    mut sim_events: MessageWriter<crate::agent::events::SimEvent>,
 ) {
     let current_time = tick.current;
 
@@ -169,6 +170,28 @@ pub fn update_relationships(
                         Value::Float(new_affection),
                         Metadata::semantic(current_time),
                     ));
+
+                    // Emit SimEvents for relationship changes
+                    if (new_trust - current_trust).abs() > f32::EPSILON {
+                        sim_events.write(crate::agent::events::SimEvent::RelationshipChanged {
+                            agent: *target,
+                            other: *actor,
+                            tick: current_time,
+                            dimension: crate::agent::events::RelationshipDimension::Trust,
+                            old_value: current_trust,
+                            new_value: new_trust,
+                        });
+                    }
+                    if (new_affection - current_affection).abs() > f32::EPSILON {
+                        sim_events.write(crate::agent::events::SimEvent::RelationshipChanged {
+                            agent: *target,
+                            other: *actor,
+                            tick: current_time,
+                            dimension: crate::agent::events::RelationshipDimension::Affection,
+                            old_value: current_affection,
+                            new_value: new_affection,
+                        });
+                    }
                 }
             }
         }

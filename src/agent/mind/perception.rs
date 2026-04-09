@@ -38,10 +38,13 @@ pub fn update_visual_perception(
     physical_entities: Query<(Entity, &Transform), With<crate::world::Physical>>,
     light_level: Res<LightLevel>,
     mut _game_log: ResMut<GameLog>,
+    tick: Res<TickCount>,
+    mut sim_events: MessageWriter<crate::agent::events::SimEvent>,
 ) {
     let _start = std::time::Instant::now();
 
     for (agent_entity, agent_transform, vision, mut visible_objects) in agents.iter_mut() {
+        let previous: Vec<Entity> = visible_objects.entities.clone();
         visible_objects.entities.clear();
 
         let agent_pos = agent_transform.translation.truncate();
@@ -55,6 +58,17 @@ pub fn update_visual_perception(
             let target_pos = target_transform.translation.truncate();
             if agent_pos.distance(target_pos) <= view_range {
                 visible_objects.entities.push(entity);
+            }
+        }
+
+        // Emit EntityPerceived for newly visible entities
+        for &entity in &visible_objects.entities {
+            if !previous.contains(&entity) {
+                sim_events.write(crate::agent::events::SimEvent::EntityPerceived {
+                    agent: agent_entity,
+                    tick: tick.current,
+                    target: entity,
+                });
             }
         }
     }

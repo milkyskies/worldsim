@@ -370,6 +370,8 @@ pub fn react_to_events(
         With<crate::agent::Agent>,
     >,
     config: Res<EmotionConfig>,
+    tick: Res<crate::core::tick::TickCount>,
+    mut sim_events: MessageWriter<crate::agent::events::SimEvent>,
 ) {
     let event_list: Vec<_> = events.read().cloned().collect();
 
@@ -391,6 +393,12 @@ pub fn react_to_events(
                         &config,
                     );
                     for e in emotions {
+                        sim_events.write(crate::agent::events::SimEvent::EmotionTriggered {
+                            agent: *actor,
+                            tick: tick.current,
+                            emotion: e.emotion_type,
+                            intensity: e.intensity,
+                        });
                         state.add_emotion(e);
                     }
                 }
@@ -407,6 +415,12 @@ pub fn react_to_events(
                         &config,
                     );
                     for e in emotions {
+                        sim_events.write(crate::agent::events::SimEvent::EmotionTriggered {
+                            agent: *target_entity,
+                            tick: tick.current,
+                            emotion: e.emotion_type,
+                            intensity: e.intensity,
+                        });
                         state.add_emotion(e);
                     }
                 }
@@ -423,18 +437,46 @@ pub fn react_to_events(
                 // Actor feels joy/satisfaction from positive social interaction
                 if *valence > 0.0 {
                     if let Ok((_, mut state, _personality, _mind)) = agents.get_mut(*actor) {
-                        state.add_emotion(Emotion::new(EmotionType::Joy, *valence * 0.3));
+                        let intensity = *valence * 0.3;
+                        sim_events.write(crate::agent::events::SimEvent::EmotionTriggered {
+                            agent: *actor,
+                            tick: tick.current,
+                            emotion: EmotionType::Joy,
+                            intensity,
+                        });
+                        state.add_emotion(Emotion::new(EmotionType::Joy, intensity));
                     }
                     if let Ok((_, mut state, _personality, _mind)) = agents.get_mut(*target) {
-                        state.add_emotion(Emotion::new(EmotionType::Joy, *valence * 0.2));
+                        let intensity = *valence * 0.2;
+                        sim_events.write(crate::agent::events::SimEvent::EmotionTriggered {
+                            agent: *target,
+                            tick: tick.current,
+                            emotion: EmotionType::Joy,
+                            intensity,
+                        });
+                        state.add_emotion(Emotion::new(EmotionType::Joy, intensity));
                     }
                 } else if *valence < 0.0 {
                     // Negative social interaction (hostility)
                     if let Ok((_, mut state, _personality, _mind)) = agents.get_mut(*actor) {
-                        state.add_emotion(Emotion::new(EmotionType::Anger, valence.abs() * 0.3));
+                        let intensity = valence.abs() * 0.3;
+                        sim_events.write(crate::agent::events::SimEvent::EmotionTriggered {
+                            agent: *actor,
+                            tick: tick.current,
+                            emotion: EmotionType::Anger,
+                            intensity,
+                        });
+                        state.add_emotion(Emotion::new(EmotionType::Anger, intensity));
                     }
                     if let Ok((_, mut state, _personality, _mind)) = agents.get_mut(*target) {
-                        state.add_emotion(Emotion::new(EmotionType::Fear, valence.abs() * 0.2));
+                        let intensity = valence.abs() * 0.2;
+                        sim_events.write(crate::agent::events::SimEvent::EmotionTriggered {
+                            agent: *target,
+                            tick: tick.current,
+                            emotion: EmotionType::Fear,
+                            intensity,
+                        });
+                        state.add_emotion(Emotion::new(EmotionType::Fear, intensity));
                     }
                 }
             }

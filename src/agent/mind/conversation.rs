@@ -100,7 +100,7 @@ impl ConversationManager {
         let id = self.next_id;
         self.next_id += 1;
 
-        let conversation = Conversation::new(id, participants, tick);
+        let conversation = Conversation::new(id, participants.clone(), tick);
         self.conversations.insert(id, conversation);
 
         id
@@ -146,6 +146,8 @@ pub fn sync_conversation_state(
     mut conv_manager: ResMut<ConversationManager>,
     agents: Query<(Entity, &ActiveActions)>,
     mut in_conversation: Query<&mut InConversation>,
+    tick: Res<TickCount>,
+    mut sim_events: MessageWriter<crate::agent::events::SimEvent>,
 ) {
     // Find agents that just completed a Talk action
     for (entity, active) in agents.iter() {
@@ -201,6 +203,12 @@ pub fn sync_conversation_state(
                     continue;
                 };
 
+                sim_events.write(crate::agent::events::SimEvent::ConversationStarted {
+                    participants: vec![entity, target],
+                    tick: tick.current,
+                    conversation_id,
+                });
+
                 // Add InConversation components
                 commands.entity(entity).insert(InConversation {
                     conversation_id,
@@ -226,6 +234,7 @@ pub fn cleanup_stale_conversations(
     mut conv_manager: ResMut<ConversationManager>,
     in_conversation: Query<(Entity, &InConversation)>,
     tick: Res<TickCount>,
+    mut sim_events: MessageWriter<crate::agent::events::SimEvent>,
 ) {
     const STALE_THRESHOLD: u64 = 300; // 5 seconds at 60 ticks/sec
 
@@ -242,6 +251,12 @@ pub fn cleanup_stale_conversations(
     for conv_id in conversations_to_end {
         if let Some(conv) = conv_manager.get_mut(conv_id) {
             conv.state = ConversationState::Ended;
+
+            sim_events.write(crate::agent::events::SimEvent::ConversationEnded {
+                participants: conv.participants.clone(),
+                tick: tick.current,
+                conversation_id: conv_id,
+            });
 
             // Remove InConversation from all participants
             for (entity, in_conv) in in_conversation.iter() {
@@ -268,6 +283,8 @@ pub fn handle_conversation_exits(
     in_conversation: Query<(Entity, &InConversation)>,
     agents: Query<&ActiveActions>,
     mut abandoned_events: MessageWriter<ConversationAbandoned>,
+    tick: Res<TickCount>,
+    mut sim_events: MessageWriter<crate::agent::events::SimEvent>,
 ) {
     // Check for agents who left a conversation without saying farewell
     for (entity, in_conv) in in_conversation.iter() {
@@ -292,6 +309,12 @@ pub fn handle_conversation_exits(
                             abandoner: entity,
                             abandoned: in_conv.partner,
                             conversation_state: state,
+                        });
+
+                        sim_events.write(crate::agent::events::SimEvent::ConversationAbandoned {
+                            abandoner: entity,
+                            abandoned: in_conv.partner,
+                            tick: tick.current,
                         });
 
                         // Mark conversation as ended
