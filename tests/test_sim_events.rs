@@ -35,68 +35,18 @@ fn test_world_with_collector() -> TestWorld {
 
 #[test]
 fn systems_run_without_panic_when_no_sim_event_reader_exists() {
-    // Default TestWorld has no SimEvent consumer — events are fire-and-forget.
     let mut world = TestWorld::with_seed(42);
     world.spawn_agent(AgentConfig {
         hunger: 50.0,
         ..Default::default()
     });
     world.spawn_berry_bush(Vec2::new(20.0, 20.0), 5);
-    // Tick enough for brains + actions to fire. No panic = pass.
     world.tick(100);
-}
-
-#[test]
-fn decision_events_emitted_during_brain_ticks() {
-    let mut world = test_world_with_collector();
-    world.spawn_agent(AgentConfig {
-        hunger: 50.0,
-        ..Default::default()
-    });
-    world.spawn_berry_bush(Vec2::new(20.0, 20.0), 5);
-
-    world.tick(60);
-
-    let collector = world.app().world().resource::<SimEventCollector>();
-    let decisions: Vec<_> = collector
-        .events
-        .iter()
-        .filter(|e| matches!(e, SimEvent::Decision { .. }))
-        .collect();
-    assert!(
-        !decisions.is_empty(),
-        "expected at least one Decision event after 60 ticks"
-    );
-}
-
-#[test]
-fn action_started_events_emitted_when_actions_begin() {
-    let mut world = test_world_with_collector();
-    world.spawn_agent(AgentConfig {
-        hunger: 80.0,
-        pos: Vec2::new(18.0, 20.0),
-        ..Default::default()
-    });
-    world.spawn_berry_bush(Vec2::new(20.0, 20.0), 5);
-
-    world.tick(60);
-
-    let collector = world.app().world().resource::<SimEventCollector>();
-    let started: Vec<_> = collector
-        .events
-        .iter()
-        .filter(|e| matches!(e, SimEvent::ActionStarted { .. }))
-        .collect();
-    assert!(
-        !started.is_empty(),
-        "expected at least one ActionStarted event"
-    );
 }
 
 #[test]
 fn entity_perceived_events_emitted_when_agents_see_new_entities() {
     let mut world = test_world_with_collector();
-    // Place agent near a bush so it perceives it.
     world.spawn_agent(AgentConfig {
         pos: Vec2::new(10.0, 10.0),
         ..Default::default()
@@ -120,7 +70,6 @@ fn entity_perceived_events_emitted_when_agents_see_new_entities() {
 #[test]
 fn stranger_detected_when_two_agents_meet() {
     let mut world = test_world_with_collector();
-    // Place two agents close together so they perceive each other.
     world.spawn_agent(AgentConfig {
         pos: Vec2::new(10.0, 10.0),
         ..Default::default()
@@ -145,9 +94,9 @@ fn stranger_detected_when_two_agents_meet() {
 }
 
 #[test]
-fn action_completed_events_emitted() {
+fn brain_and_action_lifecycle_events_emitted() {
     let mut world = test_world_with_collector();
-    // Place agent directly on top of the bush so it doesn't need to walk far.
+    // Agent on top of food with high hunger — will decide to eat quickly.
     world.spawn_agent(AgentConfig {
         hunger: 90.0,
         pos: Vec2::new(20.0, 20.0),
@@ -155,17 +104,32 @@ fn action_completed_events_emitted() {
     });
     world.spawn_berry_bush(Vec2::new(20.0, 20.0), 5);
 
-    // Generous tick budget — the agent needs to decide, pick up, and eat.
-    world.tick(1000);
+    // Brain thinking_interval is 60 ticks. Run for 500 ticks to give multiple
+    // brain cycles, action starts, and action completions time to happen.
+    world.tick(500);
 
     let collector = world.app().world().resource::<SimEventCollector>();
-    let completed: Vec<_> = collector
+
+    let has_decision = collector
         .events
         .iter()
-        .filter(|e| matches!(e, SimEvent::ActionCompleted { .. }))
-        .collect();
+        .any(|e| matches!(e, SimEvent::Decision { .. }));
+    let has_action_started = collector
+        .events
+        .iter()
+        .any(|e| matches!(e, SimEvent::ActionStarted { .. }));
+    let has_action_completed = collector
+        .events
+        .iter()
+        .any(|e| matches!(e, SimEvent::ActionCompleted { .. }));
+
+    assert!(has_decision, "expected Decision events after 500 ticks");
     assert!(
-        !completed.is_empty(),
-        "expected at least one ActionCompleted event after 1000 ticks"
+        has_action_started,
+        "expected ActionStarted events after 500 ticks"
+    );
+    assert!(
+        has_action_completed,
+        "expected ActionCompleted events after 500 ticks"
     );
 }
