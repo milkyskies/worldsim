@@ -1,7 +1,7 @@
 //! Communication: parallel Bevy plugin that runs conversations as a continuous channel.
 //!
 //! Reads: PsychologicalDrives, Transform, ActiveActions, MindGraph, EmotionalState, Personality
-//! Writes: ConversationManager, InConversation, ActiveActions (Converse marker), MindGraph (Hearsay), GameEvent
+//! Writes: ConversationManager, InConversation, ActiveActions (Converse marker), MindGraph (Hearsay), GameEvent, SimEvent
 //! Upstream: agent::mind::conversation (data types), agent::actions (channel marker)
 //! Downstream: psyche::relationships (consumes SocialInteraction), psyche::emotions (ConversationAbandoned)
 //!
