@@ -1,9 +1,9 @@
 //! Headless simulation runner: spins up a TestWorld, populates it, runs N ticks at max speed, and emits a JSON report.
 //!
-//! Reads: testing::TestWorld, agent components (PhysicalNeeds, EmotionalState, Body, ConversationManager)
-//! Writes: HeadlessReport (serializable summary), spawn entities via TestWorld
+//! Reads: testing::TestWorld, agent components (PhysicalNeeds, EmotionalState, Body, ConversationManager), DecisionTraceBuffer
+//! Writes: HeadlessReport (serializable summary), spawn entities via TestWorld, trace output to stderr/file
 //! Upstream: cli (CliArgs), main (binary entry point)
-//! Downstream: stdout (JSON report), statistical tests, regression baselines
+//! Downstream: stdout (JSON report), statistical tests, regression baselines, trace output
 
 use std::time::{Duration, Instant};
 
@@ -14,6 +14,7 @@ use rand_chacha::ChaCha8Rng;
 use serde::Serialize;
 
 use crate::agent::body::needs::{Consciousness, PhysicalNeeds};
+use crate::agent::brains::trace::{DecisionTraceBuffer, TraceConfig, dump_trace};
 use crate::agent::mind::conversation::ConversationManager;
 use crate::agent::psyche::emotions::{EmotionType, EmotionalState};
 use crate::testing::{AgentConfig, TestWorld};
@@ -38,6 +39,9 @@ pub struct HeadlessConfig {
     pub apple_trees: usize,
     /// Number of deer to scatter across the map.
     pub deer: usize,
+    /// Decision trace configuration. Disabled by default (no overhead when
+    /// `trace.agent_filter` is `AgentFilter::Disabled`).
+    pub trace: TraceConfig,
 }
 
 impl Default for HeadlessConfig {
@@ -49,6 +53,7 @@ impl Default for HeadlessConfig {
             berry_bushes: 8,
             apple_trees: 4,
             deer: 3,
+            trace: TraceConfig::default(),
         }
     }
 }
@@ -103,13 +108,30 @@ pub struct EmotionStats {
 
 /// Builds a TestWorld with the given config, populates it, runs `config.ticks`
 /// ticks at max speed, and returns the resulting report.
+///
+/// If `config.trace.is_enabled()`, decision trace records are collected during
+/// the run and dumped to stderr (text) or the configured file (JSONL) when the
+/// run completes.
 pub fn run_headless(config: HeadlessConfig) -> HeadlessReport {
     let mut world = TestWorld::with_seed(config.seed);
+
+    // Override the default (disabled) TraceConfig if tracing was requested.
+    if config.trace.is_enabled() {
+        world.app_mut().insert_resource(config.trace.clone());
+    }
+
     let spawned = populate(&mut world, &config);
 
     let start = Instant::now();
     world.tick(config.ticks);
     let elapsed = start.elapsed();
+
+    // Dump trace output before collecting the report so any I/O goes to the
+    // correct destination before the report is printed to stdout.
+    if config.trace.is_enabled() {
+        let buffer = world.app().world().resource::<DecisionTraceBuffer>();
+        dump_trace(buffer, &config.trace);
+    }
 
     collect_report(&mut world, &config, spawned, elapsed)
 }
@@ -310,6 +332,7 @@ mod tests {
             deer: 2,
             berry_bushes: 0,
             apple_trees: 0,
+            ..Default::default()
         };
 
         let mut world_a = TestWorld::with_seed(cfg.seed);

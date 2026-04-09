@@ -5,8 +5,11 @@
 //! Upstream: main (binary entry point)
 //! Downstream: headless::run_headless, the main Bevy app
 
+use std::path::PathBuf;
+
 use clap::Parser;
 
+use crate::agent::brains::trace::{AgentFilter, TraceConfig, TraceFormat};
 use crate::headless::HeadlessConfig;
 
 /// Command-line arguments accepted by the worldsim binary.
@@ -50,6 +53,28 @@ pub struct CliArgs {
     /// Number of deer to scatter (headless mode only).
     #[arg(long, default_value_t = 3)]
     pub deer: usize,
+
+    /// Enable decision trace logging. Use "all" to trace all agents or
+    /// "agent:<name>" (e.g. "agent:alice") to trace a specific agent.
+    /// Trace output is written to stderr (text) or the file set by
+    /// --trace-file (JSONL). Only meaningful in --headless mode.
+    #[arg(long)]
+    pub trace: Option<String>,
+
+    /// Restrict trace recording to a tick range (inclusive). Format: START-END,
+    /// e.g. "4500-4600". Requires --trace.
+    #[arg(long)]
+    pub trace_ticks: Option<String>,
+
+    /// Output format for the trace dump: "text" (human-readable, stderr) or
+    /// "jsonl" (one JSON object per line). Default: text.
+    #[arg(long, default_value = "text")]
+    pub trace_format: String,
+
+    /// File path for JSONL trace output. If omitted and --trace-format=jsonl,
+    /// writes to stdout.
+    #[arg(long)]
+    pub trace_file: Option<PathBuf>,
 }
 
 impl CliArgs {
@@ -62,8 +87,44 @@ impl CliArgs {
             berry_bushes: self.berry_bushes,
             apple_trees: self.apple_trees,
             deer: self.deer,
+            trace: self.build_trace_config(),
         }
     }
+
+    fn build_trace_config(&self) -> TraceConfig {
+        let agent_filter = match self.trace.as_deref() {
+            None => AgentFilter::Disabled,
+            Some("all") => AgentFilter::All,
+            Some(s) if s.starts_with("agent:") => {
+                AgentFilter::Named(s["agent:".len()..].to_string())
+            }
+            Some(_) => AgentFilter::All,
+        };
+
+        let tick_range = self.trace_ticks.as_deref().and_then(parse_tick_range);
+
+        let format = match self.trace_format.as_str() {
+            "jsonl" => TraceFormat::Jsonl,
+            _ => TraceFormat::Text,
+        };
+
+        TraceConfig {
+            agent_filter,
+            tick_range,
+            format,
+            output_file: self.trace_file.clone(),
+            buffer_size: 500,
+        }
+    }
+}
+
+/// Parses a tick range string of the form "START-END" into `(start, end)`.
+/// Returns `None` if the format is invalid.
+fn parse_tick_range(s: &str) -> Option<(u64, u64)> {
+    let (start_str, end_str) = s.split_once('-')?;
+    let start = start_str.parse::<u64>().ok()?;
+    let end = end_str.parse::<u64>().ok()?;
+    Some((start, end))
 }
 
 #[cfg(test)]
