@@ -269,6 +269,23 @@ impl TestWorld {
         )
     }
 
+    /// Returns true if the agent is currently in a conversation.
+    pub fn in_conversation(&self, agent: Entity) -> bool {
+        self.app
+            .world()
+            .get::<crate::agent::mind::conversation::InConversation>(agent)
+            .is_some()
+    }
+
+    /// Returns the number of active (non-ended) conversations in the world.
+    pub fn active_conversation_count(&self) -> usize {
+        self.app
+            .world()
+            .resource::<crate::agent::mind::conversation::ConversationManager>()
+            .active_conversations()
+            .count()
+    }
+
     /// Returns true if the action registry contains an entry for the given action.
     /// Useful for catching test setup mistakes.
     pub fn has_registered_action(&self, action: ActionType) -> bool {
