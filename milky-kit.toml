@@ -16,4 +16,5 @@ include = [
 [sync]
 exclude = [
     "monorepo.md",
+    ".claude/rules/testing.md",
 ]

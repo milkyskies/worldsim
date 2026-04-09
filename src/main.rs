@@ -1,3 +1,7 @@
+// See lib.rs for the rationale - Bevy systems trip these lints by design.
+#![allow(clippy::type_complexity)]
+#![allow(clippy::too_many_arguments)]
+
 use bevy::diagnostic::{
     DiagnosticPath, DiagnosticsStore, EntityCountDiagnosticsPlugin, FrameTimeDiagnosticsPlugin,
     SystemInformationDiagnosticsPlugin,

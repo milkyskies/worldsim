@@ -8,6 +8,7 @@
 //! - Gossip: Share beliefs about other agents
 
 use crate::agent::actions::ActionType;
+use crate::agent::actions::channel::{BodyChannel, ChannelUsage};
 use crate::agent::actions::registry::{
     Action, ActionContext, ActionKind, CompletionContext, TargetType,
 };
@@ -57,6 +58,11 @@ impl Action for TalkAction {
 
     fn requires_proximity(&self) -> bool {
         true // Must be near target to talk
+    }
+
+    fn body_channels(&self) -> &'static [ChannelUsage] {
+        const CHANNELS: &[ChannelUsage] = &[ChannelUsage::new(BodyChannel::Mouth, 0.6)];
+        CHANNELS
     }
 
     // Override to_template to set default topic
@@ -162,7 +168,7 @@ impl Action for TalkAction {
                 c.last_activity = ctx.tick;
 
                 // Override intent based on flow
-                intent = match (c.state.clone(), intent) {
+                intent = match (c.state, intent) {
                     // Ending the conversation?
                     (_, Intent::Farewell) => Intent::Farewell, // Keep explicit farewell
 
@@ -177,9 +183,9 @@ impl Action for TalkAction {
                 };
 
                 // State Transitions
-                c.state = match (c.state.clone(), &intent) {
+                c.state = match (c.state, &intent) {
                     (_, Intent::Farewell) => ConversationState::Ended,
-                    (ConversationState::Greeting, _) if c.turns.len() >= 1 => {
+                    (ConversationState::Greeting, _) if !c.turns.is_empty() => {
                         ConversationState::Active
                     }
                     (ConversationState::Active, _) => {
@@ -197,7 +203,7 @@ impl Action for TalkAction {
             let turn = Turn {
                 speaker: actor,
                 intent,
-                topic: topic.clone(),
+                topic,
                 emotion: Some(Emotion::new(EmotionType::Joy, 0.5)), // Placeholder positive emotion
                 content: ctx.content.clone(),
                 timestamp: ctx.tick,

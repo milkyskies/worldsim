@@ -6,6 +6,7 @@
 //! 3. Initial relationship values are set (neutral)
 
 use crate::agent::actions::ActionType;
+use crate::agent::actions::channel::{BodyChannel, ChannelUsage};
 use crate::agent::actions::registry::{
     Action, ActionContext, ActionKind, CompletionContext, TargetType,
 };
@@ -54,6 +55,11 @@ impl Action for IntroduceAction {
 
     fn requires_proximity(&self) -> bool {
         true // Must be near target to introduce
+    }
+
+    fn body_channels(&self) -> &'static [ChannelUsage] {
+        const CHANNELS: &[ChannelUsage] = &[ChannelUsage::new(BodyChannel::Mouth, 0.6)];
+        CHANNELS
     }
 
     // Execution: Check if we can actually introduce ourselves

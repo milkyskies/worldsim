@@ -8,6 +8,7 @@ pub mod world {
     pub const HUMAN_SPAWN_COUNT: usize = 32;
     pub const APPLE_TREE_SPAWN_COUNT: usize = 24;
     pub const BERRY_BUSH_SPAWN_COUNT: usize = 32;
+    pub const DEER_SPAWN_COUNT: usize = 8;
     /// Maximum attempts to find a walkable spawn position before giving up
     pub const MAX_SPAWN_ATTEMPTS: usize = 50;
 }

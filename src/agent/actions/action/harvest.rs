@@ -1,6 +1,7 @@
 //! Harvest action - gather resources from targets.
 
 use crate::agent::actions::ActionType;
+use crate::agent::actions::channel::{BodyChannel, ChannelUsage};
 use crate::agent::actions::registry::{
     Action, ActionContext, ActionKind, CompletionContext, RuntimeEffects,
 };
@@ -54,6 +55,14 @@ impl Action for HarvestAction {
         true // Must be at target location to harvest
     }
 
+    fn body_channels(&self) -> &'static [ChannelUsage] {
+        const CHANNELS: &[ChannelUsage] = &[
+            ChannelUsage::new(BodyChannel::Hands, 0.9),
+            ChannelUsage::new(BodyChannel::Legs, 0.2),
+        ];
+        CHANNELS
+    }
+
     // Execution: Must have a target entity
     fn can_start(&self, ctx: &ActionContext) -> Result<(), FailureReason> {
         if ctx.target_entity.is_some() {
@@ -84,12 +93,11 @@ impl Action for HarvestAction {
         // 2. Is any produced item useful (Food or Resource)?
         // We verify if the produced Concept IsA Food or Resource
         for triple in produced_items {
-            if let Value::Item(concept, _) = triple.object {
-                if mind.is_a(&Node::Concept(concept), Concept::Food)
-                    || mind.is_a(&Node::Concept(concept), Concept::Resource)
-                {
-                    return true;
-                }
+            if let Value::Item(concept, _) = triple.object
+                && (mind.is_a(&Node::Concept(concept), Concept::Food)
+                    || mind.is_a(&Node::Concept(concept), Concept::Resource))
+            {
+                return true;
             }
         }
 

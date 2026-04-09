@@ -6,7 +6,7 @@
 //! Downstream: brains::proposal (winner selection)
 
 use super::proposal::{BrainProposal, BrainType};
-use crate::agent::actions::{ActionState, ActionType};
+use crate::agent::actions::{ActionType, ActiveActions};
 use crate::agent::biology::body::Body;
 use crate::agent::body::needs::{Consciousness, PhysicalNeeds};
 use crate::agent::inventory::Inventory;
@@ -36,14 +36,14 @@ pub fn survival_brain_propose(
     inventory: &Inventory,
     _visible: &VisibleObjects,
     previous_winner: Option<BrainType>,
-    activity: &ActionState,
+    active: &ActiveActions,
     ontology: &Ontology,
     action_registry: &crate::agent::actions::ActionRegistry,
 ) -> Option<BrainProposal> {
     let was_survival = previous_winner == Some(BrainType::Survival);
 
     // Sleep/Wake Check (Separate logic)
-    if let Some(proposal) = check_sleep_wake(&context, activity, action_registry) {
+    if let Some(proposal) = check_sleep_wake(&context, active, action_registry) {
         return Some(proposal);
     }
 
@@ -193,11 +193,11 @@ pub fn survival_brain_propose(
 
 fn check_sleep_wake(
     context: &SurvivalBrainContext,
-    activity: &ActionState,
+    active: &ActiveActions,
     action_registry: &crate::agent::actions::ActionRegistry,
 ) -> Option<BrainProposal> {
     let energy = context.physical.energy;
-    let is_sleeping = activity.action_type == ActionType::Sleep;
+    let is_sleeping = active.contains(ActionType::Sleep);
 
     if is_sleeping {
         if energy >= WAKE_ENERGY_THRESHOLD {
@@ -252,8 +252,10 @@ mod tests {
     #[test]
     fn test_survival_hunger_response() {
         let ontology = setup_ontology();
-        let mut physical = PhysicalNeeds::default();
-        physical.hunger = 90.0;
+        let physical = PhysicalNeeds {
+            hunger: 90.0,
+            ..Default::default()
+        };
         let consciousness = Consciousness::default();
         let emotions = EmotionalState::default();
 
@@ -261,13 +263,13 @@ mod tests {
         let mut inventory = Inventory::default();
         inventory.add(Concept::Apple, 1);
         let visible = VisibleObjects::default();
-        let activity = ActionState::default();
+        let active = ActiveActions::default();
 
         let mut registry = crate::agent::actions::ActionRegistry::default();
         registry.register(crate::agent::actions::action::EatAction);
 
         let proposal = survival_brain_propose(
-            context, &inventory, &visible, None, &activity, &ontology, &registry,
+            context, &inventory, &visible, None, &active, &ontology, &registry,
         );
 
         assert!(proposal.is_some());

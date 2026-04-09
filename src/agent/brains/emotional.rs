@@ -29,10 +29,10 @@ pub fn emotional_brain_propose(
     action_registry: &crate::agent::actions::ActionRegistry,
     in_conversation: Option<&InConversation>,
 ) -> Option<BrainProposal> {
-    if let Some(in_conv) = in_conversation {
-        if let Some(proposal) = handle_active_conversation(in_conv, drives, action_registry) {
-            return Some(proposal);
-        }
+    if let Some(in_conv) = in_conversation
+        && let Some(proposal) = handle_active_conversation(in_conv, drives, action_registry)
+    {
+        return Some(proposal);
     }
 
     let mut best: Option<BrainProposal> = None;
@@ -74,30 +74,30 @@ fn handle_active_conversation(
 
     let social_drive = drives.map(|d| d.social).unwrap_or(0.0);
 
-    if in_conv.owes_response {
-        if let Some(action) = action_registry.get(ActionType::Talk) {
-            let mut template = action.to_template(Some(in_conv.partner), None);
-            template.topic = Some(Topic::General);
-            return Some(BrainProposal {
-                brain: BrainType::Emotional,
-                action: template,
-                urgency: CONVERSATION_RESPONSE_URGENCY,
-                reasoning: "Responding to question".to_string(),
-            });
-        }
+    if in_conv.owes_response
+        && let Some(action) = action_registry.get(ActionType::Talk)
+    {
+        let mut template = action.to_template(Some(in_conv.partner), None);
+        template.topic = Some(Topic::General);
+        return Some(BrainProposal {
+            brain: BrainType::Emotional,
+            action: template,
+            urgency: CONVERSATION_RESPONSE_URGENCY,
+            reasoning: "Responding to question".to_string(),
+        });
     }
 
-    if social_drive > CONVERSATION_SOCIAL_THRESHOLD {
-        if let Some(action) = action_registry.get(ActionType::Talk) {
-            let mut template = action.to_template(Some(in_conv.partner), None);
-            template.topic = Some(Topic::General);
-            return Some(BrainProposal {
-                brain: BrainType::Emotional,
-                action: template,
-                urgency: CONVERSATION_CONTINUE_URGENCY,
-                reasoning: format!("Continuing conversation (social: {:.2})", social_drive),
-            });
-        }
+    if social_drive > CONVERSATION_SOCIAL_THRESHOLD
+        && let Some(action) = action_registry.get(ActionType::Talk)
+    {
+        let mut template = action.to_template(Some(in_conv.partner), None);
+        template.topic = Some(Topic::General);
+        return Some(BrainProposal {
+            brain: BrainType::Emotional,
+            action: template,
+            urgency: CONVERSATION_CONTINUE_URGENCY,
+            reasoning: format!("Continuing conversation (social: {:.2})", social_drive),
+        });
     }
 
     None
@@ -147,48 +147,51 @@ fn evaluate_entity_emotions(
     let mut best: Option<(BrainProposal, f32)> = None;
     let mut threshold = min_urgency;
 
-    if fear > threshold && fear > FEAR_ENTITY_THRESHOLD {
-        if let Some(action) = action_registry.get(ActionType::Flee) {
-            best = Some((
-                BrainProposal {
-                    brain: BrainType::Emotional,
-                    action: action.to_template(Some(entity), None),
-                    urgency: fear * FEAR_ENTITY_URGENCY_MULTIPLIER,
-                    reasoning: format!("I'm scared of {:?} (fear: {:.2})", entity, fear),
-                },
-                fear,
-            ));
-            threshold = fear;
-        }
+    if fear > threshold
+        && fear > FEAR_ENTITY_THRESHOLD
+        && let Some(action) = action_registry.get(ActionType::Flee)
+    {
+        best = Some((
+            BrainProposal {
+                brain: BrainType::Emotional,
+                action: action.to_template(Some(entity), None),
+                urgency: fear * FEAR_ENTITY_URGENCY_MULTIPLIER,
+                reasoning: format!("I'm scared of {:?} (fear: {:.2})", entity, fear),
+            },
+            fear,
+        ));
+        threshold = fear;
     }
 
-    if joy > threshold && joy > JOY_ENTITY_THRESHOLD {
-        if let Some(action) = action_registry.get(ActionType::Walk) {
-            best = Some((
-                BrainProposal {
-                    brain: BrainType::Emotional,
-                    action: action.to_template(Some(entity), None),
-                    urgency: joy * JOY_ENTITY_URGENCY_MULTIPLIER,
-                    reasoning: format!("I like {:?} (joy: {:.2})", entity, joy),
-                },
-                joy,
-            ));
-            threshold = joy;
-        }
+    if joy > threshold
+        && joy > JOY_ENTITY_THRESHOLD
+        && let Some(action) = action_registry.get(ActionType::Walk)
+    {
+        best = Some((
+            BrainProposal {
+                brain: BrainType::Emotional,
+                action: action.to_template(Some(entity), None),
+                urgency: joy * JOY_ENTITY_URGENCY_MULTIPLIER,
+                reasoning: format!("I like {:?} (joy: {:.2})", entity, joy),
+            },
+            joy,
+        ));
+        threshold = joy;
     }
 
-    if anger > threshold && anger > ANGER_ENTITY_THRESHOLD {
-        if let Some(action) = action_registry.get(ActionType::Attack) {
-            best = Some((
-                BrainProposal {
-                    brain: BrainType::Emotional,
-                    action: action.to_template(Some(entity), None),
-                    urgency: anger * ANGER_ENTITY_URGENCY_MULTIPLIER,
-                    reasoning: format!("I hate {:?}! (anger: {:.2})", entity, anger),
-                },
-                anger,
-            ));
-        }
+    if anger > threshold
+        && anger > ANGER_ENTITY_THRESHOLD
+        && let Some(action) = action_registry.get(ActionType::Attack)
+    {
+        best = Some((
+            BrainProposal {
+                brain: BrainType::Emotional,
+                action: action.to_template(Some(entity), None),
+                urgency: anger * ANGER_ENTITY_URGENCY_MULTIPLIER,
+                reasoning: format!("I hate {:?}! (anger: {:.2})", entity, anger),
+            },
+            anger,
+        ));
     }
 
     best
@@ -213,15 +216,15 @@ fn check_general_fear(
     }
 
     let fear_urgency = fear_level * FEAR_GENERAL_URGENCY_MULTIPLIER;
-    if fear_urgency > best_urgency {
-        if let Some(action) = action_registry.get(ActionType::Flee) {
-            return Some(BrainProposal {
-                brain: BrainType::Emotional,
-                action: action.to_template(None, None),
-                urgency: fear_urgency,
-                reasoning: format!("I'm terrified! (fear: {:.2})", fear_level),
-            });
-        }
+    if fear_urgency > best_urgency
+        && let Some(action) = action_registry.get(ActionType::Flee)
+    {
+        return Some(BrainProposal {
+            brain: BrainType::Emotional,
+            action: action.to_template(None, None),
+            urgency: fear_urgency,
+            reasoning: format!("I'm terrified! (fear: {:.2})", fear_level),
+        });
     }
 
     None
@@ -278,37 +281,37 @@ fn seek_social_interaction(
         if introduced && trust >= 0.0 {
             let talk_urgency =
                 social_drive * TALK_SOCIAL_URGENCY_MULTIPLIER + trust * TALK_TRUST_URGENCY_BONUS;
-            if talk_urgency > threshold {
-                if let Some(action) = action_registry.get(ActionType::Talk) {
-                    let mut template = action.to_template(Some(entity), None);
-                    template.topic = Some(Topic::General);
-                    best = Some(BrainProposal {
-                        brain: BrainType::Emotional,
-                        action: template,
-                        urgency: talk_urgency,
-                        reasoning: format!(
-                            "I want to chat with {:?} (social: {:.2}, trust: {:.2})",
-                            entity, social_drive, trust
-                        ),
-                    });
-                    threshold = talk_urgency;
-                }
+            if talk_urgency > threshold
+                && let Some(action) = action_registry.get(ActionType::Talk)
+            {
+                let mut template = action.to_template(Some(entity), None);
+                template.topic = Some(Topic::General);
+                best = Some(BrainProposal {
+                    brain: BrainType::Emotional,
+                    action: template,
+                    urgency: talk_urgency,
+                    reasoning: format!(
+                        "I want to chat with {:?} (social: {:.2}, trust: {:.2})",
+                        entity, social_drive, trust
+                    ),
+                });
+                threshold = talk_urgency;
             }
         } else if !introduced {
             let intro_urgency = social_drive * INTRODUCE_SOCIAL_URGENCY_MULTIPLIER;
-            if intro_urgency > threshold {
-                if let Some(action) = action_registry.get(ActionType::Introduce) {
-                    best = Some(BrainProposal {
-                        brain: BrainType::Emotional,
-                        action: action.to_template(Some(entity), None),
-                        urgency: intro_urgency,
-                        reasoning: format!(
-                            "I should introduce myself to {:?} (social: {:.2})",
-                            entity, social_drive
-                        ),
-                    });
-                    threshold = intro_urgency;
-                }
+            if intro_urgency > threshold
+                && let Some(action) = action_registry.get(ActionType::Introduce)
+            {
+                best = Some(BrainProposal {
+                    brain: BrainType::Emotional,
+                    action: action.to_template(Some(entity), None),
+                    urgency: intro_urgency,
+                    reasoning: format!(
+                        "I should introduce myself to {:?} (social: {:.2})",
+                        entity, social_drive
+                    ),
+                });
+                threshold = intro_urgency;
             }
         }
     }

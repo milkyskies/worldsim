@@ -1,6 +1,6 @@
 //! Urgency generation: maps physical/emotional state to drive urgencies.
 //!
-//! Reads: PhysicalNeeds, Consciousness, PsychologicalDrives, EmotionalState, Body, ActionState
+//! Reads: PhysicalNeeds, Consciousness, PsychologicalDrives, EmotionalState, Body, ActiveActions
 //! Writes: CentralNervousSystem.urgencies
 //! Upstream: body (needs), psyche (emotions), nervous_system::config
 //! Downstream: nervous_system::cns (urgency ranking)
@@ -53,13 +53,22 @@ pub fn generate_urgency(
             &EmotionalState,
             Option<&Body>,
             &crate::agent::psyche::personality::Personality,
-            &crate::agent::actions::ActionState,
+            &crate::agent::actions::ActiveActions,
         ),
         With<crate::agent::Agent>,
     >,
 ) {
-    for (entity, mut cns, physical, consciousness, drives, emotions, body, personality, activity) in
-        query.iter_mut()
+    for (
+        entity,
+        mut cns,
+        physical,
+        consciousness,
+        drives,
+        emotions,
+        body,
+        personality,
+        active_actions,
+    ) in query.iter_mut()
     {
         // Staggered: heavy thinking runs every N ticks, offset by entity ID
         if !tick.should_run(entity, ns_config.thinking_interval) {
@@ -159,16 +168,21 @@ pub fn generate_urgency(
 
         // --- MOMENTUM & CONSCIOUSNESS ---
 
-        let current_source = match activity.action_type {
-            crate::agent::actions::ActionType::Eat => Some(UrgencySource::Hunger),
-            crate::agent::actions::ActionType::Sleep => Some(UrgencySource::Energy),
-            crate::agent::actions::ActionType::Wander => Some(UrgencySource::Boredom),
-            _ => None,
-        };
+        // Multiple actions may run in parallel - any of them can grant momentum
+        // to its corresponding drive.
+        let current_sources: std::collections::HashSet<UrgencySource> = active_actions
+            .iter()
+            .filter_map(|action| match action.action_type {
+                crate::agent::actions::ActionType::Eat => Some(UrgencySource::Hunger),
+                crate::agent::actions::ActionType::Sleep => Some(UrgencySource::Energy),
+                crate::agent::actions::ActionType::Wander => Some(UrgencySource::Boredom),
+                _ => None,
+            })
+            .collect();
 
         apply_momentum_and_gating(
             &mut cns.urgencies,
-            current_source,
+            &current_sources,
             consciousness.alertness,
             &ns_config,
         );
@@ -182,19 +196,19 @@ pub fn generate_urgency(
     }
 }
 
-/// Applies momentum bonus to the currently-active drive and consciousness gating to all others.
+/// Applies momentum bonus to the currently-active drives and consciousness gating to all others.
 fn apply_momentum_and_gating(
-    urgencies: &mut Vec<Urgency>,
-    current_source: Option<UrgencySource>,
+    urgencies: &mut [Urgency],
+    current_sources: &std::collections::HashSet<UrgencySource>,
     alertness: f32,
     ns_config: &NervousSystemConfig,
 ) {
     for urgency in urgencies.iter_mut() {
-        if Some(urgency.source) == current_source {
+        let is_current_drive = current_sources.contains(&urgency.source);
+        if is_current_drive {
             urgency.value *= ns_config.momentum_bonus;
         }
 
-        let is_current_drive = Some(urgency.source) == current_source;
         if !is_current_drive {
             let bypass = ns_config
                 .get_drive(urgency.source)

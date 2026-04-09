@@ -1,12 +1,12 @@
 //! Conversation system: models multi-turn dialogue between agents with intents, topics, and shared knowledge triples.
 //!
-//! Reads: ActionType, ActionState, Emotion, Triple (knowledge content), TickCount
+//! Reads: ActionType, ActiveActions, Emotion, Triple (knowledge content), TickCount
 //! Writes: Conversation, Turn, InConversation (ECS marker), ConversationState
 //! Upstream: mind::knowledge (triples shared as content), psyche::emotions (emotional coloring of turns)
 //! Downstream: brain_system (InConversation affects rational/emotional brain proposals), belief_updater (KnowledgeShared events)
 
 use crate::agent::actions::ActionType;
-use crate::agent::actions::registry::ActionState;
+use crate::agent::actions::registry::ActiveActions;
 use crate::agent::mind::knowledge::{Concept, Triple};
 use crate::agent::psyche::emotions::Emotion;
 use crate::core::tick::TickCount;
@@ -144,13 +144,13 @@ pub struct InConversation {
 pub fn sync_conversation_state(
     mut commands: Commands,
     mut conv_manager: ResMut<ConversationManager>,
-    agents: Query<(Entity, &ActionState)>,
+    agents: Query<(Entity, &ActiveActions)>,
     mut in_conversation: Query<&mut InConversation>,
 ) {
     // Find agents that just completed a Talk action
-    for (entity, action_state) in agents.iter() {
-        // Check if this is a completed Talk action (action just switched to Idle)
-        if action_state.action_type == ActionType::Idle {
+    for (entity, active) in agents.iter() {
+        // No Talk action currently running - treat as "just finished talking".
+        if !active.contains(ActionType::Talk) {
             // Check if they have InConversation - if so, update it
             if let Ok(in_conv) = in_conversation.get(entity) {
                 let conversation_id = in_conv.conversation_id;
@@ -186,35 +186,35 @@ pub fn sync_conversation_state(
         }
 
         // Check if this is a newly started Talk action with a target
-        if action_state.action_type == ActionType::Talk {
-            if let Some(target) = action_state.target_entity {
-                // Check if we need to create InConversation components
-                if in_conversation.get(entity).is_err() {
-                    // Find or create conversation
-                    let participants = vec![entity, target];
-                    let conversation_id = if let Some(c) = conv_manager.find_active(&participants) {
-                        c.id
-                    } else {
-                        // This will be created by the action's on_complete,
-                        // but we need the component now
-                        continue;
-                    };
+        if let Some(talk_state) = active.get(ActionType::Talk)
+            && let Some(target) = talk_state.target_entity
+        {
+            // Check if we need to create InConversation components
+            if in_conversation.get(entity).is_err() {
+                // Find or create conversation
+                let participants = vec![entity, target];
+                let conversation_id = if let Some(c) = conv_manager.find_active(&participants) {
+                    c.id
+                } else {
+                    // This will be created by the action's on_complete,
+                    // but we need the component now
+                    continue;
+                };
 
-                    // Add InConversation components
-                    commands.entity(entity).insert(InConversation {
-                        conversation_id,
-                        partner: target,
-                        my_turn: true,
-                        owes_response: false,
-                    });
+                // Add InConversation components
+                commands.entity(entity).insert(InConversation {
+                    conversation_id,
+                    partner: target,
+                    my_turn: true,
+                    owes_response: false,
+                });
 
-                    commands.entity(target).insert(InConversation {
-                        conversation_id,
-                        partner: entity,
-                        my_turn: false,
-                        owes_response: false,
-                    });
-                }
+                commands.entity(target).insert(InConversation {
+                    conversation_id,
+                    partner: entity,
+                    my_turn: false,
+                    owes_response: false,
+                });
             }
         }
     }
@@ -266,14 +266,14 @@ pub fn handle_conversation_exits(
     mut commands: Commands,
     mut conv_manager: ResMut<ConversationManager>,
     in_conversation: Query<(Entity, &InConversation)>,
-    agents: Query<&ActionState>,
+    agents: Query<&ActiveActions>,
     mut abandoned_events: MessageWriter<ConversationAbandoned>,
 ) {
     // Check for agents who left a conversation without saying farewell
     for (entity, in_conv) in in_conversation.iter() {
-        if let Ok(action_state) = agents.get(entity) {
+        if let Ok(active) = agents.get(entity) {
             // If they're not doing Talk anymore and it's their turn
-            if action_state.action_type != ActionType::Talk && in_conv.my_turn {
+            if !active.contains(ActionType::Talk) && in_conv.my_turn {
                 // Get the conversation
                 if let Some(conv) = conv_manager.get_mut(in_conv.conversation_id) {
                     // Check if the last turn was a farewell

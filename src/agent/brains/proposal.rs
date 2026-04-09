@@ -37,8 +37,11 @@ pub struct BrainPowers {
     pub rational: f32,
 }
 
-/// Component tracking the current brain decision state
-/// Stores proposals from all brains and which one won
+/// Component tracking the current brain decision state.
+///
+/// With the action channel system, multiple proposals can be admitted in
+/// parallel as long as their body channels don't hard-conflict. The "winner"
+/// is the highest-scoring brain whose proposal made it into `chosen_actions`.
 #[derive(Component, Debug, Clone, Reflect, Default)]
 #[reflect(Component)]
 pub struct BrainState {
@@ -47,11 +50,11 @@ pub struct BrainState {
     pub proposals: Vec<BrainProposal>,
     /// Current brain power levels
     pub powers: BrainPowers,
-    /// Which brain won arbitration (if any)
+    /// Which brain produced the highest-scoring admitted proposal (if any)
     pub winner: Option<BrainType>,
-    /// The action that was chosen (if any)
+    /// All actions admitted this tick - parallel runs if channels are compatible.
     #[reflect(ignore)]
-    pub chosen_action: Option<ActionTemplate>,
+    pub chosen_actions: Vec<ActionTemplate>,
 }
 
 impl BrainState {
