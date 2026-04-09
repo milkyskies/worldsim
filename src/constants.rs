@@ -5,12 +5,36 @@
 
 /// World spawning configuration
 pub mod world {
-    pub const HUMAN_SPAWN_COUNT: usize = 32;
+    pub const HUMAN_SPAWN_COUNT: usize = 6;
     pub const APPLE_TREE_SPAWN_COUNT: usize = 24;
     pub const BERRY_BUSH_SPAWN_COUNT: usize = 32;
     pub const DEER_SPAWN_COUNT: usize = 8;
     /// Maximum attempts to find a walkable spawn position before giving up
-    pub const MAX_SPAWN_ATTEMPTS: usize = 50;
+    pub const MAX_SPAWN_ATTEMPTS: usize = 200;
+
+    /// Tile radius around the settlement center where humans cluster. Tuned so
+    /// every starting human falls inside the agent vision range and can see
+    /// each other immediately on spawn.
+    pub const HUMAN_CLUSTER_RADIUS_TILES: u32 = 4;
+
+    /// Tile radius around the settlement center where the food garden of
+    /// berry bushes is planted.
+    pub const SETTLEMENT_FOOD_RADIUS_TILES: u32 = 6;
+
+    /// Number of berry bushes seeded near the settlement (from the total
+    /// `BERRY_BUSH_SPAWN_COUNT`). Remaining bushes scatter across the map.
+    pub const SETTLEMENT_BERRY_BUSH_COUNT: usize = 6;
+
+    /// Number of deer per herd. Total deer split across `DEER_SPAWN_COUNT /
+    /// DEER_HERD_SIZE` herds.
+    pub const DEER_HERD_SIZE: usize = 3;
+
+    /// Tile radius for deer-herd cluster spawning.
+    pub const DEER_HERD_RADIUS_TILES: u32 = 3;
+
+    /// Minimum tile distance between a deer herd anchor and the human
+    /// settlement center.
+    pub const DEER_MIN_DISTANCE_FROM_SETTLEMENT: u32 = 12;
 }
 
 /// Agent movement parameters

@@ -248,9 +248,9 @@ impl TerrainNoise {
 /// Elevation/moisture thresholds (in noise output space, roughly [-1.0, 1.0])
 /// that decide which biome a tile belongs to. Tuned by eye for the default seed.
 mod biome {
-    pub const DEEP_WATER_MAX: f64 = -0.32;
-    pub const SHALLOW_WATER_MAX: f64 = -0.22;
-    pub const SAND_MAX: f64 = -0.10;
+    pub const DEEP_WATER_MAX: f64 = -0.65;
+    pub const SHALLOW_WATER_MAX: f64 = -0.55;
+    pub const SAND_MAX: f64 = -0.42;
     pub const ROCK_MIN: f64 = 0.45;
     pub const FOREST_MOISTURE_MIN: f64 = 0.10;
 }
