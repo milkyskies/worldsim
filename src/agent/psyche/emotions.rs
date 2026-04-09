@@ -1,3 +1,10 @@
+//! Emotional state: active emotions, mood, stress, and event-driven emotion triggers.
+//!
+//! Reads: GameEvent, PhysicalNeeds, Body, Personality, MindGraph, TickCount
+//! Writes: EmotionalState, SimEvent
+//! Upstream: events (GameEvent), nervous_system::urgency (stress inputs)
+//! Downstream: brains::arbitration (mood/stress influence), nervous_system::urgency
+
 use crate::agent::actions::ActionType;
 use bevy::prelude::*;
 
