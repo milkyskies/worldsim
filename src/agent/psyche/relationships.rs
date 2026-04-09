@@ -225,14 +225,18 @@ pub fn decay_relationships(
                 if let Node::Entity(e) = &t.subject
                     && let Value::Float(f) = &t.object
                 {
-                    return Some((*e, *f));
+                    return Some((*e, *f, t.meta.timestamp));
                 }
                 None
             })
             .collect();
 
-        // Decay toward neutral (0.5)
-        for (entity, current) in trust_entries {
+        // Decay toward neutral (0.5), but skip if the agent interacted within
+        // the last decay period (frequent contact maintains closeness).
+        for (entity, current, last_updated) in trust_entries {
+            if current_time.saturating_sub(last_updated) < 300 {
+                continue;
+            }
             let target = 0.5; // Neutral
             let new_value = current + (target - current) * decay;
 
@@ -252,13 +256,16 @@ pub fn decay_relationships(
                 if let Node::Entity(e) = &t.subject
                     && let Value::Float(f) = &t.object
                 {
-                    return Some((*e, *f));
+                    return Some((*e, *f, t.meta.timestamp));
                 }
                 None
             })
             .collect();
 
-        for (entity, current) in affection_entries {
+        for (entity, current, last_updated) in affection_entries {
+            if current_time.saturating_sub(last_updated) < 300 {
+                continue;
+            }
             let target = 0.5;
             let new_value = current + (target - current) * decay;
 
