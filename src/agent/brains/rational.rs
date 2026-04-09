@@ -214,8 +214,21 @@ pub fn update_rational_brain(
                     }
                     TargetType::Entity => {
                         let mut processed_entities = std::collections::HashSet::new();
-                        collect_resource_targets(action, mind, &affordances, &mut processed_entities, &mut actions);
-                        collect_social_targets(action, entity, mind, &affordances, &mut processed_entities, &mut actions);
+                        collect_resource_targets(
+                            action,
+                            mind,
+                            &affordances,
+                            &mut processed_entities,
+                            &mut actions,
+                        );
+                        collect_social_targets(
+                            action,
+                            entity,
+                            mind,
+                            &affordances,
+                            &mut processed_entities,
+                            &mut actions,
+                        );
                     }
                     TargetType::Position => {
                         // Position-targeted actions: Walk
@@ -376,24 +389,44 @@ pub fn rational_brain_propose(
 fn collect_resource_targets(
     action: &dyn crate::agent::actions::Action,
     mind: &MindGraph,
-    affordances: &Query<(&GlobalTransform, Option<&crate::agent::affordance::Affordance>)>,
+    affordances: &Query<(
+        &GlobalTransform,
+        Option<&crate::agent::affordance::Affordance>,
+    )>,
     processed: &mut std::collections::HashSet<Entity>,
     actions: &mut Vec<ActionTemplate>,
 ) {
     for triple in mind.query(None, Some(Predicate::Contains), None) {
-        let Node::Entity(target_entity) = triple.subject else { continue };
-        if processed.contains(&target_entity) { continue; }
+        let Node::Entity(target_entity) = triple.subject else {
+            continue;
+        };
+        if processed.contains(&target_entity) {
+            continue;
+        }
 
-        let Ok((target_transform, maybe_affordance)) = affordances.get(target_entity) else { continue };
+        let Ok((target_transform, maybe_affordance)) = affordances.get(target_entity) else {
+            continue;
+        };
         processed.insert(target_entity);
 
-        let Some(affordance) = maybe_affordance else { continue };
-        if affordance.action_type != action.action_type() { continue; }
+        let Some(affordance) = maybe_affordance else {
+            continue;
+        };
+        if affordance.action_type != action.action_type() {
+            continue;
+        }
 
         let belief_state = crate::agent::mind::belief_state::BeliefState::new(mind);
-        let pattern = TriplePattern::new(Some(Node::Entity(target_entity)), Some(Predicate::Contains), None);
+        let pattern = TriplePattern::new(
+            Some(Node::Entity(target_entity)),
+            Some(Predicate::Contains),
+            None,
+        );
         if belief_state.pattern_confidence(&pattern) > 0.1 {
-            actions.push(action.to_template(Some(target_entity), Some(target_transform.translation().truncate())));
+            actions.push(action.to_template(
+                Some(target_entity),
+                Some(target_transform.translation().truncate()),
+            ));
         }
     }
 }
@@ -404,7 +437,10 @@ fn collect_social_targets(
     action: &dyn crate::agent::actions::Action,
     self_entity: Entity,
     mind: &MindGraph,
-    affordances: &Query<(&GlobalTransform, Option<&crate::agent::affordance::Affordance>)>,
+    affordances: &Query<(
+        &GlobalTransform,
+        Option<&crate::agent::affordance::Affordance>,
+    )>,
     processed: &mut std::collections::HashSet<Entity>,
     actions: &mut Vec<ActionTemplate>,
 ) {
@@ -415,20 +451,34 @@ fn collect_social_targets(
     let perceived_people = mind.query(
         None,
         Some(Predicate::IsA),
-        Some(&Value::Concept(crate::agent::mind::knowledge::Concept::Person)),
+        Some(&Value::Concept(
+            crate::agent::mind::knowledge::Concept::Person,
+        )),
     );
 
     for triple in perceived_people {
-        let Node::Entity(agent_entity) = triple.subject else { continue };
-        if agent_entity == self_entity { continue; }
-        if processed.contains(&agent_entity) { continue; }
+        let Node::Entity(agent_entity) = triple.subject else {
+            continue;
+        };
+        if agent_entity == self_entity {
+            continue;
+        }
+        if processed.contains(&agent_entity) {
+            continue;
+        }
 
-        let Ok((target_transform, _)) = affordances.get(agent_entity) else { continue };
+        let Ok((target_transform, _)) = affordances.get(agent_entity) else {
+            continue;
+        };
         processed.insert(agent_entity);
 
         // Strangers get Introduce; known agents get Talk
         let is_stranger = mind
-            .query(Some(&Node::Entity(agent_entity)), Some(Predicate::Knows), Some(&Value::Boolean(true)))
+            .query(
+                Some(&Node::Entity(agent_entity)),
+                Some(Predicate::Knows),
+                Some(&Value::Boolean(true)),
+            )
             .is_empty();
 
         let should_add = match action.action_type() {
@@ -438,7 +488,10 @@ fn collect_social_targets(
         };
 
         if should_add {
-            actions.push(action.to_template(Some(agent_entity), Some(target_transform.translation().truncate())));
+            actions.push(action.to_template(
+                Some(agent_entity),
+                Some(target_transform.translation().truncate()),
+            ));
         }
     }
 }
@@ -448,23 +501,38 @@ fn collect_social_targets(
 fn collect_affordance_targets(
     action: &dyn crate::agent::actions::Action,
     mind: &MindGraph,
-    affordances: &Query<(&GlobalTransform, Option<&crate::agent::affordance::Affordance>)>,
+    affordances: &Query<(
+        &GlobalTransform,
+        Option<&crate::agent::affordance::Affordance>,
+    )>,
     agent_pos: Vec2,
     actions: &mut Vec<ActionTemplate>,
 ) {
     let mut processed = std::collections::HashSet::new();
 
     for triple in mind.query(None, Some(Predicate::Contains), None) {
-        let Node::Entity(entity) = triple.subject else { continue };
-        if processed.contains(&entity) { continue; }
+        let Node::Entity(entity) = triple.subject else {
+            continue;
+        };
+        if processed.contains(&entity) {
+            continue;
+        }
 
-        let Ok((vis_transform, maybe_affordance)) = affordances.get(entity) else { continue };
+        let Ok((vis_transform, maybe_affordance)) = affordances.get(entity) else {
+            continue;
+        };
         processed.insert(entity);
 
-        let Some(affordance) = maybe_affordance else { continue };
-        if affordance.action_type != action.action_type() { continue; }
+        let Some(affordance) = maybe_affordance else {
+            continue;
+        };
+        if affordance.action_type != action.action_type() {
+            continue;
+        }
 
-        if !action.is_plan_valid(Some(entity), mind) { continue; }
+        if !action.is_plan_valid(Some(entity), mind) {
+            continue;
+        }
 
         let vis_pos = vis_transform.translation().truncate();
         let dist = agent_pos.distance(vis_pos);

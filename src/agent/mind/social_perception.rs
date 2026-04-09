@@ -10,7 +10,9 @@
 use crate::agent::Agent;
 use crate::agent::actions::registry::ActionState;
 use crate::agent::body::needs::PhysicalNeeds;
-use crate::agent::mind::knowledge::{AgentName, Concept, Metadata, MindGraph, Node, Predicate, Triple, Value};
+use crate::agent::mind::knowledge::{
+    AgentName, Concept, Metadata, MindGraph, Node, Predicate, Triple, Value,
+};
 use crate::agent::mind::perception::VisibleObjects;
 use crate::agent::psyche::emotions::EmotionalState;
 use crate::core::tick::TickCount;
