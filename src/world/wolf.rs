@@ -5,13 +5,12 @@
 //! Upstream: world::spawner (calls spawn_wolf), world::map (biome placement)
 //! Downstream: agent brains (fear/flee in humans/deer, anger/attack in wolves)
 
+use crate::agent::Agent;
 use crate::agent::body::needs::PsychologicalDrives;
 use crate::agent::body::species::SpeciesProfile;
+use crate::agent::inventory::EntityType;
+use crate::agent::item_slots::ItemSlots;
 use crate::agent::mind::knowledge::{Concept, MindGraph, Ontology};
-use crate::agent::{
-    Agent,
-    inventory::{EntityType, Inventory},
-};
 use crate::world::map::TILE_SIZE;
 use bevy::prelude::*;
 
@@ -30,7 +29,7 @@ pub fn spawn_wolf(
     use crate::agent::psyche::personality::Personality;
 
     let species_profile = SpeciesProfile::wolf();
-    let inventory = Inventory::default();
+    let inventory = ItemSlots::agent_carry();
     let personality = Personality::random();
 
     let spawn_tile = (
