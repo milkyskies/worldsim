@@ -58,9 +58,14 @@ Use `proptest` for functions with wide input spaces (parsers, serialization roun
 
 ## Worldsim Agent Tests
 
-**STOP. If you are about to write a test, debug a test, or close a feature issue that needs tests — invoke the `test-worldsim` skill FIRST.** Do not write tests from memory. Do not guess at the TestWorld API. The skill points you to the actual source files (`src/testing/world.rs`, `src/testing/scenario.rs`, `src/agent/events.rs`, `src/cli.rs`) so you read current signatures, not stale ones.
+**STOP. Two skills cover everything you need:**
 
-This is non-negotiable. Tests written without the skill end up using outdated APIs, missing the scenario builder, skipping observability tooling, and getting reinvented from scratch every time.
+- **Writing a test or closing a feature issue with tests → invoke `test-worldsim`.**
+- **Debugging a failing test, investigating agent behavior, or asking "why did agent X do Y?" → invoke `debug-worldsim`.**
+
+Do not write tests from memory. Do not guess at the TestWorld API or CLI flags. The skills point you to source files (`src/testing/world.rs`, `src/testing/scenario.rs`, `src/agent/events.rs`, `src/cli.rs`) so you read current signatures, not stale documented copies.
+
+This is non-negotiable. Code written without the skills ends up using outdated APIs, missing the scenario builder, skipping observability tooling, and getting reinvented from scratch every time.
 
 ### Hard rules (apply to all agent tests)
 

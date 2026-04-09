@@ -1,14 +1,16 @@
 ---
 name: test-worldsim
 description: >
-  Write or debug tests for the worldsim agent simulation. Use the TestWorld harness, scenario builder, and observability tooling.
-  TRIGGER when: writing a new test, debugging a failing test, or implementing a feature issue that requires tests before closing.
-  DO NOT TRIGGER when: editing docs, config, or files outside src/ and tests/.
+  Write tests for the worldsim agent simulation. Use the TestWorld harness, scenario builder, and the right test type for the situation.
+  TRIGGER when: writing a new test, refactoring existing tests, or implementing a feature issue that requires tests before closing.
+  DO NOT TRIGGER when: only debugging a failing test or investigating runtime behavior — use the `debug-worldsim` skill for that.
 ---
 
 # Test Worldsim
 
-Write or debug tests for the agent simulation.
+Write tests for the agent simulation.
+
+For investigating runtime behavior or debugging a failing test (headless CLI, JSONL log, decision trace, inspection methods), use the `debug-worldsim` skill instead. The two skills overlap on `print_*` inspection methods because debugging often happens from inside a test.
 
 ## Where the testing infrastructure lives
 
@@ -19,7 +21,6 @@ Read these files before writing tests — they're the source of truth, not this 
 - `src/testing.rs` — public exports
 - `src/agent/events.rs` — `SimEvent` enum for what events you can observe
 - `src/agent/invariants.rs` — automatic state validation in debug builds
-- `src/cli.rs` — CLI flags for headless mode, logging, tracing, inspection
 
 ## Writing a new test
 
@@ -30,45 +31,18 @@ Read these files before writing tests — they're the source of truth, not this 
 
 Read `src/testing/world.rs` for the spawn/inspection API. Read `src/testing/scenario.rs` for the builder API. Don't guess method names.
 
-## Debugging a failing test
-
-When a test fails and you need to understand why:
-
-1. Add `world.print_agent_state(agent)`, `world.print_brain_decision(agent)`, or `world.print_agent_events(agent, 200)` BEFORE the failing assertion.
-2. Run with `cargo test <test_name> -- --nocapture` to see the output.
-3. Inspection methods write to stderr — visible in CI logs and `--nocapture`.
-4. For full event history during a test, use `world.print_recent_events(N)`.
-
-The full list of inspection methods is in `src/testing/world.rs` — search for `pub fn print_` and `pub fn query_`.
-
-## Debugging via headless mode
-
-For bugs that only reproduce after many ticks or with specific seeds, skip the test runner and use the headless CLI:
-
-```bash
-# Capture every event to JSONL for jq analysis
-cargo run --release -- --headless --ticks 5000 --seed 42 --log events.jsonl
-
-# Trace one agent's decisions
-cargo run --release -- --headless --ticks 5000 --seed 42 --trace agent:alice
-
-# Pause at a specific tick and inspect
-cargo run --release -- --headless --ticks 5000 --seed 42 \
-  --inspect agent:alice --at-tick 4521
-
-# Search MindGraph
-cargo run --release -- --headless --ticks 5000 --seed 42 \
-  --query "alice Wolf" --at-tick 4521
-```
-
-The full flag list is in `src/cli.rs`. Read it when you need details on filters or formats.
-
 ## Test types
 
 - **Unit test** — pure function math (decay, urgency curves). `#[cfg(test)] mod tests` next to the code.
 - **Scenario test** — behavioral chain (perception → brain → action → outcome). Uses `TestWorld::scenario()`.
 - **Statistical test** — emergent properties. Run 50+ iterations with different seeds, assert property appears in >X% of runs. Never claim emergence from a single run.
 - **Invariant** — continuous validity check. Add to `check_invariants_system` in `src/agent/invariants.rs`.
+
+## When a test fails
+
+Don't guess. Invoke the `debug-worldsim` skill — it covers `world.print_*` inspection methods, headless reproduction, JSONL event log, decision trace, and ad-hoc inspection.
+
+The short version: add `world.print_agent_state(agent)` or `world.print_agent_events(agent, 200)` before the failing assertion, then run with `cargo nextest run -E 'test(name)' -- --nocapture`. For anything beyond that, use the debug skill.
 
 ## Rules
 
