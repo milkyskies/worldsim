@@ -89,6 +89,10 @@ pub struct ActionTemplate {
     pub preconditions: Vec<TriplePattern>,
     /// Concrete triples to assert when action completes
     pub effects: Vec<Triple>,
+    /// Patterns removed from the world when this action executes (destructive effects).
+    /// The planner uses this to track resource depletion during backward search,
+    /// preventing it from generating plans that rely on the same finite resource twice.
+    pub consumes: Vec<TriplePattern>,
     pub base_cost: f32,
 }
 

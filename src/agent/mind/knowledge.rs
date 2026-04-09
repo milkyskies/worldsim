@@ -1033,35 +1033,6 @@ pub fn setup_ontology() -> Ontology {
     add(act(ActionType::Harvest), IsA, val_act(SurvivalAction));
     add(act(ActionType::Drink), IsA, val_act(SurvivalAction));
 
-    // ─── Action Emotional Triggers ───
-    // Base emotions triggered by actions
-    add(
-        act(ActionType::Attack),
-        TriggersEmotion,
-        Value::Emotion(crate::agent::psyche::emotions::EmotionType::Fear, 0.8),
-    );
-    add(
-        act(ActionType::Wave),
-        TriggersEmotion,
-        Value::Emotion(crate::agent::psyche::emotions::EmotionType::Joy, 0.5),
-    );
-    add(
-        act(ActionType::Eat),
-        TriggersEmotion,
-        Value::Emotion(crate::agent::psyche::emotions::EmotionType::Joy, 0.3),
-    );
-    add(
-        act(ActionType::Drink),
-        TriggersEmotion,
-        Value::Emotion(crate::agent::psyche::emotions::EmotionType::Joy, 0.3),
-    );
-    // Harvesting is satisfying
-    add(
-        act(ActionType::Harvest),
-        TriggersEmotion,
-        Value::Emotion(crate::agent::psyche::emotions::EmotionType::Joy, 0.2),
-    );
-
     let mut ontology = Ontology {
         triples: Arc::new(triples),
         trait_cache: Arc::new(HashMap::new()),
