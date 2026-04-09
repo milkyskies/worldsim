@@ -1,0 +1,69 @@
+//! InitiateConversation action - walk to a partner to start a conversation.
+//!
+//! This action is **proposed by brains** (emotional brain when social drive is
+//! high, rational brain when a goal needs another agent's help) and **owned by
+//! the [`CommunicationPlugin`](crate::agent::communication::CommunicationPlugin)**.
+//!
+//! The action itself contains no on-completion logic — it is a Movement marker
+//! that walks the agent toward their partner while occupying the `Legs` channel.
+//! A dedicated polling system in `CommunicationPlugin` watches for agents with
+//! this action active, checks proximity to the partner each tick, and on
+//! arrival swaps `InitiateConversation` for `Converse` in `ActiveActions`,
+//! registers a new `Conversation`, and inserts `InConversation` on both
+//! participants. After that the standard turn-taking systems take over.
+//!
+//! This mirrors the [`ConverseAction`](super::ConverseAction) pattern: the
+//! action is just a body-channel marker; the plugin owns the lifecycle.
+
+use crate::agent::actions::ActionType;
+use crate::agent::actions::channel::{BodyChannel, ChannelUsage};
+use crate::agent::actions::registry::{Action, ActionContext, ActionKind, TargetType};
+use crate::agent::events::FailureReason;
+
+pub struct InitiateConversationAction;
+
+impl Action for InitiateConversationAction {
+    fn action_type(&self) -> ActionType {
+        ActionType::InitiateConversation
+    }
+
+    fn name(&self) -> &'static str {
+        "InitiateConversation"
+    }
+
+    fn kind(&self) -> ActionKind {
+        // Movement: walk to the partner. The CommunicationPlugin intercepts
+        // arrival at CONVERSATION_RANGE (32px) before the standard 2px
+        // arrival check fires, so this never auto-completes via the movement
+        // system on its own.
+        ActionKind::Movement
+    }
+
+    fn target_type(&self) -> TargetType {
+        TargetType::Entity
+    }
+
+    fn body_channels(&self) -> &'static [ChannelUsage] {
+        // Full Legs commitment — walking toward a specific person is a
+        // directed locomotion task that should hard-conflict with any other
+        // Movement action (Explore, Wander, Walk) so the agent doesn't
+        // simultaneously try to wander somewhere else and lose its target.
+        const CHANNELS: &[ChannelUsage] = &[ChannelUsage::new(BodyChannel::Legs, 1.0)];
+        CHANNELS
+    }
+
+    fn can_start(&self, ctx: &ActionContext) -> Result<(), FailureReason> {
+        if ctx.target_entity.is_none() {
+            return Err(FailureReason::NoTarget);
+        }
+        Ok(())
+    }
+
+    fn interruptible(&self) -> bool {
+        true
+    }
+
+    fn start_log(&self) -> Option<&'static str> {
+        Some("approaching to talk")
+    }
+}
