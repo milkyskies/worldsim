@@ -1,5 +1,6 @@
 pub mod apple_tree;
 pub mod berry_bush;
+pub mod campfire;
 pub mod deer;
 pub mod environment;
 pub mod human;

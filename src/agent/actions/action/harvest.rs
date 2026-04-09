@@ -173,4 +173,47 @@ impl Action for HarvestAction {
             base_cost: 10.0,
         }
     }
+
+    /// Harvest yields whatever the target entity actually produces, not a hardcoded Apple.
+    ///
+    /// Checks `(Entity, Produces, ?)` first (directly observed entity), then falls back
+    /// to `(ConceptType, Produces, ?)` via `IsA` (type-level knowledge from culture).
+    fn plan_effects_for_target(&self, target: Option<Entity>, mind: &MindGraph) -> Vec<Triple> {
+        let Some(entity) = target else {
+            return self.plan_effects();
+        };
+
+        // Direct: (entity, Produces, ?item)
+        let produced = mind.query(Some(&Node::Entity(entity)), Some(Predicate::Produces), None);
+        if !produced.is_empty() {
+            return produced
+                .into_iter()
+                .map(|t| Triple::new(Node::Self_, Predicate::Contains, t.object.clone()))
+                .collect();
+        }
+
+        // Indirect: entity IsA concept → (concept, Produces, ?item)
+        let type_triples = mind.query(Some(&Node::Entity(entity)), Some(Predicate::IsA), None);
+        let concept_effects: Vec<Triple> = type_triples
+            .iter()
+            .flat_map(|type_triple| {
+                if let Value::Concept(concept) = type_triple.object {
+                    mind.query(
+                        Some(&Node::Concept(concept)),
+                        Some(Predicate::Produces),
+                        None,
+                    )
+                } else {
+                    vec![]
+                }
+            })
+            .map(|t| Triple::new(Node::Self_, Predicate::Contains, t.object.clone()))
+            .collect();
+
+        if concept_effects.is_empty() {
+            self.plan_effects()
+        } else {
+            concept_effects
+        }
+    }
 }

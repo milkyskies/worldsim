@@ -118,6 +118,8 @@ pub enum FailureReason {
     AlreadyDone,
     /// No drinkable water adjacent to agent
     NoWaterNearby,
+    /// Agent lacks required crafting or building materials
+    MissingMaterials,
 }
 
 /// Event for communicating action outcomes to belief update system

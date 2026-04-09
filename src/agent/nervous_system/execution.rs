@@ -224,6 +224,7 @@ pub fn start_actions(
 
 /// Tick every running action independently.
 pub fn tick_actions(
+    mut commands: Commands,
     registry: Res<ActionRegistry>,
     tick: Res<TickCount>,
     world_map: Res<WorldMap>,
@@ -376,6 +377,9 @@ pub fn tick_actions(
             let pre_thirst = physical.thirst;
             let pre_energy = physical.energy;
 
+            let agent_position = transform.translation.truncate();
+            let mut spawn_requests = Vec::new();
+
             let mut ctx = crate::agent::actions::registry::CompletionContext {
                 physical: &mut physical,
                 inventory: &mut inventory,
@@ -383,9 +387,31 @@ pub fn tick_actions(
                 target_inventory: target_inv_ptr,
                 target_entity: snapshot.target_entity,
                 tick: current_tick,
+                agent_position,
+                spawn_requests: &mut spawn_requests,
             };
 
             action_def.on_complete(&mut ctx);
+
+            // Process any entity spawn requests from the action.
+            for req in spawn_requests {
+                use crate::agent::mind::knowledge::Concept;
+                match req.concept {
+                    Concept::Campfire => {
+                        crate::world::campfire::spawn_campfire_headless(
+                            &mut commands,
+                            req.position,
+                        );
+                    }
+                    _ => {
+                        // Unknown spawn request — log and skip.
+                        game_log.log_debug(format!(
+                            "Unhandled spawn request for concept {:?}",
+                            req.concept
+                        ));
+                    }
+                }
+            }
 
             // Only emit a success outcome when something observable changed.
             // Walk/Idle/Wander complete with no effects — skip the allocation.

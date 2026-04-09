@@ -73,6 +73,23 @@ pub mod actions {
         pub const HUNGER_PER_SEC: f32 = 2.0;
     }
 
+    pub mod build {
+        /// Ticks to build a campfire (matches design doc: ~120 ticks).
+        pub const CAMPFIRE_DURATION_TICKS: u32 = 120;
+        /// Wood required to build a campfire.
+        pub const CAMPFIRE_WOOD_REQUIRED: u32 = 3;
+        /// Ticks to build a lean-to shelter.
+        pub const LEAN_TO_DURATION_TICKS: u32 = 180;
+        /// Wood required to build a lean-to.
+        pub const LEAN_TO_WOOD_REQUIRED: u32 = 5;
+        /// Large leaves required to build a lean-to.
+        pub const LEAN_TO_LEAVES_REQUIRED: u32 = 2;
+        /// Energy drained per second while building.
+        pub const ENERGY_PER_SEC: f32 = -0.3;
+        /// Hunger cost per second while building.
+        pub const HUNGER_PER_SEC: f32 = 1.5;
+    }
+
     pub mod attack {
         pub const DURATION_TICKS: u32 = 30;
         pub const BASE_COST: f32 = 10.0;

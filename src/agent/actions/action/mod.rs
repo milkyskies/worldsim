@@ -1,6 +1,7 @@
 //! Action implementations - each action in its own file.
 
 pub mod attack;
+pub mod build;
 pub mod converse;
 pub mod drink;
 pub mod eat;
@@ -15,6 +16,7 @@ pub mod walk;
 pub mod wander;
 
 pub use attack::AttackAction;
+pub use build::BuildAction;
 pub use converse::ConverseAction;
 pub use drink::DrinkAction;
 pub use eat::EatAction;
