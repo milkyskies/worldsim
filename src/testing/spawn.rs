@@ -67,7 +67,7 @@ pub(super) fn spawn_test_person(
             CentralNervousSystem::default(),
             PhysicalNeeds {
                 hunger: config.hunger,
-                thirst: 0.0,
+                thirst: config.thirst,
                 energy: config.energy,
                 health: 100.0,
             },

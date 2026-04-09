@@ -82,3 +82,39 @@ impl Action for DrinkAction {
         Some("drank water")
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::testing::{AgentConfig, TestWorld};
+    use crate::world::map::TileType;
+    use bevy::math::Vec2;
+
+    #[test]
+    fn thirsty_agent_near_water_drinks() {
+        let mut world = TestWorld::with_seed(42);
+
+        // Place water tiles adjacent to where the agent will be.
+        // Agent at tile (2, 2) → world pos ~(40, 40). Water at tile (3, 2).
+        world.set_tile(3, 2, TileType::ShallowWater);
+
+        let agent = world.spawn_agent(AgentConfig {
+            pos: Vec2::new(40.0, 40.0),
+            thirst: 90.0,
+            ..Default::default()
+        });
+
+        world.tick(200);
+
+        assert!(
+            world.agent_thirst(agent) < 50.0,
+            "Agent should have drunk water and reduced thirst, but thirst is {:.0}",
+            world.agent_thirst(agent),
+        );
+    }
+
+    #[test]
+    fn drink_action_is_registered() {
+        let world = TestWorld::new();
+        assert!(world.has_registered_action(crate::agent::actions::ActionType::Drink));
+    }
+}
