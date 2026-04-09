@@ -94,65 +94,89 @@ impl Plugin for CommunicationPlugin {
 // 1. InitiateConversation lifecycle (entry point owned by this plugin)
 // ============================================================================
 
-/// Watches agents with `InitiateConversation` running and registers a new
-/// conversation when they reach `CONVERSATION_RANGE` of their partner.
+/// Watches agents with `InitiateConversation` running. Each tick:
 ///
-/// On arrival:
-/// 1. Register the `Conversation` in `ConversationManager`
-/// 2. Insert `InConversation` on both participants
-/// 3. Swap `InitiateConversation` for `Converse` in the initiator's `ActiveActions`
-/// 4. Insert `Converse` on the partner so they occupy the Mouth channel too
-/// 5. Emit `SimEvent::ConversationStarted`
+/// 1. Re-syncs the agent's movement target to the partner's *current*
+///    position so the agent tracks a moving partner instead of walking to a
+///    stale fixed point.
+/// 2. If the agent has reached `CONVERSATION_RANGE`, registers a new
+///    `Conversation`, swaps `InitiateConversation` for `Converse` in both
+///    agents' `ActiveActions` **in-place** (no command queue), inserts
+///    `InConversation` on both, and emits `SimEvent::ConversationStarted`.
 ///
-/// If the partner is already in a conversation, gone, or moved out of range
-/// the action is dropped (the agent's brain will pick something else next tick).
+/// All `ActiveActions` mutations happen in-place via `Query<&mut>` rather
+/// than queued commands. Otherwise [`evaluate_conversation_continuation`]
+/// runs later in the same Update, sees no `Converse` marker yet (commands
+/// haven't flushed), and abandons the just-created conversation.
 pub fn process_initiate_conversation(
     mut commands: Commands,
     mut manager: ResMut<ConversationManager>,
     tick: Res<TickCount>,
     mut sim_events: MessageWriter<SimEvent>,
-    initiators: Query<(Entity, &Transform, &ActiveActions), With<Agent>>,
-    partner_state: Query<(&Transform, Option<&InConversation>), With<Agent>>,
+    transforms: Query<&Transform, With<Agent>>,
+    in_conversations: Query<&InConversation, With<Agent>>,
+    mut active_actions: Query<(Entity, &mut ActiveActions), With<Agent>>,
+    mut target_positions: Query<&mut crate::agent::TargetPosition>,
 ) {
-    for (initiator, transform, active) in initiators.iter() {
-        let Some(state) = active.get(ActionType::InitiateConversation) else {
-            continue;
-        };
-        let Some(partner) = state.target_entity else {
-            commands
-                .entity(initiator)
-                .queue(RemoveInitiateConversationMarker);
-            continue;
-        };
+    // Pass 1: snapshot which initiators want what partner. Doing this in a
+    // separate pass releases the active_actions borrow before mutation.
+    let pairs: Vec<(Entity, Option<Entity>)> = active_actions
+        .iter()
+        .filter_map(|(entity, active)| {
+            active
+                .get(ActionType::InitiateConversation)
+                .map(|state| (entity, state.target_entity))
+        })
+        .collect();
 
-        // Partner gone, already busy talking to someone else, or out of range?
-        let Ok((partner_transform, partner_conv)) = partner_state.get(partner) else {
-            commands
-                .entity(initiator)
-                .queue(RemoveInitiateConversationMarker);
+    for (initiator, partner) in pairs {
+        // No target → drop the action.
+        let Some(partner) = partner else {
+            if let Ok((_, mut active)) = active_actions.get_mut(initiator) {
+                active.remove(ActionType::InitiateConversation);
+            }
             continue;
         };
-        if partner_conv.is_some() {
-            commands
-                .entity(initiator)
-                .queue(RemoveInitiateConversationMarker);
+        // Partner missing or already busy talking → drop the action.
+        let Ok(partner_transform) = transforms.get(partner) else {
+            if let Ok((_, mut active)) = active_actions.get_mut(initiator) {
+                active.remove(ActionType::InitiateConversation);
+            }
+            continue;
+        };
+        if in_conversations.get(partner).is_ok() {
+            if let Ok((_, mut active)) = active_actions.get_mut(initiator) {
+                active.remove(ActionType::InitiateConversation);
+            }
             continue;
         }
-        let distance = transform
-            .translation
-            .truncate()
-            .distance(partner_transform.translation.truncate());
+        let Ok(initiator_transform) = transforms.get(initiator) else {
+            continue;
+        };
+        let initiator_pos = initiator_transform.translation.truncate();
+        let partner_pos = partner_transform.translation.truncate();
+        let distance = initiator_pos.distance(partner_pos);
+
+        // Re-sync target_position so the movement system tracks the partner.
+        if let Ok((_, mut active)) = active_actions.get_mut(initiator)
+            && let Some(state) = active.get_mut(ActionType::InitiateConversation)
+        {
+            state.target_position = Some(partner_pos);
+        }
+        if let Ok(mut tp) = target_positions.get_mut(initiator) {
+            tp.0 = Some(partner_pos);
+        }
+
         if distance > CONVERSATION_RANGE {
-            // Still walking — let the Movement system advance position.
+            // Still walking — let the movement system advance position.
             continue;
         }
 
-        // We're close enough. Skip if either side is already in a conversation
-        // (race with another initiator) or already paired this tick.
+        // In range! Register the conversation if one doesn't exist yet.
         if manager.find_active(initiator, partner).is_some() {
-            commands
-                .entity(initiator)
-                .queue(RemoveInitiateConversationMarker);
+            if let Ok((_, mut active)) = active_actions.get_mut(initiator) {
+                active.remove(ActionType::InitiateConversation);
+            }
             continue;
         }
 
@@ -165,52 +189,32 @@ pub fn process_initiate_conversation(
             conversation_id: id,
             partner: initiator,
         });
-        commands
-            .entity(initiator)
-            .queue(RemoveInitiateConversationMarker);
-        commands
-            .entity(initiator)
-            .queue(InsertConverseMarker { tick: tick.current });
-        commands
-            .entity(partner)
-            .queue(InsertConverseMarker { tick: tick.current });
+
+        // Swap InitiateConversation -> Converse in-place on the initiator,
+        // and add Converse to the partner. Both happen this tick so
+        // evaluate_conversation_continuation sees the Mouth channel held.
+        let now = tick.current;
+        if let Ok((_, mut active)) = active_actions.get_mut(initiator) {
+            active.remove(ActionType::InitiateConversation);
+            if !active.contains(ActionType::Converse) {
+                active.insert(ActionState::new(ActionType::Converse, now));
+            }
+        }
+        if let Ok((_, mut active)) = active_actions.get_mut(partner)
+            && !active.contains(ActionType::Converse)
+        {
+            active.insert(ActionState::new(ActionType::Converse, now));
+        }
+        // Clear the movement target so we stop walking once paired.
+        if let Ok(mut tp) = target_positions.get_mut(initiator) {
+            tp.0 = None;
+        }
+
         sim_events.write(SimEvent::ConversationStarted {
             participants: vec![initiator, partner],
             tick: tick.current,
             conversation_id: id,
         });
-    }
-}
-
-/// `EntityCommand` that removes the `InitiateConversation` marker once the
-/// CommunicationPlugin has handled arrival (or determined the partner is
-/// unreachable).
-struct RemoveInitiateConversationMarker;
-
-impl EntityCommand for RemoveInitiateConversationMarker {
-    fn apply(self, mut entity: EntityWorldMut) {
-        if let Some(mut active) = entity.get_mut::<ActiveActions>() {
-            active.remove(ActionType::InitiateConversation);
-        }
-    }
-}
-
-/// `EntityCommand` that adds a [`ConverseAction`] marker to an entity's
-/// [`ActiveActions`]. Inserted via `commands.queue` so the change happens at
-/// the next sync point — the borrow checker can't see two systems mutating
-/// `ActiveActions` if we go through commands.
-struct InsertConverseMarker {
-    tick: u64,
-}
-
-impl EntityCommand for InsertConverseMarker {
-    fn apply(self, mut entity: EntityWorldMut) {
-        let tick = self.tick;
-        if let Some(mut active) = entity.get_mut::<ActiveActions>()
-            && !active.contains(ActionType::Converse)
-        {
-            active.insert(ActionState::new(ActionType::Converse, tick));
-        }
     }
 }
 
