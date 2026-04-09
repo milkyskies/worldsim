@@ -68,6 +68,105 @@ impl Default for PsychologicalDrives {
     }
 }
 
+impl PsychologicalDrives {
+    /// Initialise drive baselines from Big Five personality traits.
+    ///
+    /// Personality shapes what an agent fundamentally wants, not just how
+    /// urgently they pursue it. The urgency system (nervous_system::urgency)
+    /// further modulates moment-to-moment priority via `PersonalityMod`.
+    pub fn from_personality(traits: &crate::agent::psyche::personality::PersonalityTraits) -> Self {
+        Self {
+            // Extraverts need more social contact as a baseline
+            social: traits.extraversion,
+            // Open personalities are naturally more curious
+            curiosity: traits.openness,
+            // Neurotic personalities have a higher baseline need for security
+            security: traits.neuroticism,
+            // Conscientious personalities care more about status/achievement
+            status: traits.conscientiousness,
+            // Disagreeable personalities need more autonomy
+            autonomy: 1.0 - traits.agreeableness,
+            fun: 0.5,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::agent::psyche::personality::PersonalityTraits;
+
+    #[test]
+    fn high_extraversion_raises_social_drive() {
+        let traits = PersonalityTraits {
+            extraversion: 0.9,
+            ..Default::default()
+        };
+        let drives = PsychologicalDrives::from_personality(&traits);
+        assert!(
+            drives.social > 0.8,
+            "social should track extraversion (got {})",
+            drives.social
+        );
+    }
+
+    #[test]
+    fn low_extraversion_lowers_social_drive() {
+        let traits = PersonalityTraits {
+            extraversion: 0.1,
+            ..Default::default()
+        };
+        let drives = PsychologicalDrives::from_personality(&traits);
+        assert!(
+            drives.social < 0.2,
+            "introvert should have low social drive (got {})",
+            drives.social
+        );
+    }
+
+    #[test]
+    fn high_openness_raises_curiosity() {
+        let traits = PersonalityTraits {
+            openness: 0.9,
+            ..Default::default()
+        };
+        let drives = PsychologicalDrives::from_personality(&traits);
+        assert!(
+            drives.curiosity > 0.8,
+            "curiosity should track openness (got {})",
+            drives.curiosity
+        );
+    }
+
+    #[test]
+    fn high_neuroticism_raises_security_need() {
+        let traits = PersonalityTraits {
+            neuroticism: 0.9,
+            ..Default::default()
+        };
+        let drives = PsychologicalDrives::from_personality(&traits);
+        assert!(
+            drives.security > 0.8,
+            "neurotic agent should have high security need (got {})",
+            drives.security
+        );
+    }
+
+    #[test]
+    fn high_agreeableness_lowers_autonomy_need() {
+        let traits = PersonalityTraits {
+            agreeableness: 0.9,
+            ..Default::default()
+        };
+        let drives = PsychologicalDrives::from_personality(&traits);
+        assert!(
+            drives.autonomy < 0.2,
+            "agreeable agent should have low autonomy need (got {})",
+            drives.autonomy
+        );
+    }
+}
+
 // ============================================================================
 // UI HELPERS
 // ============================================================================

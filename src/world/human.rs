@@ -25,6 +25,8 @@ pub fn spawn_person(
     let species_profile = SpeciesProfile::human();
     let inventory = Inventory::default();
     let personality = Personality::random();
+    let psychological_drives =
+        crate::agent::body::needs::PsychologicalDrives::from_personality(&personality.traits);
 
     // Initialize Mind with Ontology (Zero-copy clone)
     let mut mind = MindGraph::new(ontology);
@@ -75,7 +77,7 @@ pub fn spawn_person(
             crate::agent::nervous_system::cns::CentralNervousSystem::default(),
             crate::agent::body::needs::PhysicalNeeds::default(),
             crate::agent::body::needs::Consciousness::default(),
-            crate::agent::body::needs::PsychologicalDrives::default(),
+            psychological_drives,
             crate::agent::actions::ActiveActions::default(),
             crate::agent::psyche::emotions::EmotionalState::default(),
         ))
