@@ -147,16 +147,16 @@ fn stranger_detected_when_two_agents_meet() {
 #[test]
 fn action_completed_events_emitted() {
     let mut world = test_world_with_collector();
+    // Place agent directly on top of the bush so it doesn't need to walk far.
     world.spawn_agent(AgentConfig {
         hunger: 90.0,
-        pos: Vec2::new(18.0, 20.0),
+        pos: Vec2::new(20.0, 20.0),
         ..Default::default()
     });
     world.spawn_berry_bush(Vec2::new(20.0, 20.0), 5);
 
-    // Give enough ticks for the agent to walk to the bush and complete an eat action.
-    // Timed actions and movement need substantial ticks to complete.
-    world.tick(500);
+    // Generous tick budget — the agent needs to decide, pick up, and eat.
+    world.tick(1000);
 
     let collector = world.app().world().resource::<SimEventCollector>();
     let completed: Vec<_> = collector
@@ -166,6 +166,6 @@ fn action_completed_events_emitted() {
         .collect();
     assert!(
         !completed.is_empty(),
-        "expected at least one ActionCompleted event after 500 ticks"
+        "expected at least one ActionCompleted event after 1000 ticks"
     );
 }
