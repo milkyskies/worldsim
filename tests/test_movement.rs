@@ -38,6 +38,12 @@ fn walk_snaps_to_target_when_arriving_near_tile_boundary() {
     let mut world = TestWorld::with_seed(42);
     let agent = world.spawn_agent(AgentConfig::at(start));
 
+    // Advance past tick 0 before injecting the Walk action. At tick 0,
+    // entity_id 0 satisfies (0 + 0) % 60 == 0, so the brain fires and
+    // proposes Explore, which would preempt the injected Walk via start_actions.
+    // After tick 1, the next brain fire is at tick 60 — well outside our window.
+    world.tick(1);
+
     // Inject the Walk action directly into ActiveActions so we don't need to wait
     // for the 60-tick thinking interval before the brain proposes it.
     {
