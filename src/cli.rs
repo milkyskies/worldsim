@@ -10,6 +10,7 @@ use std::path::PathBuf;
 use clap::Parser;
 
 use crate::agent::brains::trace::{AgentFilter, TraceConfig, TraceFormat};
+use crate::core::{EventLogConfig, EventLogOutput, parse_log_filter};
 use crate::headless::{HeadlessConfig, InspectConfig, InspectQuery};
 
 /// Command-line arguments accepted by the worldsim binary.
@@ -76,6 +77,16 @@ pub struct CliArgs {
     #[arg(long)]
     pub trace_file: Option<PathBuf>,
 
+    /// Write a JSONL event log to this path, or "-" for stdout.
+    /// Each line is one simulation event serialized as JSON.
+    #[arg(long)]
+    pub log: Option<String>,
+
+    /// Filter events written to --log. Can be repeated; all filters must pass.
+    /// Formats: agent:<name>  type:<T1,T2>  tick:<start>-<end>
+    #[arg(long = "log-filter")]
+    pub log_filter: Vec<String>,
+
     /// Print a full agent state snapshot at --at-tick. Format: agent:<name>.
     /// Can be repeated to inspect multiple agents.
     #[arg(long)]
@@ -110,8 +121,24 @@ impl CliArgs {
             apple_trees: self.apple_trees,
             deer: self.deer,
             trace: self.build_trace_config(),
+            event_log: self.build_event_log_config(),
             inspect: self.build_inspect_config(),
         }
+    }
+
+    fn build_event_log_config(&self) -> Option<EventLogConfig> {
+        let log_path = self.log.as_deref()?;
+        let output = if log_path == "-" {
+            EventLogOutput::Stdout
+        } else {
+            EventLogOutput::File(PathBuf::from(log_path))
+        };
+        let filters = self
+            .log_filter
+            .iter()
+            .filter_map(|s| parse_log_filter(s))
+            .collect();
+        Some(EventLogConfig { output, filters })
     }
 
     fn build_inspect_config(&self) -> InspectConfig {

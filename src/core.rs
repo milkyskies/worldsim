@@ -1,11 +1,16 @@
 use bevy::prelude::*;
 
 pub mod diagnostics;
+pub mod event_log;
 pub mod log;
 pub mod tick;
 pub mod time;
 
 pub use diagnostics::DiagnosticsPlugin;
+pub use event_log::{
+    EventLogBuffer, EventLogConfig, EventLogFilter, EventLogOutput, collect_event_log,
+    dump_event_log, parse_log_filter,
+};
 pub use log::GameLog;
 pub use tick::{TickCount, not_paused};
 pub use time::GameTime;
