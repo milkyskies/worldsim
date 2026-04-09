@@ -80,8 +80,10 @@ pub enum Concept {
     Berry,
     BerryBush,
     Wood,
+    WoodLog,
     Water,
     Stone,
+    StoneNode,
     Stick,
 
     // ─── Animal types ───
@@ -92,6 +94,7 @@ pub enum Concept {
     Edible,    // Items that can be eaten (Apple, Berry, Meat)
     Drinkable, // Tiles/items that can provide water (ShallowWater, Water)
     Prey,      // Creatures that can be hunted (Deer, Rabbit) → yields Meat
+    Territory, // A tile the agent claims as its own (marked intrinsically at spawn)
     Dangerous,
     Safe,
     Friendly,
@@ -1007,6 +1010,13 @@ pub fn setup_ontology() -> Ontology {
 
     add(c(Wood), IsA, v(Resource));
     add(c(Water), IsA, v(Resource));
+    add(c(Stone), IsA, v(Resource));
+
+    add(c(WoodLog), IsA, v(Object));
+    add(c(WoodLog), IsA, v(Resource));
+
+    add(c(StoneNode), IsA, v(Object));
+    add(c(StoneNode), IsA, v(Resource));
 
     // ─── Properties (HasTrait) ───
     add(c(Food), HasTrait, v(Edible));
@@ -1016,6 +1026,8 @@ pub fn setup_ontology() -> Ontology {
     add(c(Plant), HasTrait, v(Harvestable));
     add(c(AppleTree), HasTrait, v(Harvestable));
     add(c(BerryBush), HasTrait, v(Harvestable));
+    add(c(WoodLog), HasTrait, v(Harvestable));
+    add(c(StoneNode), HasTrait, v(Harvestable));
 
     // ─── Action Categorization ───
     use crate::agent::actions::ActionType;

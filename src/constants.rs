@@ -10,6 +10,8 @@ pub mod world {
     pub const BERRY_BUSH_SPAWN_COUNT: usize = 32;
     pub const DEER_SPAWN_COUNT: usize = 8;
     pub const WOLF_SPAWN_COUNT: usize = 6;
+    pub const STONE_NODE_SPAWN_COUNT: usize = 20;
+    pub const WOOD_LOG_SPAWN_COUNT: usize = 20;
     /// Maximum attempts to find a walkable spawn position before giving up
     pub const MAX_SPAWN_ATTEMPTS: usize = 200;
 

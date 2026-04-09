@@ -63,6 +63,11 @@ pub const NATURAL_END_TURN_COUNT: usize = 6;
 /// Reduction in `social` drive each successful turn satisfies.
 pub const SOCIAL_DRIVE_PER_TURN: f32 = 0.1;
 
+/// Maximum number of small-talk triples picked from the speaker's MindGraph
+/// per `Share` turn. Keeps each turn focused rather than dumping the agent's
+/// entire memory.
+pub const SMALL_TALK_TRIPLES_PER_TURN: usize = 2;
+
 // ============================================================================
 // Plugin
 // ============================================================================
@@ -235,8 +240,17 @@ impl EntityCommand for RemoveConverseMarker {
 /// For each active conversation whose turn cadence is up, append a new turn
 /// from the current speaker. Intent selection is intentionally simple in this
 /// PR — issue #46 will read agent state, goals, and relationship to pick
-/// nuanced intents and content.
-pub fn select_turn_intent(mut manager: ResMut<ConversationManager>, tick: Res<TickCount>) {
+/// nuanced intents.
+///
+/// **Content selection** uses [`pick_small_talk_triples`] (#40) — for `Share`
+/// intents the speaker offers up to `SMALL_TALK_TRIPLES_PER_TURN` triples
+/// from their own MindGraph that score high on recency / salience / novelty
+/// to the partner.
+pub fn select_turn_intent(
+    mut manager: ResMut<ConversationManager>,
+    tick: Res<TickCount>,
+    minds: Query<&MindGraph>,
+) {
     let now = tick.current;
     for conv in manager.conversations.values_mut() {
         if conv.state == ConversationState::Ended {
@@ -248,15 +262,30 @@ pub fn select_turn_intent(mut manager: ResMut<ConversationManager>, tick: Res<Ti
         }
 
         let speaker = conv.current_speaker();
+        let listener = conv.other_participant(speaker);
         let intent = next_intent_for(conv);
         let topic = Topic::General;
+
+        // Only Share intents carry content; Greet/Farewell/Acknowledge are pure speech acts.
+        let content = if matches!(intent, Intent::Share)
+            && let (Ok(speaker_mind), Ok(listener_mind)) = (minds.get(speaker), minds.get(listener))
+        {
+            crate::agent::mind::small_talk::pick_small_talk_triples(
+                speaker_mind,
+                listener_mind,
+                now,
+                SMALL_TALK_TRIPLES_PER_TURN,
+            )
+        } else {
+            Vec::new()
+        };
 
         let turn = Turn {
             speaker,
             intent,
             topic,
             emotion: None,
-            content: Vec::new(),
+            content,
             timestamp: now,
             expects_response: matches!(intent, Intent::Greet | Intent::Ask),
         };

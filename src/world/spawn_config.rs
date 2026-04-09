@@ -13,8 +13,8 @@ use crate::constants::world::{
     APPLE_TREE_SPAWN_COUNT, BERRY_BUSH_SPAWN_COUNT, DEER_HERD_RADIUS_TILES, DEER_HERD_SIZE,
     DEER_MIN_DISTANCE_FROM_SETTLEMENT, DEER_SPAWN_COUNT, HUMAN_CLUSTER_RADIUS_TILES,
     HUMAN_SPAWN_COUNT, MAX_SPAWN_ATTEMPTS, SETTLEMENT_BERRY_BUSH_COUNT,
-    SETTLEMENT_FOOD_RADIUS_TILES, WOLF_MIN_DISTANCE_FROM_SETTLEMENT, WOLF_PACK_RADIUS_TILES,
-    WOLF_PACK_SIZE, WOLF_SPAWN_COUNT,
+    SETTLEMENT_FOOD_RADIUS_TILES, STONE_NODE_SPAWN_COUNT, WOLF_MIN_DISTANCE_FROM_SETTLEMENT,
+    WOLF_PACK_RADIUS_TILES, WOLF_PACK_SIZE, WOLF_SPAWN_COUNT, WOOD_LOG_SPAWN_COUNT,
 };
 use crate::world::map::{TileType, WORLD_HEIGHT, WORLD_WIDTH, WorldMap};
 use crate::world::spawn_placement::{
@@ -43,6 +43,8 @@ pub struct WorldSpawnConfig {
     pub wolves: usize,
     pub berry_bushes: usize,
     pub apple_trees: usize,
+    pub stone_nodes: usize,
+    pub wood_logs: usize,
     /// Seed for the spawn-position RNG. Same seed + same config → same layout.
     pub seed: u64,
     pub spawn_algorithm: SpawnAlgorithm,
@@ -59,6 +61,8 @@ impl WorldSpawnConfig {
             wolves: WOLF_SPAWN_COUNT,
             berry_bushes: BERRY_BUSH_SPAWN_COUNT,
             apple_trees: APPLE_TREE_SPAWN_COUNT,
+            stone_nodes: STONE_NODE_SPAWN_COUNT,
+            wood_logs: WOOD_LOG_SPAWN_COUNT,
             seed: 0,
             spawn_algorithm: SpawnAlgorithm::Realistic,
         }
@@ -85,6 +89,10 @@ pub struct SpawnLayout {
     pub berry_bush_positions: Vec<(Vec2, u32)>,
     /// Each entry is (world position, initial apple count).
     pub apple_tree_positions: Vec<(Vec2, u32)>,
+    /// Each entry is (world position, initial stone count).
+    pub stone_node_positions: Vec<(Vec2, u32)>,
+    /// Each entry is (world position, initial wood count).
+    pub wood_log_positions: Vec<(Vec2, u32)>,
 }
 
 // ─── Realistic layout ─────────────────────────────────────────────────────
@@ -143,6 +151,20 @@ fn compute_realistic_layout(config: &WorldSpawnConfig, map: &WorldMap) -> SpawnL
             MAX_SPAWN_ATTEMPTS,
         ) {
             layout.berry_bush_positions.push((pos, 4));
+        }
+    }
+
+    // Stone nodes spawn in rocky terrain.
+    for _ in 0..config.stone_nodes {
+        if let Some(pos) = find_biome_tile(map, &mut rng, &[TileType::Rock], MAX_SPAWN_ATTEMPTS) {
+            layout.stone_node_positions.push((pos, 5));
+        }
+    }
+
+    // Wood logs scatter across forest biomes.
+    for _ in 0..config.wood_logs {
+        if let Some(pos) = find_biome_tile(map, &mut rng, &[TileType::Forest], MAX_SPAWN_ATTEMPTS) {
+            layout.wood_log_positions.push((pos, 4));
         }
     }
 
@@ -328,6 +350,16 @@ fn compute_uniform_layout(config: &WorldSpawnConfig) -> SpawnLayout {
         layout
             .apple_tree_positions
             .push((random_uniform_pos(&mut rng), 7));
+    }
+    for _ in 0..config.stone_nodes {
+        layout
+            .stone_node_positions
+            .push((random_uniform_pos(&mut rng), 5));
+    }
+    for _ in 0..config.wood_logs {
+        layout
+            .wood_log_positions
+            .push((random_uniform_pos(&mut rng), 4));
     }
 
     layout

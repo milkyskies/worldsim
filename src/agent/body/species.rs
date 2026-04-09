@@ -62,6 +62,12 @@ pub struct SpeciesProfile {
 
     /// Dietary requirements
     pub diet: Diet,
+
+    // === Drives ===
+    /// Floor value for the territoriality drive. The `update_territoriality`
+    /// system raises this further when intruders are perceived on owned tiles.
+    /// Wolves: high (~0.7), Humans: low (~0.1), Deer/Rabbit: zero.
+    pub territoriality_baseline: f32,
 }
 
 impl Default for SpeciesProfile {
@@ -87,6 +93,8 @@ impl SpeciesProfile {
             base_speed: 1.0,
             vision_range: 100.0,
             diet: Diet::Omnivore,
+
+            territoriality_baseline: 0.1,
         }
     }
 
@@ -106,6 +114,8 @@ impl SpeciesProfile {
             base_speed: 1.2,
             vision_range: 80.0,
             diet: Diet::Herbivore,
+
+            territoriality_baseline: 0.0,
         }
     }
 
@@ -125,6 +135,8 @@ impl SpeciesProfile {
             base_speed: 1.4,
             vision_range: 120.0,
             diet: Diet::Carnivore,
+
+            territoriality_baseline: 0.7,
         }
     }
 
@@ -144,6 +156,8 @@ impl SpeciesProfile {
             base_speed: 1.5,
             vision_range: 60.0,
             diet: Diet::Herbivore,
+
+            territoriality_baseline: 0.0,
         }
     }
 }

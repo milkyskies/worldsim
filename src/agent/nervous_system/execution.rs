@@ -193,7 +193,11 @@ pub fn start_actions(
                                 .map(|t| t.translation().truncate())
                         })
                     }
-                    _ => None,
+                    // For any other movement action, honour the brain's target rather
+                    // than silently discarding it. If the brain left the position
+                    // unspecified, this returns None and the action completes
+                    // immediately (which is the correct degenerate behaviour).
+                    _ => action_template.target_position,
                 };
 
                 if let Some(tp) = new_target {
@@ -238,6 +242,7 @@ pub fn tick_actions(
         Option<&Body>,
     )>,
     mut target_inventories: Query<&mut ItemSlots, Without<PhysicalNeeds>>,
+    living_entities: Query<()>,
 ) {
     let current_tick = tick.current;
 
@@ -260,9 +265,21 @@ pub fn tick_actions(
         let capacities = ChannelCapacities::compute(body, Some(&*physical));
 
         let mut completed_types: Vec<ActionType> = Vec::new();
+        let mut target_gone_types: Vec<ActionType> = Vec::new();
 
         for action_state in active.iter_mut() {
             let action_type = action_state.action_type;
+
+            // If this action targets an entity that has since been despawned, cancel it
+            // immediately rather than ticking it to completion (where on_complete would
+            // silently do nothing or — without this guard — potentially panic).
+            if let Some(target) = action_state.target_entity
+                && living_entities.get(target).is_err()
+            {
+                target_gone_types.push(action_type);
+                continue;
+            }
+
             let Some(action_def) = registry.get(action_type) else {
                 continue;
             };
@@ -295,6 +312,9 @@ pub fn tick_actions(
                     Some(target_position) => {
                         let current_pos = transform.translation.truncate();
                         if current_pos.distance(target_position) < ARRIVAL_THRESHOLD {
+                            // Snap to exact target so perceived tile matches Walk effect.
+                            transform.translation.x = target_position.x;
+                            transform.translation.y = target_position.y;
                             true
                         } else {
                             let ticks =
@@ -400,6 +420,27 @@ pub fn tick_actions(
             if let Some(msg) = action_def.complete_log() {
                 game_log.action(name.as_str(), msg, None, Some(entity));
             }
+        }
+
+        // Cancel actions whose target entity was despawned mid-execution.
+        for action_type in &target_gone_types {
+            let snapshot = active.get(*action_type).cloned();
+            active.remove(*action_type);
+            let target = snapshot.and_then(|s| s.target_entity);
+            sim_events.write(crate::agent::events::SimEvent::ActionFailed {
+                agent: entity,
+                tick: current_tick,
+                action: *action_type,
+                reason: crate::agent::events::FailureReason::TargetGone,
+            });
+            outcome_events.write(ActionOutcomeEvent {
+                actor: entity,
+                outcome: ActionOutcome::Failed {
+                    action: *action_type,
+                    target,
+                    reason: crate::agent::events::FailureReason::TargetGone,
+                },
+            });
         }
 
         // Remove completed actions from the running set.

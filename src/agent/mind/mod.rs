@@ -7,4 +7,5 @@ pub mod knowledge;
 pub mod memory;
 pub mod perception;
 pub mod recognition;
+pub mod small_talk;
 pub mod social_perception;

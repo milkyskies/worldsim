@@ -5,7 +5,7 @@ pub mod activity_effects;
 pub mod cns;
 pub mod config;
 pub mod execution;
-
+pub mod territoriality;
 pub mod urgency;
 
 pub struct NervousSystemPlugin;
@@ -26,7 +26,9 @@ impl Plugin for NervousSystemPlugin {
                 Update,
                 (
                     activity_effects::apply_activity_effects,
-                    urgency::generate_urgency.after(activity_effects::apply_activity_effects),
+                    territoriality::update_territoriality
+                        .after(activity_effects::apply_activity_effects),
+                    urgency::generate_urgency.after(territoriality::update_territoriality),
                     cns::formulate_goals.after(urgency::generate_urgency),
                 )
                     .run_if(not_paused), // ALL nervous system pauses together

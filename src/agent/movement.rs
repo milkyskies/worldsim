@@ -51,7 +51,10 @@ pub fn move_toward(
     let distance = direction.length();
 
     if distance < ARRIVAL_THRESHOLD {
-        // Already at destination
+        // Already at destination — snap to exact position so the perceived tile
+        // matches the Walk effect's tile and is_step_complete returns true.
+        transform.translation.x = target_pos.x;
+        transform.translation.y = target_pos.y;
         return MoveResult::Arrived;
     }
 
@@ -71,10 +74,14 @@ pub fn move_toward(
     };
 
     if map.is_walkable(new_pos) {
-        transform.translation.x = new_pos.x;
-        transform.translation.y = new_pos.y;
+        let arrived = new_pos.distance(target_pos) < ARRIVAL_THRESHOLD;
+        // Snap to exact target on arrival so the perceived tile always matches
+        // the Walk effect's tile (prevents is_step_complete from staying false).
+        let set_pos = if arrived { target_pos } else { new_pos };
+        transform.translation.x = set_pos.x;
+        transform.translation.y = set_pos.y;
 
-        if new_pos.distance(target_pos) < ARRIVAL_THRESHOLD {
+        if arrived {
             MoveResult::Arrived
         } else {
             MoveResult::Moving

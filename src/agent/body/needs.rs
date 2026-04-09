@@ -53,6 +53,10 @@ pub struct PsychologicalDrives {
     pub status: f32,    // 0-1
     pub security: f32,  // 0-1
     pub autonomy: f32,  // 0-1
+    /// Urge to defend claimed space. Updated each tick by the territoriality
+    /// system based on perceived intruders on owned tiles. Species baseline
+    /// from `SpeciesProfile::territoriality_baseline` determines the floor.
+    pub territoriality: f32, // 0-1
 }
 
 impl Default for PsychologicalDrives {
@@ -64,6 +68,7 @@ impl Default for PsychologicalDrives {
             status: 0.5,
             security: 0.5,
             autonomy: 0.5,
+            territoriality: 0.0,
         }
     }
 }
@@ -87,6 +92,8 @@ impl PsychologicalDrives {
             // Disagreeable personalities need more autonomy
             autonomy: 1.0 - traits.agreeableness,
             fun: 0.5,
+            // Starts at 0; raised by the territoriality system when intruders are perceived
+            territoriality: 0.0,
         }
     }
 }

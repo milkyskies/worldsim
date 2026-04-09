@@ -25,7 +25,7 @@ use crate::core::{GameLog, GameTime};
 use crate::testing::config::AgentConfig;
 use crate::testing::spawn::{
     spawn_test_apple_tree, spawn_test_berry_bush, spawn_test_deer, spawn_test_person,
-    spawn_test_wolf,
+    spawn_test_stone_node, spawn_test_wolf, spawn_test_wood_log,
 };
 use crate::world::environment::LightLevel;
 use crate::world::map::{
@@ -482,6 +482,49 @@ impl TestWorld {
         spawn_test_wolf(self.app.world_mut(), ontology, pos)
     }
 
+    /// Spawns a pack of wolves at the given positions and sets up mutual pack bonds.
+    ///
+    /// All wolves in the returned list know each other as high-trust friends,
+    /// mirroring the bonds established by `setup_wolf_pack_bonds` in the real game.
+    pub fn spawn_wolf_pack(&mut self, positions: &[Vec2]) -> Vec<Entity> {
+        use crate::agent::mind::knowledge::{Concept, Metadata, Node, Predicate, Triple, Value};
+
+        let ontology = self.app.world().resource::<Ontology>().clone();
+        let entities: Vec<Entity> = positions
+            .iter()
+            .map(|&pos| spawn_test_wolf(self.app.world_mut(), ontology.clone(), pos))
+            .collect();
+
+        let meta = Metadata::default();
+        let world = self.app.world_mut();
+        for &wolf in &entities {
+            let packmates: Vec<Entity> = entities.iter().filter(|&&e| e != wolf).copied().collect();
+            let mut mind = world.get_mut::<MindGraph>(wolf).unwrap();
+            for packmate in packmates {
+                mind.assert(Triple::with_meta(
+                    Node::Entity(packmate),
+                    Predicate::IsA,
+                    Value::Concept(Concept::Friend),
+                    meta.clone(),
+                ));
+                mind.assert(Triple::with_meta(
+                    Node::Entity(packmate),
+                    Predicate::Trust,
+                    Value::Float(0.9),
+                    meta.clone(),
+                ));
+                mind.assert(Triple::with_meta(
+                    Node::Entity(packmate),
+                    Predicate::Affection,
+                    Value::Float(0.8),
+                    meta.clone(),
+                ));
+            }
+        }
+
+        entities
+    }
+
     /// Spawns a berry bush at the given position with the specified berry count.
     pub fn spawn_berry_bush(&mut self, pos: Vec2, berries: u32) -> Entity {
         spawn_test_berry_bush(self.app.world_mut(), pos, berries)
@@ -490,6 +533,16 @@ impl TestWorld {
     /// Spawns an apple tree at the given position with the specified apple count.
     pub fn spawn_apple_tree(&mut self, pos: Vec2, apples: u32) -> Entity {
         spawn_test_apple_tree(self.app.world_mut(), pos, apples)
+    }
+
+    /// Spawns a stone node at the given position with the specified stone count.
+    pub fn spawn_stone_node(&mut self, pos: Vec2, stones: u32) -> Entity {
+        spawn_test_stone_node(self.app.world_mut(), pos, stones)
+    }
+
+    /// Spawns a wood log at the given position with the specified wood count.
+    pub fn spawn_wood_log(&mut self, pos: Vec2, wood: u32) -> Entity {
+        spawn_test_wood_log(self.app.world_mut(), pos, wood)
     }
 
     /// Spawns all entities from a layout using the test-compatible (logic-only,
@@ -502,11 +555,21 @@ impl TestWorld {
         for &pos in &layout.deer_positions {
             self.spawn_deer(pos);
         }
+        let wolf_positions: Vec<Vec2> = layout.wolf_positions.clone();
+        if !wolf_positions.is_empty() {
+            self.spawn_wolf_pack(&wolf_positions);
+        }
         for &(pos, berries) in &layout.berry_bush_positions {
             self.spawn_berry_bush(pos, berries);
         }
         for &(pos, apples) in &layout.apple_tree_positions {
             self.spawn_apple_tree(pos, apples);
+        }
+        for &(pos, stones) in &layout.stone_node_positions {
+            self.spawn_stone_node(pos, stones);
+        }
+        for &(pos, wood) in &layout.wood_log_positions {
+            self.spawn_wood_log(pos, wood);
         }
     }
 
@@ -1250,6 +1313,20 @@ mod tests {
     }
 
     #[test]
+    fn spawn_stone_node_starts_with_stone_inventory() {
+        let mut world = TestWorld::with_seed(42);
+        let node = world.spawn_stone_node(Vec2::new(30.0, 30.0), 5);
+        assert_eq!(world.item_count(node, Concept::Stone), 5);
+    }
+
+    #[test]
+    fn spawn_wood_log_starts_with_wood_inventory() {
+        let mut world = TestWorld::with_seed(42);
+        let log = world.spawn_wood_log(Vec2::new(40.0, 40.0), 4);
+        assert_eq!(world.item_count(log, Concept::Wood), 4);
+    }
+
+    #[test]
     fn spawn_deer_creates_agent_with_dangerous_person_belief() {
         let mut world = TestWorld::with_seed(42);
         let deer = world.spawn_deer(Vec2::new(40.0, 40.0));
@@ -1494,7 +1571,7 @@ mod tests {
         let game_config = WorldSpawnConfig::game_defaults();
         assert_eq!(
             world.all_agents().len(),
-            game_config.humans + game_config.deer
+            game_config.humans + game_config.deer + game_config.wolves
         );
     }
 
@@ -1537,6 +1614,7 @@ mod tests {
         let config = WorldSpawnConfig {
             humans: 2,
             deer: 1,
+            wolves: 0,
             berry_bushes: 3,
             apple_trees: 2,
             seed: 7,
@@ -1552,5 +1630,101 @@ mod tests {
         let agents = world.all_agents();
         // 2 humans + 1 deer = 3 agents
         assert_eq!(agents.len(), 3);
+    }
+
+    #[test]
+    fn wolf_has_innate_prey_knowledge() {
+        let mut world = TestWorld::with_seed(42);
+        let wolf = world.spawn_wolf(Vec2::new(40.0, 40.0));
+
+        let mind = world.get::<MindGraph>(wolf);
+        let triples = mind.query(
+            Some(&MindNode::Concept(Concept::Deer)),
+            Some(Predicate::IsA),
+            Some(&Value::Concept(Concept::Food)),
+        );
+        assert!(
+            !triples.is_empty(),
+            "wolf should have intrinsic knowledge that Deer IsA Food"
+        );
+    }
+
+    #[test]
+    fn wolf_has_no_triggers_emotion_triples() {
+        let mut world = TestWorld::with_seed(42);
+        let wolf = world.spawn_wolf(Vec2::new(40.0, 40.0));
+
+        let mind = world.get::<MindGraph>(wolf);
+        let triples = mind.query(None, Some(Predicate::TriggersEmotion), None);
+        assert!(
+            triples.is_empty(),
+            "wolf MindGraph should contain no TriggersEmotion triples — emotions emerge from drives, not scripts"
+        );
+    }
+
+    #[test]
+    fn wolf_knows_humans_are_dangerous() {
+        let mut world = TestWorld::with_seed(42);
+        let wolf = world.spawn_wolf(Vec2::new(40.0, 40.0));
+
+        let mind = world.get::<MindGraph>(wolf);
+        let triples = mind.query(
+            Some(&MindNode::Concept(Concept::Person)),
+            Some(Predicate::HasTrait),
+            Some(&Value::Concept(Concept::Dangerous)),
+        );
+        assert!(
+            !triples.is_empty(),
+            "wolf should have innate belief that humans are dangerous"
+        );
+    }
+
+    #[test]
+    fn wolf_marks_spawn_tile_as_territory() {
+        use crate::world::map::TILE_SIZE;
+
+        let pos = Vec2::new(80.0, 64.0);
+        let mut world = TestWorld::with_seed(42);
+        let wolf = world.spawn_wolf(pos);
+
+        let expected_tile = ((pos.x / TILE_SIZE) as i32, (pos.y / TILE_SIZE) as i32);
+        let mind = world.get::<MindGraph>(wolf);
+        let triples = mind.query(
+            Some(&MindNode::Tile(expected_tile)),
+            Some(Predicate::HasTrait),
+            Some(&Value::Concept(Concept::Territory)),
+        );
+        assert!(
+            !triples.is_empty(),
+            "wolf should mark its spawn tile as territory"
+        );
+    }
+
+    #[test]
+    fn wolf_pack_bonds_established_at_spawn() {
+        let mut world = TestWorld::with_seed(42);
+        let wolves = world.spawn_wolf_pack(&[Vec2::new(40.0, 40.0), Vec2::new(50.0, 50.0)]);
+        let (wolf_a, wolf_b) = (wolves[0], wolves[1]);
+
+        // wolf_a should know wolf_b as a friend with high trust
+        let mind_a = world.get::<MindGraph>(wolf_a);
+        let trust = mind_a.query(
+            Some(&MindNode::Entity(wolf_b)),
+            Some(Predicate::Trust),
+            None,
+        );
+        assert!(
+            !trust.is_empty(),
+            "wolf_a should have a Trust triple for wolf_b"
+        );
+
+        // wolf_b should know wolf_a as a friend
+        let mind_b = world.get::<MindGraph>(wolf_b);
+        let friend = mind_b.query(
+            Some(&MindNode::Entity(wolf_a)),
+            Some(Predicate::IsA),
+            Some(&Value::Concept(Concept::Friend)),
+        );
+        assert!(!friend.is_empty(), "wolf_b should know wolf_a as a Friend");
     }
 }

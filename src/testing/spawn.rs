@@ -206,6 +206,68 @@ pub(super) fn spawn_test_berry_bush(world: &mut World, pos: Vec2, berries: u32) 
         .id()
 }
 
+/// Spawns a stone node with the given starting stone count, no visuals.
+pub(super) fn spawn_test_stone_node(world: &mut World, pos: Vec2, stones: u32) -> Entity {
+    let mut inventory = ItemSlots::agent_carry();
+    if stones > 0 {
+        inventory.add(Concept::Stone, stones);
+    }
+
+    world
+        .spawn((
+            Name::new("TestStoneNode"),
+            EntityType(Concept::StoneNode),
+            Physical,
+            Transform::from_translation(pos.extend(1.0)),
+            GlobalTransform::default(),
+            inventory,
+            Affordance {
+                action_type: ActionType::Harvest,
+                cost: 6.0,
+                distance: 28.0,
+                risk: 0.0,
+            },
+            ResourceRegeneration {
+                timer: 0.0,
+                interval: 60.0,
+                item: Concept::Stone,
+                max_amount: 8,
+            },
+        ))
+        .id()
+}
+
+/// Spawns a wood log with the given starting wood count, no visuals.
+pub(super) fn spawn_test_wood_log(world: &mut World, pos: Vec2, wood: u32) -> Entity {
+    let mut inventory = ItemSlots::agent_carry();
+    if wood > 0 {
+        inventory.add(Concept::Wood, wood);
+    }
+
+    world
+        .spawn((
+            Name::new("TestWoodLog"),
+            EntityType(Concept::WoodLog),
+            Physical,
+            Transform::from_translation(pos.extend(1.0)),
+            GlobalTransform::default(),
+            inventory,
+            Affordance {
+                action_type: ActionType::Harvest,
+                cost: 4.0,
+                distance: 24.0,
+                risk: 0.0,
+            },
+            ResourceRegeneration {
+                timer: 0.0,
+                interval: 45.0,
+                item: Concept::Wood,
+                max_amount: 6,
+            },
+        ))
+        .id()
+}
+
 /// Spawns an apple tree with the given starting apple count, no visuals.
 pub(super) fn spawn_test_apple_tree(world: &mut World, pos: Vec2, apples: u32) -> Entity {
     let mut inventory = ItemSlots::agent_carry();
