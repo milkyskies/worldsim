@@ -39,9 +39,14 @@ pub(super) fn spawn_test_person(
         mind.assert(triple);
     }
 
+    let display_name = config
+        .name
+        .clone()
+        .unwrap_or_else(|| "TestPerson".to_string());
+
     world
         .spawn((
-            Name::new("TestPerson"),
+            Name::new(display_name),
             Agent,
             Person,
             EntityType(Concept::Person),

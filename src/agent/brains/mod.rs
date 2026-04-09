@@ -10,6 +10,7 @@ pub mod proposal;
 pub mod rational;
 pub mod survival;
 pub mod thinking;
+pub mod trace;
 
 // Internal Tests moved inline
 
@@ -23,6 +24,8 @@ impl Plugin for BrainPlugin {
             .register_type::<proposal::BrainState>()
             .register_type::<proposal::BrainType>()
             .register_type::<proposal::BrainPowers>()
+            .init_resource::<trace::TraceConfig>()
+            .init_resource::<trace::DecisionTraceBuffer>()
             .add_systems(
                 Update,
                 (
@@ -31,6 +34,8 @@ impl Plugin for BrainPlugin {
                     // Note: start_actions is now in AgentPlugin to run after brain decides
                 )
                     .run_if(not_paused), // ALL brain systems pause together
-            );
+            )
+            // Trace system runs in Last to read all SimEvents emitted during Update.
+            .add_systems(Last, trace::update_decision_trace.run_if(not_paused));
     }
 }

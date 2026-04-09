@@ -131,6 +131,34 @@ fn hungry_agent_near_food_eats() {
 - `world.current_action(agent) -> Option<ActionType>`
 - `world.has_registered_action(action) -> bool`
 
+**Text inspection (debugging failing tests — output goes to stderr):**
+- `world.print_agent_state(agent)` — full snapshot: position, action, brain, needs, emotions, body
+- `world.print_brain_decision(agent)` — last brain decision with all proposals, urgencies, powers
+- `world.print_mind_graph(agent)` — full MindGraph dump with metadata
+- `world.print_relationships(agent)` — all relationships with trust/affection/respect
+- `world.print_conversation(agent)` — current conversation state if in one
+- `world.query_knowledge(agent, "Wolf") -> Vec<String>` — text search across triples
+- `world.print_recent_events(last_n_ticks)` — SimEvents from the last N ticks
+- `world.print_agent_events(agent, last_n_ticks)` — SimEvents for one agent in last N ticks
+
+```rust
+#[test]
+fn hungry_agent_eats() {
+    let mut world = TestWorld::with_seed(42);
+    let agent = world.spawn_agent(AgentConfig { hunger: 90.0, ..Default::default() });
+    world.spawn_berry_bush(Vec2::new(12.0, 10.0), 5);
+    world.tick(200);
+
+    if world.agent_hunger(agent) >= 50.0 {
+        // Test is about to fail — dump everything
+        world.print_agent_state(agent);
+        world.print_brain_decision(agent);
+        world.print_agent_events(agent, 200);
+    }
+    assert!(world.agent_hunger(agent) < 50.0);
+}
+```
+
 ### When to write which kind of test
 
 - **Unit test** — pure function with clear inputs/outputs (urgency math, decay formulas, triple queries). Lives in `#[cfg(test)] mod tests` next to the code.
@@ -153,7 +181,116 @@ cargo run --release -- --headless --ticks 1000 --humans 10 --deer 5 --berry-bush
 cargo test
 ```
 
-Flags (all optional): `--headless`, `--ticks N` (default 1000), `--seed N` (default 0), `--report`, `--humans N`, `--berry-bushes N`, `--apple-trees N`, `--deer N`.
+Population flags: `--humans N`, `--berry-bushes N`, `--apple-trees N`, `--deer N`.
+
+### Observability: SimEvent bus
+
+Every meaningful state change in the simulation is emitted as a `SimEvent` from `src/agent/events.rs`. This is the foundation for logging, decision tracing, and debugging — every observability tool below subscribes to this stream.
+
+**Variants** (one event per state change, all carry `tick: u64` and the relevant `agent: Entity`):
+
+```rust
+SimEvent::Decision { agent, tick, winner, chosen_actions, powers, proposals }
+SimEvent::ActionStarted { agent, tick, action, target }
+SimEvent::ActionCompleted { agent, tick, action }
+SimEvent::ActionPreempted { agent, tick, preempted_action }
+SimEvent::ActionFailed { agent, tick, action, reason }
+SimEvent::ConversationStarted { participants, tick, conversation_id }
+SimEvent::ConversationEnded { participants, tick, conversation_id }
+SimEvent::ConversationAbandoned { abandoner, abandoned, tick }
+SimEvent::RelationshipChanged { agent, other, tick, dimension, old_value, new_value }
+SimEvent::EmotionTriggered { agent, tick, emotion, intensity }
+SimEvent::Death { agent, tick, cause }
+SimEvent::EntityPerceived { agent, tick, target }
+SimEvent::StrangerDetected { agent, tick, stranger }
+SimEvent::KnowledgeShared { speaker, listener, tick, triple_count }
+```
+
+**Any new system that produces meaningful state changes must emit SimEvents.** Add new variants to `src/agent/events.rs` if your system needs to report something not covered above.
+
+### Observability: structured event log (JSONL)
+
+Capture every SimEvent during a headless run as JSONL — one JSON object per line. Use with `jq` for post-mortem analysis.
+
+```bash
+# Log everything to file
+cargo run --release -- --headless --ticks 5000 --seed 42 --log events.jsonl
+
+# Log to stdout (pipe-friendly)
+cargo run --release -- --headless --ticks 5000 --seed 42 --log -
+
+# Filter at capture time
+cargo run --release -- --headless --ticks 5000 --seed 42 --log events.jsonl \
+  --log-filter agent:alice \
+  --log-filter type:Decision,ActionStarted \
+  --log-filter tick:1000-2000
+```
+
+**Flags:**
+- `--log <path|->` — output file path or `-` for stdout
+- `--log-filter <expr>` — repeatable, prefixes: `agent:<name>`, `type:<Type1,Type2>`, `tick:<start>-<end>`
+
+**jq examples:**
+```bash
+# All decisions for one agent
+cat events.jsonl | jq 'select(.agent == "alice" and .type == "Decision")'
+
+# All deaths
+cat events.jsonl | jq 'select(.type == "Death")'
+
+# Count events by type
+cat events.jsonl | jq -r .type | sort | uniq -c | sort -rn
+```
+
+### Observability: decision trace
+
+A per-agent ring buffer of brain decisions and recent events, dumped on exit. Use this when you need a focused view of one agent's decision history without parsing the full event log.
+
+```bash
+# Trace one agent's decisions to stderr (text format)
+cargo run --release -- --headless --ticks 5000 --seed 42 --trace agent:alice
+
+# Trace all agents (verbose)
+cargo run --release -- --headless --ticks 5000 --seed 42 --trace all
+
+# Limit to a tick range
+cargo run --release -- --headless --ticks 5000 --seed 42 \
+  --trace agent:alice --trace-ticks 4500-4600
+
+# JSONL output to file
+cargo run --release -- --headless --ticks 5000 --seed 42 \
+  --trace agent:alice --trace-format jsonl --trace-file alice_trace.jsonl
+```
+
+**Flags:**
+- `--trace <agent:name|all>` — which agents to trace
+- `--trace-ticks <start-end>` — only trace within this tick range
+- `--trace-format <text|jsonl>` — output format (default text)
+- `--trace-file <path>` — write to file instead of stderr
+
+### Observability: ad-hoc inspection
+
+Run the sim, pause at a specific tick, inspect agent state from the command line. No code changes needed.
+
+```bash
+# Snapshot agent state at a specific tick
+cargo run --release -- --headless --ticks 5000 --seed 42 \
+  --inspect agent:alice --at-tick 4521
+
+# Dump full MindGraph
+cargo run --release -- --headless --ticks 5000 --seed 42 \
+  --dump-mind agent:alice --at-tick 4521
+
+# Search MindGraph by text
+cargo run --release -- --headless --ticks 5000 --seed 42 \
+  --query "alice Wolf" --at-tick 4521
+```
+
+**Flags:**
+- `--inspect <agent:name>` — repeatable; print full agent state snapshot
+- `--dump-mind <agent:name>` — repeatable; print agent's MindGraph
+- `--query "<agent> <text>"` — repeatable; search MindGraph by text
+- `--at-tick <N>` — pause and run inspection commands at this tick (default: final tick)
 
 ### Invariants (automatic in debug builds)
 
