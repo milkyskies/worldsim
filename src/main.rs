@@ -7,14 +7,38 @@ use bevy::diagnostic::{
     SystemInformationDiagnosticsPlugin,
 };
 use bevy::prelude::*;
+use clap::Parser;
 use worldsim::agent::AgentPlugin;
-
+use worldsim::cli::CliArgs;
 use worldsim::core::CorePlugin;
+use worldsim::headless;
 use worldsim::ui::UiPlugin;
 use worldsim::ui::camera::CameraPlugin;
 use worldsim::world::WorldPlugin;
 
 fn main() {
+    let args = CliArgs::parse();
+
+    if args.headless {
+        let report = headless::run_headless(args.to_headless_config());
+        if args.report {
+            let json = serde_json::to_string_pretty(&report)
+                .expect("HeadlessReport serialization should never fail");
+            println!("{json}");
+        } else {
+            println!(
+                "Headless run complete: {} ticks in {:.3}s ({:.0} ticks/s)",
+                report.ticks, report.elapsed_secs, report.ticks_per_second
+            );
+        }
+        return;
+    }
+
+    run_windowed();
+}
+
+/// Builds and runs the full Bevy app with rendering and UI.
+fn run_windowed() {
     App::new()
         .add_plugins(DefaultPlugins.set(ImagePlugin::default_nearest()))
         // Core systems (tick, time) - must be first

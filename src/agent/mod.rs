@@ -6,6 +6,7 @@ pub mod body;
 pub mod brains;
 pub mod culture;
 pub mod events;
+pub mod invariants;
 pub mod inventory;
 pub mod mind;
 pub mod movement;
@@ -68,6 +69,7 @@ impl Plugin for AgentPlugin {
             .add_plugins(biology::BiologyPlugin)
             .add_plugins(brains::BrainPlugin)
             .add_plugins(nervous_system::NervousSystemPlugin)
+            .add_plugins(invariants::InvariantPlugin)
             // Unified action execution system
             .add_systems(
                 Update,
