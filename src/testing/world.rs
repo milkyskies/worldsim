@@ -1025,7 +1025,7 @@ impl Default for TestWorld {
 
 /// Builds a fully walkable WorldMap of the given dimensions in tiles. Initializes
 /// every chunk with grass so `is_walkable` returns true everywhere.
-fn make_walkable_map(width: u32, height: u32) -> WorldMap {
+pub(super) fn make_walkable_map(width: u32, height: u32) -> WorldMap {
     let mut map = WorldMap::new(width, height);
     let chunks_x = width.div_ceil(CHUNK_SIZE);
     let chunks_y = height.div_ceil(CHUNK_SIZE);

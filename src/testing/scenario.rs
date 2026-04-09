@@ -12,10 +12,11 @@ use bevy::math::Vec2;
 use bevy::prelude::*;
 
 use crate::agent::mind::knowledge::{Metadata, MindGraph, Node, Predicate, Triple, Value};
+use crate::agent::mind::recognition::initialize_relationship;
 use crate::agent::psyche::personality::{Personality, PersonalityTraits};
 use crate::testing::config::AgentConfig;
-use crate::testing::world::TestWorld;
-use crate::world::map::{CHUNK_SIZE, Chunk, TileType, WorldMap};
+use crate::testing::world::{TestWorld, make_walkable_map};
+use crate::world::map::{TileType, WorldMap};
 
 // ─── PersonalityBuilder ────────────────────────────────────────────────────
 
@@ -426,7 +427,7 @@ impl ScenarioBuilder {
 
         // Spawn named agents.
         for agent_spec in &self.agents {
-            let entity = spawn_named_agent(&mut world, agent_spec, &groups);
+            let entity = spawn_named_agent(&mut world, agent_spec);
             named.insert(agent_spec.name.clone(), entity);
 
             // Add to group entity list if assigned.
@@ -522,18 +523,9 @@ impl Index<&str> for ScenarioEntities {
 
 // ─── Internal helpers ─────────────────────────────────────────────────────
 
-/// Build a fully initialised `WorldMap` with the given dimensions and tile edits.
-/// Every chunk is created as walkable grass; edits are applied afterwards.
+/// Build a `WorldMap` with the given dimensions and tile edits applied.
 fn build_map(width: u32, height: u32, edits: &[TileEdit]) -> WorldMap {
-    let mut map = WorldMap::new(width, height);
-    let chunks_x = width.div_ceil(CHUNK_SIZE);
-    let chunks_y = height.div_ceil(CHUNK_SIZE);
-    for cy in 0..chunks_y as i32 {
-        for cx in 0..chunks_x as i32 {
-            map.chunks
-                .insert(bevy::math::IVec2::new(cx, cy), Chunk::new(cx, cy));
-        }
-    }
+    let mut map = make_walkable_map(width, height);
     for edit in edits {
         map.set_tile(edit.x, edit.y, edit.tile);
     }
@@ -567,11 +559,7 @@ fn spawn_group(world: &mut TestWorld, spec: &GroupSpec) -> Vec<Entity> {
 }
 
 /// Spawn a single named agent using the spec.
-fn spawn_named_agent(
-    world: &mut TestWorld,
-    spec: &AgentSpec,
-    _groups: &HashMap<String, Vec<Entity>>,
-) -> Entity {
+fn spawn_named_agent(world: &mut TestWorld, spec: &AgentSpec) -> Entity {
     let config = AgentConfig {
         pos: spec.pos.unwrap_or(Vec2::ZERO),
         name: Some(spec.name.clone()),
@@ -614,60 +602,17 @@ fn apply_mutual_knowledge(world: &mut TestWorld, members: &[Entity]) {
             {
                 let mind_a = world.app_mut().world_mut().get_mut::<MindGraph>(a);
                 if let Some(mut mind) = mind_a {
-                    write_knows_triple(&mut mind, b, &b_name);
+                    initialize_relationship(&mut mind, b, &b_name, 0);
                 }
             }
             {
                 let mind_b = world.app_mut().world_mut().get_mut::<MindGraph>(b);
                 if let Some(mut mind) = mind_b {
-                    write_knows_triple(&mut mind, a, &a_name);
+                    initialize_relationship(&mut mind, a, &a_name, 0);
                 }
             }
         }
     }
-}
-
-/// Write knows + neutral relationship triples for `other` into `mind`.
-fn write_knows_triple(mind: &mut MindGraph, other: Entity, name: &str) {
-    let target = Node::Entity(other);
-    let meta = Metadata::semantic(0);
-
-    mind.assert(Triple::with_meta(
-        target.clone(),
-        Predicate::Knows,
-        Value::Boolean(true),
-        meta.clone(),
-    ));
-    mind.assert(Triple::with_meta(
-        target.clone(),
-        Predicate::Introduced,
-        Value::Boolean(true),
-        meta.clone(),
-    ));
-    mind.assert(Triple::with_meta(
-        target.clone(),
-        Predicate::NameOf,
-        Value::Text(crate::agent::mind::knowledge::AgentName(name.to_string())),
-        meta.clone(),
-    ));
-    mind.assert(Triple::with_meta(
-        target.clone(),
-        Predicate::Trust,
-        Value::Float(0.5),
-        meta.clone(),
-    ));
-    mind.assert(Triple::with_meta(
-        target.clone(),
-        Predicate::Affection,
-        Value::Float(0.5),
-        meta.clone(),
-    ));
-    mind.assert(Triple::with_meta(
-        target.clone(),
-        Predicate::Respect,
-        Value::Float(0.5),
-        meta,
-    ));
 }
 
 /// Write relationship dimensions from `a`'s perspective about `b`.
@@ -681,28 +626,13 @@ fn apply_relationship(world: &mut TestWorld, a: Entity, b: Entity, spec: &Relati
 
     let mind = world.app_mut().world_mut().get_mut::<MindGraph>(a);
     let Some(mut mind) = mind else { return };
+
+    // initialize_relationship sets Knows/Introduced/NameOf/Trust/Affection/Respect/PowerBalance.
+    // We then overwrite the three dimensions with the caller-specified values.
+    initialize_relationship(&mut mind, b, &b_name, 0);
+
     let target = Node::Entity(b);
     let meta = Metadata::semantic(0);
-
-    // Ensure they know each other.
-    mind.assert(Triple::with_meta(
-        target.clone(),
-        Predicate::Knows,
-        Value::Boolean(true),
-        meta.clone(),
-    ));
-    mind.assert(Triple::with_meta(
-        target.clone(),
-        Predicate::Introduced,
-        Value::Boolean(true),
-        meta.clone(),
-    ));
-    mind.assert(Triple::with_meta(
-        target.clone(),
-        Predicate::NameOf,
-        Value::Text(crate::agent::mind::knowledge::AgentName(b_name)),
-        meta.clone(),
-    ));
     mind.assert(Triple::with_meta(
         target.clone(),
         Predicate::Trust,
