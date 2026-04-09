@@ -1,69 +1,72 @@
 //! Integration tests for wolf predator behavior.
 //!
 //! Verifies:
-//! - Wolves have correct innate knowledge (deer and humans trigger anger)
-//! - Wolves are feared by humans (Wolf HasTrait Dangerous in ontology)
-//! - Wolves are feared by deer (Wolf HasTrait Dangerous in ontology)
-//! - Wolf triggers attack behavior when it perceives deer
+//! - Wolves have correct innate knowledge (prey recognition, danger awareness)
+//! - No hardcoded emotion triggers — behavior emerges from drives and knowledge
+//! - Wolves are feared by humans (Wolf HasTrait Dangerous in shared ontology)
+//! - Pack bonding is established at spawn
 
 use bevy::prelude::*;
 use worldsim::agent::mind::knowledge::{
     Concept, MindGraph, Node, Predicate, Value, setup_ontology,
 };
-use worldsim::agent::psyche::emotions::EmotionType;
 use worldsim::testing::TestWorld;
 
-/// Wolves should have anger-triggering knowledge for deer (primary prey).
+/// Wolves should recognize deer as food intrinsically.
 #[test]
-fn wolf_knows_deer_triggers_anger() {
+fn wolf_knows_deer_is_food() {
     let mut world = TestWorld::with_seed(42);
     let wolf = world.spawn_wolf(Vec2::new(100.0, 100.0));
 
     let mind = world.get::<MindGraph>(wolf);
     let triples = mind.query(
         Some(&Node::Concept(Concept::Deer)),
-        Some(Predicate::TriggersEmotion),
-        None,
+        Some(Predicate::IsA),
+        Some(&Value::Concept(Concept::Food)),
     );
 
     assert!(
         !triples.is_empty(),
-        "wolf should know that deer trigger an emotion"
-    );
-
-    let anger_triple = triples
-        .iter()
-        .find(|t| matches!(&t.object, Value::Emotion(EmotionType::Anger, _)));
-    assert!(
-        anger_triple.is_some(),
-        "wolf should know that deer trigger anger (hunt instinct)"
+        "wolf should have intrinsic knowledge that Deer IsA Food"
     );
 }
 
-/// Wolves should treat humans as a territorial threat (mild anger).
+/// Wolves should know humans are dangerous intrinsically.
 #[test]
-fn wolf_knows_person_triggers_anger() {
+fn wolf_knows_humans_are_dangerous() {
     let mut world = TestWorld::with_seed(42);
     let wolf = world.spawn_wolf(Vec2::new(100.0, 100.0));
 
     let mind = world.get::<MindGraph>(wolf);
     let triples = mind.query(
         Some(&Node::Concept(Concept::Person)),
-        Some(Predicate::TriggersEmotion),
-        None,
+        Some(Predicate::HasTrait),
+        Some(&Value::Concept(Concept::Dangerous)),
     );
 
-    let anger_triple = triples
-        .iter()
-        .find(|t| matches!(&t.object, Value::Emotion(EmotionType::Anger, _)));
     assert!(
-        anger_triple.is_some(),
-        "wolf should treat persons as a territorial threat (anger)"
+        !triples.is_empty(),
+        "wolf should have innate wariness toward humans (Person HasTrait Dangerous)"
     );
 }
 
-/// The ontology marks wolves as Dangerous so all agents with the ontology
-/// automatically know to fear them — no per-agent innate knowledge needed.
+/// No hardcoded emotion triggers — wolf behavior emerges from drives and knowledge.
+#[test]
+fn wolf_has_no_triggers_emotion_triples() {
+    let mut world = TestWorld::with_seed(42);
+    let wolf = world.spawn_wolf(Vec2::new(100.0, 100.0));
+
+    let mind = world.get::<MindGraph>(wolf);
+    let triples = mind.query(None, Some(Predicate::TriggersEmotion), None);
+
+    assert!(
+        triples.is_empty(),
+        "wolf MindGraph must contain no TriggersEmotion triples — emotions emerge from outcome processing, not trigger scripts"
+    );
+}
+
+/// The shared ontology marks wolves as Dangerous so all agents automatically
+/// know to be cautious around them — no per-agent innate knowledge needed.
 #[test]
 fn ontology_marks_wolf_as_dangerous() {
     let ontology = setup_ontology();
@@ -76,20 +79,17 @@ fn ontology_marks_wolf_as_dangerous() {
 
     assert!(
         triples.count() > 0,
-        "ontology should mark Wolf as Dangerous so all agents fear wolves"
+        "shared ontology should mark Wolf as Dangerous so all agents fear wolves"
     );
 }
 
-/// Humans should trigger fear when they perceive a wolf, because the shared
+/// Humans should trigger fear when they perceive a wolf because the shared
 /// ontology tells them Wolf is Dangerous.
 #[test]
 fn human_fears_wolf_via_ontology() {
-    use worldsim::agent::mind::knowledge::MindGraph;
-
     let ontology = setup_ontology();
     let mind = MindGraph::new(ontology);
 
-    // Simulate the danger-perception system: query the mind for Wolf HasTrait Dangerous
     let danger_triples = mind.query(
         Some(&Node::Concept(Concept::Wolf)),
         Some(Predicate::HasTrait),
@@ -98,54 +98,32 @@ fn human_fears_wolf_via_ontology() {
 
     assert!(
         !danger_triples.is_empty(),
-        "human mind (with ontology) should know Wolf is Dangerous"
+        "human mind (with shared ontology) should know Wolf is Dangerous"
     );
 }
 
-/// The emotional brain should propose Attack when a wolf's mind contains a
-/// visible deer entity (simulating what perception writes). Tests the mechanism
-/// directly rather than the full simulation chain.
+/// Wolves spawned as a pack should have mutual friend bonds.
 #[test]
-fn wolf_emotional_brain_proposes_attack_for_visible_deer() {
-    use worldsim::agent::actions::{ActionRegistry, ActionType};
-    use worldsim::agent::brains::emotional::emotional_brain_propose;
-    use worldsim::agent::mind::knowledge::{Metadata, Node, Triple, Value};
-    use worldsim::agent::mind::perception::VisibleObjects;
-    use worldsim::agent::psyche::emotions::EmotionalState;
-
-    // Get a wolf mind via the public TestWorld API so it has innate knowledge applied.
+fn wolf_pack_bonds_established_at_spawn() {
     let mut world = TestWorld::with_seed(42);
-    let wolf = world.spawn_wolf(Vec2::new(0.0, 0.0));
-    let wolf_mind = world.get::<MindGraph>(wolf).clone();
+    let wolves = world.spawn_wolf_pack(&[Vec2::new(40.0, 40.0), Vec2::new(50.0, 50.0)]);
+    let (wolf_a, wolf_b) = (wolves[0], wolves[1]);
 
-    // Simulate what the perception system writes when a deer entity is observed.
-    let mut mind = wolf_mind;
-    let deer_entity = bevy::ecs::entity::Entity::from_bits(1);
-    mind.assert(Triple::with_meta(
-        Node::Entity(deer_entity),
-        Predicate::IsA,
-        Value::Concept(Concept::Deer),
-        Metadata::perception(0),
-    ));
-
-    let mut visible = VisibleObjects::default();
-    visible.entities.push(deer_entity);
-
-    let emotions = EmotionalState::default();
-    let mut registry = ActionRegistry::default();
-    registry.register(worldsim::agent::actions::action::AttackAction);
-    registry.register(worldsim::agent::actions::action::WalkAction);
-    registry.register(worldsim::agent::actions::action::FleeAction);
-
-    let proposal = emotional_brain_propose(&emotions, &mind, &visible, &registry);
-
+    let mind_a = world.get::<MindGraph>(wolf_a);
+    let trust = mind_a.query(Some(&Node::Entity(wolf_b)), Some(Predicate::Trust), None);
     assert!(
-        proposal.is_some(),
-        "emotional brain should propose an action when wolf sees deer"
+        !trust.is_empty(),
+        "wolf_a should have a Trust triple for wolf_b (pack bond)"
     );
-    assert_eq!(
-        proposal.unwrap().action.action_type,
-        ActionType::Attack,
-        "wolf should want to attack a visible deer"
+
+    let mind_b = world.get::<MindGraph>(wolf_b);
+    let friend = mind_b.query(
+        Some(&Node::Entity(wolf_a)),
+        Some(Predicate::IsA),
+        Some(&Value::Concept(Concept::Friend)),
+    );
+    assert!(
+        !friend.is_empty(),
+        "wolf_b should know wolf_a as a Friend (mutual pack bond)"
     );
 }
