@@ -174,18 +174,17 @@ pub fn update_rational_brain(
                 brain.current_goal.take()
             };
             if plan_invalid {
-                // Stop the execution system from re-starting stale actions immediately.
-                // Without this, chosen_actions persists until the next thinking interval
-                // (up to 60 ticks), causing agents to keep executing an action whose
-                // preconditions are no longer met.
+                // update_rational_brain runs before start_actions (data-conflict ordering).
+                // Clearing chosen_actions here prevents start_actions from re-starting the
+                // stale action this tick and on subsequent ticks until three_brains_system
+                // next fires and re-populates the list with a valid proposal.
                 brain_state.chosen_actions.clear();
             }
         }
 
         // 2. Heavy Thinking (Replanning)
-        // Bypass the stagger gate when the plan was just invalidated so a fresh plan
-        // is formed in the same tick rather than after the full thinking interval.
-        if !tick.should_run(entity, ns_config.thinking_interval) && !plan_invalid {
+        let should_replan = plan_invalid || tick.should_run(entity, ns_config.thinking_interval);
+        if !should_replan {
             continue;
         }
 
