@@ -183,10 +183,10 @@ struct InsertConverseMarker {
 impl EntityCommand for InsertConverseMarker {
     fn apply(self, mut entity: EntityWorldMut) {
         let tick = self.tick;
-        if let Some(mut active) = entity.get_mut::<ActiveActions>() {
-            if !active.contains(ActionType::Converse) {
-                active.insert(ActionState::new(ActionType::Converse, tick));
-            }
+        if let Some(mut active) = entity.get_mut::<ActiveActions>()
+            && !active.contains(ActionType::Converse)
+        {
+            active.insert(ActionState::new(ActionType::Converse, tick));
         }
     }
 }
