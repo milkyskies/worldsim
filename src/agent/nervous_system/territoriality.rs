@@ -130,23 +130,6 @@ pub fn update_territoriality(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::agent::psyche::personality::PersonalityTraits;
-
-    fn default_profile(baseline: f32) -> SpeciesProfile {
-        SpeciesProfile {
-            territoriality_baseline: baseline,
-            ..SpeciesProfile::human()
-        }
-    }
-
-    fn personality(agreeableness: f32) -> Personality {
-        Personality {
-            traits: PersonalityTraits {
-                agreeableness,
-                ..Default::default()
-            },
-        }
-    }
 
     fn run_no_intruder(baseline: f32) -> f32 {
         // Simulate one "no intruder" tick starting from baseline.
