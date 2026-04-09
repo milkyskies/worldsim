@@ -137,9 +137,11 @@ pub(super) fn spawn_test_deer(world: &mut World, ontology: Ontology, pos: Vec2) 
 /// Spawns a Wolf predator agent with all logic components but no visuals.
 pub(super) fn spawn_test_wolf(world: &mut World, ontology: Ontology, pos: Vec2) -> Entity {
     use crate::agent::psyche::personality::Personality;
+    use crate::world::map::TILE_SIZE;
 
+    let spawn_tile = ((pos.x / TILE_SIZE) as i32, (pos.y / TILE_SIZE) as i32);
     let mut mind = MindGraph::new(ontology);
-    crate::world::wolf::add_wolf_knowledge(&mut mind);
+    crate::world::wolf::add_wolf_knowledge(&mut mind, spawn_tile);
 
     world
         .spawn((
@@ -169,6 +171,7 @@ pub(super) fn spawn_test_wolf(world: &mut World, ontology: Ontology, pos: Vec2) 
             CentralNervousSystem::default(),
             PhysicalNeeds::default(),
             Consciousness::default(),
+            PsychologicalDrives::default(),
             ActiveActions::default(),
             EmotionalState::default(),
         ))

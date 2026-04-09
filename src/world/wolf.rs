@@ -5,12 +5,14 @@
 //! Upstream: world::spawner (calls spawn_wolf), world::map (biome placement)
 //! Downstream: agent brains (fear/flee in humans/deer, anger/attack in wolves)
 
+use crate::agent::body::needs::PsychologicalDrives;
 use crate::agent::body::species::SpeciesProfile;
 use crate::agent::mind::knowledge::{Concept, MindGraph, Ontology};
 use crate::agent::{
     Agent,
     inventory::{EntityType, Inventory},
 };
+use crate::world::map::TILE_SIZE;
 use bevy::prelude::*;
 
 /// Marker component for wolf entities.
@@ -31,8 +33,13 @@ pub fn spawn_wolf(
     let inventory = Inventory::default();
     let personality = Personality::random();
 
+    let spawn_tile = (
+        (position.x / TILE_SIZE) as i32,
+        (position.y / TILE_SIZE) as i32,
+    );
+
     let mut mind = MindGraph::new(ontology);
-    add_wolf_knowledge(&mut mind);
+    add_wolf_knowledge(&mut mind, spawn_tile);
 
     let body_color = Color::srgb(0.55, 0.55, 0.55); // Gray
     let head_color = Color::srgb(0.60, 0.60, 0.60); // Slightly lighter gray
@@ -68,6 +75,7 @@ pub fn spawn_wolf(
             crate::agent::nervous_system::cns::CentralNervousSystem::default(),
             crate::agent::body::needs::PhysicalNeeds::default(),
             crate::agent::body::needs::Consciousness::default(),
+            PsychologicalDrives::default(),
             crate::agent::actions::ActiveActions::default(),
             crate::agent::psyche::emotions::EmotionalState::default(),
         ))
@@ -160,37 +168,46 @@ pub fn spawn_wolf(
     entity
 }
 
-/// Adds wolf-specific innate knowledge.
-/// Wolves know:
-/// - Deer trigger anger (hunt on sight)
-/// - Humans trigger mild anger (will attack if territory is threatened)
-pub(crate) fn add_wolf_knowledge(mind: &mut MindGraph) {
-    use crate::agent::mind::knowledge::{
-        MemoryType, Metadata, Node, Predicate, Source, Triple, Value,
-    };
-    use crate::agent::psyche::emotions::EmotionType;
+/// Adds wolf-specific innate biological knowledge.
+///
+/// Wolves do not have hardcoded emotion triggers. Their behavior emerges from
+/// drives (hunger → hunt deer), threat assessment (humans are dangerous → fear/flee
+/// when outnumbered), and territorial drive (intruder on owned tile → attack).
+pub(crate) fn add_wolf_knowledge(mind: &mut MindGraph, spawn_tile: (i32, i32)) {
+    use crate::agent::mind::knowledge::{Metadata, Node, Predicate, Triple, Value};
 
-    let meta = Metadata {
-        source: Source::Intrinsic,
-        memory_type: MemoryType::Intrinsic,
-        timestamp: 0,
-        confidence: 1.0,
-        ..Default::default()
-    };
+    let meta = Metadata::default(); // Source::Intrinsic, confidence 1.0
 
-    // Deer trigger anger — primary prey
+    // Prey recognition: wolves are born knowing deer is food.
     mind.assert(Triple::with_meta(
         Node::Concept(Concept::Deer),
-        Predicate::TriggersEmotion,
-        Value::Emotion(EmotionType::Anger, 0.7),
+        Predicate::IsA,
+        Value::Concept(Concept::Food),
         meta.clone(),
     ));
 
-    // Humans trigger mild anger — territorial threat
+    // Prey trait: deer is prey (affects hunt action selection).
+    mind.assert(Triple::with_meta(
+        Node::Concept(Concept::Deer),
+        Predicate::HasTrait,
+        Value::Concept(Concept::Prey),
+        meta.clone(),
+    ));
+
+    // Humans are dangerous — real wolves have centuries of learned wariness.
     mind.assert(Triple::with_meta(
         Node::Concept(Concept::Person),
-        Predicate::TriggersEmotion,
-        Value::Emotion(EmotionType::Anger, 0.4),
+        Predicate::HasTrait,
+        Value::Concept(Concept::Dangerous),
+        meta.clone(),
+    ));
+
+    // Natal territory: mark the spawn tile as owned territory.
+    // The Territoriality drive system queries (tile, HasTrait, Territory) triples.
+    mind.assert(Triple::with_meta(
+        Node::Tile(spawn_tile),
+        Predicate::HasTrait,
+        Value::Concept(Concept::Territory),
         meta,
     ));
 }
