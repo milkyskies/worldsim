@@ -6,8 +6,10 @@
 //! Downstream: integration tests for brains, planner, perception, knowledge, scenarios
 
 mod config;
+pub(crate) mod scenario;
 mod spawn;
 mod world;
 
 pub use config::AgentConfig;
+pub use scenario::{PersonalityBuilder, RelBuilder, ScenarioBuilder, ScenarioEntities};
 pub use world::{SimEventLog, TestWorld};
