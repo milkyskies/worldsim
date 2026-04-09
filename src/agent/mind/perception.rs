@@ -123,6 +123,11 @@ pub fn update_body_perception(
             current_time,
         );
         mind.perceive_self(
+            Predicate::Thirst,
+            Value::Int(physical.thirst as i32),
+            current_time,
+        );
+        mind.perceive_self(
             Predicate::Energy,
             Value::Int(physical.energy as i32),
             current_time,
@@ -289,6 +294,59 @@ fn perceive_inventory(
             Predicate::Contains,
             &Value::Item(concept, old_qty),
         );
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// WATER PERCEPTION — Detect water tiles in vision range
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Water tiles are static terrain — scan infrequently (every 30 ticks per agent).
+pub fn perceive_water_tiles(
+    mut agents: Query<(Entity, &Transform, &Vision, &mut MindGraph), With<Agent>>,
+    world_map: Res<crate::world::map::WorldMap>,
+    light_level: Res<LightLevel>,
+    tick: Res<TickCount>,
+) {
+    let current_time = tick.current;
+
+    for (entity, transform, vision, mut mind) in agents.iter_mut() {
+        if !tick.should_run(entity, 30) {
+            continue;
+        }
+
+        let pos = transform.translation.truncate();
+        let view_range = vision.range * light_level.0;
+        let tile_range = (view_range / TILE_SIZE).ceil() as i32;
+
+        let center_tx = (pos.x / TILE_SIZE).floor() as i32;
+        let center_ty = (pos.y / TILE_SIZE).floor() as i32;
+
+        for dx in -tile_range..=tile_range {
+            for dy in -tile_range..=tile_range {
+                let tx = center_tx + dx;
+                let ty = center_ty + dy;
+                if tx < 0 || ty < 0 {
+                    continue;
+                }
+
+                let tile_world = world_map.tile_to_world(tx, ty);
+                if pos.distance(tile_world) > view_range {
+                    continue;
+                }
+
+                if let Some(tile_type) = world_map.get_tile(tx as u32, ty as u32)
+                    && tile_type.is_water()
+                {
+                    mind.assert(Triple::with_meta(
+                        Node::Tile((tx, ty)),
+                        Predicate::HasTrait,
+                        Value::Concept(Concept::Drinkable),
+                        Metadata::semantic(current_time),
+                    ));
+                }
+            }
+        }
     }
 }
 

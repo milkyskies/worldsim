@@ -22,6 +22,7 @@ use std::collections::HashMap;
 pub struct ActionContext<'a> {
     pub inventory: &'a Inventory,
     pub mind: &'a MindGraph,
+    pub world_map: &'a crate::world::map::WorldMap,
     pub target_entity: Option<Entity>,
     pub target_position: Option<Vec2>,
     pub agent_position: Vec2,
@@ -451,8 +452,8 @@ impl ActiveActions {
 // ============================================================================
 
 use super::action::{
-    EatAction, ExploreAction, FleeAction, HarvestAction, IdleAction, IntroduceAction, SleepAction,
-    TalkAction, WakeUpAction, WalkAction, WanderAction,
+    DrinkAction, EatAction, ExploreAction, FleeAction, HarvestAction, IdleAction, IntroduceAction,
+    SleepAction, TalkAction, WakeUpAction, WalkAction, WanderAction,
 };
 
 #[derive(Resource, Default)]
@@ -468,6 +469,7 @@ impl ActionRegistry {
         registry.register(SleepAction);
         registry.register(WakeUpAction);
         registry.register(EatAction);
+        registry.register(DrinkAction);
         registry.register(WalkAction);
         registry.register(FleeAction);
         registry.register(ExploreAction);

@@ -19,6 +19,8 @@ pub struct AgentConfig {
     pub name: Option<String>,
     /// Hunger value (0.0 = full, 100.0 = starving).
     pub hunger: f32,
+    /// Thirst value (0.0 = hydrated, 100.0 = dehydrated).
+    pub thirst: f32,
     /// Energy value (0.0 = exhausted, 100.0 = fully rested).
     pub energy: f32,
     /// Social drive (0.0 = satisfied, 1.0 = lonely).
@@ -35,6 +37,7 @@ impl Default for AgentConfig {
             pos: Vec2::ZERO,
             name: None,
             hunger: 0.0,
+            thirst: 0.0,
             energy: 100.0,
             social_drive: 0.5,
             personality: Personality::default(),
