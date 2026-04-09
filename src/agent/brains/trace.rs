@@ -538,7 +538,7 @@ mod tests {
 
     #[test]
     fn trace_buffer_captures_decisions_for_all_agents() {
-        use crate::agent::inventory::Inventory;
+        use crate::agent::item_slots::ItemSlots;
         use crate::agent::mind::knowledge::Concept;
         use bevy::math::Vec2;
 
@@ -561,7 +561,7 @@ mod tests {
         world
             .app_mut()
             .world_mut()
-            .get_mut::<Inventory>(agent)
+            .get_mut::<ItemSlots>(agent)
             .unwrap()
             .add(Concept::Berry, 5);
 
@@ -602,7 +602,7 @@ mod tests {
 
     #[test]
     fn trace_filter_by_agent_name() {
-        use crate::agent::inventory::Inventory;
+        use crate::agent::item_slots::ItemSlots;
         use crate::agent::mind::knowledge::Concept;
         use bevy::math::Vec2;
 
@@ -620,7 +620,7 @@ mod tests {
         world
             .app_mut()
             .world_mut()
-            .get_mut::<Inventory>(alice)
+            .get_mut::<ItemSlots>(alice)
             .unwrap()
             .add(Concept::Berry, 5);
 

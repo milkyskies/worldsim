@@ -5,7 +5,7 @@
 
 use bevy::prelude::*;
 use worldsim::agent::events::SimEvent;
-use worldsim::agent::inventory::Inventory;
+use worldsim::agent::item_slots::ItemSlots;
 use worldsim::agent::mind::knowledge::Concept;
 use worldsim::testing::{AgentConfig, TestWorld};
 
@@ -108,7 +108,7 @@ fn brain_and_action_lifecycle_events_emitted() {
     world
         .app_mut()
         .world_mut()
-        .get_mut::<Inventory>(agent)
+        .get_mut::<ItemSlots>(agent)
         .unwrap()
         .add(Concept::Berry, 5);
 

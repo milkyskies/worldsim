@@ -8,7 +8,7 @@ use crate::agent::actions::action::AttackAction;
 use crate::agent::actions::channel::ChannelUsage;
 use crate::agent::brains::thinking::{ActionTemplate, TriplePattern};
 use crate::agent::events::FailureReason;
-use crate::agent::inventory::Inventory;
+use crate::agent::item_slots::ItemSlots;
 use crate::agent::mind::knowledge::{MindGraph, Triple};
 use crate::world::map::TILE_SIZE;
 use bevy::prelude::*;
@@ -20,7 +20,7 @@ use std::collections::HashMap;
 
 /// Context for runtime action checks
 pub struct ActionContext<'a> {
-    pub inventory: &'a Inventory,
+    pub inventory: &'a ItemSlots,
     pub mind: &'a MindGraph,
     pub world_map: &'a crate::world::map::WorldMap,
     pub target_entity: Option<Entity>,
@@ -78,11 +78,11 @@ pub struct RuntimeEffects {
 /// Actions modify this directly - fully declarative!
 pub struct CompletionContext<'a> {
     pub physical: &'a mut crate::agent::body::needs::PhysicalNeeds,
-    pub inventory: &'a mut crate::agent::inventory::Inventory,
+    pub inventory: &'a mut crate::agent::item_slots::ItemSlots,
     /// Psychological drives (social, curiosity, etc.)
     pub drives: Option<&'a mut crate::agent::body::needs::PsychologicalDrives>,
     /// Target entity's inventory (for Harvest, etc.)
-    pub target_inventory: Option<&'a mut crate::agent::inventory::Inventory>,
+    pub target_inventory: Option<&'a mut crate::agent::item_slots::ItemSlots>,
     /// Target entity
     pub target_entity: Option<bevy::prelude::Entity>,
     /// Current tick for timestamping

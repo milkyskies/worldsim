@@ -8,10 +8,7 @@
 
 use crate::agent::body::species::SpeciesProfile;
 use crate::agent::mind::knowledge::{Concept, MindGraph, Ontology};
-use crate::agent::{
-    Agent,
-    inventory::{EntityType, Inventory},
-};
+use crate::agent::{Agent, inventory::EntityType, item_slots::ItemSlots};
 use bevy::prelude::*;
 
 /// Marker component for deer entities.
@@ -29,7 +26,7 @@ pub fn spawn_deer(
     use crate::agent::psyche::personality::Personality;
 
     let species_profile = SpeciesProfile::deer();
-    let inventory = Inventory::default();
+    let inventory = ItemSlots::agent_carry();
 
     // Deer get a simplified personality (for now, reusing human system)
     // TODO: Implement Universal traits (boldness, aggression) for animals

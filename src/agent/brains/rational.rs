@@ -1,6 +1,6 @@
 //! Rational brain: deliberate goal-directed planning via GOAP.
 //!
-//! Reads: RationalBrain, Consciousness, Inventory, MindGraph, VisibleObjects, CentralNervousSystem
+//! Reads: RationalBrain, Consciousness, ItemSlots, MindGraph, VisibleObjects, CentralNervousSystem
 //! Writes: RationalBrain (plan/goal), BrainProposal
 //! Upstream: cns (current_goal), planner (regressive_plan), mind (MindGraph)
 //! Downstream: brains::proposal (winner selection)
@@ -9,7 +9,7 @@ use crate::agent::actions::ActionType;
 use crate::agent::body::needs::Consciousness;
 use crate::agent::brains::proposal::{BrainProposal, BrainType};
 use crate::agent::brains::thinking::{ActionTemplate, Goal, TriplePattern};
-use crate::agent::inventory::Inventory;
+use crate::agent::item_slots::ItemSlots;
 use crate::agent::mind::knowledge::{MindGraph, Node, Predicate, Value};
 use crate::agent::mind::perception::VisibleObjects;
 use crate::constants::brains::rational::{
@@ -81,7 +81,7 @@ pub fn update_rational_brain(
         Entity,
         &mut RationalBrain,
         &Consciousness,
-        &Inventory,
+        &ItemSlots,
         &Transform,
         &VisibleObjects,
         &crate::agent::nervous_system::cns::CentralNervousSystem,
@@ -273,7 +273,7 @@ fn convert_cns_goal(
 pub fn rational_brain_propose(
     brain: &RationalBrain,
     cns: &crate::agent::nervous_system::cns::CentralNervousSystem,
-    _inventory: &Inventory, // Kept but unused
+    _inventory: &ItemSlots,
     transform: &Transform,
     mind: &MindGraph,
     _visible: &crate::agent::mind::perception::VisibleObjects,

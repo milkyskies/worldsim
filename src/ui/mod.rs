@@ -943,16 +943,19 @@ fn agent_viewer_ui_for_agent(world: &mut World, entity: Entity, ui: &mut egui::U
 
     // --- 6. Inventory ---
     egui::CollapsingHeader::new("🎒 Inventory").show(ui, |ui| {
-        if let Some(inventory) = world.get::<crate::agent::inventory::Inventory>(entity) {
-            if inventory.items.is_empty() {
-                ui.label("Empty");
-            } else {
-                for item in &inventory.items {
+        if let Some(inventory) = world.get::<crate::agent::item_slots::ItemSlots>(entity) {
+            let mut has_items = false;
+            for item in inventory.all_items() {
+                if item.quantity > 0 {
+                    has_items = true;
                     ui.horizontal(|ui| {
                         ui.label(format!("{:?}", item.concept));
                         ui.strong(format!("x{}", item.quantity));
                     });
                 }
+            }
+            if !has_items {
+                ui.label("Empty");
             }
         }
     });

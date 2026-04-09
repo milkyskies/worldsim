@@ -117,12 +117,15 @@ impl Action for HarvestAction {
     fn on_complete(&self, ctx: &mut CompletionContext) {
         // Transfer item from target's inventory to agent's inventory
         // No hardcoding - takes whatever the target actually has!
-        if let Some(target_inv) = &mut ctx.target_inventory
-            && let Some(item) = target_inv.items.iter().find(|i| i.quantity > 0)
-        {
-            let concept = item.concept;
-            target_inv.remove(concept, 1);
-            ctx.inventory.add(concept, 1);
+        if let Some(target_inv) = &mut ctx.target_inventory {
+            let concept = target_inv
+                .all_items()
+                .find(|i| i.quantity > 0)
+                .map(|i| i.concept);
+            if let Some(concept) = concept {
+                target_inv.remove(concept, 1);
+                ctx.inventory.add(concept, 1);
+            }
         }
     }
 

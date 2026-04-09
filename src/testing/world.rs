@@ -596,7 +596,7 @@ impl TestWorld {
     pub fn has_item(&self, entity: Entity, concept: Concept) -> bool {
         self.app
             .world()
-            .get::<crate::agent::inventory::Inventory>(entity)
+            .get::<crate::agent::item_slots::ItemSlots>(entity)
             .map(|inv| inv.has(concept))
             .unwrap_or(false)
     }
@@ -605,7 +605,7 @@ impl TestWorld {
     pub fn item_count(&self, entity: Entity, concept: Concept) -> u32 {
         self.app
             .world()
-            .get::<crate::agent::inventory::Inventory>(entity)
+            .get::<crate::agent::item_slots::ItemSlots>(entity)
             .map(|inv| inv.count(concept))
             .unwrap_or(0)
     }
