@@ -351,16 +351,64 @@ pub fn perceive_water_tiles(
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// DANGER PERCEPTION — Trigger Fear when seeing dangerous entities
+// DANGER PERCEPTION — Contextual threat assessment produces Fear
 // ═══════════════════════════════════════════════════════════════════════════
 
-// TODO: Stop hard coding
+/// Base fear intensity for a single dangerous entity, before contextual modulation.
+/// Preserves the previous hardcoded value for a typical healthy, unarmed, calm agent.
+const BASE_THREAT: f32 = 0.8;
+
+/// Computes how threatening a single dangerous entity is *to this particular agent*,
+/// producing a fear intensity in `[0.0, 1.0]`.
+///
+/// The factors reflect the acceptance criteria from #29:
+/// - Combat capability: weapons and health reduce fear
+/// - Personality: neuroticism amplifies fear, emotional stability dampens it
+/// - Desperation: high unmet physical needs reduce fear so other urgencies can
+///   compete in arbitration (a starving agent is more willing to approach danger)
+///
+/// Not yet modelled (documented as TODOs in the issue): allies vs. threats count
+/// and escape-route analysis. Those require perception of packmates/terrain that
+/// isn't wired through this system yet.
+fn assess_threat(
+    personality: &crate::agent::psyche::personality::Personality,
+    needs: &crate::agent::body::needs::PhysicalNeeds,
+    items: Option<&crate::agent::item_slots::ItemSlots>,
+) -> f32 {
+    // Neuroticism amplifies fear; emotional stability dampens it.
+    // 0.0 neuroticism → 0.7×, 0.5 (default) → 1.0×, 1.0 → 1.3×.
+    let personality_mod = 0.7 + personality.traits.neuroticism * 0.6;
+
+    // Low health amplifies perceived threat — a wounded agent has more to lose.
+    // Full health → 1.0×, zero health → 1.4×.
+    let health_loss = (1.0 - needs.health / 100.0).clamp(0.0, 1.0);
+    let health_mod = 1.0 + health_loss * 0.4;
+
+    // Holding a weapon reduces perceived threat. For now Stick is the only
+    // weapon-capable item; extend when more are added.
+    let armed_mod = match items {
+        Some(slots) if slots.count(Concept::Stick) > 0 => 0.6,
+        _ => 1.0,
+    };
+
+    // Desperation (high hunger or thirst) reduces fear. This lets the
+    // arbitration layer pick food/water even when a threat is visible.
+    // No desperation → 1.0×, fully desperate → 0.5×.
+    let desperation = needs.hunger.max(needs.thirst).clamp(0.0, 100.0) / 100.0;
+    let desperation_mod = 1.0 - desperation * 0.5;
+
+    (BASE_THREAT * personality_mod * health_mod * armed_mod * desperation_mod).clamp(0.0, 1.0)
+}
+
 pub fn react_to_danger(
     mut agents: Query<
         (
             &VisibleObjects,
             &MindGraph,
             &mut crate::agent::psyche::emotions::EmotionalState,
+            &crate::agent::psyche::personality::Personality,
+            &crate::agent::body::needs::PhysicalNeeds,
+            Option<&crate::agent::item_slots::ItemSlots>,
         ),
         With<Agent>,
     >,
@@ -368,46 +416,158 @@ pub fn react_to_danger(
 ) {
     use crate::agent::psyche::emotions::{Emotion, EmotionType};
 
-    for (visible, mind, mut emotions) in agents.iter_mut() {
-        let mut danger_level: f32 = 0.0;
+    for (visible, mind, mut emotions, personality, needs, items) in agents.iter_mut() {
+        // Count how many visible entities this agent considers dangerous.
+        let dangerous_count = visible
+            .entities
+            .iter()
+            .filter(|&&entity| {
+                let Ok(entity_type) = entity_types.get(entity) else {
+                    return false;
+                };
+                !mind
+                    .query(
+                        Some(&Node::Concept(entity_type.0)),
+                        Some(Predicate::HasTrait),
+                        Some(&Value::Concept(Concept::Dangerous)),
+                    )
+                    .is_empty()
+            })
+            .count();
 
-        for &entity in &visible.entities {
-            // Get what type of entity this is
-            if let Ok(entity_type) = entity_types.get(entity) {
-                let concept = entity_type.0;
-
-                // Check if this agent knows this concept is Dangerous
-                // Query: (Concept, HasTrait, Dangerous)
-                let danger_triples = mind.query(
-                    Some(&Node::Concept(concept)),
-                    Some(Predicate::HasTrait),
-                    Some(&Value::Concept(Concept::Dangerous)),
-                );
-
-                if !danger_triples.is_empty() {
-                    // This entity is dangerous! Accumulate danger
-                    danger_level += 0.8; // Each dangerous entity adds 0.8 fear
-                }
-            }
+        if dangerous_count == 0 {
+            continue;
         }
 
-        // If we saw something dangerous, add Fear emotion
-        if danger_level > 0.0 {
-            let fear_intensity = danger_level.min(1.0); // Cap at 1.0
+        // Single contextual threat score, scaled up by the number of threats visible.
+        let per_threat = assess_threat(personality, needs, items);
+        let fear_intensity = (per_threat * dangerous_count as f32).clamp(0.0, 1.0);
 
-            // Check current fear level
-            let current_fear: f32 = emotions
-                .active_emotions
-                .iter()
-                .filter(|e| e.emotion_type == EmotionType::Fear)
-                .map(|e| e.intensity)
-                .sum();
+        // Only top up fear if we're not already scared enough — prevents
+        // runaway accumulation from the same scene being perceived each tick.
+        let current_fear: f32 = emotions
+            .active_emotions
+            .iter()
+            .filter(|e| e.emotion_type == EmotionType::Fear)
+            .map(|e| e.intensity)
+            .sum();
 
-            // Only add fear if we're not already scared enough
-            if current_fear < fear_intensity {
-                let additional_fear = (fear_intensity - current_fear).max(0.1);
-                emotions.add_emotion(Emotion::new(EmotionType::Fear, additional_fear));
-            }
+        if current_fear < fear_intensity {
+            let additional_fear = (fear_intensity - current_fear).max(0.1);
+            emotions.add_emotion(Emotion::new(EmotionType::Fear, additional_fear));
         }
+    }
+}
+
+#[cfg(test)]
+mod threat_tests {
+    use super::*;
+    use crate::agent::body::needs::PhysicalNeeds;
+    use crate::agent::item_slots::ItemSlots;
+    use crate::agent::psyche::personality::{Personality, PersonalityTraits};
+
+    fn default_needs() -> PhysicalNeeds {
+        PhysicalNeeds {
+            hunger: 0.0,
+            thirst: 0.0,
+            energy: 100.0,
+            health: 100.0,
+        }
+    }
+
+    fn personality_with_neuroticism(neuroticism: f32) -> Personality {
+        Personality {
+            traits: PersonalityTraits {
+                neuroticism,
+                ..Default::default()
+            },
+        }
+    }
+
+    #[test]
+    fn calm_healthy_unarmed_agent_matches_previous_hardcoded_fear() {
+        let personality = personality_with_neuroticism(0.5);
+        let needs = default_needs();
+        let score = assess_threat(&personality, &needs, None);
+        // 0.8 × 1.0 × 1.0 × 1.0 × 1.0 = 0.8
+        assert!((score - 0.8).abs() < 1e-4, "expected 0.8, got {score}");
+    }
+
+    #[test]
+    fn armed_agent_feels_less_fear_than_unarmed() {
+        let personality = personality_with_neuroticism(0.5);
+        let needs = default_needs();
+
+        let unarmed = assess_threat(&personality, &needs, None);
+
+        let mut slots = ItemSlots::default();
+        slots.add(Concept::Stick, 1);
+        let armed = assess_threat(&personality, &needs, Some(&slots));
+
+        assert!(
+            armed < unarmed,
+            "armed ({armed}) should be less than unarmed ({unarmed})"
+        );
+    }
+
+    #[test]
+    fn neurotic_agent_feels_more_fear_than_stable_agent() {
+        let stable = assess_threat(&personality_with_neuroticism(0.0), &default_needs(), None);
+        let neurotic = assess_threat(&personality_with_neuroticism(1.0), &default_needs(), None);
+        assert!(
+            neurotic > stable,
+            "neurotic ({neurotic}) should exceed stable ({stable})"
+        );
+    }
+
+    #[test]
+    fn wounded_agent_feels_more_fear_than_healthy_one() {
+        let personality = personality_with_neuroticism(0.5);
+        let healthy = assess_threat(&personality, &default_needs(), None);
+        let wounded = assess_threat(
+            &personality,
+            &PhysicalNeeds {
+                health: 20.0,
+                ..default_needs()
+            },
+            None,
+        );
+        assert!(
+            wounded > healthy,
+            "wounded ({wounded}) should exceed healthy ({healthy})"
+        );
+    }
+
+    #[test]
+    fn desperate_agent_feels_less_fear_so_other_urgencies_can_win() {
+        let personality = personality_with_neuroticism(0.5);
+        let calm_full = assess_threat(&personality, &default_needs(), None);
+        let starving = assess_threat(
+            &personality,
+            &PhysicalNeeds {
+                hunger: 95.0,
+                ..default_needs()
+            },
+            None,
+        );
+        assert!(
+            starving < calm_full,
+            "starving ({starving}) should be less than calm_full ({calm_full})"
+        );
+    }
+
+    #[test]
+    fn threat_score_clamped_to_unit_interval() {
+        // Max-anxiety, max-wounded, unarmed, calm → should still clamp to ≤1.0
+        let personality = personality_with_neuroticism(1.0);
+        let needs = PhysicalNeeds {
+            hunger: 0.0,
+            thirst: 0.0,
+            energy: 100.0,
+            health: 0.0,
+        };
+        let score = assess_threat(&personality, &needs, None);
+        assert!(score <= 1.0, "score {score} should be clamped to ≤1.0");
+        assert!(score >= 0.0, "score {score} should be non-negative");
     }
 }
