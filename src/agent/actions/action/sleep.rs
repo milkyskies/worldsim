@@ -1,6 +1,7 @@
 //! Sleep actions - sleeping and waking up.
 
 use crate::agent::actions::ActionType;
+use crate::agent::actions::channel::{BodyChannel, ChannelUsage};
 use crate::agent::actions::registry::{Action, ActionKind, RuntimeEffects};
 use crate::agent::mind::knowledge::{Node, Predicate, Triple, Value};
 use crate::constants::actions::sleep::{
@@ -31,6 +32,17 @@ impl Action for SleepAction {
 
     fn cost(&self) -> f32 {
         BASE_COST
+    }
+
+    fn body_channels(&self) -> Vec<ChannelUsage> {
+        // Sleep occupies the entire body - hard-conflicts with everything
+        // except pure-cognitive actions, which is what clears the slot list.
+        vec![ChannelUsage::new(BodyChannel::FullBody, 1.0)]
+    }
+
+    fn interruptible(&self) -> bool {
+        // Sleep yields only on hard preemption (e.g. extreme fear / starvation).
+        false
     }
 
     fn runtime_effects(&self) -> RuntimeEffects {

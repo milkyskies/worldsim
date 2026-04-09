@@ -1,6 +1,7 @@
 //! Flee action - run away from threats.
 
 use crate::agent::actions::ActionType;
+use crate::agent::actions::channel::{BodyChannel, ChannelUsage};
 use crate::agent::actions::registry::{Action, ActionKind, RuntimeEffects};
 use crate::constants::actions::flee::{
     ALERTNESS_PER_SEC, BASE_COST, ENERGY_PER_SEC, HUNGER_PER_SEC,
@@ -23,6 +24,15 @@ impl Action for FleeAction {
 
     fn cost(&self) -> f32 {
         BASE_COST
+    }
+
+    fn body_channels(&self) -> Vec<ChannelUsage> {
+        // Flee maxes out the legs and engages the whole body. Hard-conflicts
+        // with anything else using legs (Walk, Wander, Explore).
+        vec![
+            ChannelUsage::new(BodyChannel::Legs, 1.0),
+            ChannelUsage::new(BodyChannel::FullBody, 0.5),
+        ]
     }
 
     fn runtime_effects(&self) -> RuntimeEffects {

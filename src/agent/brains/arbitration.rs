@@ -84,7 +84,10 @@ pub fn calculate_brain_powers(
     }
 }
 
-/// Arbitrate between brain proposals to determine which wins
+/// Arbitrate between brain proposals.
+///
+/// Returns the highest-scoring proposal (legacy single-winner) for callers
+/// that still need a singular "winner" brain attribution.
 pub fn arbitrate(
     proposals: &[Option<BrainProposal>],
     powers: &BrainPowers,
@@ -93,13 +96,7 @@ pub fn arbitrate(
     let mut winner = None;
 
     for proposal in proposals.iter().flatten() {
-        let power = match proposal.brain {
-            BrainType::Survival => powers.survival,
-            BrainType::Emotional => powers.emotional,
-            BrainType::Rational => powers.rational,
-        };
-
-        let score = proposal.urgency * power;
+        let score = score_proposal(proposal, powers);
 
         if score > best_score {
             best_score = score;
@@ -108,6 +105,73 @@ pub fn arbitrate(
     }
 
     winner
+}
+
+/// Multi-action arbitration: greedy admission of proposals into a parallel set.
+///
+/// 1. Sort proposals by score (urgency * brain power), descending.
+/// 2. For each proposal in score order, admit it if its body channels do not
+///    hard-conflict with the already-admitted set, accounting for the agent's
+///    body capacity (which defaults to full until issue #49 wires biology).
+/// 3. Soft conflicts are accepted - both contributing actions will degrade
+///    proportionally during execution.
+///
+/// Returns the admitted proposals in score order. The first proposal in the
+/// returned list is also the "winner" for legacy attribution.
+pub fn arbitrate_parallel(
+    proposals: &[Option<BrainProposal>],
+    powers: &BrainPowers,
+    body: Option<&Body>,
+    registry: &crate::agent::actions::ActionRegistry,
+) -> Vec<BrainProposal> {
+    use crate::agent::actions::channel::ChannelLoad;
+
+    // Score and sort high-to-low.
+    let mut scored: Vec<(f32, &BrainProposal)> = proposals
+        .iter()
+        .flatten()
+        .map(|p| (score_proposal(p, powers), p))
+        .filter(|(s, _)| *s > 0.0)
+        .collect();
+    scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+
+    let mut admitted: Vec<BrainProposal> = Vec::new();
+    let mut load = ChannelLoad::new();
+
+    for (_score, proposal) in scored {
+        let Some(action_def) = registry.get(proposal.action.action_type) else {
+            continue;
+        };
+
+        // Skip if a proposal for the same action_type was already admitted.
+        if admitted
+            .iter()
+            .any(|a| a.action.action_type == proposal.action.action_type)
+        {
+            continue;
+        }
+
+        let requirements = action_def.body_channels();
+
+        if load.would_hard_conflict(&requirements, body) {
+            // Lower-scoring proposal can't preempt the already-admitted set.
+            continue;
+        }
+
+        load.add(&requirements);
+        admitted.push(proposal.clone());
+    }
+
+    admitted
+}
+
+fn score_proposal(proposal: &BrainProposal, powers: &BrainPowers) -> f32 {
+    let power = match proposal.brain {
+        BrainType::Survival => powers.survival,
+        BrainType::Emotional => powers.emotional,
+        BrainType::Rational => powers.rational,
+    };
+    proposal.urgency * power
 }
 
 #[cfg(test)]

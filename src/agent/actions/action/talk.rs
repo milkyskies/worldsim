@@ -8,6 +8,7 @@
 //! - Gossip: Share beliefs about other agents
 
 use crate::agent::actions::ActionType;
+use crate::agent::actions::channel::{BodyChannel, ChannelUsage};
 use crate::agent::actions::registry::{
     Action, ActionContext, ActionKind, CompletionContext, TargetType,
 };
@@ -57,6 +58,13 @@ impl Action for TalkAction {
 
     fn requires_proximity(&self) -> bool {
         true // Must be near target to talk
+    }
+
+    fn body_channels(&self) -> Vec<ChannelUsage> {
+        // Talking only needs the mouth - leaves legs and hands free for
+        // walking, harvesting, eating in parallel (eating triggers a soft
+        // mouth conflict by design).
+        vec![ChannelUsage::new(BodyChannel::Mouth, 0.6)]
     }
 
     // Override to_template to set default topic

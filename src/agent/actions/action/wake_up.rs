@@ -1,4 +1,5 @@
 use crate::agent::actions::ActionType;
+use crate::agent::actions::channel::{BodyChannel, ChannelUsage};
 use crate::agent::actions::registry::{Action, ActionKind, RuntimeEffects};
 use crate::agent::mind::knowledge::{Concept, Node, Predicate, Triple, Value};
 
@@ -23,6 +24,11 @@ impl Action for WakeUpAction {
             Predicate::HasTrait,
             Value::Concept(Concept::Awake),
         )]
+    }
+
+    fn body_channels(&self) -> Vec<ChannelUsage> {
+        // Briefly engages the whole body to rouse - prevents simultaneous Sleep.
+        vec![ChannelUsage::new(BodyChannel::FullBody, 0.4)]
     }
 
     fn runtime_effects(&self) -> RuntimeEffects {

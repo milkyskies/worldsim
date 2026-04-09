@@ -60,7 +60,7 @@ impl Plugin for AgentPlugin {
             .init_resource::<mind::conversation::ConversationManager>()
             .register_type::<mind::conversation::InConversation>()
             .register_type::<mind::knowledge::MindGraph>()
-            .register_type::<actions::ActionState>()
+            .register_type::<actions::ActiveActions>()
             .insert_resource(actions::ActionRegistry::new())
             .add_message::<events::GameEvent>()
             .add_message::<events::ActionOutcomeEvent>()
