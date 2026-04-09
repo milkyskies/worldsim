@@ -269,8 +269,10 @@ fn spawn_wolf_packs(
         };
 
         let Some(anchor_pos) = anchor else {
-            // No forest tile found far enough away — skip remaining wolves rather
-            // than spawning them on top of the settlement.
+            bevy::log::warn!(
+                "wolf spawn: no qualifying forest tile found ({} wolves unplaced)",
+                total - spawned
+            );
             break;
         };
 
@@ -298,6 +300,10 @@ fn spawn_wolf_packs(
 
         attempts += 1;
         if attempts > total * 2 {
+            bevy::log::warn!(
+                "wolf spawn: placement loop exceeded limit ({} wolves unplaced)",
+                total - spawned
+            );
             break;
         }
     }

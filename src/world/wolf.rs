@@ -165,7 +165,7 @@ pub fn spawn_wolf(
 /// Wolves know:
 /// - Deer trigger anger (hunt on sight)
 /// - Humans trigger mild anger (will attack if territory is threatened)
-fn add_wolf_knowledge(mind: &mut MindGraph) {
+pub(crate) fn add_wolf_knowledge(mind: &mut MindGraph) {
     use crate::agent::mind::knowledge::{
         MemoryType, Metadata, Node, Predicate, Source, Triple, Value,
     };
@@ -192,6 +192,6 @@ fn add_wolf_knowledge(mind: &mut MindGraph) {
         Node::Concept(Concept::Person),
         Predicate::TriggersEmotion,
         Value::Emotion(EmotionType::Anger, 0.4),
-        meta.clone(),
+        meta,
     ));
 }

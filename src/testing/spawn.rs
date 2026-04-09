@@ -94,39 +94,10 @@ pub(super) fn spawn_test_person(
 
 /// Spawns a Deer animal agent with all logic components but no visuals.
 pub(super) fn spawn_test_deer(world: &mut World, ontology: Ontology, pos: Vec2) -> Entity {
-    use crate::agent::mind::knowledge::{
-        MemoryType, Metadata, Node, Predicate, Source, Triple, Value,
-    };
     use crate::agent::psyche::personality::Personality;
 
     let mut mind = MindGraph::new(ontology);
-
-    // Deer-specific innate knowledge: berries are food, persons are dangerous.
-    let intrinsic = Metadata {
-        source: Source::Intrinsic,
-        memory_type: MemoryType::Intrinsic,
-        timestamp: 0,
-        confidence: 1.0,
-        ..Default::default()
-    };
-    mind.assert(Triple::with_meta(
-        Node::Concept(Concept::Berry),
-        Predicate::IsA,
-        Value::Concept(Concept::Food),
-        intrinsic.clone(),
-    ));
-    mind.assert(Triple::with_meta(
-        Node::Concept(Concept::BerryBush),
-        Predicate::Produces,
-        Value::Item(Concept::Berry, 1),
-        intrinsic.clone(),
-    ));
-    mind.assert(Triple::with_meta(
-        Node::Concept(Concept::Person),
-        Predicate::HasTrait,
-        Value::Concept(Concept::Dangerous),
-        intrinsic,
-    ));
+    crate::world::deer::add_deer_knowledge(&mut mind);
 
     world
         .spawn((
@@ -164,35 +135,10 @@ pub(super) fn spawn_test_deer(world: &mut World, ontology: Ontology, pos: Vec2) 
 
 /// Spawns a Wolf predator agent with all logic components but no visuals.
 pub(super) fn spawn_test_wolf(world: &mut World, ontology: Ontology, pos: Vec2) -> Entity {
-    use crate::agent::mind::knowledge::{
-        MemoryType, Metadata, Node, Predicate, Source, Triple, Value,
-    };
-    use crate::agent::psyche::emotions::EmotionType;
     use crate::agent::psyche::personality::Personality;
 
     let mut mind = MindGraph::new(ontology);
-
-    let intrinsic = Metadata {
-        source: Source::Intrinsic,
-        memory_type: MemoryType::Intrinsic,
-        timestamp: 0,
-        confidence: 1.0,
-        ..Default::default()
-    };
-    // Deer trigger anger (primary prey)
-    mind.assert(Triple::with_meta(
-        Node::Concept(Concept::Deer),
-        Predicate::TriggersEmotion,
-        Value::Emotion(EmotionType::Anger, 0.7),
-        intrinsic.clone(),
-    ));
-    // Humans trigger mild anger (territorial threat)
-    mind.assert(Triple::with_meta(
-        Node::Concept(Concept::Person),
-        Predicate::TriggersEmotion,
-        Value::Emotion(EmotionType::Anger, 0.4),
-        intrinsic,
-    ));
+    crate::world::wolf::add_wolf_knowledge(&mut mind);
 
     world
         .spawn((
