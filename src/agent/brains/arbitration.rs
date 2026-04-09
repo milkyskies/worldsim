@@ -5,7 +5,7 @@
 //! Upstream: survival, emotional, and rational brain systems (proposal.rs)
 //! Downstream: brain_system (consumes arbitrated BrainState), nervous_system execution
 
-use super::proposal::{BrainPowers, BrainProposal, BrainType};
+use super::proposal::{BrainPowers, BrainProposal};
 use crate::agent::actions::channel::ChannelCapacities;
 use crate::agent::biology::body::Body;
 use crate::agent::body::needs::{Consciousness, PhysicalNeeds};
@@ -141,12 +141,7 @@ pub fn arbitrate_parallel(
 }
 
 fn score_proposal(proposal: &BrainProposal, powers: &BrainPowers) -> f32 {
-    let power = match proposal.brain {
-        BrainType::Survival => powers.survival,
-        BrainType::Emotional => powers.emotional,
-        BrainType::Rational => powers.rational,
-    };
-    proposal.urgency * power
+    proposal.urgency * proposal.brain.power(powers)
 }
 
 #[cfg(test)]

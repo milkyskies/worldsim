@@ -16,6 +16,26 @@ pub enum BrainType {
     Rational,  // Planning, multi-step reasoning
 }
 
+impl BrainType {
+    /// Returns the display name for this brain type (title-case).
+    pub fn display_name(self) -> &'static str {
+        match self {
+            BrainType::Survival => "Survival",
+            BrainType::Emotional => "Emotional",
+            BrainType::Rational => "Rational",
+        }
+    }
+
+    /// Returns the power level for this brain from a [`BrainPowers`] snapshot.
+    pub fn power(self, powers: &BrainPowers) -> f32 {
+        match self {
+            BrainType::Survival => powers.survival,
+            BrainType::Emotional => powers.emotional,
+            BrainType::Rational => powers.rational,
+        }
+    }
+}
+
 /// A proposal from one of the three brains
 #[derive(Debug, Clone, Reflect)]
 pub struct BrainProposal {
