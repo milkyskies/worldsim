@@ -1,4 +1,5 @@
 use bevy::prelude::*;
+use noise::{NoiseFn, Simplex};
 use std::collections::HashMap;
 
 pub struct MapPlugin;
@@ -22,6 +23,9 @@ pub const MAP_CHUNKS_Y: u32 = 8;
 pub const WORLD_WIDTH: u32 = MAP_CHUNKS_X * CHUNK_SIZE;
 pub const WORLD_HEIGHT: u32 = MAP_CHUNKS_Y * CHUNK_SIZE;
 
+/// Default seed for terrain generation. Stable across runs for reproducibility.
+pub const DEFAULT_TERRAIN_SEED: u32 = 1337;
+
 // Marker component for the tile map parent entity
 #[derive(Component, Reflect)]
 #[reflect(Component)]
@@ -35,15 +39,45 @@ pub struct Tile {
     pub tile_type: TileType,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Reflect)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect)]
 pub enum TileType {
     Grass,
+    Forest,
+    Rock,
+    Sand,
     Water,
+    ShallowWater,
 }
 
 impl TileType {
+    /// Whether agents can traverse this tile at all.
     pub fn is_walkable(&self) -> bool {
-        matches!(self, TileType::Grass)
+        !matches!(self, TileType::Water)
+    }
+
+    /// Movement speed multiplier for traversing this tile (1.0 = full speed).
+    /// Returns 0.0 for impassable tiles.
+    pub fn speed_multiplier(&self) -> f32 {
+        match self {
+            TileType::Grass => 1.0,
+            TileType::Sand => 0.8,
+            TileType::Forest => 0.6,
+            TileType::Rock => 0.4,
+            TileType::ShallowWater => 0.3,
+            TileType::Water => 0.0,
+        }
+    }
+
+    /// Render color for this tile type.
+    pub fn color(&self) -> Color {
+        match self {
+            TileType::Grass => Color::srgb(0.34, 0.72, 0.30),
+            TileType::Forest => Color::srgb(0.15, 0.45, 0.18),
+            TileType::Rock => Color::srgb(0.50, 0.48, 0.46),
+            TileType::Sand => Color::srgb(0.88, 0.80, 0.55),
+            TileType::ShallowWater => Color::srgb(0.40, 0.65, 0.85),
+            TileType::Water => Color::srgb(0.15, 0.30, 0.70),
+        }
     }
 }
 
@@ -145,15 +179,25 @@ impl WorldMap {
         )
     }
 
-    /// Check if a world position is walkable (in bounds and not water)
-    pub fn is_walkable(&self, pos: Vec2) -> bool {
+    /// Look up the tile type at a world position, if any.
+    pub fn tile_at(&self, pos: Vec2) -> Option<TileType> {
         if !self.in_bounds(pos) {
-            return false;
+            return None;
         }
         let (tx, ty) = self.world_to_tile(pos);
         self.get_tile(tx, ty)
-            .map(|t| t.is_walkable())
-            .unwrap_or(false)
+    }
+
+    /// Check if a world position is walkable (in bounds and not impassable terrain).
+    pub fn is_walkable(&self, pos: Vec2) -> bool {
+        self.tile_at(pos).is_some_and(|t| t.is_walkable())
+    }
+
+    /// Movement speed multiplier at a world position. Returns 0.0 for blocked or out-of-bounds.
+    pub fn speed_at(&self, pos: Vec2) -> f32 {
+        self.tile_at(pos)
+            .map(|t| t.speed_multiplier())
+            .unwrap_or(0.0)
     }
 
     /// Get pixel bounds of the map
@@ -165,32 +209,83 @@ impl WorldMap {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+/// Sampled noise fields used to classify a tile.
+struct TerrainNoise {
+    elevation: Simplex,
+    moisture: Simplex,
+    detail: Simplex,
+}
 
-    #[test]
-    fn grass_is_walkable() {
-        assert!(TileType::Grass.is_walkable());
+impl TerrainNoise {
+    fn new(seed: u32) -> Self {
+        Self {
+            elevation: Simplex::new(seed),
+            moisture: Simplex::new(seed.wrapping_add(1)),
+            detail: Simplex::new(seed.wrapping_add(2)),
+        }
     }
 
-    #[test]
-    fn water_is_not_walkable() {
-        assert!(!TileType::Water.is_walkable());
+    /// Returns (elevation, moisture) in roughly the [-1.0, 1.0] range.
+    fn sample(&self, x: u32, y: u32) -> (f64, f64) {
+        // Base frequency — controls biome size relative to map.
+        const BASE: f64 = 0.045;
+        let nx = x as f64 * BASE;
+        let ny = y as f64 * BASE;
+
+        // Two octaves of elevation plus a high-frequency detail layer.
+        let elevation = self.elevation.get([nx, ny]) * 0.65
+            + self.elevation.get([nx * 2.1, ny * 2.1]) * 0.25
+            + self.detail.get([nx * 4.3, ny * 4.3]) * 0.10;
+
+        // Two octaves of moisture, offset so it doesn't align with elevation.
+        let moisture = self.moisture.get([nx + 100.0, ny + 100.0]) * 0.65
+            + self.moisture.get([nx * 2.1 + 100.0, ny * 2.1 + 100.0]) * 0.35;
+
+        (elevation, moisture)
     }
+}
 
-    #[test]
-    fn world_map_blocks_movement_on_water_tile() {
-        let mut map = WorldMap::new(CHUNK_SIZE, CHUNK_SIZE);
-        map.chunks.insert(IVec2::new(0, 0), Chunk::new(0, 0));
-        map.set_tile(5, 5, TileType::Water);
+/// Elevation/moisture thresholds (in noise output space, roughly [-1.0, 1.0])
+/// that decide which biome a tile belongs to. Tuned by eye for the default seed.
+mod biome {
+    pub const DEEP_WATER_MAX: f64 = -0.32;
+    pub const SHALLOW_WATER_MAX: f64 = -0.22;
+    pub const SAND_MAX: f64 = -0.10;
+    pub const ROCK_MIN: f64 = 0.45;
+    pub const FOREST_MOISTURE_MIN: f64 = 0.10;
+}
 
-        let water_pos = map.tile_to_world(5, 5);
-        let grass_pos = map.tile_to_world(0, 0);
-
-        assert!(!map.is_walkable(water_pos));
-        assert!(map.is_walkable(grass_pos));
+/// Classify a tile from elevation/moisture noise values.
+///
+/// Elevation drives the dominant biome (water -> sand -> land -> rock).
+/// Moisture decides whether mid-elevation land is grass or forest.
+fn classify_tile(elevation: f64, moisture: f64) -> TileType {
+    if elevation < biome::DEEP_WATER_MAX {
+        TileType::Water
+    } else if elevation < biome::SHALLOW_WATER_MAX {
+        TileType::ShallowWater
+    } else if elevation < biome::SAND_MAX {
+        TileType::Sand
+    } else if elevation > biome::ROCK_MIN {
+        TileType::Rock
+    } else if moisture > biome::FOREST_MOISTURE_MIN {
+        TileType::Forest
+    } else {
+        TileType::Grass
     }
+}
+
+/// Generate a `width x height` terrain grid using layered simplex noise.
+pub fn generate_terrain(width: u32, height: u32, seed: u32) -> Vec<TileType> {
+    let noise = TerrainNoise::new(seed);
+    let mut tiles = Vec::with_capacity((width * height) as usize);
+    for y in 0..height {
+        for x in 0..width {
+            let (e, m) = noise.sample(x, y);
+            tiles.push(classify_tile(e, m));
+        }
+    }
+    tiles
 }
 
 pub fn setup_map(mut commands: Commands, mut map_resource: ResMut<WorldMap>) {
@@ -207,36 +302,16 @@ pub fn setup_map(mut commands: Commands, mut map_resource: ResMut<WorldMap>) {
         }
     }
 
-    // Create a river that meanders across the map
-    // We update across chunk boundaries seamlessly using the new `set_tile` helper
+    // Generate terrain from noise and write into the chunked map.
+    let terrain = generate_terrain(width, height, DEFAULT_TERRAIN_SEED);
     for y in 0..height {
-        // Meander the river
-        let river_x = 40 + ((y as f32 * 0.15).sin() * 8.0) as u32;
-        if river_x < width {
-            map_resource.set_tile(river_x, y, TileType::Water);
-            // Make river wider in places
-            if y % 5 < 3 && river_x + 1 < width {
-                map_resource.set_tile(river_x + 1, y, TileType::Water);
-            }
-            if y % 7 < 4 && river_x + 2 < width {
-                map_resource.set_tile(river_x + 2, y, TileType::Water);
-            }
+        for x in 0..width {
+            let tile = terrain[(y * width + x) as usize];
+            map_resource.set_tile(x, y, tile);
         }
     }
 
-    // Add a lake
-    for dy in 0..15 {
-        for dx in 0..15 {
-            let x = 60 + dx;
-            let y = 60 + dy;
-            if x < width && y < height {
-                map_resource.set_tile(x, y, TileType::Water);
-            }
-        }
-    }
-
-    // Spawn tiles as children of a parent TileMap entity
-    // We iterate chunks to spawn them roughly in order
+    // Spawn tiles as children of a parent TileMap entity.
     commands
         .spawn((
             Name::new("TileMap"),
@@ -252,17 +327,11 @@ pub fn setup_map(mut commands: Commands, mut map_resource: ResMut<WorldMap>) {
                         .get(&IVec2::new(cx as i32, cy as i32))
                         .unwrap();
 
-                    // Spawn tiles for this chunk
                     for ly in 0..CHUNK_SIZE {
                         for lx in 0..CHUNK_SIZE {
                             let x = cx * CHUNK_SIZE + lx;
                             let y = cy * CHUNK_SIZE + ly;
                             let tile_type = chunk.get_tile(lx, ly).unwrap();
-
-                            let color = match tile_type {
-                                TileType::Grass => Color::srgb(0.2, 0.8, 0.2), // Green
-                                TileType::Water => Color::srgb(0.2, 0.2, 0.8), // Blue
-                            };
 
                             parent.spawn((
                                 Name::new(format!("Tile ({},{}) {:?}", x, y, tile_type)),
@@ -272,7 +341,7 @@ pub fn setup_map(mut commands: Commands, mut map_resource: ResMut<WorldMap>) {
                                     tile_type,
                                 },
                                 Sprite {
-                                    color,
+                                    color: tile_type.color(),
                                     custom_size: Some(Vec2::new(TILE_SIZE, TILE_SIZE)),
                                     ..default()
                                 },
@@ -287,4 +356,89 @@ pub fn setup_map(mut commands: Commands, mut map_resource: ResMut<WorldMap>) {
                 }
             }
         });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashSet;
+
+    #[test]
+    fn grass_forest_sand_rock_shallow_water_are_walkable() {
+        assert!(TileType::Grass.is_walkable());
+        assert!(TileType::Forest.is_walkable());
+        assert!(TileType::Sand.is_walkable());
+        assert!(TileType::Rock.is_walkable());
+        assert!(TileType::ShallowWater.is_walkable());
+    }
+
+    #[test]
+    fn deep_water_is_not_walkable() {
+        assert!(!TileType::Water.is_walkable());
+    }
+
+    #[test]
+    fn speed_multipliers_form_expected_ordering() {
+        // Grass is fastest, water is impassable, terrain in between slows agents.
+        assert_eq!(TileType::Grass.speed_multiplier(), 1.0);
+        assert_eq!(TileType::Water.speed_multiplier(), 0.0);
+        assert!(TileType::Sand.speed_multiplier() < TileType::Grass.speed_multiplier());
+        assert!(TileType::Forest.speed_multiplier() < TileType::Sand.speed_multiplier());
+        assert!(TileType::Rock.speed_multiplier() < TileType::Forest.speed_multiplier());
+        assert!(TileType::ShallowWater.speed_multiplier() < TileType::Rock.speed_multiplier());
+    }
+
+    #[test]
+    fn world_map_blocks_movement_on_water_tile() {
+        let mut map = WorldMap::new(CHUNK_SIZE, CHUNK_SIZE);
+        map.chunks.insert(IVec2::new(0, 0), Chunk::new(0, 0));
+        map.set_tile(5, 5, TileType::Water);
+
+        let water_pos = map.tile_to_world(5, 5);
+        let grass_pos = map.tile_to_world(0, 0);
+
+        assert!(!map.is_walkable(water_pos));
+        assert!(map.is_walkable(grass_pos));
+    }
+
+    #[test]
+    fn speed_at_returns_terrain_multiplier() {
+        let mut map = WorldMap::new(CHUNK_SIZE, CHUNK_SIZE);
+        map.chunks.insert(IVec2::new(0, 0), Chunk::new(0, 0));
+        map.set_tile(3, 3, TileType::Forest);
+        map.set_tile(4, 4, TileType::Water);
+
+        assert_eq!(map.speed_at(map.tile_to_world(3, 3)), 0.6);
+        assert_eq!(map.speed_at(map.tile_to_world(4, 4)), 0.0);
+        assert_eq!(map.speed_at(map.tile_to_world(0, 0)), 1.0);
+    }
+
+    #[test]
+    fn generated_terrain_contains_at_least_four_non_water_types() {
+        let tiles = generate_terrain(WORLD_WIDTH, WORLD_HEIGHT, DEFAULT_TERRAIN_SEED);
+        let unique: HashSet<TileType> = tiles
+            .iter()
+            .copied()
+            .filter(|t| !matches!(t, TileType::Water | TileType::ShallowWater))
+            .collect();
+        assert!(
+            unique.len() >= 4,
+            "expected at least 4 non-water terrain types, got {:?}",
+            unique
+        );
+    }
+
+    #[test]
+    fn generated_terrain_is_deterministic_for_seed() {
+        let a = generate_terrain(32, 32, 42);
+        let b = generate_terrain(32, 32, 42);
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn generated_terrain_changes_with_seed() {
+        let a = generate_terrain(32, 32, 1);
+        let b = generate_terrain(32, 32, 2);
+        assert_ne!(a, b);
+    }
 }

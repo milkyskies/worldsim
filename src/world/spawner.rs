@@ -11,6 +11,7 @@ use crate::agent::mind::knowledge::Ontology;
 use crate::constants::world::{
     APPLE_TREE_SPAWN_COUNT, BERRY_BUSH_SPAWN_COUNT, HUMAN_SPAWN_COUNT, MAX_SPAWN_ATTEMPTS,
 };
+use crate::world::map::TileType;
 use bevy::prelude::*;
 
 // Re-export spawning functions for convenience
@@ -89,39 +90,48 @@ fn spawn_initial_population(
         }
     }
 
-    // Spawn Apple Trees
     for _ in 0..APPLE_TREE_SPAWN_COUNT {
-        if let Some(pos) = find_spawn_location(&map, &mut rng) {
+        if let Some(pos) = find_spawn_location(&map, &mut rng, Some(&[TileType::Forest])) {
             spawn_apple_tree(&mut commands, pos, 5);
         }
     }
 
-    // Spawn Berry Bushes
     for _ in 0..BERRY_BUSH_SPAWN_COUNT {
-        if let Some(pos) = find_spawn_location(&map, &mut rng) {
+        if let Some(pos) =
+            find_spawn_location(&map, &mut rng, Some(&[TileType::Grass, TileType::Forest]))
+        {
             spawn_berry_bush(&mut commands, pos, 4);
         }
     }
 
     // Spawn Deer
     for i in 0..0 {
-        if let Some(pos) = find_spawn_location(&map, &mut rng) {
+        if let Some(pos) = find_spawn_location(&map, &mut rng, None) {
             spawn_deer(&mut commands, ontology.clone(), pos, i);
         }
     }
 }
 
-/// Helper function to find a valid spawn location
+/// Find a random spawn position. When `allowed` is `None`, accept any walkable tile;
+/// otherwise the tile type must be in the allowed list.
 fn find_spawn_location(
     map: &crate::world::map::WorldMap,
     rng: &mut impl rand::Rng,
+    allowed: Option<&[TileType]>,
 ) -> Option<Vec2> {
     for _ in 0..MAX_SPAWN_ATTEMPTS {
         let x = rng.random_range(0.0..(map.width as f32 * crate::world::map::TILE_SIZE));
         let y = rng.random_range(0.0..(map.height as f32 * crate::world::map::TILE_SIZE));
         let test_pos = Vec2::new(x, y);
 
-        if map.is_walkable(test_pos) {
+        let Some(tile) = map.tile_at(test_pos) else {
+            continue;
+        };
+        let accepted = match allowed {
+            Some(list) => list.contains(&tile),
+            None => tile.is_walkable(),
+        };
+        if accepted {
             return Some(test_pos);
         }
     }
