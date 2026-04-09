@@ -1,63 +1,72 @@
-//! Scenario tests for the CommunicationPlugin.
+//! Scenario tests for the CommunicationPlugin entry point.
 //!
-//! Verifies the conversation lifecycle:
-//! 1. Two nearby agents with high social drive auto-initiate a conversation
-//! 2. The Converse marker action occupies the Mouth channel
-//! 3. Conversations end gracefully after enough turns
+//! Verifies the InitiateConversation -> Conversation lifecycle:
+//! 1. Emotional brain proposes InitiateConversation when social drive is high
+//!    and a person is visible
+//! 2. The action walks the agent toward the partner
+//! 3. On arrival within CONVERSATION_RANGE the plugin registers a Conversation,
+//!    swaps InitiateConversation -> Converse, and inserts InConversation on both
 //! 4. SimEvent::ConversationStarted/Ended fire on the observability bus
 
 use bevy::math::Vec2;
 use worldsim::agent::actions::ActionType;
-use worldsim::agent::communication::AUTO_INITIATE_SOCIAL_THRESHOLD;
 use worldsim::agent::events::SimEvent;
 use worldsim::testing::TestWorld;
 
-const HIGH_SOCIAL: f32 = AUTO_INITIATE_SOCIAL_THRESHOLD + 0.1;
+const HIGH_SOCIAL: f32 = 0.8;
+const LOW_SOCIAL: f32 = 0.1;
+
+/// Enough ticks for at least one brain decision (interval = 60), the
+/// resulting walk to complete (10px at base speed), and the plugin to
+/// register the conversation.
+const TICKS_TO_INITIATE: u64 = 200;
 
 #[test]
-fn nearby_social_agents_start_conversation() {
+fn social_agents_in_vision_range_start_conversation() {
     let (mut world, agents) = TestWorld::scenario(42)
-        .map_size(32, 32)
+        .map_size(64, 64)
         .noise_biomes(false)
         .agent("alice")
-        .pos(Vec2::new(100.0, 100.0))
+        .pos(Vec2::new(200.0, 200.0))
         .social_drive(HIGH_SOCIAL)
         .done()
         .agent("bob")
-        .pos(Vec2::new(110.0, 100.0))
+        .pos(Vec2::new(210.0, 200.0))
         .social_drive(HIGH_SOCIAL)
         .done()
         .build();
 
-    world.tick(5);
+    world.tick(TICKS_TO_INITIATE);
 
     let alice = agents["alice"];
     let bob = agents["bob"];
 
     if !world.in_conversation(alice) {
-        world.print_recent_events(10);
-        panic!("alice should be in a conversation after 5 ticks");
+        world.print_agent_state(alice);
+        world.print_brain_decision(alice);
+        world.print_recent_events(50);
+        panic!("alice should be in a conversation after {TICKS_TO_INITIATE} ticks");
     }
     assert!(world.in_conversation(bob));
     assert_eq!(world.active_conversation_count(), 1);
 }
 
 #[test]
-fn auto_initiate_emits_conversation_started_sim_event() {
+fn initiation_emits_conversation_started_sim_event() {
     let (mut world, agents) = TestWorld::scenario(42)
-        .map_size(32, 32)
+        .map_size(64, 64)
         .noise_biomes(false)
         .agent("alice")
-        .pos(Vec2::new(100.0, 100.0))
+        .pos(Vec2::new(200.0, 200.0))
         .social_drive(HIGH_SOCIAL)
         .done()
         .agent("bob")
-        .pos(Vec2::new(110.0, 100.0))
+        .pos(Vec2::new(210.0, 200.0))
         .social_drive(HIGH_SOCIAL)
         .done()
         .build();
 
-    world.tick(5);
+    world.tick(TICKS_TO_INITIATE);
 
     let alice = agents["alice"];
     let bob = agents["bob"];
@@ -77,21 +86,24 @@ fn auto_initiate_emits_conversation_started_sim_event() {
 }
 
 #[test]
-fn distant_agents_do_not_start_conversation() {
+fn out_of_vision_agents_do_not_start_conversation() {
+    // Vision range for test agents is 100px (see testing::spawn).
+    // 300px apart -> they never perceive each other -> no Person belief ->
+    // no InitiateConversation proposal.
     let (mut world, agents) = TestWorld::scenario(42)
         .map_size(64, 64)
         .noise_biomes(false)
         .agent("alice")
         .pos(Vec2::new(100.0, 100.0))
-        .social_drive(0.9)
+        .social_drive(HIGH_SOCIAL)
         .done()
         .agent("bob")
-        .pos(Vec2::new(300.0, 300.0))
-        .social_drive(0.9)
+        .pos(Vec2::new(500.0, 500.0))
+        .social_drive(HIGH_SOCIAL)
         .done()
         .build();
 
-    world.tick(10);
+    world.tick(TICKS_TO_INITIATE);
 
     assert!(!world.in_conversation(agents["alice"]));
     assert!(!world.in_conversation(agents["bob"]));
@@ -104,26 +116,26 @@ fn distant_agents_do_not_start_conversation() {
         .any(|e| matches!(e, SimEvent::ConversationStarted { .. }));
     assert!(
         !started,
-        "no ConversationStarted event should fire for distant agents"
+        "no ConversationStarted event should fire for agents that never perceive each other"
     );
 }
 
 #[test]
-fn low_social_drive_agents_do_not_start_conversation() {
+fn low_social_drive_agents_do_not_initiate() {
     let (mut world, agents) = TestWorld::scenario(42)
-        .map_size(32, 32)
+        .map_size(64, 64)
         .noise_biomes(false)
         .agent("alice")
-        .pos(Vec2::new(100.0, 100.0))
-        .social_drive(0.1)
+        .pos(Vec2::new(200.0, 200.0))
+        .social_drive(LOW_SOCIAL)
         .done()
         .agent("bob")
-        .pos(Vec2::new(110.0, 100.0))
-        .social_drive(0.1)
+        .pos(Vec2::new(210.0, 200.0))
+        .social_drive(LOW_SOCIAL)
         .done()
         .build();
 
-    world.tick(10);
+    world.tick(TICKS_TO_INITIATE);
 
     assert!(!world.in_conversation(agents["alice"]));
     assert!(!world.in_conversation(agents["bob"]));
@@ -131,22 +143,55 @@ fn low_social_drive_agents_do_not_start_conversation() {
 }
 
 #[test]
-fn conversation_ends_gracefully_after_enough_turns() {
+fn converse_marker_replaces_initiate_on_arrival() {
     let (mut world, agents) = TestWorld::scenario(42)
-        .map_size(32, 32)
+        .map_size(64, 64)
         .noise_biomes(false)
         .agent("alice")
-        .pos(Vec2::new(100.0, 100.0))
+        .pos(Vec2::new(200.0, 200.0))
         .social_drive(HIGH_SOCIAL)
         .done()
         .agent("bob")
-        .pos(Vec2::new(110.0, 100.0))
+        .pos(Vec2::new(210.0, 200.0))
         .social_drive(HIGH_SOCIAL)
         .done()
         .build();
 
-    // Turn interval is 30 ticks, natural end at 6 turns -> ~200 ticks.
-    world.tick(300);
+    world.tick(TICKS_TO_INITIATE);
+
+    let alice = agents["alice"];
+    assert!(
+        world.in_conversation(alice),
+        "alice should have initiated by now"
+    );
+    let active = world.get::<worldsim::agent::actions::ActiveActions>(alice);
+    assert!(
+        active.contains(ActionType::Converse),
+        "Converse marker should occupy the Mouth channel after arrival"
+    );
+    assert!(
+        !active.contains(ActionType::InitiateConversation),
+        "InitiateConversation marker should be removed after arrival"
+    );
+}
+
+#[test]
+fn conversation_ends_gracefully_after_enough_turns() {
+    let (mut world, agents) = TestWorld::scenario(42)
+        .map_size(64, 64)
+        .noise_biomes(false)
+        .agent("alice")
+        .pos(Vec2::new(200.0, 200.0))
+        .social_drive(HIGH_SOCIAL)
+        .done()
+        .agent("bob")
+        .pos(Vec2::new(210.0, 200.0))
+        .social_drive(HIGH_SOCIAL)
+        .done()
+        .build();
+
+    // Initiation (~200) + 6 turns @ 30 ticks each + cleanup ~= 500 ticks.
+    world.tick(600);
 
     let alice = agents["alice"];
     let bob = agents["bob"];
@@ -165,31 +210,5 @@ fn conversation_ends_gracefully_after_enough_turns() {
     assert!(
         ended,
         "ConversationEnded SimEvent must fire when a conversation finishes"
-    );
-}
-
-#[test]
-fn converse_marker_occupies_mouth_channel() {
-    let (mut world, agents) = TestWorld::scenario(42)
-        .map_size(32, 32)
-        .noise_biomes(false)
-        .agent("alice")
-        .pos(Vec2::new(100.0, 100.0))
-        .social_drive(HIGH_SOCIAL)
-        .done()
-        .agent("bob")
-        .pos(Vec2::new(110.0, 100.0))
-        .social_drive(HIGH_SOCIAL)
-        .done()
-        .build();
-
-    world.tick(5);
-
-    let alice = agents["alice"];
-    assert!(world.in_conversation(alice), "auto-init should have fired");
-    let active = world.get::<worldsim::agent::actions::ActiveActions>(alice);
-    assert!(
-        active.contains(ActionType::Converse),
-        "conversing agent should have Converse in active actions"
     );
 }

@@ -1,25 +1,28 @@
 //! Emotional brain: association-driven behavior based on feelings.
 //!
-//! Reads: EmotionalState, MindGraph, VisibleObjects
+//! Reads: EmotionalState, MindGraph, VisibleObjects, PsychologicalDrives, InConversation
 //! Writes: BrainProposal
 //! Upstream: perception (VisibleObjects), psyche (EmotionalState)
 //! Downstream: brains::proposal (winner selection)
 //!
-//! Note: Social-seeking and conversation continuation are no longer driven from
-//! here. The [`CommunicationPlugin`](crate::agent::communication::CommunicationPlugin)
-//! owns conversations as an independent channel and decides on its own who
-//! talks to whom and when. The emotional brain only proposes actions that
-//! occupy ordinary action channels (Flee, Walk-toward, Attack).
+//! Conversation continuation and turn-taking are handled by the
+//! [`CommunicationPlugin`](crate::agent::communication::CommunicationPlugin).
+//! The emotional brain only proposes the *initiation* of conversations
+//! (`ActionType::InitiateConversation`); once registered, the plugin owns the
+//! lifecycle.
 
 use super::proposal::{BrainProposal, BrainType};
 use crate::agent::actions::ActionType;
-use crate::agent::mind::knowledge::{MindGraph, Node, Predicate, Value};
+use crate::agent::body::needs::PsychologicalDrives;
+use crate::agent::mind::conversation::InConversation;
+use crate::agent::mind::knowledge::{Concept, MindGraph, Node, Predicate, Value};
 use crate::agent::mind::perception::VisibleObjects;
 use crate::agent::psyche::emotions::{EmotionType, EmotionalState};
 use crate::constants::brains::emotional::{
     ANGER_ENTITY_THRESHOLD, ANGER_ENTITY_URGENCY_MULTIPLIER, FEAR_ENTITY_THRESHOLD,
     FEAR_ENTITY_URGENCY_MULTIPLIER, FEAR_GENERAL_THRESHOLD, FEAR_GENERAL_URGENCY_MULTIPLIER,
-    JOY_ENTITY_THRESHOLD, JOY_ENTITY_URGENCY_MULTIPLIER,
+    JOY_ENTITY_THRESHOLD, JOY_ENTITY_URGENCY_MULTIPLIER, SOCIAL_SEEK_THRESHOLD,
+    SOCIAL_SEEK_URGENCY_MULTIPLIER,
 };
 use bevy::prelude::*;
 
@@ -27,6 +30,8 @@ pub fn emotional_brain_propose(
     emotions: &EmotionalState,
     mind: &MindGraph,
     visible: &VisibleObjects,
+    drives: Option<&PsychologicalDrives>,
+    in_conversation: Option<&InConversation>,
     action_registry: &crate::agent::actions::ActionRegistry,
 ) -> Option<BrainProposal> {
     let mut best: Option<BrainProposal> = None;
@@ -45,7 +50,60 @@ pub fn emotional_brain_propose(
         best = Some(proposal);
     }
 
+    // Social seeking — only when not already in a conversation.
+    if in_conversation.is_none()
+        && let Some(d) = drives
+        && let Some(proposal) =
+            seek_social_initiation(d.social, visible, mind, action_registry, best_urgency)
+    {
+        best = Some(proposal);
+    }
+
     best
+}
+
+/// Propose `InitiateConversation` toward a visible person if social drive is
+/// high enough. Skips strangers (the agent's recognition system handles those
+/// separately) — for now we accept any visible Person concept.
+fn seek_social_initiation(
+    social_drive: f32,
+    visible: &VisibleObjects,
+    mind: &MindGraph,
+    action_registry: &crate::agent::actions::ActionRegistry,
+    min_urgency: f32,
+) -> Option<BrainProposal> {
+    if social_drive <= SOCIAL_SEEK_THRESHOLD {
+        return None;
+    }
+
+    let urgency = social_drive * SOCIAL_SEEK_URGENCY_MULTIPLIER;
+    if urgency <= min_urgency {
+        return None;
+    }
+
+    let action = action_registry.get(ActionType::InitiateConversation)?;
+
+    for &entity in &visible.entities {
+        // Must be a person.
+        let is_person = !mind
+            .query(
+                Some(&Node::Entity(entity)),
+                Some(Predicate::IsA),
+                Some(&Value::Concept(Concept::Person)),
+            )
+            .is_empty();
+        if !is_person {
+            continue;
+        }
+        return Some(BrainProposal {
+            brain: BrainType::Emotional,
+            action: action.to_template(Some(entity), None),
+            urgency,
+            reasoning: format!("I want to chat with {entity:?} (social: {social_drive:.2})"),
+        });
+    }
+
+    None
 }
 
 /// Returns (fear, joy, anger) intensities from direct and inherited associations.
@@ -195,7 +253,7 @@ mod tests {
         let mut registry = crate::agent::actions::ActionRegistry::default();
         registry.register(crate::agent::actions::action::FleeAction);
 
-        let proposal = emotional_brain_propose(&state, &mind, &visible, &registry);
+        let proposal = emotional_brain_propose(&state, &mind, &visible, None, None, &registry);
 
         assert!(proposal.is_some());
         let prop = proposal.unwrap();
@@ -223,7 +281,7 @@ mod tests {
         let mut registry = crate::agent::actions::ActionRegistry::default();
         registry.register(crate::agent::actions::action::FleeAction);
 
-        let proposal = emotional_brain_propose(&state, &mind, &visible, &registry);
+        let proposal = emotional_brain_propose(&state, &mind, &visible, None, None, &registry);
 
         assert!(proposal.is_some());
         let prop = proposal.unwrap();
@@ -249,7 +307,7 @@ mod tests {
         let mut registry = crate::agent::actions::ActionRegistry::default();
         registry.register(crate::agent::actions::action::WalkAction);
 
-        let proposal = emotional_brain_propose(&state, &mind, &visible, &registry);
+        let proposal = emotional_brain_propose(&state, &mind, &visible, None, None, &registry);
 
         assert!(proposal.is_some());
         let prop = proposal.unwrap();
@@ -263,7 +321,7 @@ mod tests {
         let visible = VisibleObjects::default();
 
         let registry = crate::agent::actions::ActionRegistry::default();
-        let proposal = emotional_brain_propose(&state, &mind, &visible, &registry);
+        let proposal = emotional_brain_propose(&state, &mind, &visible, None, None, &registry);
 
         assert!(proposal.is_none());
     }

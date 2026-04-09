@@ -151,6 +151,12 @@ pub mod brains {
         pub const ANGER_ENTITY_URGENCY_MULTIPLIER: f32 = 60.0;
         pub const FEAR_GENERAL_THRESHOLD: f32 = 0.7;
         pub const FEAR_GENERAL_URGENCY_MULTIPLIER: f32 = 90.0;
+        /// Social drive above which the emotional brain proposes
+        /// `InitiateConversation` toward a visible person.
+        pub const SOCIAL_SEEK_THRESHOLD: f32 = 0.55;
+        /// Multiplier applied to social drive to score the urgency of
+        /// initiating a conversation.
+        pub const SOCIAL_SEEK_URGENCY_MULTIPLIER: f32 = 40.0;
     }
 
     /// Rational brain planning urgency scores and thresholds

@@ -34,7 +34,6 @@ use bevy::prelude::*;
 use crate::agent::Agent;
 use crate::agent::actions::registry::{ActionState, ActiveActions};
 use crate::agent::actions::types::ActionType;
-use crate::agent::body::needs::PsychologicalDrives;
 use crate::agent::events::{ConversationTopic, GameEvent, SimEvent};
 use crate::agent::mind::conversation::{
     Conversation, ConversationAbandoned, ConversationManager, ConversationState, InConversation,
@@ -48,14 +47,6 @@ use crate::core::tick::TickCount;
 // ============================================================================
 // Tunables
 // ============================================================================
-
-/// Both agents must have at least this much social drive for the
-/// CommunicationPlugin to auto-start a conversation between them.
-///
-/// This is **interim** behavior — when #45 (`InitiateConversation` action)
-/// lands, that action will be the canonical entry point and this auto-init
-/// path will be removed.
-pub const AUTO_INITIATE_SOCIAL_THRESHOLD: f32 = 0.55;
 
 /// Number of ticks since the last turn after which a conversation is
 /// considered abandoned and ended.
@@ -88,8 +79,8 @@ impl Plugin for CommunicationPlugin {
             .add_systems(
                 Update,
                 (
-                    auto_initiate_conversations,
-                    select_turn_intent.after(auto_initiate_conversations),
+                    process_initiate_conversation,
+                    select_turn_intent.after(process_initiate_conversation),
                     process_received_communication.after(select_turn_intent),
                     emit_communication_events.after(process_received_communication),
                     evaluate_conversation_continuation.after(emit_communication_events),
@@ -100,80 +91,106 @@ impl Plugin for CommunicationPlugin {
 }
 
 // ============================================================================
-// 1. Auto-initiation (interim entry point — replaced by #45)
+// 1. InitiateConversation lifecycle (entry point owned by this plugin)
 // ============================================================================
 
-/// Pair up nearby agents who both want to socialize and start a conversation.
+/// Watches agents with `InitiateConversation` running and registers a new
+/// conversation when they reach `CONVERSATION_RANGE` of their partner.
 ///
-/// **Interim**: this is the temporary entry point until issue #45 introduces
-/// the `InitiateConversation` action. The auto-init policy is intentionally
-/// conservative (high social-drive threshold, in-range only, neither already
-/// in a conversation) so it doesn't fire spuriously in unrelated tests.
-pub fn auto_initiate_conversations(
+/// On arrival:
+/// 1. Register the `Conversation` in `ConversationManager`
+/// 2. Insert `InConversation` on both participants
+/// 3. Swap `InitiateConversation` for `Converse` in the initiator's `ActiveActions`
+/// 4. Insert `Converse` on the partner so they occupy the Mouth channel too
+/// 5. Emit `SimEvent::ConversationStarted`
+///
+/// If the partner is already in a conversation, gone, or moved out of range
+/// the action is dropped (the agent's brain will pick something else next tick).
+pub fn process_initiate_conversation(
     mut commands: Commands,
     mut manager: ResMut<ConversationManager>,
     tick: Res<TickCount>,
     mut sim_events: MessageWriter<SimEvent>,
-    agents: Query<
-        (
-            Entity,
-            &Transform,
-            &PsychologicalDrives,
-            Option<&InConversation>,
-            &ActiveActions,
-        ),
-        With<Agent>,
-    >,
+    initiators: Query<(Entity, &Transform, &ActiveActions), With<Agent>>,
+    partner_state: Query<(&Transform, Option<&InConversation>), With<Agent>>,
 ) {
-    let mut candidates: Vec<(Entity, Vec2, f32)> = Vec::new();
-    for (entity, transform, drives, in_conv, active) in agents.iter() {
-        if in_conv.is_some() {
+    for (initiator, transform, active) in initiators.iter() {
+        let Some(state) = active.get(ActionType::InitiateConversation) else {
             continue;
-        }
-        if drives.social < AUTO_INITIATE_SOCIAL_THRESHOLD {
+        };
+        let Some(partner) = state.target_entity else {
+            commands
+                .entity(initiator)
+                .queue(RemoveInitiateConversationMarker);
             continue;
-        }
-        // Don't yank agents out of high-priority body work just to chat.
-        if active.contains(ActionType::Sleep)
-            || active.contains(ActionType::Flee)
-            || active.contains(ActionType::Attack)
-        {
-            continue;
-        }
-        candidates.push((entity, transform.translation.truncate(), drives.social));
-    }
+        };
 
-    for i in 0..candidates.len() {
-        for j in (i + 1)..candidates.len() {
-            let (a, pa, _) = candidates[i];
-            let (b, pb, _) = candidates[j];
-            if pa.distance(pb) > CONVERSATION_RANGE {
-                continue;
-            }
-            // Check neither was paired up earlier in the same tick.
-            if manager.find_active(a, b).is_some() {
-                continue;
-            }
-            let id = manager.start_conversation([a, b], tick.current);
-            commands.entity(a).insert(InConversation {
-                conversation_id: id,
-                partner: b,
-            });
-            commands.entity(b).insert(InConversation {
-                conversation_id: id,
-                partner: a,
-            });
+        // Partner gone, already busy talking to someone else, or out of range?
+        let Ok((partner_transform, partner_conv)) = partner_state.get(partner) else {
             commands
-                .entity(a)
-                .queue(InsertConverseMarker { tick: tick.current });
+                .entity(initiator)
+                .queue(RemoveInitiateConversationMarker);
+            continue;
+        };
+        if partner_conv.is_some() {
             commands
-                .entity(b)
-                .queue(InsertConverseMarker { tick: tick.current });
-            sim_events.write(SimEvent::ConversationStarted {
-                participants: vec![a, b],
-                tick: tick.current,
-                conversation_id: id,
-            });
+                .entity(initiator)
+                .queue(RemoveInitiateConversationMarker);
+            continue;
+        }
+        let distance = transform
+            .translation
+            .truncate()
+            .distance(partner_transform.translation.truncate());
+        if distance > CONVERSATION_RANGE {
+            // Still walking — let the Movement system advance position.
+            continue;
+        }
+
+        // We're close enough. Skip if either side is already in a conversation
+        // (race with another initiator) or already paired this tick.
+        if manager.find_active(initiator, partner).is_some() {
+            commands
+                .entity(initiator)
+                .queue(RemoveInitiateConversationMarker);
+            continue;
+        }
+
+        let id = manager.start_conversation([initiator, partner], tick.current);
+        commands.entity(initiator).insert(InConversation {
+            conversation_id: id,
+            partner,
+        });
+        commands.entity(partner).insert(InConversation {
+            conversation_id: id,
+            partner: initiator,
+        });
+        commands
+            .entity(initiator)
+            .queue(RemoveInitiateConversationMarker);
+        commands
+            .entity(initiator)
+            .queue(InsertConverseMarker { tick: tick.current });
+        commands
+            .entity(partner)
+            .queue(InsertConverseMarker { tick: tick.current });
+        sim_events.write(SimEvent::ConversationStarted {
+            participants: vec![initiator, partner],
+            tick: tick.current,
+            conversation_id: id,
+        });
+    }
+}
+
+/// `EntityCommand` that removes the `InitiateConversation` marker once the
+/// CommunicationPlugin has handled arrival (or determined the partner is
+/// unreachable).
+struct RemoveInitiateConversationMarker;
+
+impl EntityCommand for RemoveInitiateConversationMarker {
+    fn apply(self, mut entity: EntityWorldMut) {
+        if let Some(mut active) = entity.get_mut::<ActiveActions>() {
+            active.remove(ActionType::InitiateConversation);
         }
     }
 }
