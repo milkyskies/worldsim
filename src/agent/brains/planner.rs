@@ -8,6 +8,8 @@
 use super::thinking::{ActionTemplate, Goal, TriplePattern};
 use crate::agent::actions::ActionType;
 use crate::agent::mind::knowledge::{MindGraph, Node as MindNode, Predicate, Triple, Value};
+use crate::constants::actions::walk as walk_const;
+use crate::constants::brains::survival::EXHAUSTION_TRIGGER;
 use crate::world::map::TILE_SIZE;
 use bevy::prelude::*;
 use std::cmp::Ordering;
@@ -694,7 +696,56 @@ fn find_explicit_actions_for_goal(
     candidates
 }
 
+/// The energy precondition pattern the planner adds before a Walk when the agent needs to sleep
+/// first. Sleep's plan_effect is `(Self_, Energy, Int(100))`, so this pattern matches it.
+fn energy_full_pattern() -> TriplePattern {
+    TriplePattern::new(
+        Some(MindNode::Self_),
+        Some(Predicate::Energy),
+        Some(Value::Int(100)),
+    )
+}
+
+/// Builds the unmet-goal list for the state after a Walk action, injecting a Sleep precondition
+/// if the agent's current energy is insufficient to complete the walk.
+///
+/// Uses a worst-case estimate (entire walk at tired speed) so the planner errs on the side of
+/// caution. Returns None if the walk is infeasible even with full energy.
+fn build_walk_goals(
+    dist_tiles: f32,
+    remaining_goals: &[TriplePattern],
+    mind: &MindGraph,
+) -> Option<Vec<TriplePattern>> {
+    // Worst-case energy cost: whole trip at tired speed (conservative).
+    let energy_needed = dist_tiles * walk_const::ENERGY_PER_TILE_TIRED;
+
+    // Even with full energy (100), the walk is impossible.
+    if energy_needed > 100.0 - EXHAUSTION_TRIGGER {
+        return None;
+    }
+
+    let current_energy = match mind.get(&MindNode::Self_, Predicate::Energy) {
+        Some(Value::Int(e)) => *e as f32,
+        Some(Value::Float(e)) => *e,
+        _ => 100.0, // Unknown energy — assume full, let it proceed
+    };
+
+    let mut goals = remaining_goals.to_vec();
+
+    // If the agent can't complete the walk without risking exhaustion sleep-interruption,
+    // add an energy precondition so the planner prepends Sleep.
+    if current_energy - energy_needed < EXHAUSTION_TRIGGER {
+        goals.insert(0, energy_full_pattern());
+    }
+
+    Some(goals)
+}
+
 /// Generates an implicit tile walk if the target goal requires Self_ to be at a tile.
+///
+/// Energy-aware: if the agent cannot complete the walk on current energy, prepends a Sleep
+/// precondition so the planner inserts Sleep before Walk. Returns None if the walk is
+/// impossible even after sleeping (truly extreme distance).
 fn generate_implicit_tile_walk(
     target_goal: &TriplePattern,
     remaining_goals: &[TriplePattern],
@@ -732,14 +783,18 @@ fn generate_implicit_tile_walk(
         .map(|a| a.to_template(None, Some(world_pos)))
         .expect("Walk action must be registered");
 
-    // Walk doesn't consume resources; propagate consumed unchanged
-    let next_state = RegressiveState::new(remaining_goals.to_vec(), current_consumed.to_vec());
+    let next_goals = build_walk_goals(dist, remaining_goals, mind)?;
+    let next_state = RegressiveState::new(next_goals, current_consumed.to_vec());
     let new_cost = current_g + dist;
 
     Some((walk_action, next_state, new_cost))
 }
 
 /// Generates an implicit entity walk if the target goal requires Self_ to be at an entity's location.
+///
+/// Energy-aware: if the agent cannot complete the walk on current energy, prepends a Sleep
+/// precondition so the planner inserts Sleep before Walk. Returns None if the walk is
+/// impossible even after sleeping (truly extreme distance).
 fn generate_implicit_entity_walk(
     target_goal: &TriplePattern,
     remaining_goals: &[TriplePattern],
@@ -783,8 +838,8 @@ fn generate_implicit_entity_walk(
         .map(|a| a.to_template(Some(entity), Some(world_pos)))
         .expect("Walk action must be registered");
 
-    // Walk doesn't consume resources; propagate consumed unchanged
-    let next_state = RegressiveState::new(remaining_goals.to_vec(), current_consumed.to_vec());
+    let next_goals = build_walk_goals(dist, remaining_goals, mind)?;
+    let next_state = RegressiveState::new(next_goals, current_consumed.to_vec());
     let new_cost = current_g + dist;
 
     Some((walk_action, next_state, new_cost))
@@ -1040,6 +1095,221 @@ mod tests {
         assert!(
             plan.unwrap().is_empty(),
             "goal already satisfied should return empty plan"
+        );
+    }
+
+    // ─── Energy-aware walk planning ───────────────────────────────────────────
+
+    /// Harvest action that requires being at a specific tile (mimics real proximity actions).
+    fn harvest_at_tile(entity: Entity, concept: Concept, tile: (i32, i32)) -> ActionTemplate {
+        ActionTemplate {
+            name: format!("Harvest({:?})", concept),
+            action_type: ActionType::Harvest,
+            target_entity: Some(entity),
+            target_position: None,
+            preconditions: vec![
+                TriplePattern::entity_contains(entity),
+                TriplePattern::self_at(tile),
+            ],
+            effects: vec![Triple::new(
+                MindNode::Self_,
+                Predicate::Contains,
+                Value::Item(concept, 1),
+            )],
+            consumes: vec![TriplePattern::entity_contains(entity)],
+            base_cost: 2.0,
+        }
+    }
+
+    /// Mind with agent at origin, given energy, and food entity at `food_tile`.
+    fn mind_with_food_and_energy(food: Entity, food_tile: (i32, i32), energy: i32) -> MindGraph {
+        let mut mind = test_mind();
+        mind.add(Triple::new(
+            MindNode::Self_,
+            Predicate::LocatedAt,
+            Value::Tile((0, 0)),
+        ));
+        mind.add(Triple::new(
+            MindNode::Self_,
+            Predicate::Energy,
+            Value::Int(energy),
+        ));
+        mind.add(Triple::new(
+            MindNode::Entity(food),
+            Predicate::LocatedAt,
+            Value::Tile(food_tile),
+        ));
+        mind.add(Triple::new(
+            MindNode::Entity(food),
+            Predicate::Contains,
+            Value::Item(Concept::Apple, 1),
+        ));
+        mind
+    }
+
+    /// Returns a registry-sourced Sleep template (no target).
+    fn sleep_template(registry: &ActionRegistry) -> ActionTemplate {
+        registry
+            .get(ActionType::Sleep)
+            .map(|a| a.to_template(None, None))
+            .expect("Sleep must be registered")
+    }
+
+    #[test]
+    fn short_walk_with_high_energy_needs_no_sleep() {
+        // Agent energy 80, food 10 tiles away — should plan Walk → Harvest, no Sleep.
+        let food = Entity::from_bits(10);
+        let food_tile = (10i32, 0i32); // 10 tiles from origin
+        let mind = mind_with_food_and_energy(food, food_tile, 80);
+
+        let registry = minimal_registry();
+        let actions = vec![
+            harvest_at_tile(food, Concept::Apple, food_tile),
+            sleep_template(&registry),
+        ];
+        let goal = goal_self_contains(Concept::Apple);
+
+        let plan = regressive_plan(&mind, &goal, &actions, &registry);
+        assert!(plan.is_some(), "should produce a valid plan");
+        let plan = plan.unwrap();
+
+        assert!(
+            !plan.iter().any(|a| a.action_type == ActionType::Sleep),
+            "no sleep needed when energy is sufficient"
+        );
+        assert!(
+            plan.iter().any(|a| a.action_type == ActionType::Walk),
+            "plan must include Walk"
+        );
+        assert!(
+            plan.iter().any(|a| a.action_type == ActionType::Harvest),
+            "plan must include Harvest"
+        );
+    }
+
+    #[test]
+    fn long_walk_with_low_energy_inserts_sleep() {
+        // Agent energy 20, food 60 tiles away — should plan Sleep → Walk → Harvest.
+        let food = Entity::from_bits(11);
+        let food_tile = (60i32, 0i32); // 60 tiles from origin, costs 12 energy at tired rate
+        let mind = mind_with_food_and_energy(food, food_tile, 20);
+
+        let registry = minimal_registry();
+        let actions = vec![
+            harvest_at_tile(food, Concept::Apple, food_tile),
+            sleep_template(&registry),
+        ];
+        let goal = goal_self_contains(Concept::Apple);
+
+        let plan = regressive_plan(&mind, &goal, &actions, &registry);
+        assert!(
+            plan.is_some(),
+            "should produce a plan (Sleep makes it feasible)"
+        );
+        let plan = plan.unwrap();
+
+        let sleep_idx = plan.iter().position(|a| a.action_type == ActionType::Sleep);
+        let walk_idx = plan.iter().position(|a| a.action_type == ActionType::Walk);
+        assert!(sleep_idx.is_some(), "plan must include Sleep");
+        assert!(walk_idx.is_some(), "plan must include Walk");
+        assert!(
+            sleep_idx.unwrap() < walk_idx.unwrap(),
+            "Sleep must come before Walk"
+        );
+    }
+
+    #[test]
+    fn impossibly_long_walk_returns_no_plan() {
+        // Food 500 tiles away — impossible even after sleeping (energy cost > 85).
+        let food = Entity::from_bits(12);
+        let food_tile = (500i32, 0i32);
+        let mind = mind_with_food_and_energy(food, food_tile, 20);
+
+        let registry = minimal_registry();
+        let actions = vec![
+            harvest_at_tile(food, Concept::Apple, food_tile),
+            sleep_template(&registry),
+        ];
+        let goal = goal_self_contains(Concept::Apple);
+
+        let plan = regressive_plan(&mind, &goal, &actions, &registry);
+        assert!(
+            plan.is_none(),
+            "planner must return None for truly infeasible walk"
+        );
+    }
+
+    #[test]
+    fn energy_check_applies_to_non_food_harvest() {
+        // Same energy logic applies to any walk, not just food plans.
+        // Agent energy 20, stone node 60 tiles away — Sleep should be prepended.
+        let stone = Entity::from_bits(13);
+        let stone_tile = (60i32, 0i32);
+        let mut mind = test_mind();
+        mind.add(Triple::new(
+            MindNode::Self_,
+            Predicate::LocatedAt,
+            Value::Tile((0, 0)),
+        ));
+        mind.add(Triple::new(
+            MindNode::Self_,
+            Predicate::Energy,
+            Value::Int(20),
+        ));
+        mind.add(Triple::new(
+            MindNode::Entity(stone),
+            Predicate::LocatedAt,
+            Value::Tile(stone_tile),
+        ));
+        mind.add(Triple::new(
+            MindNode::Entity(stone),
+            Predicate::Contains,
+            Value::Item(Concept::Stone, 1),
+        ));
+
+        let registry = minimal_registry();
+        let actions = vec![
+            ActionTemplate {
+                name: "HarvestStone".to_string(),
+                action_type: ActionType::Harvest,
+                target_entity: Some(stone),
+                target_position: None,
+                preconditions: vec![
+                    TriplePattern::entity_contains(stone),
+                    TriplePattern::self_at(stone_tile),
+                ],
+                effects: vec![Triple::new(
+                    MindNode::Self_,
+                    Predicate::Contains,
+                    Value::Item(Concept::Stone, 1),
+                )],
+                consumes: vec![TriplePattern::entity_contains(stone)],
+                base_cost: 2.0,
+            },
+            sleep_template(&registry),
+        ];
+        let goal = Goal {
+            conditions: vec![TriplePattern::new(
+                Some(MindNode::Self_),
+                Some(Predicate::Contains),
+                Some(Value::Item(Concept::Stone, 1)),
+            )],
+            priority: 1.0,
+        };
+
+        let plan = regressive_plan(&mind, &goal, &actions, &registry);
+        assert!(plan.is_some(), "should produce a plan for stone harvest");
+        let plan = plan.unwrap();
+
+        let sleep_idx = plan.iter().position(|a| a.action_type == ActionType::Sleep);
+        let walk_idx = plan.iter().position(|a| a.action_type == ActionType::Walk);
+        assert!(
+            sleep_idx.is_some(),
+            "Sleep must be inserted before long walk to stone"
+        );
+        assert!(
+            sleep_idx.unwrap() < walk_idx.unwrap(),
+            "Sleep must come before Walk"
         );
     }
 }

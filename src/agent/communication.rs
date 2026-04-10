@@ -1,7 +1,7 @@
 //! Communication: parallel Bevy plugin that runs conversations as a continuous channel.
 //!
-//! Reads: PsychologicalDrives, Transform, ActiveActions, MindGraph
-//! Writes: ConversationManager, InConversation, ActiveActions (Converse marker), MindGraph (Hearsay), GameEvent
+//! Reads: PsychologicalDrives, Transform, ActiveActions, MindGraph, EmotionalState, Personality
+//! Writes: ConversationManager, InConversation, ActiveActions (Converse marker), MindGraph (Hearsay), GameEvent, SimEvent
 //! Upstream: agent::mind::conversation (data types), agent::actions (channel marker)
 //! Downstream: psyche::relationships (consumes SocialInteraction), psyche::emotions (ConversationAbandoned)
 //!
@@ -39,8 +39,10 @@ use crate::agent::mind::conversation::{
     Conversation, ConversationAbandoned, ConversationManager, ConversationState, InConversation,
     Intent, Topic, Turn,
 };
-use crate::agent::mind::knowledge::{Metadata, MindGraph};
+use crate::agent::mind::knowledge::{Metadata, MindGraph, Node, Predicate, Value};
 use crate::agent::mind::social_perception::CONVERSATION_RANGE;
+use crate::agent::psyche::emotions::EmotionalState;
+use crate::agent::psyche::personality::Personality;
 use crate::core::not_paused;
 use crate::core::tick::TickCount;
 
@@ -373,10 +375,14 @@ pub fn process_received_communication(
 /// (and optionally [`GameEvent::KnowledgeShared`]) so existing downstream
 /// systems (relationship updater, memory consolidator) keep working without
 /// changes.
+///
+/// Valence is computed from intent, affection, mood, and personality rather
+/// than being hardcoded to 0.5.
 pub fn emit_communication_events(
     manager: Res<ConversationManager>,
     tick: Res<TickCount>,
     mut events: MessageWriter<GameEvent>,
+    agents: Query<(&MindGraph, &EmotionalState, &Personality)>,
 ) {
     for conv in manager.conversations.values() {
         let Some(turn) = conv.turns.last() else {
@@ -385,22 +391,101 @@ pub fn emit_communication_events(
         if turn.timestamp != tick.current {
             continue;
         }
-        let listener = conv.other_participant(turn.speaker);
+        let speaker = turn.speaker;
+        let listener = conv.other_participant(speaker);
+        let valence = compute_interaction_valence(turn, speaker, listener, &agents);
         events.write(GameEvent::SocialInteraction {
-            actor: turn.speaker,
+            actor: speaker,
             target: listener,
             action: ActionType::Converse,
             topic: Some(map_topic(turn.topic)),
-            valence: 0.5,
+            valence,
         });
         if !turn.content.is_empty() {
             events.write(GameEvent::KnowledgeShared {
-                speaker: turn.speaker,
+                speaker,
                 listener,
                 content: turn.content.clone(),
             });
         }
     }
+}
+
+fn compute_interaction_valence(
+    turn: &Turn,
+    speaker: Entity,
+    listener: Entity,
+    agents: &Query<(&MindGraph, &EmotionalState, &Personality)>,
+) -> f32 {
+    let base = valence_base(turn.intent);
+
+    let listener_affection = agents
+        .get(listener)
+        .ok()
+        .and_then(|(mind, _, _)| mind.get(&Node::Entity(speaker), Predicate::Affection))
+        .and_then(|v| {
+            if let Value::Float(f) = v {
+                Some(*f)
+            } else {
+                None
+            }
+        })
+        .unwrap_or(0.5);
+
+    let (speaker_mood, speaker_agreeableness) = agents
+        .get(speaker)
+        .map(|(_, e, p)| (e.current_mood, p.traits.agreeableness))
+        .unwrap_or((0.0, 0.5));
+    let listener_mood = agents
+        .get(listener)
+        .map(|(_, e, _)| e.current_mood)
+        .unwrap_or(0.0);
+
+    valence_from_parts(
+        base,
+        listener_affection,
+        speaker_mood,
+        listener_mood,
+        speaker_agreeableness,
+    )
+}
+
+/// Base valence by conversational intent, before contextual modifiers are applied.
+pub(crate) fn valence_base(intent: Intent) -> f32 {
+    match intent {
+        Intent::Greet => 0.3,
+        Intent::Ask => 0.2,
+        Intent::Disagree => 0.1,
+        Intent::Farewell => 0.3,
+        Intent::Answer
+        | Intent::Share
+        | Intent::Empathize
+        | Intent::Agree
+        | Intent::Thank
+        | Intent::Acknowledge => 0.5,
+    }
+}
+
+/// Pure valence math kernel. Testable without Bevy queries.
+///
+/// ```text
+/// valence = base
+///         + (listener_affection - 0.5) * 0.4   // like them → warmer
+///         + (speaker_mood + listener_mood) / 2.0 * 0.2
+///         + (agreeableness - 0.5) * 0.1
+/// ```
+/// Clamped to [-1.0, 1.0].
+pub(crate) fn valence_from_parts(
+    base: f32,
+    listener_affection: f32,
+    speaker_mood: f32,
+    listener_mood: f32,
+    speaker_agreeableness: f32,
+) -> f32 {
+    let affection_modifier = (listener_affection - 0.5) * 0.4;
+    let mood_modifier = (speaker_mood + listener_mood) / 2.0 * 0.2;
+    let personality_modifier = (speaker_agreeableness - 0.5) * 0.1;
+    (base + affection_modifier + mood_modifier + personality_modifier).clamp(-1.0, 1.0)
 }
 
 fn map_topic(topic: Topic) -> ConversationTopic {
@@ -419,12 +504,14 @@ fn map_topic(topic: Topic) -> ConversationTopic {
 
 /// End conversations whose participants moved out of range, lost the Mouth
 /// channel (e.g. Sleep / Flee preempted Converse), reached natural end, or
-/// went stale. Emits [`ConversationAbandoned`] for ungraceful exits.
+/// went stale. Emits [`ConversationAbandoned`] for ungraceful exits and a
+/// [`GameEvent::SocialInteraction`] with valence -0.4 for the abandoned agent.
 pub fn evaluate_conversation_continuation(
     mut commands: Commands,
     mut manager: ResMut<ConversationManager>,
     mut events: MessageWriter<ConversationAbandoned>,
     mut sim_events: MessageWriter<SimEvent>,
+    mut game_events: MessageWriter<GameEvent>,
     tick: Res<TickCount>,
     transforms: Query<&Transform>,
     actives: Query<&ActiveActions>,
@@ -483,6 +570,13 @@ pub fn evaluate_conversation_continuation(
                     abandoned,
                     tick: tick.current,
                 });
+                game_events.write(GameEvent::SocialInteraction {
+                    actor: abandoner,
+                    target: abandoned,
+                    action: ActionType::Converse,
+                    topic: None,
+                    valence: -0.4,
+                });
             }
             conv.state = ConversationState::Ended;
             to_finalize.push(*id);
@@ -523,6 +617,76 @@ fn pick_abandoner(actives: &Query<&ActiveActions>, participants: [Entity; 2]) ->
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ask_intent_produces_lower_base_valence_than_share() {
+        assert!(valence_base(Intent::Ask) < valence_base(Intent::Share));
+    }
+
+    #[test]
+    fn disagree_intent_produces_lowest_base_valence() {
+        let all_intents = [
+            Intent::Greet,
+            Intent::Ask,
+            Intent::Answer,
+            Intent::Share,
+            Intent::Empathize,
+            Intent::Agree,
+            Intent::Disagree,
+            Intent::Thank,
+            Intent::Farewell,
+            Intent::Acknowledge,
+        ];
+        let disagree = valence_base(Intent::Disagree);
+        for intent in all_intents {
+            assert!(
+                valence_base(intent) >= disagree,
+                "{intent:?} base ({}) is less than Disagree ({})",
+                valence_base(intent),
+                disagree
+            );
+        }
+    }
+
+    #[test]
+    fn high_affection_raises_valence_compared_to_neutral() {
+        let base = valence_base(Intent::Share);
+        let neutral = valence_from_parts(base, 0.5, 0.0, 0.0, 0.5);
+        let friend = valence_from_parts(base, 1.0, 0.0, 0.0, 0.5);
+        let enemy = valence_from_parts(base, 0.0, 0.0, 0.0, 0.5);
+        assert!(
+            friend > neutral,
+            "friend valence {friend} should exceed neutral {neutral}"
+        );
+        assert!(
+            enemy < neutral,
+            "enemy valence {enemy} should be below neutral {neutral}"
+        );
+    }
+
+    #[test]
+    fn positive_mood_raises_valence() {
+        let base = valence_base(Intent::Share);
+        let neutral_mood = valence_from_parts(base, 0.5, 0.0, 0.0, 0.5);
+        let good_mood = valence_from_parts(base, 0.5, 1.0, 1.0, 0.5);
+        assert!(good_mood > neutral_mood);
+    }
+
+    #[test]
+    fn valence_is_clamped_to_minus_one_to_one() {
+        let v_max = valence_from_parts(1.0, 1.0, 1.0, 1.0, 1.0);
+        let v_min = valence_from_parts(-1.0, 0.0, -1.0, -1.0, 0.0);
+        assert!(v_max <= 1.0);
+        assert!(v_min >= -1.0);
+    }
+
+    #[test]
+    fn agreeable_speaker_produces_higher_valence() {
+        let base = valence_base(Intent::Share);
+        let low_agree = valence_from_parts(base, 0.5, 0.0, 0.0, 0.0);
+        let high_agree = valence_from_parts(base, 0.5, 0.0, 0.0, 1.0);
+        assert!(high_agree > low_agree);
+    }
 
     #[test]
     fn map_topic_general_is_greetings() {

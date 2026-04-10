@@ -85,6 +85,42 @@ pub fn create_cultural_knowledge(culture: Culture) -> Vec<Triple> {
     // "Food is Edible"
     add(c(Food), HasTrait, v(Edible));
 
+    // ─── Universal recipe knowledge (all cultures know these) ───
+
+    // Campfire: Wood(3) → provides Safety, Warmth, Light
+    add(
+        c(Campfire),
+        Requires,
+        Value::Item(
+            Wood,
+            crate::constants::actions::build::CAMPFIRE_WOOD_REQUIRED,
+        ),
+    );
+    add(c(Campfire), Provides, v(Warmth));
+    add(c(Campfire), Provides, v(Safety));
+    add(c(Campfire), Provides, v(Light));
+    add(
+        c(Campfire),
+        BuildTime,
+        Value::Int(crate::constants::actions::build::CAMPFIRE_DURATION_TICKS as i32),
+    );
+
+    // Lean-to shelter: Wood(5) + LargeLeaves(2) → provides Safety
+    add(
+        c(LeanTo),
+        Requires,
+        Value::Item(
+            Wood,
+            crate::constants::actions::build::LEAN_TO_WOOD_REQUIRED,
+        ),
+    );
+    add(c(LeanTo), Provides, v(Safety));
+    add(
+        c(LeanTo),
+        BuildTime,
+        Value::Int(crate::constants::actions::build::LEAN_TO_DURATION_TICKS as i32),
+    );
+
     // ─── Specific Cultural Knowledge ───
 
     match culture {

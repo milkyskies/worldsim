@@ -73,6 +73,23 @@ pub mod actions {
         pub const HUNGER_PER_SEC: f32 = 2.0;
     }
 
+    pub mod build {
+        /// Ticks to build a campfire (matches design doc: ~120 ticks).
+        pub const CAMPFIRE_DURATION_TICKS: u32 = 120;
+        /// Wood required to build a campfire.
+        pub const CAMPFIRE_WOOD_REQUIRED: u32 = 3;
+        /// Ticks to build a lean-to shelter.
+        pub const LEAN_TO_DURATION_TICKS: u32 = 180;
+        /// Wood required to build a lean-to.
+        pub const LEAN_TO_WOOD_REQUIRED: u32 = 5;
+        /// Large leaves required to build a lean-to.
+        pub const LEAN_TO_LEAVES_REQUIRED: u32 = 2;
+        /// Energy drained per second while building.
+        pub const ENERGY_PER_SEC: f32 = -0.3;
+        /// Hunger cost per second while building.
+        pub const HUNGER_PER_SEC: f32 = 1.5;
+    }
+
     pub mod attack {
         pub const DURATION_TICKS: u32 = 30;
         pub const BASE_COST: f32 = 10.0;
@@ -83,6 +100,15 @@ pub mod actions {
         pub const ENERGY_PER_SEC: f32 = -0.3;
         pub const HUNGER_PER_SEC: f32 = 0.5;
         pub const ALERTNESS_PER_SEC: f32 = 10.0;
+
+        /// Estimated energy cost per tile at normal speed (for planner estimation).
+        /// Derived: (TILE_SIZE / BASE_SPEED_PER_TICK) * |ENERGY_PER_SEC| * (DEFAULT_TICKS_PER_SEC / 3600)
+        /// = (16 / 0.8) * 0.3 * (60 / 3600) = 20 * 0.005 = 0.1
+        pub const ENERGY_PER_TILE_NORMAL: f32 = 0.1;
+
+        /// Estimated energy cost per tile at tired speed (below TIRED_ENERGY_THRESHOLD).
+        /// Doubles compared to normal because TIRED_SPEED_MULTIPLIER = 0.5.
+        pub const ENERGY_PER_TILE_TIRED: f32 = 0.2;
     }
 
     pub mod explore {
@@ -116,31 +142,12 @@ pub mod actions {
 
 /// Brain behavior thresholds and urgency scores
 pub mod brains {
-    /// Survival brain reflexive response thresholds.
-    ///
-    /// Most thresholds use hysteresis: the HIGH value starts a response,
-    /// the LOW value stops it (preventing rapid oscillation).
     pub mod survival {
-        pub const STRESS_SNAP_HIGH: f32 = 90.0;
-        pub const STRESS_SNAP_LOW: f32 = 70.0;
-        pub const SNAP_HUNGER_THRESHOLD: f32 = 30.0;
-        pub const SNAP_THIRST_THRESHOLD: f32 = 30.0;
-        pub const SNAP_SEARCH_HUNGER_THRESHOLD: f32 = 50.0;
-        pub const SNAP_EXHAUSTION_ENERGY_THRESHOLD: f32 = 50.0;
-        pub const PAIN_HIGH: f32 = 70.0;
-        pub const PAIN_LOW: f32 = 50.0;
-        pub const HUNGER_HIGH: f32 = 80.0;
-        pub const HUNGER_LOW: f32 = 60.0;
-        pub const THIRST_HIGH: f32 = 80.0;
-        pub const THIRST_LOW: f32 = 60.0;
-        /// Energy below this triggers sleep (or keeps agent asleep)
-        pub const EXHAUSTION_TRIGGER: f32 = 15.0;
-        /// Energy above this allows the agent to stop sleeping from exhaustion
-        pub const EXHAUSTION_RELEASE: f32 = 30.0;
-        pub const FEAR_HIGH: f32 = 0.8;
-        pub const FEAR_LOW: f32 = 0.5;
-        /// Energy level at which a sleeping agent wakes up fully rested
+        /// Energy level at which a sleeping agent wakes up fully rested.
         pub const WAKE_ENERGY_THRESHOLD: f32 = 90.0;
+        /// Energy safety margin used by the planner: if a walk would leave the agent below
+        /// this level, Sleep is prepended so the survival brain doesn't interrupt the trip.
+        pub const EXHAUSTION_TRIGGER: f32 = 15.0;
     }
 
     /// Emotional brain urgency scores and emotion intensity thresholds
