@@ -29,6 +29,7 @@ fn failing_harvest_template() -> ActionTemplate {
         effects: vec![],
         consumes: vec![],
         base_cost: 1.0,
+        locomotion_intensity: 0.0,
     }
 }
 

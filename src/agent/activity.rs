@@ -123,9 +123,11 @@ impl Default for ActivityConfig {
             wandering: ActivityTypeConfig {
                 name: "Wander".to_string(),
                 effects: ActivityEffects {
-                    stamina_change: -0.2,
+                    // Stamina drain for movement actions is owned by
+                    // `tick_actions` in execution.rs via the intensity-aware
+                    // `Stamina::drain` call (#339). Activity effects only
+                    // contribute the non-stamina drift (hunger, alertness).
                     hunger_change: 2.0,
-                    // Low cognitive load; mild passive recovery.
                     alertness_change: 0.5,
                     ..Default::default()
                 },
@@ -164,8 +166,8 @@ impl Default for ActivityConfig {
             moving: ActivityTypeConfig {
                 name: "Moving".to_string(),
                 effects: ActivityEffects {
-                    stamina_change: -0.3,
-                    // Walking is mentally easy — neutral on alertness.
+                    // Stamina drain owned by `tick_actions` (#339). Walking
+                    // is mentally easy — neutral on alertness.
                     ..Default::default()
                 },
             },
@@ -179,7 +181,7 @@ impl Default for ActivityConfig {
             exploring: ActivityTypeConfig {
                 name: "Exploring".to_string(),
                 effects: ActivityEffects {
-                    stamina_change: -0.25,
+                    // Stamina drain owned by `tick_actions` (#339).
                     hunger_change: 2.5,
                     // Actively scanning for novel features drains focus.
                     alertness_change: -1.0,

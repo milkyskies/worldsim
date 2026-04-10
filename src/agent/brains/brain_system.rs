@@ -222,7 +222,21 @@ pub fn three_brains_system(
 
         if let Some(top) = admitted.first() {
             brain_state.winner = Some(top.brain);
-            brain_state.chosen_actions = admitted.iter().map(|p| p.action.clone()).collect();
+            brain_state.chosen_actions = admitted
+                .iter()
+                .map(|p| {
+                    // Carry urgency-modulated locomotion intensity (#339)
+                    // from the proposal into the chosen template. Proposal
+                    // urgency is on the 0-100 arbitration scale; the
+                    // intensity formula expects a 0-1 "normalized drive"
+                    // input so we divide before clamping.
+                    let mut action = p.action.clone();
+                    let urgency_unit = (p.urgency / 100.0).clamp(0.0, 1.0);
+                    action.locomotion_intensity =
+                        action.action_type.pick_locomotion_intensity(urgency_unit);
+                    action
+                })
+                .collect();
 
             // Log every admitted action so multi-channel decisions are visible.
             for proposal in &admitted {
