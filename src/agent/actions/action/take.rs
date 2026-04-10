@@ -115,39 +115,30 @@ impl Action for TakeAction {
         Ok(())
     }
 
-    /// Pull the first extractable item from the target into the agent's
-    /// inventory. Walks the target's slots in iteration order and stops on
-    /// the first slot whose `extract_access` is not `None` and that holds at
-    /// least one item.
+    /// Pull extractable items from the target into the agent's inventory,
+    /// preserving per-instance properties (freshness, quality, provenance).
+    ///
+    /// Finds the first concept that can be extracted and transfers all items
+    /// of that concept (mimicking the old stack-based "take the whole pile").
     fn on_complete(&self, ctx: &mut CompletionContext) {
         let Some(target_inv) = ctx.target_inventory.as_deref_mut() else {
             return;
         };
 
-        // Snapshot the candidates so we can mutate target_inv inside the loop.
-        let candidates: Vec<(Concept, u32)> = target_inv
+        // Collect extractable concepts first (snapshot avoids borrow conflict).
+        let extractable: Vec<Concept> = target_inv
             .all_items()
-            .filter(|s| s.quantity > 0)
-            .map(|s| (s.concept, s.quantity))
+            .filter(|t| target_inv.can_extract(t.concept))
+            .map(|t| t.concept)
             .collect();
 
-        for (concept, qty) in candidates {
-            if target_inv.extract(concept, qty) {
-                ctx.inventory.add(concept, qty);
-                return;
-            }
-            // The full stack failed access; try one at a time so capacity
-            // limits on the agent side don't block partial transfers.
-            let mut taken = 0u32;
-            let mut remaining = qty;
-            while remaining > 0 && target_inv.extract(concept, 1) {
-                taken += 1;
-                remaining -= 1;
-            }
-            if taken > 0 {
-                ctx.inventory.add(concept, taken);
-                return;
-            }
+        let Some(&concept) = extractable.first() else {
+            return;
+        };
+
+        // Transfer all Things of that concept.
+        while let Some(thing) = target_inv.extract_thing(concept) {
+            ctx.inventory.add_thing(thing);
         }
     }
 

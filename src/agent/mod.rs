@@ -39,7 +39,7 @@ pub struct AgentPlugin;
 
 impl Plugin for AgentPlugin {
     fn build(&self, app: &mut App) {
-        use crate::core::not_paused;
+        use crate::core::{every_n_ticks, not_paused};
 
         app.register_type::<Agent>()
             .register_type::<Person>()
@@ -47,6 +47,8 @@ impl Plugin for AgentPlugin {
             .register_type::<movement::MovementState>()
             .register_type::<affordance::Affordance>()
             .register_type::<item_slots::ItemSlots>()
+            .register_type::<item_slots::Thing>()
+            .register_type::<item_slots::ThingProperties>()
             .register_type::<inventory::EntityType>()
             .register_type::<psyche::personality::Personality>()
             .register_type::<body::species::SpeciesProfile>()
@@ -143,6 +145,12 @@ impl Plugin for AgentPlugin {
                         .after(psyche::emotions::react_to_events),
                     psyche::relationships::decay_relationships,
                 )
+                    .run_if(not_paused),
+            )
+            .add_systems(
+                Update,
+                item_slots::freshness_decay_system
+                    .run_if(every_n_ticks(100))
                     .run_if(not_paused),
             )
             .init_resource::<psyche::relationships::RelationshipConfig>();

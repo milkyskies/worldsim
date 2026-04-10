@@ -12,7 +12,7 @@ pub use event_log::{
     dump_event_log, parse_log_filter,
 };
 pub use log::GameLog;
-pub use tick::{TickCount, not_paused};
+pub use tick::{TickCount, every_n_ticks, not_paused};
 pub use time::GameTime;
 
 pub struct CorePlugin;

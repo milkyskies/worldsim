@@ -283,17 +283,20 @@ fn perceive_inventory(
     };
     let mut observed_concepts = std::collections::HashSet::new();
 
-    // 1. Record what IS there
+    // 1. Record what IS there (group Things by concept for belief representation)
+    let mut concept_counts: std::collections::HashMap<crate::agent::mind::knowledge::Concept, u32> =
+        std::collections::HashMap::new();
     for item in inventory.all_items() {
-        if item.quantity > 0 {
-            observed_concepts.insert(item.concept);
-            mind.assert(Triple::with_meta(
-                subject_node.clone(),
-                Predicate::Contains,
-                Value::Item(item.concept, item.quantity),
-                Metadata::perception_with_conf(time, confidence),
-            ));
-        }
+        *concept_counts.entry(item.concept).or_default() += 1;
+    }
+    for (concept, qty) in concept_counts {
+        observed_concepts.insert(concept);
+        mind.assert(Triple::with_meta(
+            subject_node.clone(),
+            Predicate::Contains,
+            Value::Item(concept, qty),
+            Metadata::perception_with_conf(time, confidence),
+        ));
     }
 
     // 2. Clear what IS NOT there (but used to be)
