@@ -629,42 +629,74 @@ pub fn setup_map(
     ));
 }
 
-/// Build a single mesh for the whole terrain with one flat color per tile.
+/// Build a single terrain mesh with per-corner vertex colors.
 ///
-/// Each tile gets its own 4 unshared vertices, all set to the same color, so
-/// there is no GPU interpolation between tiles — edges stay pixel-crisp.
+/// Each tile has 4 corner vertices shared with its neighbours. Each vertex
+/// color is the average of the up-to-4 tiles sharing that corner. GPU
+/// bilinear interpolation across each tile quad produces a gradient within
+/// every 16px tile, blending smoothly into neighbouring tiles.
 fn build_terrain_mesh(terrain: &[TileType], elevations: &[f32], width: u32, height: u32) -> Mesh {
-    let tile_count = (width * height) as usize;
-    let mut positions: Vec<[f32; 3]> = Vec::with_capacity(tile_count * 4);
-    let mut colors: Vec<[f32; 4]> = Vec::with_capacity(tile_count * 4);
-    let mut indices: Vec<u32> = Vec::with_capacity(tile_count * 6);
+    // Final per-tile color (biome tint + hillshade), flattened as RGBA.
+    let tile_colors: Vec<[f32; 4]> = (0..height)
+        .flat_map(|y| {
+            (0..width).map(move |x| {
+                let idx = (y * width + x) as usize;
+                let shade = hillshade(elevations, width, height, x, y);
+                let color = apply_hillshade(tile_base_color(terrain[idx], elevations[idx]), shade);
+                let c = color.to_srgba();
+                [c.red, c.green, c.blue, c.alpha]
+            })
+        })
+        .collect();
 
+    let vw = width + 1;
+    let vh = height + 1;
+    let vertex_count = (vw * vh) as usize;
+
+    let mut positions: Vec<[f32; 3]> = Vec::with_capacity(vertex_count);
+    let mut colors: Vec<[f32; 4]> = Vec::with_capacity(vertex_count);
+
+    for vy in 0..vh {
+        for vx in 0..vw {
+            positions.push([
+                vx as f32 * TILE_SIZE - TILE_SIZE * 0.5,
+                vy as f32 * TILE_SIZE - TILE_SIZE * 0.5,
+                0.0,
+            ]);
+
+            // Average the final color of up to 4 tiles sharing this corner.
+            let mut sum = [0.0f32; 4];
+            let mut count = 0.0f32;
+            for (dx, dy) in [(-1, -1), (0, -1), (-1, 0), (0, 0)] {
+                let tx = vx as i32 + dx;
+                let ty = vy as i32 + dy;
+                if tx >= 0 && tx < width as i32 && ty >= 0 && ty < height as i32 {
+                    let c = tile_colors[(ty as u32 * width + tx as u32) as usize];
+                    sum[0] += c[0];
+                    sum[1] += c[1];
+                    sum[2] += c[2];
+                    sum[3] += c[3];
+                    count += 1.0;
+                }
+            }
+            colors.push([
+                sum[0] / count,
+                sum[1] / count,
+                sum[2] / count,
+                sum[3] / count,
+            ]);
+        }
+    }
+
+    // Two triangles per tile quad.
+    let mut indices: Vec<u32> = Vec::with_capacity((width * height * 6) as usize);
     for y in 0..height {
         for x in 0..width {
-            let idx = (y * width + x) as usize;
-            let shade = hillshade(elevations, width, height, x, y);
-            let color = apply_hillshade(tile_base_color(terrain[idx], elevations[idx]), shade);
-            let c = color.to_srgba();
-            let rgba = [c.red, c.green, c.blue, c.alpha];
-
-            // Tile (x, y) is centred at (x * TILE_SIZE, y * TILE_SIZE).
-            let x0 = x as f32 * TILE_SIZE - TILE_SIZE * 0.5;
-            let y0 = y as f32 * TILE_SIZE - TILE_SIZE * 0.5;
-            let x1 = x0 + TILE_SIZE;
-            let y1 = y0 + TILE_SIZE;
-
-            let base = positions.len() as u32;
-            positions.push([x0, y0, 0.0]); // BL
-            positions.push([x1, y0, 0.0]); // BR
-            positions.push([x0, y1, 0.0]); // TL
-            positions.push([x1, y1, 0.0]); // TR
-
-            colors.push(rgba);
-            colors.push(rgba);
-            colors.push(rgba);
-            colors.push(rgba);
-
-            indices.extend_from_slice(&[base, base + 1, base + 3, base, base + 3, base + 2]);
+            let bl = y * vw + x;
+            let br = bl + 1;
+            let tl = (y + 1) * vw + x;
+            let tr = tl + 1;
+            indices.extend_from_slice(&[bl, br, tr, bl, tr, tl]);
         }
     }
 
