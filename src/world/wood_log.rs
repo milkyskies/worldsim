@@ -56,6 +56,16 @@ pub fn spawn_wood_log(commands: &mut Commands, position: Vec2, wood: u32) -> Ent
             },
         ))
         .with_children(|parent| {
+            // Shadow — dark ellipse underneath the log.
+            parent.spawn((
+                Sprite {
+                    color: Color::srgba(0.0, 0.0, 0.0, 0.35),
+                    custom_size: Some(Vec2::new(log_size.x * 1.1, log_size.y * 0.5)),
+                    ..default()
+                },
+                Transform::from_translation(Vec3::new(0.0, -log_size.y * 0.35, -0.05)),
+            ));
+
             parent.spawn((
                 Sprite {
                     color: log_color,

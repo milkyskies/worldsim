@@ -364,22 +364,21 @@ mod tests {
     #[test]
     fn find_tile_away_from_respects_min_distance() {
         let mut map = empty_map(CHUNK_SIZE, CHUNK_SIZE);
-        fill_with(&mut map, TileType::Forest);
+        fill_with(&mut map, TileType::Grass);
 
         let mut rng = ChaCha8Rng::seed_from_u64(99);
         let origin = UVec2::new(8, 8);
         let min_distance = 6;
 
-        // 50 attempts on a uniform forest map should easily find one.
         let pos = find_tile_away_from(
             &map,
             &mut rng,
-            &[TileType::Forest],
+            &[TileType::Grass],
             origin,
             min_distance,
             200,
         )
-        .expect("should find a far tile on a uniform forest map");
+        .expect("should find a far tile on a uniform grass map");
 
         let (tx, ty) = map.world_to_tile(pos);
         let dx = tx as i64 - origin.x as i64;
@@ -390,17 +389,17 @@ mod tests {
     #[test]
     fn find_biome_tile_returns_only_allowed_types() {
         let mut map = empty_map(CHUNK_SIZE, CHUNK_SIZE);
-        fill_with(&mut map, TileType::Grass);
-        // Sprinkle some forest tiles.
+        fill_with(&mut map, TileType::Rock);
+        // Sprinkle some grass tiles.
         for x in 4..8 {
             for y in 4..8 {
-                map.set_tile(x, y, TileType::Forest);
+                map.set_tile(x, y, TileType::Grass);
             }
         }
 
         let mut rng = ChaCha8Rng::seed_from_u64(3);
-        let pos = find_biome_tile(&map, &mut rng, &[TileType::Forest], 200)
-            .expect("should find a forest tile");
-        assert_eq!(map.tile_at(pos), Some(TileType::Forest));
+        let pos = find_biome_tile(&map, &mut rng, &[TileType::Grass], 200)
+            .expect("should find a grass tile");
+        assert_eq!(map.tile_at(pos), Some(TileType::Grass));
     }
 }

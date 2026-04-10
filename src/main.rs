@@ -56,7 +56,8 @@ fn print_terrain_matrix() {
         let row: String = (0..WORLD_WIDTH)
             .map(|x| match tiles[(y * WORLD_WIDTH + x) as usize] {
                 TileType::Grass => '.',
-                TileType::Forest => 'f',
+                TileType::Dirt => 'd',
+                TileType::Gravel => ',',
                 TileType::Rock => '#',
                 TileType::Sand => 's',
                 TileType::ShallowWater => '~',
