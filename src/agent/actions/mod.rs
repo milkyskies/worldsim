@@ -11,6 +11,6 @@ pub mod types;
 pub use channel::{BodyChannel, ChannelCapacities, ChannelLoad, ChannelUsage};
 pub use registry::{
     Action, ActionContext, ActionKind, ActionRegistry, ActionState, ActiveActions, RuntimeEffects,
-    TargetType,
+    TargetCandidate, TargetSource,
 };
 pub use types::*;

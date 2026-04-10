@@ -1,11 +1,19 @@
-//! Drink action - drink water from adjacent water tiles.
+//! Drink action — drink water from a known drinkable tile.
+//!
+//! Declares `TargetSource::TileWithTrait(Drinkable)` so the rational brain
+//! enumerates one Drink target per known water tile (asserted by water
+//! perception as `Tile(?) HasTrait Drinkable`). The default
+//! `to_template_for_target` default implementation auto-injects a `self_at(tile)` precondition,
+//! and the regressive planner chains `Walk → Drink` via the implicit walk
+//! generator. No manual preconditions or `to_template` override needed.
 
 use crate::agent::actions::ActionType;
 use crate::agent::actions::channel::{BodyChannel, ChannelUsage};
-use crate::agent::actions::registry::{Action, ActionContext, ActionKind, CompletionContext};
-use crate::agent::brains::thinking::TriplePattern;
+use crate::agent::actions::registry::{
+    Action, ActionContext, ActionKind, CompletionContext, TargetSource,
+};
 use crate::agent::events::FailureReason;
-use crate::agent::mind::knowledge::{Node, Predicate, Triple, Value};
+use crate::agent::mind::knowledge::{Concept, Node, Predicate, Triple, Value};
 use crate::constants::actions::drink::{DURATION_TICKS, ENERGY_GAIN, THIRST_REDUCTION};
 pub struct DrinkAction;
 
@@ -57,8 +65,8 @@ impl Action for DrinkAction {
         CHANNELS
     }
 
-    fn preconditions(&self) -> Vec<TriplePattern> {
-        vec![]
+    fn target_source(&self) -> TargetSource {
+        TargetSource::TileWithTrait(Concept::Drinkable)
     }
 
     fn plan_effects(&self) -> Vec<Triple> {
@@ -143,10 +151,10 @@ mod tests {
         assert!(!is_adjacent_to_water(tile_center(8, 8), &map));
     }
 
-    // TODO(#213): un-skip once the rational brain plans Walk→Drink against
-    // Drinkable tiles. Currently the survival brain blindly proposes Drink
-    // and loops on NoWaterNearby when the agent isn't already adjacent.
-    #[ignore = "blocked on #213: planner-driven Walk→Drink"]
+    /// Regression for #213: a thirsty agent standing next to a water tile
+    /// should plan and execute Drink directly. Re-enabled by #219, which
+    /// switched Drink to `TargetSource::TileWithTrait(Drinkable)` so the
+    /// rational brain enumerates the water tile as a planning target.
     #[test]
     fn thirsty_agent_near_water_drinks() {
         let mut world = TestWorld::with_seed(42);

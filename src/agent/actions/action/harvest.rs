@@ -3,13 +3,13 @@
 use crate::agent::actions::ActionType;
 use crate::agent::actions::channel::{BodyChannel, ChannelUsage};
 use crate::agent::actions::registry::{
-    Action, ActionContext, ActionKind, CompletionContext, RuntimeEffects,
+    Action, ActionContext, ActionKind, CompletionContext, RuntimeEffects, TargetCandidate,
+    TargetSource,
 };
-use crate::agent::brains::thinking::{ActionTemplate, TriplePattern};
+use crate::agent::brains::thinking::TriplePattern;
 use crate::agent::events::FailureReason;
 use crate::agent::mind::knowledge::{Concept, MindGraph, Node, Predicate, Triple, Value};
 use crate::constants::actions::harvest::{DURATION_TICKS, ENERGY_PER_SEC, HUNGER_PER_SEC};
-use bevy::prelude::*;
 
 pub struct HarvestAction;
 
@@ -28,13 +28,9 @@ impl Action for HarvestAction {
         }
     }
 
-    // Planning: Need to be at location and target must have items
-    // Note: Actual preconditions are bound dynamically with target entity
-    fn preconditions(&self) -> Vec<TriplePattern> {
-        vec![]
-    }
-
-    // Planning: After harvesting, we have food
+    // Planning: After harvesting, we have a generic placeholder item.
+    // The real per-target effect (apple, wood, stone, ...) comes from
+    // `plan_effects_for_target` which queries the target's `Produces` triples.
     fn plan_effects(&self) -> Vec<Triple> {
         vec![Triple::new(
             Node::Self_,
@@ -47,12 +43,31 @@ impl Action for HarvestAction {
         2.0
     }
 
-    fn target_type(&self) -> crate::agent::actions::registry::TargetType {
-        crate::agent::actions::registry::TargetType::Entity
+    fn target_source(&self) -> TargetSource {
+        TargetSource::EntityAffordance
     }
 
-    fn requires_proximity(&self) -> bool {
-        true // Must be at target location to harvest
+    /// Per-target precondition: the entity must be known to contain something.
+    /// The default `to_template_for_target` injects this on top of the static
+    /// (none) preconditions plus the auto-injected proximity precondition.
+    fn target_preconditions(
+        &self,
+        target: &TargetCandidate,
+        _mind: &MindGraph,
+    ) -> Vec<TriplePattern> {
+        match target.as_entity() {
+            Some(entity) => vec![TriplePattern::entity_contains(entity)],
+            None => vec![],
+        }
+    }
+
+    /// Per-target consumed pattern: harvesting removes items from the target
+    /// entity's stock so two plan steps can't double-count the same stack.
+    fn target_consumes(&self, target: &TargetCandidate, _mind: &MindGraph) -> Vec<TriplePattern> {
+        match target.as_entity() {
+            Some(entity) => vec![TriplePattern::entity_contains(entity)],
+            None => vec![],
+        }
     }
 
     fn body_channels(&self) -> &'static [ChannelUsage] {
@@ -73,8 +88,8 @@ impl Action for HarvestAction {
     }
 
     // Planning: Only valid if we KNOW it produces something useful
-    fn is_plan_valid(&self, target: Option<Entity>, mind: &MindGraph) -> bool {
-        let Some(target_entity) = target else {
+    fn is_plan_valid(&self, target: &TargetCandidate, mind: &MindGraph) -> bool {
+        let Some(target_entity) = target.as_entity() else {
             return false;
         };
 
@@ -133,53 +148,12 @@ impl Action for HarvestAction {
         Some("harvested")
     }
 
-    fn to_template(
-        &self,
-        target_entity: Option<Entity>,
-        target_position: Option<Vec2>,
-    ) -> ActionTemplate {
-        let mut preconditions = self.preconditions();
-
-        // Add location requirement (from requires_proximity)
-        if let Some(pos) = target_position {
-            const TILE_SIZE: f32 = 16.0;
-            let tile = (
-                (pos.x / TILE_SIZE).floor() as i32,
-                (pos.y / TILE_SIZE).floor() as i32,
-            );
-            preconditions.push(TriplePattern::self_at(tile));
-        }
-
-        // Add content requirement (Harvest-specific)
-        if let Some(entity) = target_entity {
-            preconditions.push(TriplePattern::entity_contains(entity));
-        }
-
-        // Harvest removes an item from the target entity
-        let consumes = if let Some(entity) = target_entity {
-            vec![TriplePattern::entity_contains(entity)]
-        } else {
-            vec![]
-        };
-
-        ActionTemplate {
-            name: self.name().to_string(),
-            action_type: self.action_type(),
-            target_entity,
-            target_position,
-            preconditions,
-            effects: self.plan_effects(),
-            consumes,
-            base_cost: 10.0,
-        }
-    }
-
     /// Harvest yields whatever the target entity actually produces, not a hardcoded Apple.
     ///
     /// Checks `(Entity, Produces, ?)` first (directly observed entity), then falls back
     /// to `(ConceptType, Produces, ?)` via `IsA` (type-level knowledge from culture).
-    fn plan_effects_for_target(&self, target: Option<Entity>, mind: &MindGraph) -> Vec<Triple> {
-        let Some(entity) = target else {
+    fn plan_effects_for_target(&self, target: &TargetCandidate, mind: &MindGraph) -> Vec<Triple> {
+        let Some(entity) = target.as_entity() else {
             return self.plan_effects();
         };
 

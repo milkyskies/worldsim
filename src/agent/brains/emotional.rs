@@ -97,7 +97,7 @@ fn seek_social_initiation(
         }
         return Some(BrainProposal {
             brain: BrainType::Emotional,
-            action: action.to_template(Some(entity), None),
+            action: action.to_template(Some(entity)),
             urgency,
             intent: Intent::SatisfySocial,
             reasoning: format!("I want to chat with {entity:?} (social: {social_drive:.2})"),
@@ -158,7 +158,7 @@ fn evaluate_entity_emotions(
         best = Some((
             BrainProposal {
                 brain: BrainType::Emotional,
-                action: action.to_template(Some(entity), None),
+                action: action.to_template(Some(entity)),
                 urgency: fear * FEAR_ENTITY_URGENCY_MULTIPLIER,
                 intent: Intent::SatisfySafety,
                 reasoning: format!("I'm scared of {:?} (fear: {:.2})", entity, fear),
@@ -175,7 +175,7 @@ fn evaluate_entity_emotions(
         best = Some((
             BrainProposal {
                 brain: BrainType::Emotional,
-                action: action.to_template(Some(entity), None),
+                action: action.to_template(Some(entity)),
                 urgency: joy * JOY_ENTITY_URGENCY_MULTIPLIER,
                 intent: Intent::SatisfySocial,
                 reasoning: format!("I like {:?} (joy: {:.2})", entity, joy),
@@ -192,7 +192,7 @@ fn evaluate_entity_emotions(
         best = Some((
             BrainProposal {
                 brain: BrainType::Emotional,
-                action: action.to_template(Some(entity), None),
+                action: action.to_template(Some(entity)),
                 urgency: anger * ANGER_ENTITY_URGENCY_MULTIPLIER,
                 intent: Intent::SatisfySafety,
                 reasoning: format!("I hate {:?}! (anger: {:.2})", entity, anger),
@@ -227,7 +227,7 @@ fn check_general_fear(
     {
         return Some(BrainProposal {
             brain: BrainType::Emotional,
-            action: action.to_template(None, None),
+            action: action.to_template(None),
             urgency: fear_urgency,
             intent: Intent::SatisfySafety,
             reasoning: format!("I'm terrified! (fear: {:.2})", fear_level),
