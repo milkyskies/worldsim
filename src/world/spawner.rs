@@ -87,8 +87,10 @@ pub fn apply_layout(commands: &mut Commands, ontology: &Ontology, layout: &Spawn
     // First group stays on the original settlement side; second group spawns
     // across the river. Cultures are split so the two groups have different
     // starting knowledge and drift further apart behaviorally over time.
+    // Hunter is intentionally excluded until #225 (hunting loop) lands — its
+    // knowledge currently points at an action chain that doesn't exist.
     let first_group_cultures = [Culture::Nomad, Culture::Farmer];
-    let second_group_cultures = [Culture::Hunter, Culture::Gatherer];
+    let second_group_cultures = [Culture::Gatherer];
 
     let mut cultural_knowledge_map = HashMap::new();
     for culture in first_group_cultures
