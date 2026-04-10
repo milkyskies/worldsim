@@ -186,6 +186,28 @@ pub(crate) fn classify_from_history(log: &VecDeque<InteractionRecord>) -> Concep
     Concept::Acquaintance
 }
 
+/// Initialize relationship with kin-level bonds. Affection defaults to
+/// `baseline_affection` (instead of the neutral 0.5 used for strangers) so
+/// the #260 flocking drive can decay strongly against herd-mates / pack-mates
+/// introduced at spawn. Same signature as `initialize_relationship` otherwise.
+pub fn initialize_relationship_with_affection(
+    mind: &mut MindGraph,
+    entity: Entity,
+    name: &str,
+    timestamp: u64,
+    baseline_affection: f32,
+) {
+    initialize_relationship(mind, entity, name, timestamp);
+    // Overwrite the neutral 0.5 affection that `initialize_relationship`
+    // just wrote. Functional predicate → the new value replaces the old.
+    mind.assert(Triple::with_meta(
+        Node::Entity(entity),
+        Predicate::Affection,
+        Value::Float(baseline_affection.clamp(0.0, 1.0)),
+        Metadata::semantic(timestamp),
+    ));
+}
+
 /// Initialize relationship when meeting someone for the first time
 pub fn initialize_relationship(mind: &mut MindGraph, entity: Entity, name: &str, timestamp: u64) {
     let target = Node::Entity(entity);

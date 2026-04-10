@@ -21,6 +21,7 @@ use crate::agent::item_slots::ItemSlots;
 use crate::agent::mind::knowledge::{Concept, MindGraph, Ontology};
 use crate::agent::mind::memory::WorkingMemory;
 use crate::agent::mind::perception::{VisibleObjects, Vision};
+use crate::agent::mind::recognition::initialize_relationship_with_affection;
 use crate::agent::movement::MovementState;
 use crate::agent::nervous_system::cns::CentralNervousSystem;
 use crate::agent::psyche::emotions::EmotionalState;
@@ -135,6 +136,7 @@ pub(super) fn spawn_test_deer(world: &mut World, ontology: Ontology, pos: Vec2) 
             CentralNervousSystem::default(),
             PhysicalNeeds::default(),
             Consciousness::default(),
+            PsychologicalDrives::default(),
             ActiveActions::default(),
             EmotionalState::default(),
             // Species-specific anatomy so channel queries against the deer
@@ -328,4 +330,39 @@ pub(super) fn spawn_test_apple_tree(world: &mut World, pos: Vec2, apples: u32) -
             },
         ))
         .id()
+}
+
+/// Mutually introduce a set of kin (herd-mates, pack-mates) with a
+/// pre-set affection level. Writes `Knows`, `Introduced`, `NameOf` and the
+/// relationship dimensions from every member's MindGraph toward every
+/// other member. Used by `TestWorld::apply_spawn_layout` to match what the
+/// real game's spawner does when it places clustered species.
+pub(crate) fn introduce_kin(
+    world: &mut crate::testing::TestWorld,
+    members: &[Entity],
+    affection: f32,
+) {
+    let pairs: Vec<(Entity, String)> = members
+        .iter()
+        .map(|&e| {
+            let name = world
+                .app()
+                .world()
+                .get::<Name>(e)
+                .map(|n| n.as_str().to_string())
+                .unwrap_or_default();
+            (e, name)
+        })
+        .collect();
+
+    for (i, (entity_a, _)) in pairs.iter().enumerate() {
+        for (j, (entity_b, name_b)) in pairs.iter().enumerate() {
+            if i == j {
+                continue;
+            }
+            if let Some(mut mind) = world.app_mut().world_mut().get_mut::<MindGraph>(*entity_a) {
+                initialize_relationship_with_affection(&mut mind, *entity_b, name_b, 0, affection);
+            }
+        }
+    }
 }

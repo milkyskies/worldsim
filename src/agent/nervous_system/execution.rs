@@ -212,7 +212,17 @@ pub fn start_actions(
                             pick_random_walkable_target(pos, &world_map, 30.0..60.0)
                         }
                     }
-                    ActionType::Walk => action_template.target_position,
+                    ActionType::Walk => action_template.target_position.or_else(|| {
+                        // Fall back to the target entity's current position so
+                        // brains can propose Walk { target_entity, target_position: None }
+                        // for "approach this thing" behaviour (#260 flock
+                        // seeking is the first user). Same lookup pattern as
+                        // InitiateConversation below.
+                        action_template
+                            .target_entity
+                            .and_then(|partner| entity_transforms.get(partner).ok())
+                            .map(|t| t.translation().truncate())
+                    }),
                     ActionType::InitiateConversation => {
                         // Walk toward the partner's current position. The
                         // CommunicationPlugin intercepts arrival at
@@ -434,6 +444,7 @@ pub fn tick_actions(
                             &mut commands,
                             concept,
                             position,
+                            tick.current,
                         )
                         .is_none()
                         {
@@ -457,6 +468,7 @@ pub fn tick_actions(
                             &initial_items,
                             labor_required,
                             current_tick,
+                            Some(entity),
                         );
                     }
                 }

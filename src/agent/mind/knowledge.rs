@@ -129,6 +129,9 @@ pub enum Concept {
     Campfire,
     LeanTo,
 
+    // ─── Remains / byproducts ───
+    Ash,
+
     // ─── Transformation intermediates ───
     /// A partially-built world entity that becomes a finished structure when its
     /// Construction slots are filled. Sites are the first concrete use of the
@@ -248,6 +251,9 @@ pub enum Predicate {
     Knows,        // (Self, Knows, Entity) - have we met?
     Introduced,   // (Self, Introduced, Entity) - exchanged names?
     NameOf,       // (Entity, NameOf, String) - what's their name?
+
+    // ─── Possession ───
+    Owns, // (Self, Owns, Entity<campfire>) - "this is mine"
 
     // ─── Relationship Dimensions ───
     Trust,        // (Entity, Trust, Float) - 0.0 to 1.0

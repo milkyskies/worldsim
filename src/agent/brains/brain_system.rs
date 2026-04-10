@@ -53,6 +53,7 @@ pub fn three_brains_system(
                 &crate::agent::mind::knowledge::MindGraph,
                 &crate::agent::actions::ActiveActions,
                 Option<&crate::agent::mind::conversation::InConversation>,
+                Option<&crate::agent::inventory::EntityType>,
             ),
         ),
         With<crate::agent::Agent>,
@@ -76,7 +77,7 @@ pub fn three_brains_system(
         (rational_brain, cns),
         (physical, consciousness, drives),
         (emotions, body, personality, inventory),
-        (transform, visible, mind, active_actions, in_conversation),
+        (transform, visible, mind, active_actions, in_conversation, self_entity_type),
     ) in query.iter_mut()
     {
         // Staggered: heavy thinking runs every N ticks, offset by entity ID
@@ -102,6 +103,7 @@ pub fn three_brains_system(
             visible,
             drives,
             in_conversation,
+            self_entity_type.map(|t| t.0),
             &action_registry,
         );
 
