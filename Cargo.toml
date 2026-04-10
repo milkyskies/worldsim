@@ -68,3 +68,7 @@ tracing-subscriber = { version = "0.3.23", features = ["fmt", "env-filter"] }
 [[bench]]
 name = "mind_graph"
 harness = false
+
+[[bench]]
+name = "spatial_index"
+harness = false

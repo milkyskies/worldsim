@@ -7,6 +7,7 @@ pub mod deer;
 pub mod environment;
 pub mod human;
 pub mod map;
+pub mod spatial_index;
 pub mod spawn;
 pub mod spawn_config;
 pub mod spawn_placement;
@@ -26,6 +27,7 @@ impl Plugin for WorldPlugin {
             .register_type::<construction_site::ConstructionSiteMarker>()
             .add_plugins(map::MapPlugin)
             .add_plugins(environment::EnvironmentPlugin)
+            .add_plugins(spatial_index::SpatialIndexPlugin)
             .add_plugins(spawner::SpawnerPlugin);
     }
 }
