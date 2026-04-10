@@ -7,6 +7,7 @@
 
 use std::collections::HashMap;
 
+use super::active_plan::{ActivePlans, PlanOwner};
 use super::proposal::{BrainPowers, BrainProposal, Intent};
 use crate::agent::actions::channel::ChannelCapacities;
 use crate::agent::body::needs::Consciousness;
@@ -93,6 +94,7 @@ pub fn calculate_brain_powers(
 fn deduplicate_by_intent(
     proposals: Vec<BrainProposal>,
     powers: &BrainPowers,
+    commitment: Option<&CommitmentContext>,
 ) -> Vec<BrainProposal> {
     let mut by_intent: HashMap<Intent, BrainProposal> = HashMap::new();
     let mut passthrough: Vec<BrainProposal> = Vec::new();
@@ -102,9 +104,9 @@ fn deduplicate_by_intent(
             passthrough.push(prop);
             continue;
         }
-        let score = score_proposal(&prop, powers);
+        let score = score_proposal(&prop, powers, commitment);
         match by_intent.get(&prop.intent) {
-            Some(existing) if score_proposal(existing, powers) >= score => {}
+            Some(existing) if score_proposal(existing, powers, commitment) >= score => {}
             _ => {
                 by_intent.insert(prop.intent, prop);
             }
@@ -135,14 +137,25 @@ pub fn arbitrate_parallel(
     capacities: &ChannelCapacities,
     registry: &crate::agent::actions::ActionRegistry,
 ) -> Vec<BrainProposal> {
+    arbitrate_parallel_with_commitment(proposals, powers, capacities, registry, None)
+}
+
+/// Arbitrate with optional commitment context for plan inertia.
+pub fn arbitrate_parallel_with_commitment(
+    proposals: &[Option<BrainProposal>],
+    powers: &BrainPowers,
+    capacities: &ChannelCapacities,
+    registry: &crate::agent::actions::ActionRegistry,
+    commitment: Option<&CommitmentContext>,
+) -> Vec<BrainProposal> {
     use crate::agent::actions::channel::ChannelLoad;
 
     let collected: Vec<BrainProposal> = proposals.iter().flatten().cloned().collect();
-    let deduped = deduplicate_by_intent(collected, powers);
+    let deduped = deduplicate_by_intent(collected, powers, commitment);
 
     let mut scored: Vec<(f32, BrainProposal)> = deduped
         .into_iter()
-        .map(|p| (score_proposal(&p, powers), p))
+        .map(|p| (score_proposal(&p, powers, commitment), p))
         .filter(|(s, _)| *s > 0.0)
         .collect();
     scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
@@ -190,8 +203,33 @@ pub fn arbitrate_parallel(
     admitted
 }
 
-fn score_proposal(proposal: &BrainProposal, powers: &BrainPowers) -> f32 {
-    proposal.urgency * proposal.brain.power(powers)
+/// Context for applying plan commitment inertia to proposal scores.
+pub struct CommitmentContext<'a> {
+    pub active_plans: &'a ActivePlans,
+    pub conscientiousness: f32,
+    pub current_tick: u64,
+}
+
+fn score_proposal(
+    proposal: &BrainProposal,
+    powers: &BrainPowers,
+    commitment: Option<&CommitmentContext>,
+) -> f32 {
+    let base_score = proposal.urgency * proposal.brain.power(powers);
+
+    let commitment_bonus = commitment
+        .map(|ctx| {
+            ctx.active_plans.commitment_bonus(
+                proposal.intent,
+                proposal.action.action_type,
+                &PlanOwner::Brain(proposal.brain),
+                ctx.conscientiousness,
+                ctx.current_tick,
+            )
+        })
+        .unwrap_or(0.0);
+
+    base_score * (1.0 + commitment_bonus)
 }
 
 #[cfg(test)]
@@ -252,7 +290,7 @@ mod tests {
             Intent::SatisfyHunger,
         );
 
-        let deduped = deduplicate_by_intent(vec![walk, explore], &powers);
+        let deduped = deduplicate_by_intent(vec![walk, explore], &powers, None);
 
         assert_eq!(deduped.len(), 1, "same-intent proposals must collapse to 1");
         assert_eq!(deduped[0].action.action_type, ActionType::Walk);
@@ -274,7 +312,7 @@ mod tests {
             Intent::SatisfySafety,
         );
 
-        let deduped = deduplicate_by_intent(vec![walk, flee], &powers);
+        let deduped = deduplicate_by_intent(vec![walk, flee], &powers, None);
 
         assert_eq!(deduped.len(), 2);
         let kinds: Vec<_> = deduped.iter().map(|p| p.action.action_type).collect();
@@ -304,7 +342,7 @@ mod tests {
             Intent::SatisfyHunger,
         );
 
-        let deduped = deduplicate_by_intent(vec![survival, emotional, rational], &powers);
+        let deduped = deduplicate_by_intent(vec![survival, emotional, rational], &powers, None);
 
         assert_eq!(deduped.len(), 1);
         assert_eq!(deduped[0].action.action_type, ActionType::Walk);
@@ -319,7 +357,7 @@ mod tests {
         let wander = make_proposal(BrainType::Rational, ActionType::Wander, 5.0, Intent::None);
         let idle = make_proposal(BrainType::Survival, ActionType::Idle, 3.0, Intent::None);
 
-        let deduped = deduplicate_by_intent(vec![wander, idle], &powers);
+        let deduped = deduplicate_by_intent(vec![wander, idle], &powers, None);
 
         assert_eq!(
             deduped.len(),
@@ -504,6 +542,191 @@ mod tests {
             powers.emotional > 35.0,
             "Emotional power should be high for neurotic + fearful agent, got {:.1}",
             powers.emotional
+        );
+    }
+
+    // === Plan ownership / commitment inertia tests (#166) ===
+
+    #[test]
+    fn commitment_inertia_prevents_flip_flop() {
+        // Rational proposes Walk(SatisfyHunger) with a slightly lower base score than
+        // Survival's Explore(SatisfyHunger). Without commitment, Explore wins.
+        // With an active Walk plan and high conscientiousness, Walk should win.
+        use crate::agent::brains::active_plan::ActivePlans;
+
+        let powers = BrainPowers {
+            survival: 1.0,
+            emotional: 1.0,
+            rational: 0.9, // slightly lower — simulates a stress dip
+        };
+
+        let walk = make_proposal(
+            BrainType::Rational,
+            ActionType::Walk,
+            50.0,
+            Intent::SatisfyHunger,
+        );
+        let explore = make_proposal(
+            BrainType::Survival,
+            ActionType::Explore,
+            48.0,
+            Intent::SatisfyHunger,
+        );
+
+        // Without commitment: Explore wins (48 * 1.0 = 48 > 50 * 0.9 = 45)
+        let deduped_no_commit =
+            deduplicate_by_intent(vec![walk.clone(), explore.clone()], &powers, None);
+        assert_eq!(
+            deduped_no_commit[0].action.action_type,
+            ActionType::Explore,
+            "without commitment, Explore should win"
+        );
+
+        // With commitment: Walk has inertia bonus
+        let mut active_plans = ActivePlans::default();
+        active_plans.activate(
+            PlanOwner::Brain(BrainType::Rational),
+            Intent::SatisfyHunger,
+            ActionType::Walk,
+            0,
+        );
+        let ctx = CommitmentContext {
+            active_plans: &active_plans,
+            conscientiousness: 0.8,
+            current_tick: 5,
+        };
+
+        let deduped_with_commit = deduplicate_by_intent(vec![walk, explore], &powers, Some(&ctx));
+        assert_eq!(
+            deduped_with_commit[0].action.action_type,
+            ActionType::Walk,
+            "with commitment inertia, Walk should win despite lower base score"
+        );
+    }
+
+    #[test]
+    fn high_conscientiousness_stays_on_plan_longer_than_low() {
+        // Same scenario, different conscientiousness values.
+        use crate::agent::brains::active_plan::ActivePlans;
+
+        let powers = BrainPowers {
+            survival: 1.0,
+            emotional: 1.0,
+            rational: 0.85,
+        };
+
+        let walk = make_proposal(
+            BrainType::Rational,
+            ActionType::Walk,
+            50.0,
+            Intent::SatisfyHunger,
+        );
+        let explore = make_proposal(
+            BrainType::Survival,
+            ActionType::Explore,
+            50.0,
+            Intent::SatisfyHunger,
+        );
+
+        let mut active_plans = ActivePlans::default();
+        active_plans.activate(
+            PlanOwner::Brain(BrainType::Rational),
+            Intent::SatisfyHunger,
+            ActionType::Walk,
+            0,
+        );
+
+        // High conscientiousness: Walk should win
+        let ctx_high = CommitmentContext {
+            active_plans: &active_plans,
+            conscientiousness: 1.0,
+            current_tick: 5,
+        };
+        let deduped_high = deduplicate_by_intent(
+            vec![walk.clone(), explore.clone()],
+            &powers,
+            Some(&ctx_high),
+        );
+        assert_eq!(
+            deduped_high[0].action.action_type,
+            ActionType::Walk,
+            "high conscientiousness agent should stay on Walk"
+        );
+
+        // Low conscientiousness: Explore should win (bonus too small to overcome)
+        let ctx_low = CommitmentContext {
+            active_plans: &active_plans,
+            conscientiousness: 0.1,
+            current_tick: 5,
+        };
+        let deduped_low = deduplicate_by_intent(vec![walk, explore], &powers, Some(&ctx_low));
+        assert_eq!(
+            deduped_low[0].action.action_type,
+            ActionType::Explore,
+            "low conscientiousness agent should switch to Explore"
+        );
+    }
+
+    #[test]
+    fn survival_override_at_critical_urgency() {
+        // Active Walk plan, but wolf appears — Survival proposes Flee at very high urgency.
+        // Flee should win regardless of commitment.
+        use crate::agent::brains::active_plan::ActivePlans;
+
+        let powers = BrainPowers {
+            survival: 5.0, // high survival power (wolf detected, fear spike)
+            emotional: 1.0,
+            rational: 1.0,
+        };
+
+        let walk = make_proposal(
+            BrainType::Rational,
+            ActionType::Walk,
+            50.0,
+            Intent::SatisfyHunger,
+        );
+        let flee = make_proposal(
+            BrainType::Survival,
+            ActionType::Flee,
+            90.0,
+            Intent::SatisfySafety,
+        );
+
+        let mut active_plans = ActivePlans::default();
+        active_plans.activate(
+            PlanOwner::Brain(BrainType::Rational),
+            Intent::SatisfyHunger,
+            ActionType::Walk,
+            0,
+        );
+        let ctx = CommitmentContext {
+            active_plans: &active_plans,
+            conscientiousness: 1.0,
+            current_tick: 5,
+        };
+
+        let registry = ActionRegistry::new();
+        let capacities = ChannelCapacities::full();
+        let proposals = [Some(walk), Some(flee), None];
+        let admitted = arbitrate_parallel_with_commitment(
+            &proposals,
+            &powers,
+            &capacities,
+            &registry,
+            Some(&ctx),
+        );
+
+        // Flee is a different intent (SatisfySafety) — it doesn't compete with Walk's
+        // SatisfyHunger. Both can be admitted. But Flee has overwhelmingly higher score
+        // and should be the top-ranked (winner).
+        assert!(
+            !admitted.is_empty(),
+            "at least one action should be admitted"
+        );
+        assert_eq!(
+            admitted[0].action.action_type,
+            ActionType::Flee,
+            "Survival Flee at critical urgency should be the winner, overriding Walk commitment"
         );
     }
 }
