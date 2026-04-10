@@ -317,7 +317,7 @@ pub fn river_center_x(y: u32, width: u32, seed: u32) -> u32 {
 /// Natural shallow "ford" sections emerge from a shallow-bias noise field,
 /// with extra bias near y = height/4 and y = 3*height/4 so there are always
 /// crossings. Tiles immediately outside the banks become sand shores.
-fn carve_river(tiles: &mut Vec<TileType>, width: u32, height: u32, seed: u32) {
+fn carve_river(tiles: &mut [TileType], width: u32, height: u32, seed: u32) {
     let width_noise = Simplex::new(seed.wrapping_add(98));
     let shoal_noise = Simplex::new(seed.wrapping_add(99));
     let bank_l_noise = Simplex::new(seed.wrapping_add(100));
@@ -623,7 +623,7 @@ mod tests {
         for y in 0..WORLD_HEIGHT {
             let cx = river_center_x(y, WORLD_WIDTH, DEFAULT_TERRAIN_SEED);
             assert!(
-                cx >= 12 && cx < WORLD_WIDTH - 12,
+                (12..WORLD_WIDTH - 12).contains(&cx),
                 "river_center_x({y}) = {cx} out of bounds"
             );
         }
