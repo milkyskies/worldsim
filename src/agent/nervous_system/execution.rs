@@ -767,6 +767,7 @@ fn pick_random_walkable_target(
 mod tests {
     use super::*;
     use crate::agent::actions::ActionType;
+    use crate::agent::actions::channel::{ChannelLoad, ChannelUsage};
 
     fn build_registry() -> ActionRegistry {
         ActionRegistry::new()
@@ -828,17 +829,26 @@ mod tests {
     }
 
     #[test]
-    fn eat_plus_converse_creates_soft_conflict_with_degradation() {
+    fn oversaturated_consumption_degrades_eat() {
+        // After #291, Eat and Converse no longer share a channel — Eat uses
+        // Consumption and Converse uses Vocalization. This test now just
+        // verifies the degradation math still kicks in when *anything*
+        // oversaturates Consumption. Two pretend load sources sum beyond
+        // the soft threshold and Eat's computed factor drops below 1.0.
+        use crate::agent::actions::channel::Channel;
         let registry = build_registry();
-        let mut active = ActiveActions::empty();
-        active.insert(ActionState::new(ActionType::Eat, 0).with_duration(20));
-        active.insert(ActionState::new(ActionType::Converse, 0));
 
-        let load = active.channel_load(&registry);
+        let mut load = ChannelLoad::new();
+        load.add(&[ChannelUsage::new(Channel::Consumption, 0.7)]);
+        load.add(&[ChannelUsage::new(Channel::Consumption, 0.6)]);
+
         let eat_channels = registry.get(ActionType::Eat).unwrap().body_channels();
         let factor = load.degradation_factor(eat_channels, &ChannelCapacities::full());
         let expected = 1.0 / 1.3;
-        assert!((factor - expected).abs() < 1e-4);
+        assert!(
+            (factor - expected).abs() < 1e-4,
+            "expected {expected}, got {factor}"
+        );
     }
 
     #[test]
@@ -904,58 +914,77 @@ mod tests {
     }
 
     #[test]
-    fn build_blocks_preemption_attempt_from_sleep() {
-        // Sleep declares all channels at 1.0 to dominate the body and
-        // would normally clear every interruptible slot. Build's
-        // uninterruptible flag must hold the line — Sleep cannot find a
-        // victim and is rejected.
+    fn build_blocks_preemption_from_custom_high_manipulation_interrupter() {
+        // After #291, Sleep no longer floods every active channel (it only
+        // declares FullBody 1.0), so the old "Sleep preempts Build" test
+        // case became mechanically impossible — Sleep doesn't touch
+        // Build's Manipulation channel. This test replaces it with a
+        // custom interrupter that actually collides with Build's channels:
+        // a hypothetical Manipulation-heavy action that would need Build
+        // out of the way. Build's uninterruptible flag must still hold.
+        use crate::agent::actions::channel::Channel;
         let registry = build_registry();
         let mut active = ActiveActions::empty();
         active.insert(ActionState::new(ActionType::Build, 0));
 
-        let sleep_def = registry.get(ActionType::Sleep).unwrap();
+        let interrupter = &[
+            ChannelUsage::new(Channel::Manipulation, 0.9),
+            ChannelUsage::new(Channel::Locomotion, 0.2),
+        ];
         let mut target = TargetPosition::default();
         let admitted = preempt_to_make_room(
             &mut active,
             &registry,
-            sleep_def.body_channels(),
+            interrupter,
             &ChannelCapacities::full(),
             &mut target,
         );
 
-        assert!(!admitted, "Sleep must NOT be allowed to preempt Build");
+        assert!(
+            !admitted,
+            "Manipulation-heavy interrupter must NOT be allowed to preempt Build"
+        );
         assert!(active.contains(ActionType::Build));
     }
 
     #[test]
     fn rejected_preempt_rolls_back_collateral_damage() {
-        // Build (Hands 0.9, Legs 0.2) and Walk (Legs 0.4) are both running.
-        // Sleep (all channels 1.0) tries to start. The search:
-        //   - drops Walk first (smallest interruptible touching saturated Legs)
-        //   - then can't find another victim because Build is uninterruptible
-        //     and still saturates Hands
+        // Build (Manipulation 0.9, Locomotion 0.2) and Walk (Locomotion
+        // 0.4) are both running. A custom interrupter needs both channels
+        // saturated (Locomotion 1.0, Manipulation 0.9). The search:
+        //   - drops Walk first (smallest interruptible touching Locomotion)
+        //   - then can't find another victim because Build is
+        //     uninterruptible and still saturates Manipulation
         //   - returns false → rolls back all mutations
         //
-        // Without the rollback, Walk would be destroyed for nothing. With it,
-        // the active set is exactly what it was before the failed attempt.
+        // Without the rollback, Walk would be destroyed for nothing. With
+        // it, the active set and target are exactly what they were before
+        // the failed attempt.
+        use crate::agent::actions::channel::Channel;
         let registry = build_registry();
         let mut active = ActiveActions::empty();
         active.insert(ActionState::new(ActionType::Build, 0));
         active.insert(ActionState::new(ActionType::Walk, 0));
 
-        let sleep_def = registry.get(ActionType::Sleep).unwrap();
+        let interrupter = &[
+            ChannelUsage::new(Channel::Locomotion, 1.0),
+            ChannelUsage::new(Channel::Manipulation, 0.9),
+        ];
         let mut target = TargetPosition(Some(Vec2::new(99.0, 99.0)));
         let target_before = target.0;
 
         let admitted = preempt_to_make_room(
             &mut active,
             &registry,
-            sleep_def.body_channels(),
+            interrupter,
             &ChannelCapacities::full(),
             &mut target,
         );
 
-        assert!(!admitted, "Sleep must be rejected because of Build");
+        assert!(
+            !admitted,
+            "interrupter must be rejected because of uninterruptible Build"
+        );
         assert!(
             active.contains(ActionType::Build),
             "Build must remain after a rejected preempt"
