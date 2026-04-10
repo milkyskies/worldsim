@@ -1572,9 +1572,15 @@ mod tests {
     fn game_defaults_spawns_correct_agent_count() {
         let mut world = TestWorld::game_defaults(42);
         let game_config = WorldSpawnConfig::game_defaults();
-        assert_eq!(
-            world.all_agents().len(),
-            game_config.humans + game_config.deer + game_config.wolves
+        // The second human group is best-effort: it only spawns when a
+        // suitable opposite-bank settlement is found. Assert within a range
+        // so the test tolerates seeds where the second settlement fails.
+        let total = world.all_agents().len();
+        let min = game_config.humans + game_config.deer + game_config.wolves;
+        let max = min + game_config.second_humans;
+        assert!(
+            total >= min && total <= max,
+            "expected {min}..={max} agents, got {total}"
         );
     }
 
@@ -1587,7 +1593,14 @@ mod tests {
             .iter()
             .filter(|&&e| world.app().world().get::<crate::agent::Person>(e).is_some())
             .collect();
-        assert_eq!(humans.len(), game_config.humans);
+        // Humans = first group + (possibly) second group across the river.
+        let min = game_config.humans;
+        let max = game_config.humans + game_config.second_humans;
+        assert!(
+            humans.len() >= min && humans.len() <= max,
+            "expected {min}..={max} humans, got {}",
+            humans.len()
+        );
     }
 
     #[test]
