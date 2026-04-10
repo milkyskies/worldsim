@@ -80,15 +80,14 @@ impl TheoryOfMind {
             return;
         }
 
-        if entries.len() >= MAX_TRIPLES_PER_AGENT {
-            if let Some(oldest_idx) = entries
+        if entries.len() >= MAX_TRIPLES_PER_AGENT
+            && let Some(oldest_idx) = entries
                 .iter()
                 .enumerate()
                 .min_by_key(|(_, e)| e.timestamp)
                 .map(|(i, _)| i)
-            {
-                entries.swap_remove(oldest_idx);
-            }
+        {
+            entries.swap_remove(oldest_idx);
         }
 
         entries.push(BeliefEntry {
