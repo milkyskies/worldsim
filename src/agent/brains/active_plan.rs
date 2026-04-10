@@ -208,6 +208,27 @@ impl ActivePlans {
     pub fn complete(&mut self, intent: Intent) {
         self.plans.retain(|p| p.intent != intent);
     }
+
+    /// Explicitly abandon the plan for `intent`: remove it and register a
+    /// cooldown so the same action doesn't get a commitment bonus for the
+    /// next `ABANDONMENT_COOLDOWN_TICKS` ticks.
+    ///
+    /// Call this from systems that forcibly terminate an action outside the
+    /// normal stall-decay path (e.g. `process_initiate_conversation` when the
+    /// partner is no longer reachable). The decay path is the right fit for
+    /// contested plans that get outbid; this is for plans killed externally.
+    ///
+    /// Returns `Some((intent, action))` if a plan was found and abandoned.
+    pub fn abandon(&mut self, intent: Intent, current_tick: u64) -> Option<(Intent, ActionType)> {
+        let plan_pos = self.plans.iter().position(|p| p.intent == intent)?;
+        let plan = self.plans.remove(plan_pos);
+
+        self.cooldowns
+            .push((plan.action, current_tick + ABANDONMENT_COOLDOWN_TICKS));
+        self.cooldowns.retain(|(_, expiry)| current_tick < *expiry);
+
+        Some((plan.intent, plan.action))
+    }
 }
 
 #[cfg(test)]
