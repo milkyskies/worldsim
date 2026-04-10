@@ -1533,10 +1533,9 @@ mod tests {
             .map(|i| gather_template(Entity::from_bits(i as u64), Concept::Apple))
             .collect();
         let goal = goal_self_contains(Concept::Apple);
-        let registry = minimal_registry();
 
         let plan = tracing::subscriber::with_default(subscriber, || {
-            regressive_plan(&mind, &goal, &actions, &registry)
+            regressive_plan(&mind, &goal, &actions)
         });
 
         let log_output = String::from_utf8(captured.lock().unwrap().clone()).unwrap_or_default();
