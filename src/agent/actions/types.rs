@@ -86,6 +86,7 @@ impl ActionType {
             ActionType::InitiateConversation => "Approaching",
             ActionType::Converse => "Talking to",
             ActionType::Attack => "Attacking",
+            ActionType::Bite => "Biting",
             ActionType::Flee => "Fleeing from",
         }
     }

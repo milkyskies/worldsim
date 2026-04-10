@@ -10,6 +10,7 @@ use bevy_egui::{EguiContext, EguiPrimaryContextPass, PrimaryEguiContext, egui};
 use egui::Color32;
 
 use crate::agent::actions::ActionType;
+use crate::agent::actions::channel::Channel;
 use crate::agent::actions::registry::ActiveActions;
 use crate::agent::biology::body::{Body, BodyPart, InjuryType};
 use crate::agent::body::needs::{Consciousness, PhysicalNeeds, PsychologicalDrives};
@@ -812,15 +813,19 @@ fn render_health(ui: &mut egui::Ui, world: &World, entity: Entity) {
             ui.strong("Status");
             ui.end_row();
 
-            for (name, part) in body.labeled_parts() {
-                render_body_part_row(ui, name, part);
+            for part in body.parts() {
+                render_body_part_row(ui, part);
             }
         });
 
     ui.separator();
     ui.heading("Capabilities");
-    capability_bar(ui, "Mobility", body.mobility());
-    capability_bar(ui, "Manipulation", body.manipulation());
+    capability_bar(ui, "Mobility", body.channel_capacity(Channel::Locomotion));
+    capability_bar(
+        ui,
+        "Manipulation",
+        body.channel_capacity(Channel::Manipulation),
+    );
     if body.is_incapacitated() {
         ui.colored_label(
             Color32::RED,
@@ -859,8 +864,8 @@ fn injury_label(kind: InjuryType) -> &'static str {
     }
 }
 
-fn render_body_part_row(ui: &mut egui::Ui, name: &str, part: &BodyPart) {
-    ui.label(name);
+fn render_body_part_row(ui: &mut egui::Ui, part: &BodyPart) {
+    ui.label(part.name.as_str());
     let hp_pct = (part.current_hp / part.max_hp).clamp(0.0, 1.0);
     ui.add(
         egui::ProgressBar::new(hp_pct)
