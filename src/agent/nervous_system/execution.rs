@@ -807,7 +807,13 @@ mod tests {
     }
 
     #[test]
-    fn sleep_preempts_other_actions() {
+    fn sleep_channel_alone_does_not_preempt_everything() {
+        // After #291, Sleep declares only FullBody(1.0). Walk/Eat don't
+        // touch FullBody, so `preempt_to_make_room` alone can't clear them
+        // — that responsibility moved to the `start_actions` short-circuit
+        // (tested below by `sleep_active_blocks_other_action_admission`).
+        // This test documents the new boundary: channel-based preemption
+        // is orthogonal to the sleeping gate.
         let registry = build_registry();
         let mut active = ActiveActions::empty();
         active.insert(ActionState::new(ActionType::Walk, 0));
@@ -823,9 +829,46 @@ mod tests {
             &mut target,
         );
 
-        assert!(admitted, "Sleep should clear interruptible slots");
-        assert!(!active.contains(ActionType::Walk));
-        assert!(!active.contains(ActionType::Eat));
+        // Sleep fits (FullBody is free), and nothing else needed to be
+        // preempted via the channel system.
+        assert!(admitted);
+        assert!(active.contains(ActionType::Walk));
+        assert!(active.contains(ActionType::Eat));
+    }
+
+    #[test]
+    fn sleep_vs_flee_still_hard_conflicts_via_full_body() {
+        // The one channel-level guarantee Sleep still provides: two
+        // whole-body actions can't coexist. Flee declares FullBody(0.5)
+        // alongside its Locomotion(1.0); starting Flee while Sleep is
+        // already running projects FullBody at 1.5, above the 1.4 hard
+        // threshold, so Sleep (interruptible is false, but Flee preempts
+        // via channel saturation — `preempt_to_make_room` will refuse and
+        // return false).
+        use crate::agent::actions::channel::Channel;
+        let registry = build_registry();
+        let mut active = ActiveActions::empty();
+        active.insert(ActionState::new(ActionType::Sleep, 0));
+
+        // Flee's channels would collide with Sleep's FullBody.
+        let flee_channels = &[
+            ChannelUsage::new(Channel::Locomotion, 1.0),
+            ChannelUsage::new(Channel::FullBody, 0.5),
+        ];
+        let mut target = TargetPosition::default();
+        let admitted = preempt_to_make_room(
+            &mut active,
+            &registry,
+            flee_channels,
+            &ChannelCapacities::full(),
+            &mut target,
+        );
+
+        // Sleep is uninterruptible, so preempt_to_make_room rolls back
+        // and rejects Flee at this level. (Arbitration in practice has
+        // other tiebreakers; this is just the channel guarantee.)
+        assert!(!admitted);
+        assert!(active.contains(ActionType::Sleep));
     }
 
     #[test]
