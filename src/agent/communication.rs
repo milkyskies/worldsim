@@ -40,10 +40,12 @@ use bevy::prelude::*;
 use crate::agent::Agent;
 use crate::agent::actions::registry::{ActionState, ActiveActions};
 use crate::agent::actions::types::ActionType;
+use crate::agent::brains::active_plan::ActivePlans;
+use crate::agent::brains::proposal::Intent as BrainIntent;
 use crate::agent::brains::rational::RationalBrain;
 use crate::agent::brains::thinking::Goal;
 use crate::agent::commitment::Commitments;
-use crate::agent::events::{ConversationTopic, GameEvent, SimEvent};
+use crate::agent::events::{ConversationTopic, FailureReason, GameEvent, SimEvent};
 use crate::agent::mind::conversation::{
     Conversation, ConversationAbandoned, ConversationManager, ConversationState, InConversation,
     Intent, MAX_GROUP_SIZE, Topic, Turn,
@@ -154,6 +156,7 @@ pub fn process_initiate_conversation(
     in_conversations: Query<&InConversation, With<Agent>>,
     mut active_actions: Query<(Entity, &mut ActiveActions), With<Agent>>,
     mut target_positions: Query<&mut crate::agent::TargetPosition>,
+    mut active_plans_query: Query<&mut ActivePlans>,
 ) {
     // Pass 1: snapshot which initiators want what partner. Doing this in a
     // separate pass releases the active_actions borrow before mutation.
@@ -167,6 +170,8 @@ pub fn process_initiate_conversation(
         .collect();
 
     for (initiator, partner) in pairs {
+        let now = tick.current;
+
         // Initiator already in a conversation — drop the stale action.
         // Check both the component query (for prior-tick state) *and* the
         // manager (for same-tick state written earlier in this very system
@@ -174,23 +179,46 @@ pub fn process_initiate_conversation(
         // so the query would miss a conversation we just created). Without
         // this dedupe two symmetric initiators would each spawn a
         // duplicate conversation the same tick.
+        //
+        // This is a *success* case: the social need is being satisfied via
+        // a different route. Mark the plan complete (no cooldown) rather
+        // than abandoning it.
         if in_conversations.get(initiator).is_ok() || manager.find_active_for(initiator).is_some() {
-            if let Ok((_, mut active)) = active_actions.get_mut(initiator) {
-                active.remove(ActionType::InitiateConversation);
-            }
+            drop_stale_initiate(
+                initiator,
+                now,
+                DropKind::Complete,
+                &mut active_actions,
+                &mut active_plans_query,
+                &mut sim_events,
+            );
             continue;
         }
-        // No target → drop the action.
+        // No target → bad proposal.
         let Some(partner) = partner else {
-            if let Ok((_, mut active)) = active_actions.get_mut(initiator) {
-                active.remove(ActionType::InitiateConversation);
-            }
+            drop_stale_initiate(
+                initiator,
+                now,
+                DropKind::Abandon {
+                    reason: FailureReason::NoTarget,
+                },
+                &mut active_actions,
+                &mut active_plans_query,
+                &mut sim_events,
+            );
             continue;
         };
         let Ok(partner_transform) = transforms.get(partner) else {
-            if let Ok((_, mut active)) = active_actions.get_mut(initiator) {
-                active.remove(ActionType::InitiateConversation);
-            }
+            drop_stale_initiate(
+                initiator,
+                now,
+                DropKind::Abandon {
+                    reason: FailureReason::TargetGone,
+                },
+                &mut active_actions,
+                &mut active_plans_query,
+                &mut sim_events,
+            );
             continue;
         };
         let Ok(initiator_transform) = transforms.get(initiator) else {
@@ -219,7 +247,6 @@ pub fn process_initiate_conversation(
         // join it as a third+ participant, (2) partner is free → start a
         // new 2-agent conversation. Consult both the query (prior-tick
         // state) and the manager (same-tick state just written above).
-        let now = tick.current;
         let join_target: Option<u64> = in_conversations
             .get(partner)
             .ok()
@@ -228,22 +255,44 @@ pub fn process_initiate_conversation(
 
         let (conversation_id, is_new) = if let Some(existing_id) = join_target {
             let Some(conv) = manager.conversations.get_mut(&existing_id) else {
-                if let Ok((_, mut active)) = active_actions.get_mut(initiator) {
-                    active.remove(ActionType::InitiateConversation);
-                }
+                drop_stale_initiate(
+                    initiator,
+                    now,
+                    DropKind::Abandon {
+                        reason: FailureReason::TargetGone,
+                    },
+                    &mut active_actions,
+                    &mut active_plans_query,
+                    &mut sim_events,
+                );
                 continue;
             };
             if conv.state == ConversationState::Ended {
-                if let Ok((_, mut active)) = active_actions.get_mut(initiator) {
-                    active.remove(ActionType::InitiateConversation);
-                }
+                drop_stale_initiate(
+                    initiator,
+                    now,
+                    DropKind::Abandon {
+                        reason: FailureReason::Interrupted,
+                    },
+                    &mut active_actions,
+                    &mut active_plans_query,
+                    &mut sim_events,
+                );
                 continue;
             }
             if !conv.add_participant(initiator) {
-                // Group full or already in — drop the action either way.
-                if let Ok((_, mut active)) = active_actions.get_mut(initiator) {
-                    active.remove(ActionType::InitiateConversation);
-                }
+                // Group full or already in — both mean the partner is
+                // unreachable as a conversation target right now.
+                drop_stale_initiate(
+                    initiator,
+                    now,
+                    DropKind::Abandon {
+                        reason: FailureReason::ConversationFull,
+                    },
+                    &mut active_actions,
+                    &mut active_plans_query,
+                    &mut sim_events,
+                );
                 continue;
             }
             (existing_id, false)
@@ -263,11 +312,16 @@ pub fn process_initiate_conversation(
 
         // Swap InitiateConversation -> Converse in-place on the initiator.
         // For new 2-agent conversations, also add Converse to the partner.
+        // The initiator's SatisfySocial plan is now satisfied — the action
+        // has successfully transformed, no cooldown needed.
         if let Ok((_, mut active)) = active_actions.get_mut(initiator) {
             active.remove(ActionType::InitiateConversation);
             if !active.contains(ActionType::Converse) {
                 active.insert(ActionState::new(ActionType::Converse, now));
             }
+        }
+        if let Ok(mut plans) = active_plans_query.get_mut(initiator) {
+            plans.complete(BrainIntent::SatisfySocial);
         }
         if is_new
             && let Ok((_, mut active)) = active_actions.get_mut(partner)
@@ -292,6 +346,69 @@ pub fn process_initiate_conversation(
                 tick: now,
                 conversation_id,
             });
+        }
+    }
+}
+
+/// How to terminate a stale `InitiateConversation` plan: a successful
+/// transition (social need otherwise satisfied) or an actual failure.
+enum DropKind {
+    /// Plan's intent was satisfied via another path (e.g. partner pulled
+    /// the initiator into their conversation first). Call `complete` — no
+    /// cooldown, no failure event.
+    Complete,
+    /// Plan failed for reasons the brain should back off from. Call
+    /// `abandon` so `ABANDONMENT_COOLDOWN_TICKS` gates any immediate
+    /// re-attempt of the same action. Emits `ActionFailed` with `reason`.
+    Abandon { reason: FailureReason },
+}
+
+/// Shared cleanup for every silent-drop path in `process_initiate_conversation`.
+///
+/// Before #330 these paths removed `InitiateConversation` from `ActiveActions`
+/// without telling anyone — no `SimEvent`, no plan abandonment, so the
+/// cooldown from #166 never fired and the emotional brain cheerfully
+/// re-proposed the same partner on the next thinking cycle.
+fn drop_stale_initiate(
+    initiator: Entity,
+    tick: u64,
+    kind: DropKind,
+    active_actions: &mut Query<(Entity, &mut ActiveActions), With<Agent>>,
+    active_plans_query: &mut Query<&mut ActivePlans>,
+    sim_events: &mut MessageWriter<SimEvent>,
+) {
+    if let Ok((_, mut active)) = active_actions.get_mut(initiator) {
+        active.remove(ActionType::InitiateConversation);
+    }
+
+    match kind {
+        DropKind::Complete => {
+            sim_events.write(SimEvent::ActionCompleted {
+                agent: initiator,
+                tick,
+                action: ActionType::InitiateConversation,
+            });
+            if let Ok(mut plans) = active_plans_query.get_mut(initiator) {
+                plans.complete(BrainIntent::SatisfySocial);
+            }
+        }
+        DropKind::Abandon { reason } => {
+            sim_events.write(SimEvent::ActionFailed {
+                agent: initiator,
+                tick,
+                action: ActionType::InitiateConversation,
+                reason,
+            });
+            if let Ok(mut plans) = active_plans_query.get_mut(initiator)
+                && let Some((intent, action)) = plans.abandon(BrainIntent::SatisfySocial, tick)
+            {
+                sim_events.write(SimEvent::PlanAbandoned {
+                    agent: initiator,
+                    tick,
+                    action,
+                    intent,
+                });
+            }
         }
     }
 }
