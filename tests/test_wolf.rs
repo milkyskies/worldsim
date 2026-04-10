@@ -122,21 +122,26 @@ fn wolf_has_no_triggers_emotion_triples() {
     );
 }
 
-/// The shared ontology marks wolves as Dangerous so all agents automatically
-/// know to be cautious around them — no per-agent innate knowledge needed.
+/// The shared ontology must NOT mark wolves as Dangerous — that would cause
+/// wolves to fear themselves. Each species gets wolf-danger via its own innate
+/// knowledge (add_person_knowledge, add_deer_knowledge, etc.).
 #[test]
-fn ontology_marks_wolf_as_dangerous() {
+fn ontology_does_not_mark_wolf_as_dangerous() {
     let ontology = setup_ontology();
 
-    let triples = ontology.triples.iter().filter(|t| {
-        t.subject == Node::Concept(Concept::Wolf)
-            && t.predicate == Predicate::HasTrait
-            && t.object == Value::Concept(Concept::Dangerous)
-    });
+    let triples: Vec<_> = ontology
+        .triples
+        .iter()
+        .filter(|t| {
+            t.subject == Node::Concept(Concept::Wolf)
+                && t.predicate == Predicate::HasTrait
+                && t.object == Value::Concept(Concept::Dangerous)
+        })
+        .collect();
 
     assert!(
-        triples.count() > 0,
-        "shared ontology should mark Wolf as Dangerous so all agents fear wolves"
+        triples.is_empty(),
+        "shared ontology must not mark Wolf as Dangerous — wolves would fear themselves"
     );
 }
 
