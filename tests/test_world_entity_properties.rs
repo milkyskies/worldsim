@@ -8,6 +8,7 @@ use bevy::prelude::*;
 use worldsim::agent::activity::CurrentActivity;
 use worldsim::agent::body::needs::PhysicalNeeds;
 use worldsim::agent::inventory::EntityType;
+use worldsim::agent::item_slots::ItemSlots;
 use worldsim::agent::mind::knowledge::{Concept, MindGraph, Predicate, Value};
 use worldsim::agent::psyche::emotions::EmotionalState;
 use worldsim::testing::{AgentConfig, TestWorld};
@@ -466,10 +467,14 @@ fn campfire_light_dims_when_fuel_exhausted() {
     let mut world = TestWorld::with_seed(0);
     let campfire = world.spawn_campfire(Vec2::new(100.0, 100.0));
 
-    // Drain all fuel
+    // Drain all fuel: both the FuelConsumer float counter AND the item slot.
     {
         let mut consumer = world.get_mut::<FuelConsumer>(campfire);
         consumer.fuel_remaining = 2.0;
+    }
+    {
+        let mut slots = world.get_mut::<ItemSlots>(campfire);
+        while slots.remove_thing_unchecked(Concept::Wood).is_some() {}
     }
 
     world.tick(5);
@@ -481,11 +486,6 @@ fn campfire_light_dims_when_fuel_exhausted() {
     assert!(
         world.app().world().get::<HeatSource>(campfire).is_none(),
         "campfire HeatSource should be removed when fuel runs out"
-    );
-    // The campfire entity itself persists (it's embers/ash)
-    assert!(
-        world.entity_exists(campfire),
-        "campfire entity should still exist after fuel runs out (it's now embers)"
     );
 }
 

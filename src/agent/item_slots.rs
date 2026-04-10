@@ -198,6 +198,19 @@ impl Slot {
         }
     }
 
+    /// Fuel slot: accepts only the specified material, deposit-only (no extraction).
+    /// Used for campfires, furnaces, and other entities that burn consumables.
+    pub fn fuel(material: Concept, capacity: u32) -> Self {
+        Self {
+            role: SlotRole::Fuel,
+            filter: SlotFilter::OnlyConcepts(vec![material]),
+            capacity: Some(capacity),
+            contents: Vec::new(),
+            deposit_access: Access::Public,
+            extract_access: Access::None,
+        }
+    }
+
     /// Construction site slot: accepts only the specified material, write-only.
     pub fn construction(material: Concept, required: u32) -> Self {
         Self {

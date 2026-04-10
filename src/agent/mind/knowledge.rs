@@ -129,6 +129,9 @@ pub enum Concept {
     Campfire,
     LeanTo,
 
+    // ─── Remains / byproducts ───
+    Ash,
+
     // ─── Transformation intermediates ───
     /// A partially-built world entity that becomes a finished structure when its
     /// Construction slots are filled. Sites are the first concrete use of the

@@ -200,17 +200,49 @@ pub fn derive_ontology_built_by(
 // ─── Systems ─────────────────────────────────────────────────────────────────
 
 /// Ticks all [`FuelConsumer`] entities. Decrements fuel per tick.
-/// When fuel runs out, removes [`LightSource`] and [`HeatSource`] from the entity.
-pub fn fuel_system(mut commands: Commands, mut query: Query<(Entity, &mut FuelConsumer)>) {
-    for (entity, mut consumer) in query.iter_mut() {
+///
+/// When `fuel_remaining` hits zero, the system tries to auto-reload from
+/// the entity's [`ItemSlots`] fuel slot. If a matching item is found, it is
+/// consumed and `fuel_remaining` is refilled by [`FUEL_PER_WOOD`]. If no
+/// items remain, the entity's light, heat, and comfort aura are removed and
+/// a [`Becomes`] component targeting Ash is inserted so the entity
+/// transforms on the next tick.
+pub fn fuel_system(
+    mut commands: Commands,
+    mut query: Query<(
+        Entity,
+        &mut FuelConsumer,
+        Option<&mut crate::agent::item_slots::ItemSlots>,
+    )>,
+) {
+    use crate::world::becomes::{Becomes, BecomesTrigger};
+    use crate::world::campfire::FUEL_PER_WOOD;
+    use crate::world::emits_effect::EmitsEffect;
+
+    for (entity, mut consumer, slots) in query.iter_mut() {
         if consumer.fuel_remaining <= 0.0 {
             continue;
         }
         consumer.fuel_remaining -= consumer.consumption_rate;
         if consumer.fuel_remaining <= 0.0 {
             consumer.fuel_remaining = 0.0;
-            commands.entity(entity).remove::<LightSource>();
-            commands.entity(entity).remove::<HeatSource>();
+
+            let reloaded = slots.is_some_and(|mut slots| {
+                slots.remove_thing_unchecked(consumer.fuel_type).is_some()
+            });
+
+            if reloaded {
+                consumer.fuel_remaining = FUEL_PER_WOOD;
+            } else {
+                commands.entity(entity).remove::<LightSource>();
+                commands.entity(entity).remove::<HeatSource>();
+                commands.entity(entity).remove::<EmitsEffect>();
+                commands.entity(entity).insert(Becomes::new(
+                    Concept::Ash,
+                    BecomesTrigger::AfterTicks(0),
+                    0,
+                ));
+            }
         }
     }
 }
