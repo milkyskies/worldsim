@@ -103,6 +103,27 @@ fn freshness_reaches_zero_and_converts_to_rotten_apple() {
         0,
         "Original Apple concept should be gone"
     );
+
+    let spoiled_events: Vec<_> = world
+        .sim_events()
+        .all()
+        .iter()
+        .filter(|e| {
+            matches!(
+                e,
+                worldsim::agent::events::SimEvent::ItemSpoiled {
+                    from: Concept::Apple,
+                    to: Concept::RottenApple,
+                    ..
+                }
+            )
+        })
+        .collect();
+    assert_eq!(
+        spoiled_events.len(),
+        1,
+        "One ItemSpoiled event should fire when apple rots"
+    );
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

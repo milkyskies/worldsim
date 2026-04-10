@@ -231,6 +231,9 @@ fn event_meta<'a>(
             *tick,
             vec![agent_resolve(*agent), agent_resolve(*about)],
         ),
+        SimEvent::ItemSpoiled { agent, tick, .. } => {
+            ("ItemSpoiled", *tick, vec![agent_resolve(*agent)])
+        }
     }
 }
 
@@ -504,6 +507,17 @@ fn event_to_json(
                 "about": resolve(*about),
                 "source": format!("{source:?}"),
                 "belief_count": belief_count,
+            })
+        }
+        SimEvent::ItemSpoiled {
+            agent, from, to, ..
+        } => {
+            serde_json::json!({
+                "tick": tick,
+                "type": event_type,
+                "agent": resolve(*agent),
+                "from": format!("{from:?}"),
+                "to": format!("{to:?}"),
             })
         }
     }

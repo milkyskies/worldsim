@@ -485,9 +485,13 @@ impl ItemSlots {
 
 /// Runs every 100 ticks. Decrements freshness on perishable Things in all
 /// `ItemSlots`. When freshness reaches 0, the concept changes to its rotten
-/// variant (e.g. Apple → RottenApple).
-pub fn freshness_decay_system(mut query: Query<&mut ItemSlots>) {
-    for mut slots in &mut query {
+/// variant (e.g. Apple → RottenApple) and a `SimEvent::ItemSpoiled` fires.
+pub fn freshness_decay_system(
+    mut query: Query<(Entity, &mut ItemSlots)>,
+    tick: Res<crate::core::tick::TickCount>,
+    mut sim_events: MessageWriter<crate::agent::events::SimEvent>,
+) {
+    for (owner, mut slots) in &mut query {
         for slot in &mut slots.slots {
             for thing in &mut slot.contents {
                 let Some(rate) = perishable_decay_rate(thing.concept) else {
@@ -497,8 +501,15 @@ pub fn freshness_decay_system(mut query: Query<&mut ItemSlots>) {
                 *freshness = (*freshness - rate).max(0.0);
                 if *freshness == 0.0 {
                     if let Some(rotten) = rotten_variant(thing.concept) {
+                        let from = thing.concept;
                         thing.concept = rotten;
                         thing.properties.freshness = None;
+                        sim_events.write(crate::agent::events::SimEvent::ItemSpoiled {
+                            agent: owner,
+                            tick: tick.current,
+                            from,
+                            to: rotten,
+                        });
                     }
                 }
             }
