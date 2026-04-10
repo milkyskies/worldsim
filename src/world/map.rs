@@ -450,14 +450,14 @@ fn hillshade(elevations: &[f32], width: u32, height: u32, x: u32, y: u32) -> f32
     const LIGHT_X: f32 = -0.707;
     const LIGHT_Y: f32 = -0.707;
     let dot = gradient_x * LIGHT_X + gradient_y * LIGHT_Y;
-    (1.0 - dot * 0.04).clamp(0.5, 1.3)
+    (1.0 - dot * 0.015).clamp(0.75, 1.15)
 }
 
 /// Mix a biome base color with elevation: high = lighter, low = darker.
 fn tile_base_color(tile_type: TileType, elevation: f32) -> Color {
     let srgba = tile_type.color().to_srgba();
-    // -0.3 (valley) to +0.3 (peak), centered at mid-elevation (128).
-    let factor = ((elevation - 128.0) / 128.0).clamp(-1.0, 1.0) * 0.3;
+    // -0.15 (valley) to +0.15 (peak), centered at mid-elevation (128).
+    let factor = ((elevation - 128.0) / 128.0).clamp(-1.0, 1.0) * 0.15;
     if factor >= 0.0 {
         // Lighten toward white.
         Color::srgba(
@@ -842,8 +842,8 @@ mod tests {
         extreme[7] = 255.0;
         let shade = hillshade(&extreme, 3, 3, 1, 1);
         assert!(
-            (0.5..=1.3).contains(&shade),
-            "shade {shade} out of [0.5, 1.3]"
+            (0.75..=1.15).contains(&shade),
+            "shade {shade} out of [0.75, 1.15]"
         );
     }
 
