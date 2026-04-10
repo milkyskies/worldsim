@@ -34,17 +34,24 @@ fn test_nomad_knowledge() {
 
 #[test]
 fn test_universal_knowledge() {
-    // Both should know eating
+    // All cultures share Thing IsA Physical as universal cultural knowledge.
     let farmer_knowledge = create_cultural_knowledge(Culture::Farmer);
     let nomad_knowledge = create_cultural_knowledge(Culture::Nomad);
 
     let check = |k: &Vec<worldsim::agent::mind::knowledge::Triple>| {
         k.iter().any(|t| {
-            t.subject == MindNode::Action(worldsim::agent::actions::ActionType::Eat)
-                && t.predicate == Predicate::Satisfies
+            t.subject == MindNode::Concept(Concept::Thing)
+                && t.predicate == Predicate::IsA
+                && t.object == Value::Concept(Concept::Physical)
         })
     };
 
-    assert!(check(&farmer_knowledge), "Farmer should know eating");
-    assert!(check(&nomad_knowledge), "Nomad should know eating");
+    assert!(
+        check(&farmer_knowledge),
+        "Farmer should have universal cultural knowledge"
+    );
+    assert!(
+        check(&nomad_knowledge),
+        "Nomad should have universal cultural knowledge"
+    );
 }

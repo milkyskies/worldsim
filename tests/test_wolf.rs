@@ -3,7 +3,7 @@
 //! Verifies:
 //! - Wolves have correct innate knowledge (prey recognition, danger awareness)
 //! - No hardcoded emotion triggers — behavior emerges from drives and knowledge
-//! - Wolves are feared by humans (Wolf HasTrait Dangerous in shared ontology)
+//! - Wolves are feared by humans (Wolf HasTrait Dangerous in innate person knowledge)
 //! - Pack bonding is established at spawn
 
 use bevy::prelude::*;
@@ -122,30 +122,37 @@ fn wolf_has_no_triggers_emotion_triples() {
     );
 }
 
-/// The shared ontology marks wolves as Dangerous so all agents automatically
-/// know to be cautious around them — no per-agent innate knowledge needed.
+/// The shared ontology must NOT mark wolves as Dangerous — that would cause
+/// wolves to fear themselves. Each species gets wolf-danger via its own innate
+/// knowledge (add_person_knowledge, add_deer_knowledge, etc.).
 #[test]
-fn ontology_marks_wolf_as_dangerous() {
+fn ontology_does_not_mark_wolf_as_dangerous() {
     let ontology = setup_ontology();
 
-    let triples = ontology.triples.iter().filter(|t| {
-        t.subject == Node::Concept(Concept::Wolf)
-            && t.predicate == Predicate::HasTrait
-            && t.object == Value::Concept(Concept::Dangerous)
-    });
+    let triples: Vec<_> = ontology
+        .triples
+        .iter()
+        .filter(|t| {
+            t.subject == Node::Concept(Concept::Wolf)
+                && t.predicate == Predicate::HasTrait
+                && t.object == Value::Concept(Concept::Dangerous)
+        })
+        .collect();
 
     assert!(
-        triples.count() > 0,
-        "shared ontology should mark Wolf as Dangerous so all agents fear wolves"
+        triples.is_empty(),
+        "shared ontology must not mark Wolf as Dangerous — wolves would fear themselves"
     );
 }
 
-/// Humans should trigger fear when they perceive a wolf because the shared
-/// ontology tells them Wolf is Dangerous.
+/// Humans should know Wolf is Dangerous via innate person knowledge,
+/// so they will trigger fear when they perceive a wolf.
 #[test]
-fn human_fears_wolf_via_ontology() {
-    let ontology = setup_ontology();
-    let mind = MindGraph::new(ontology);
+fn human_fears_wolf_via_innate_knowledge() {
+    let mut world = TestWorld::with_seed(42);
+    let human = world.spawn_agent(AgentConfig::at(Vec2::ZERO));
+
+    let mind = world.get::<MindGraph>(human);
 
     let danger_triples = mind.query(
         Some(&Node::Concept(Concept::Wolf)),
@@ -155,7 +162,7 @@ fn human_fears_wolf_via_ontology() {
 
     assert!(
         !danger_triples.is_empty(),
-        "human mind (with shared ontology) should know Wolf is Dangerous"
+        "human mind should know Wolf is Dangerous via innate person knowledge"
     );
 }
 
