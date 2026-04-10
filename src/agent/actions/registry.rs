@@ -605,8 +605,8 @@ impl ActiveActions {
 
 use super::action::{
     BuildAction, ConverseAction, DepositAction, DrinkAction, EatAction, ExploreAction, FleeAction,
-    HarvestAction, IdleAction, InitiateConversationAction, SleepAction, TakeAction, WakeUpAction,
-    WalkAction, WanderAction,
+    GrazeAction, HarvestAction, IdleAction, InitiateConversationAction, SleepAction, TakeAction,
+    WakeUpAction, WalkAction, WanderAction,
 };
 
 #[derive(Resource, Default)]
@@ -623,6 +623,7 @@ impl ActionRegistry {
         registry.register(WakeUpAction);
         registry.register(EatAction);
         registry.register(DrinkAction);
+        registry.register(GrazeAction);
         registry.register(WalkAction);
         registry.register(FleeAction);
         registry.register(ExploreAction);

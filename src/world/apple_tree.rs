@@ -4,6 +4,7 @@ use crate::agent::inventory::EntityType;
 use crate::agent::item_slots::ItemSlots;
 use crate::agent::mind::knowledge::Concept;
 use crate::world::map::TILE_SIZE;
+use crate::world::property::HarvestableComponent;
 use bevy::prelude::*;
 
 /// Marker component for tree leaf visuals.
@@ -60,6 +61,9 @@ pub fn spawn_apple_tree(commands: &mut Commands, position: Vec2, apples: u32) ->
                 cost: 5.0,
                 distance: 32.0, // Increased interaction distance due to size
                 risk: 0.0,
+            },
+            HarvestableComponent {
+                yields: Concept::Apple,
             },
             ResourceRegeneration {
                 timer: 0.0,

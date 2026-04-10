@@ -1,7 +1,7 @@
 //! Stone node spawning logic.
 //!
 //! Reads: ItemSlots, ResourceRegeneration, WorldMap (biome tiles via spawn_config)
-//! Writes: StoneNode entities (EntityType, ItemSlots, Affordance, ResourceRegeneration)
+//! Writes: StoneNode entities (EntityType, ItemSlots, Affordance, HarvestableComponent, ResourceRegeneration)
 //! Upstream: world::spawn_config (layout), world::apple_tree (ResourceRegeneration)
 //! Downstream: world::spawner (registered and synced each frame)
 
@@ -10,6 +10,7 @@ use crate::agent::item_slots::ItemSlots;
 use crate::agent::mind::knowledge::Concept;
 use crate::world::apple_tree::ResourceRegeneration;
 use crate::world::map::TILE_SIZE;
+use crate::world::property::HarvestableComponent;
 use bevy::prelude::*;
 
 /// Marker component for stone chunk visuals on a stone node.
@@ -47,6 +48,9 @@ pub fn spawn_stone_node(commands: &mut Commands, position: Vec2, stones: u32) ->
                 cost: 6.0,
                 distance: 28.0,
                 risk: 0.0,
+            },
+            HarvestableComponent {
+                yields: Concept::Stone,
             },
             ResourceRegeneration {
                 timer: 0.0,

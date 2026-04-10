@@ -23,12 +23,17 @@ impl Culture {
     }
 }
 
-/// Generates a set of innate knowledge triples based on the given culture.
+/// Generates culture-specific innate knowledge with `Source::Cultural` metadata.
+///
+/// Universal facts (IsA hierarchy, Plant HasTrait Harvestable, WoodLog→Wood,
+/// StoneNode→Stone) live in `setup_ontology` and are accessible to every agent
+/// through the ontology layer. Only culture-differentiating knowledge lands
+/// here — e.g. AppleTree→Apple for Farmers/Gatherers, BerryBush→Berry for
+/// Gatherers, recipes for buildable structures.
 pub fn create_cultural_knowledge(culture: Culture) -> Vec<Triple> {
     let mut triples = Vec::new();
-    let current_time = 0; // Innate knowledge exists from the beginning
+    let current_time = 0;
 
-    // Helper macro for cleaner insertion
     let mut add = |s: Node, p: Predicate, o: Value| {
         triples.push(Triple::with_meta(
             s,
@@ -52,37 +57,15 @@ pub fn create_cultural_knowledge(culture: Culture) -> Vec<Triple> {
 
     // ─── Universal Cultural Knowledge (All cultures know this) ───
 
-    // Material resources — all cultures know stone and wood can be gathered
-    add(c(WoodLog), Produces, Value::Item(Wood, 1));
-    add(c(WoodLog), HasTrait, v(Harvestable));
-    add(c(StoneNode), Produces, Value::Item(Stone, 1));
-    add(c(StoneNode), HasTrait, v(Harvestable));
-    add(c(Wood), IsA, v(Resource));
-    add(c(Stone), IsA, v(Resource));
+    add(c(Thing), IsA, v(Physical));
 
-    // Physiological needs
-    add(c(Thing), IsA, v(Physical)); // Basic ontology grounded
+    // TODO: express (Eat, Satisfies, Hunger) properly once Hunger is a Concept.
     add(
         Node::Action(crate::agent::actions::ActionType::Eat),
         Satisfies,
         Value::Concept(Concept::Thing),
-    ); // Placeholder, refined below
+    );
 
-    // Better action semantics
-    // (Eat, Satisfies, Hunger)
-    add(
-        Node::Action(crate::agent::actions::ActionType::Eat),
-        Satisfies,
-        Value::Concept(Concept::Thing),
-    ); // Wait, Hunger isn't a Concept yet? It's a predicate.
-    // We need to express "Eat action satisfies Hunger stat".
-    // Our Value enum has Entity, Concept, Action...
-    // Let's check Predicate::Hunger. It's (Self, Hunger, Int).
-    // The previous design doc said (Eat, Satisfies, Hunger).
-    // Maybe we need a specific node for "Hunger"?
-    // For now, let's assume agents just "know" to eat food.
-
-    // "Food is Edible"
     add(c(Food), HasTrait, v(Edible));
 
     // ─── Universal recipe knowledge (all cultures know these) ───
@@ -130,25 +113,19 @@ pub fn create_cultural_knowledge(culture: Culture) -> Vec<Triple> {
             add(c(Water), IsA, v(Resource));
         }
         Culture::Farmer => {
-            // Farmers know trees produce apples
             add(c(AppleTree), Produces, Value::Item(Apple, 1));
-            add(c(AppleTree), HasTrait, v(Harvestable)); // Can harvest from trees
             add(c(Apple), IsA, v(Food));
             add(c(AppleTree), RegenerationRate, Value::Float(10.0));
         }
         Culture::Hunter => {
-            // Hunters know animals are food (not fully implemented yet)
             add(c(Animal), IsA, v(Food));
             add(c(Animal), HasTrait, v(Harvestable));
         }
         Culture::Gatherer => {
-            // Gatherers know diverse plants - both apples and berries
             add(c(Apple), IsA, v(Food));
             add(c(AppleTree), Produces, Value::Item(Apple, 1));
-            add(c(AppleTree), HasTrait, v(Harvestable)); // Can harvest from trees
             add(c(Berry), IsA, v(Food));
             add(c(BerryBush), Produces, Value::Item(Berry, 1));
-            add(c(BerryBush), HasTrait, v(Harvestable)); // Can harvest from bushes
         }
     }
 
@@ -159,5 +136,111 @@ pub fn create_cultural_knowledge(culture: Culture) -> Vec<Triple> {
 impl From<crate::agent::actions::ActionType> for Node {
     fn from(action: crate::agent::actions::ActionType) -> Self {
         Node::Action(action)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::agent::mind::knowledge::setup_ontology;
+
+    fn contains(triples: &[Triple], subject: Node, predicate: Predicate, object: Value) -> bool {
+        triples
+            .iter()
+            .any(|t| t.subject == subject && t.predicate == predicate && t.object == object)
+    }
+
+    const ALL_CULTURES: [Culture; 4] = [
+        Culture::Nomad,
+        Culture::Farmer,
+        Culture::Hunter,
+        Culture::Gatherer,
+    ];
+
+    #[test]
+    fn gatherer_knows_berrybush_produces_berry() {
+        let triples = create_cultural_knowledge(Culture::Gatherer);
+        assert!(contains(
+            &triples,
+            Node::Concept(Concept::BerryBush),
+            Predicate::Produces,
+            Value::Item(Concept::Berry, 1),
+        ));
+    }
+
+    #[test]
+    fn nomad_does_not_know_berrybush_produces_berry() {
+        let triples = create_cultural_knowledge(Culture::Nomad);
+        assert!(!contains(
+            &triples,
+            Node::Concept(Concept::BerryBush),
+            Predicate::Produces,
+            Value::Item(Concept::Berry, 1),
+        ));
+    }
+
+    #[test]
+    fn farmer_does_not_know_berrybush_production() {
+        let triples = create_cultural_knowledge(Culture::Farmer);
+        let has_any = triples.iter().any(|t| {
+            t.subject == Node::Concept(Concept::BerryBush) && t.predicate == Predicate::Produces
+        });
+        assert!(!has_any);
+    }
+
+    #[test]
+    fn no_culture_redefines_woodlog_or_stonenode_production() {
+        for culture in ALL_CULTURES {
+            let triples = create_cultural_knowledge(culture);
+            for producer in [Concept::WoodLog, Concept::StoneNode] {
+                let has_any = triples.iter().any(|t| {
+                    t.subject == Node::Concept(producer) && t.predicate == Predicate::Produces
+                });
+                assert!(!has_any, "{culture:?} re-seeds {producer:?} production");
+            }
+        }
+    }
+
+    #[test]
+    fn no_culture_redefines_plant_entity_harvestable_trait() {
+        for culture in ALL_CULTURES {
+            let triples = create_cultural_knowledge(culture);
+            for concept in [Concept::AppleTree, Concept::BerryBush] {
+                assert!(
+                    !contains(
+                        &triples,
+                        Node::Concept(concept),
+                        Predicate::HasTrait,
+                        Value::Concept(Concept::Harvestable),
+                    ),
+                    "{culture:?} re-seeds {concept:?} HasTrait Harvestable",
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn ontology_has_universal_production_facts() {
+        let ontology = setup_ontology();
+        let pairs = [
+            (Concept::WoodLog, Concept::Wood),
+            (Concept::StoneNode, Concept::Stone),
+        ];
+        for (producer, product) in pairs {
+            let present = ontology.triples.iter().any(|t| {
+                t.subject == Node::Concept(producer)
+                    && t.predicate == Predicate::Produces
+                    && t.object == Value::Item(product, 1)
+            });
+            assert!(present, "ontology missing {producer:?} -> {product:?}");
+        }
+    }
+
+    #[test]
+    fn plant_entities_inherit_harvestable_from_ontology() {
+        let ontology = setup_ontology();
+        for concept in [Concept::AppleTree, Concept::BerryBush] {
+            assert!(ontology.has_trait(concept, Concept::Harvestable));
+        }
     }
 }

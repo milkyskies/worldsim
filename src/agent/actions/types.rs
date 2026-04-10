@@ -16,6 +16,11 @@ pub enum ActionType {
     Sleep,
     WakeUp, // NEW: Transition from sleep to awake
     Drink,
+    /// Slow walk + continuous eating over a grass tile. Occupies
+    /// Locomotion + Consumption simultaneously so the channel system
+    /// expresses the "walk and eat at the same time" behaviour as one
+    /// fused drift.
+    Graze,
 
     // Resource
     Harvest,
