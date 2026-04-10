@@ -17,7 +17,9 @@ pub enum ResponseCurve {
     Linear,
     /// Exponential: output = input^power
     Exponential(f32),
-    /// Sigmoid: smooth S-curve, k controls steepness
+    /// Sigmoid: smooth S-curve, k controls steepness. The raw sigmoid is
+    /// rescaled so `apply(0) == 0` and `apply(1) == 1`, preserving the drive
+    /// curve contract that zero input must produce zero output.
     Sigmoid { k: f32, midpoint: f32 },
     /// Step: 0 below threshold, 1 above
     Step { threshold: f32 },
@@ -30,7 +32,14 @@ impl ResponseCurve {
             ResponseCurve::Linear => clamped,
             ResponseCurve::Exponential(power) => clamped.powf(*power),
             ResponseCurve::Sigmoid { k, midpoint } => {
-                1.0 / (1.0 + (-(k * (clamped - midpoint))).exp())
+                // Rescale the raw sigmoid so apply(0) = 0 and apply(1) = 1.
+                // Without this, the curve's natural floor (≈0.018 for k=10,
+                // midpoint=0.4) leaks into drives at zero input — causing
+                // phantom urgencies that can win arbitration. See #175.
+                let sig = |x: f32| 1.0 / (1.0 + (-(k * (x - midpoint))).exp());
+                let s0 = sig(0.0);
+                let s1 = sig(1.0);
+                ((sig(clamped) - s0) / (s1 - s0)).clamp(0.0, 1.0)
             }
             ResponseCurve::Step { threshold } => {
                 if clamped >= *threshold {
@@ -346,5 +355,59 @@ impl NervousSystemConfig {
     /// Get config for a specific drive source
     pub fn get_drive(&self, source: UrgencySource) -> Option<&DriveConfig> {
         self.drives.iter().find(|d| d.source == source)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A drive curve must satisfy the contract: zero input → zero output.
+    /// Otherwise the drive carries a phantom baseline urgency that can win
+    /// arbitration when no real stimulus is present (see #175).
+    #[test]
+    fn sigmoid_at_zero_input_returns_zero() {
+        let curve = ResponseCurve::Sigmoid {
+            k: 10.0,
+            midpoint: 0.4,
+        };
+        assert_eq!(curve.apply(0.0), 0.0);
+    }
+
+    #[test]
+    fn sigmoid_at_max_input_returns_one() {
+        let curve = ResponseCurve::Sigmoid {
+            k: 10.0,
+            midpoint: 0.4,
+        };
+        assert!((curve.apply(1.0) - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn sigmoid_preserves_monotonic_shape_between_endpoints() {
+        let curve = ResponseCurve::Sigmoid {
+            k: 10.0,
+            midpoint: 0.4,
+        };
+        let lo = curve.apply(0.2);
+        let mid = curve.apply(0.4);
+        let hi = curve.apply(0.8);
+
+        assert!(lo < mid, "0.2 should map below 0.4 (got {lo} vs {mid})");
+        assert!(mid < hi, "0.4 should map below 0.8 (got {mid} vs {hi})");
+        // Midpoint should still land near the inflection point.
+        assert!(
+            (mid - 0.5).abs() < 0.2,
+            "midpoint output should be near 0.5, got {mid}"
+        );
+    }
+
+    #[test]
+    fn sigmoid_with_high_midpoint_also_returns_zero_at_zero_input() {
+        let curve = ResponseCurve::Sigmoid {
+            k: 10.0,
+            midpoint: 0.6,
+        };
+        assert_eq!(curve.apply(0.0), 0.0);
     }
 }
