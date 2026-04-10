@@ -417,8 +417,12 @@ pub fn decay_stale_knowledge(
         });
 
         if decayed_count > 0 {
-            // Compact tombstones so live slot count stays bounded.
-            mind.compact();
+            // Compact only when tombstones outnumber live slots — compaction
+            // is O(n) and rebuilds every index, so doing it on every tick of
+            // light decay would reintroduce the cost we just eliminated.
+            if mind.tombstone_count() * 2 > mind.total_slots() {
+                mind.compact();
+            }
 
             // Log significant decay events
             if decayed_count > 10 {

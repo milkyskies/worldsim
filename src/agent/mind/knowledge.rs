@@ -560,6 +560,13 @@ impl MindGraph {
         self.triples.iter().filter_map(|slot| slot.as_ref())
     }
 
+    /// Resolve a slice of slot ids into live triples, skipping any that have
+    /// been tombstoned out from under us. Used by indexed query paths.
+    fn live_at<'a>(&'a self, ids: &'a [usize]) -> impl Iterator<Item = &'a Triple> + 'a {
+        ids.iter()
+            .filter_map(|&i| self.triples.get(i).and_then(|s| s.as_ref()))
+    }
+
     // ─── Index bookkeeping ──────────────────────────────────────────────────
 
     fn index_insert(&mut self, idx: usize, subject: &Node, predicate: Predicate) {
@@ -662,17 +669,17 @@ impl MindGraph {
     where
         F: FnMut(&Triple) -> bool,
     {
-        let mut to_remove: SmallVec<[usize; 16]> = SmallVec::new();
-        for (i, slot) in self.triples.iter().enumerate() {
-            if let Some(triple) = slot
-                && !f(triple)
-            {
-                to_remove.push(i);
+        let mut removed = 0;
+        // Index loop — avoids borrowing `self.triples` while we call `self.tombstone`.
+        for i in 0..self.triples.len() {
+            let drop = match &self.triples[i] {
+                Some(triple) => !f(triple),
+                None => false,
+            };
+            if drop {
+                self.tombstone(i);
+                removed += 1;
             }
-        }
-        let removed = to_remove.len();
-        for idx in to_remove {
-            self.tombstone(idx);
         }
         removed
     }
@@ -695,67 +702,74 @@ impl MindGraph {
     }
 
     pub fn assert(&mut self, triple: Triple) {
-        // Special case: Contains + Item should replace by concept, not exact value.
-        // Different item quantities for the same concept share one slot.
+        let key = (triple.subject.clone(), triple.predicate);
+
+        // Contains + Item replaces by concept, not exact value — different
+        // quantities of the same concept share one slot. If the quantity
+        // didn't change, update metadata in place to avoid a tombstone churn
+        // (hot path: every perception re-asserts the same inventory).
         if triple.predicate == Predicate::Contains
             && let Value::Item(concept, _) = &triple.object
         {
             let concept_copy = *concept;
-            let key = (triple.subject.clone(), Predicate::Contains);
-            let matching: SmallVec<[usize; 4]> = self
-                .by_subject_predicate
-                .get(&key)
-                .map(|list| {
-                    list.iter()
-                        .copied()
-                        .filter(|&idx| match self.triples.get(idx) {
-                            Some(Some(t)) => {
-                                matches!(&t.object, Value::Item(c, _) if *c == concept_copy)
-                            }
-                            _ => false,
-                        })
-                        .collect()
-                })
-                .unwrap_or_default();
-            for idx in matching {
-                self.tombstone(idx);
-            }
-            self.add(triple);
-            return;
-        }
-
-        // Functional predicates have at most one object per subject — replace.
-        if triple.predicate.is_functional() {
-            let key = (triple.subject.clone(), triple.predicate);
-            let existing: SmallVec<[usize; 2]> = self
-                .by_subject_predicate
-                .get(&key)
-                .map(|list| list.iter().copied().collect())
-                .unwrap_or_default();
-            for idx in existing {
-                self.tombstone(idx);
-            }
-            self.add(triple);
-            return;
-        }
-
-        // Non-functional: check for exact duplicate via the (subject, predicate)
-        // index, update in place if found.
-        let key = (triple.subject.clone(), triple.predicate);
-        if let Some(list) = self.by_subject_predicate.get(&key) {
-            let ids: SmallVec<[usize; 4]> = list.iter().copied().collect();
-            for idx in ids {
-                if let Some(Some(existing)) = self.triples.get_mut(idx)
-                    && existing.object == triple.object
-                {
+            if let Some(idx) = self.find_existing_id(
+                &key,
+                |t| matches!(&t.object, Value::Item(c, _) if *c == concept_copy),
+            ) {
+                // Safe: find_existing_id only returns live ids.
+                let existing = self.triples[idx].as_mut().expect("live slot");
+                if existing.object == triple.object {
                     existing.meta.timestamp = triple.meta.timestamp;
                     existing.meta.confidence = triple.meta.confidence;
                     return;
                 }
+                self.tombstone(idx);
             }
+            self.add(triple);
+            return;
+        }
+
+        // Functional predicates have at most one object per subject. If the
+        // value hasn't changed, just refresh metadata — tombstoning an
+        // unchanged Hunger/Thirst fact every tick would dominate decay cost.
+        if triple.predicate.is_functional() {
+            if let Some(idx) = self.find_existing_id(&key, |_| true) {
+                let existing = self.triples[idx].as_mut().expect("live slot");
+                if existing.object == triple.object {
+                    existing.meta.timestamp = triple.meta.timestamp;
+                    existing.meta.confidence = triple.meta.confidence;
+                    return;
+                }
+                self.tombstone(idx);
+            }
+            self.add(triple);
+            return;
+        }
+
+        // Non-functional: exact-match dedupe against the (subject, predicate)
+        // bucket; update metadata in place when we find a hit.
+        if let Some(idx) = self.find_existing_id(&key, |t| t.object == triple.object) {
+            let existing = self.triples[idx].as_mut().expect("live slot");
+            existing.meta.timestamp = triple.meta.timestamp;
+            existing.meta.confidence = triple.meta.confidence;
+            return;
         }
 
         self.add(triple);
+    }
+
+    /// First id in the (subject, predicate) bucket whose live triple passes
+    /// the predicate. Returns `None` if the bucket is missing or no entry
+    /// matches. Kept private — only `assert` cares about "first match".
+    fn find_existing_id<F>(&self, key: &(Node, Predicate), mut pred: F) -> Option<usize>
+    where
+        F: FnMut(&Triple) -> bool,
+    {
+        self.by_subject_predicate
+            .get(key)?
+            .iter()
+            .copied()
+            .find(|&idx| matches!(self.triples.get(idx), Some(Some(t)) if pred(t)))
     }
 
     // ─── Reads ──────────────────────────────────────────────────────────────
@@ -801,41 +815,23 @@ impl MindGraph {
         };
 
         // Pick the tightest index for LOCAL triples.
-        let local_iter: Box<dyn Iterator<Item = &Triple>> = match (subject, predicate) {
-            (Some(sub), Some(pred)) => {
-                if let Some(list) = self.by_subject_predicate.get(&(sub.clone(), pred)) {
-                    Box::new(
-                        list.iter()
-                            .filter_map(|&i| self.triples.get(i).and_then(|s| s.as_ref()))
-                            .filter(|t| matcher(t)),
-                    )
-                } else {
-                    Box::new(std::iter::empty())
-                }
-            }
-            (Some(sub), None) => {
-                if let Some(list) = self.by_subject.get(sub) {
-                    Box::new(
-                        list.iter()
-                            .filter_map(|&i| self.triples.get(i).and_then(|s| s.as_ref()))
-                            .filter(|t| matcher(t)),
-                    )
-                } else {
-                    Box::new(std::iter::empty())
-                }
-            }
-            (None, Some(pred)) => {
-                if let Some(list) = self.by_predicate.get(&pred) {
-                    Box::new(
-                        list.iter()
-                            .filter_map(|&i| self.triples.get(i).and_then(|s| s.as_ref()))
-                            .filter(|t| matcher(t)),
-                    )
-                } else {
-                    Box::new(std::iter::empty())
-                }
-            }
-            (None, None) => Box::new(self.iter().filter(move |t| matcher(t))),
+        // Pick the tightest index that fits the query pattern. None means
+        // "no useful index" — fall back to a live-triple scan.
+        let ids: Option<&[usize]> = match (subject, predicate) {
+            (Some(sub), Some(pred)) => self
+                .by_subject_predicate
+                .get(&(sub.clone(), pred))
+                .map(|v| v.as_slice()),
+            (Some(sub), None) => self.by_subject.get(sub).map(|v| v.as_slice()),
+            (None, Some(pred)) => self.by_predicate.get(&pred).map(|v| v.as_slice()),
+            (None, None) => None,
+        };
+        let local_iter: Box<dyn Iterator<Item = &Triple>> = match (ids, subject, predicate) {
+            (Some(ids), _, _) => Box::new(self.live_at(ids).filter(|t| matcher(t))),
+            // (None, None) — no index usable, walk everything live.
+            (None, None, None) => Box::new(self.iter().filter(move |t| matcher(t))),
+            // Subject or predicate specified but bucket missing → empty.
+            _ => Box::new(std::iter::empty()),
         };
 
         // Combine sources: Ontology -> Shared -> Local

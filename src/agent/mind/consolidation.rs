@@ -21,8 +21,8 @@ pub fn consolidate_knowledge(
         }
         // We want to find patterns like: "Person X has attacked me N times" -> Hostile
 
-        // Scan all Event triples
-        // This is expensive O(N). In the future, use MindGraphIndex::by_memory_type(Episodic).
+        // Scan all Event triples.
+        // O(N) in local triples — no memory-type index yet, only subject/predicate.
 
         let mut social_events: HashMap<Entity, Vec<(u64, f32)>> = HashMap::new(); // Actor -> [(Time, Valence)]
 
