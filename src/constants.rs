@@ -257,6 +257,18 @@ pub mod brains {
         /// How much conscientiousness reduces physical stamina drain. Lazy
         /// agents feel labor harder; disciplined agents grind through.
         pub const CONSCIENTIOUSNESS_STAMINA_RELIEF: f32 = 0.4;
+        /// Alertness drained from the speaker per conversation turn.
+        /// Talking is mildly taxing — you're composing language and tracking
+        /// the partner's state.
+        pub const CONVERSATION_SPEAKER_ALERTNESS_DRAIN: f32 = 0.012;
+        /// Alertness drained from each listener per conversation turn.
+        /// Listening is more taxing than speaking because you're parsing
+        /// unfamiliar content and updating your theory-of-mind.
+        pub const CONVERSATION_LISTENER_ALERTNESS_DRAIN: f32 = 0.02;
+        /// How much extraversion relieves conversation alertness drain.
+        /// Introverts pay full price (social fatigue); extraverts pay very
+        /// little (social stimulation is energising).
+        pub const EXTRAVERSION_CONVERSATION_RELIEF: f32 = 0.85;
     }
 
     /// GOAP planner search parameters

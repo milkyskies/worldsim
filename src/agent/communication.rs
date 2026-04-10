@@ -40,6 +40,7 @@ use bevy::prelude::*;
 use crate::agent::Agent;
 use crate::agent::actions::registry::{ActionState, ActiveActions};
 use crate::agent::actions::types::ActionType;
+use crate::agent::body::needs::Consciousness;
 use crate::agent::brains::rational::RationalBrain;
 use crate::agent::brains::thinking::Goal;
 use crate::agent::commitment::Commitments;
@@ -329,6 +330,7 @@ pub fn select_turn_intent(
     rational_brains: Query<&RationalBrain>,
     personalities: Query<&Personality>,
     mut commitments_query: Query<&mut Commitments>,
+    mut consciousnesses: Query<&mut Consciousness>,
 ) {
     let now = tick.current;
     for conv in manager.conversations.values_mut() {
@@ -450,6 +452,9 @@ pub fn select_turn_intent(
         }
 
         let expects_response = matches!(intent, Intent::Greet | Intent::Ask);
+        // Snapshot listeners before mutably borrowing conv for add_turn so
+        // we can charge their alertness below.
+        let listeners: Vec<Entity> = conv.listeners().collect();
         let turn = Turn {
             speaker,
             intent,
@@ -461,6 +466,36 @@ pub fn select_turn_intent(
         };
         conv.add_turn(turn);
         conv.wants_to_speak.remove(&speaker);
+
+        // Cognitive cost of conversation. The speaker composes language and
+        // tracks the partner's state; listeners parse unfamiliar content and
+        // update their theory-of-mind. Listeners pay more than the speaker.
+        // Extraversion relieves most of the cost — extraverts are energised
+        // by social contact, introverts are drained by it.
+        let speaker_drain_base =
+            crate::constants::brains::cognition::CONVERSATION_SPEAKER_ALERTNESS_DRAIN;
+        let listener_drain_base =
+            crate::constants::brains::cognition::CONVERSATION_LISTENER_ALERTNESS_DRAIN;
+        let extraversion_relief =
+            crate::constants::brains::cognition::EXTRAVERSION_CONVERSATION_RELIEF;
+        if let Ok(mut c) = consciousnesses.get_mut(speaker) {
+            let extraversion = personalities
+                .get(speaker)
+                .map(|p| p.traits.extraversion)
+                .unwrap_or(0.5);
+            let drain = speaker_drain_base * (1.0 - extraversion * extraversion_relief);
+            c.alertness = (c.alertness - drain).max(0.0);
+        }
+        for listener in listeners {
+            if let Ok(mut c) = consciousnesses.get_mut(listener) {
+                let extraversion = personalities
+                    .get(listener)
+                    .map(|p| p.traits.extraversion)
+                    .unwrap_or(0.5);
+                let drain = listener_drain_base * (1.0 - extraversion * extraversion_relief);
+                c.alertness = (c.alertness - drain).max(0.0);
+            }
+        }
         // Direct question → flag the primary listener so the weighted
         // pick favors them next turn. In a 2-agent conversation this is
         // a no-op (they're the only candidate), but in a group it routes
