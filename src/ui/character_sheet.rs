@@ -17,14 +17,20 @@ use crate::agent::body::needs::{Consciousness, PhysicalNeeds, PsychologicalDrive
 use crate::agent::body::species::SpeciesProfile;
 use crate::agent::brains::proposal::{BrainState, BrainType};
 use crate::agent::brains::rational::RationalBrain;
+use crate::agent::events::ConversationTopic;
 use crate::agent::item_slots::ItemSlots;
+use crate::agent::mind::conversation::{
+    ConversationManager, InConversation, Intent as ConvIntent, Topic as ConvTopic,
+};
 use crate::agent::mind::knowledge::{Concept, MindGraph, Node, Predicate, Value};
 use crate::agent::mind::memory::WorkingMemory;
 use crate::agent::nervous_system::cns::CentralNervousSystem;
 use crate::agent::nervous_system::urgency::UrgencySource;
 use crate::agent::psyche::emotions::{EmotionType, EmotionalState};
 use crate::agent::psyche::personality::{Personality, PersonalityTrait};
-use crate::agent::psyche::relationships::RelationshipHistory;
+use crate::agent::psyche::relationships::{InteractionRecord, RelationshipHistory};
+use crate::core::GameLog;
+use crate::core::tick::TickCount;
 
 use super::{DebugUiEnabled, UiState};
 
@@ -85,6 +91,8 @@ pub enum CharSheetTab {
     Health,
     Knowledge,
     Inventory,
+    /// Recent activity log: SimEvents this agent appeared in.
+    Activity,
     /// Developer-only tab showing raw brain proposals. Hidden unless F12 debug
     /// mode is on.
     Brain,
@@ -100,6 +108,7 @@ impl CharSheetTab {
             CharSheetTab::Health => "Health",
             CharSheetTab::Knowledge => "Knowledge",
             CharSheetTab::Inventory => "Inventory",
+            CharSheetTab::Activity => "Activity",
             CharSheetTab::Brain => "Brain",
         }
     }
@@ -237,6 +246,7 @@ fn character_sheet_system(world: &mut World) {
                     CharSheetTab::Health => render_health(ui, world, entity),
                     CharSheetTab::Knowledge => render_knowledge(ui, world, entity),
                     CharSheetTab::Inventory => render_inventory(ui, world, entity),
+                    CharSheetTab::Activity => render_activity(ui, world, entity),
                     CharSheetTab::Brain => render_brain(ui, world, entity),
                 });
         });
@@ -340,6 +350,10 @@ fn visible_tabs_for_entity(
     if has_items {
         tabs.push(CharSheetTab::Inventory);
     }
+
+    // Activity is always available — even a fresh agent has at least the
+    // spawn event in the GameLog.
+    tabs.push(CharSheetTab::Activity);
 
     if debug_enabled && world.get::<BrainState>(entity).is_some() {
         tabs.push(CharSheetTab::Brain);
@@ -634,6 +648,13 @@ fn trait_block(ui: &mut egui::Ui, name: &str, value: f32, descriptions: &[&str; 
 // ============================================================================
 
 fn render_social(ui: &mut egui::Ui, world: &World, entity: Entity) {
+    let now = world
+        .get_resource::<TickCount>()
+        .map(|t| t.current)
+        .unwrap_or(0);
+
+    render_current_conversation(ui, world, entity, now);
+
     ui.heading("Relationships");
 
     let Some(mind) = world.get::<MindGraph>(entity) else {
@@ -649,7 +670,6 @@ fn render_social(ui: &mut egui::Ui, world: &World, entity: Entity) {
 
     let history = world.get::<RelationshipHistory>(entity);
 
-    // Build a list of (other_entity, category, trust, affection, respect)
     let mut rows: Vec<SocialRow> = Vec::new();
     for triple in known {
         let Node::Entity(other) = triple.subject else {
@@ -666,7 +686,9 @@ fn render_social(ui: &mut egui::Ui, world: &World, entity: Entity) {
         let affection = query_float(mind, other, Predicate::Affection).unwrap_or(0.5);
         let respect = query_float(mind, other, Predicate::Respect).unwrap_or(0.5);
 
-        let recent_count = history.map(|h| h.get(other).len()).unwrap_or(0);
+        let recent_interactions: Vec<InteractionRecord> = history
+            .map(|h| h.get(other).iter().rev().take(5).cloned().collect())
+            .unwrap_or_default();
 
         rows.push(SocialRow {
             name,
@@ -674,7 +696,7 @@ fn render_social(ui: &mut egui::Ui, world: &World, entity: Entity) {
             trust,
             affection,
             respect,
-            recent_count,
+            recent_interactions,
         });
     }
 
@@ -718,15 +740,150 @@ fn render_social(ui: &mut egui::Ui, world: &World, entity: Entity) {
                     );
                     ui.end_row();
                 });
-            if row.recent_count > 0 {
+            if !row.recent_interactions.is_empty() {
+                ui.add_space(2.0);
                 ui.label(
-                    egui::RichText::new(format!("{} recent interactions", row.recent_count))
+                    egui::RichText::new("Recent interactions")
                         .small()
-                        .color(Color32::GRAY),
+                        .color(Color32::LIGHT_GRAY),
                 );
+                for record in &row.recent_interactions {
+                    let age = now.saturating_sub(record.tick);
+                    let topic = record
+                        .topic
+                        .map(conversation_topic_label)
+                        .unwrap_or("contact");
+                    let valence_label = if record.valence > 0.3 {
+                        "+"
+                    } else if record.valence < -0.3 {
+                        "-"
+                    } else {
+                        "·"
+                    };
+                    let valence_color = if record.valence > 0.3 {
+                        Color32::from_rgb(140, 220, 140)
+                    } else if record.valence < -0.3 {
+                        Color32::from_rgb(220, 120, 120)
+                    } else {
+                        Color32::LIGHT_GRAY
+                    };
+                    ui.horizontal(|ui| {
+                        ui.colored_label(valence_color, valence_label);
+                        ui.label(egui::RichText::new(format!("{} ({}t ago)", topic, age)).small());
+                    });
+                }
             }
         });
         ui.add_space(2.0);
+    }
+}
+
+fn render_current_conversation(ui: &mut egui::Ui, world: &World, entity: Entity, now: u64) {
+    let Some(in_conv) = world.get::<InConversation>(entity) else {
+        return;
+    };
+    let Some(manager) = world.get_resource::<ConversationManager>() else {
+        return;
+    };
+    let Some(conv) = manager.get(in_conv.conversation_id) else {
+        return;
+    };
+
+    ui.heading("💬 In Conversation");
+    ui.group(|ui| {
+        let participants: Vec<String> = conv
+            .participants
+            .iter()
+            .filter(|p| **p != entity)
+            .map(|p| {
+                world
+                    .get::<Name>(*p)
+                    .map(|n| n.to_string())
+                    .unwrap_or_else(|| format!("{:?}", p))
+            })
+            .collect();
+        ui.label(format!("Talking to: {}", participants.join(", ")));
+        ui.label(
+            egui::RichText::new(format!(
+                "{:?} · started {}t ago",
+                conv.state,
+                now.saturating_sub(conv.started_at)
+            ))
+            .small()
+            .color(Color32::LIGHT_GRAY),
+        );
+
+        if !conv.turns.is_empty() {
+            ui.add_space(2.0);
+            ui.label(
+                egui::RichText::new("Recent turns")
+                    .small()
+                    .color(Color32::LIGHT_GRAY),
+            );
+            for turn in conv.turns.iter().rev().take(5).rev() {
+                render_conversation_turn(ui, world, turn, now);
+            }
+        }
+    });
+    ui.add_space(4.0);
+}
+
+fn render_conversation_turn(
+    ui: &mut egui::Ui,
+    world: &World,
+    turn: &crate::agent::mind::conversation::Turn,
+    now: u64,
+) {
+    let speaker_name = world
+        .get::<Name>(turn.speaker)
+        .map(|n| n.to_string())
+        .unwrap_or_else(|| format!("{:?}", turn.speaker));
+    let intent = conv_intent_label(turn.intent);
+    let topic = conv_topic_label(world, turn.topic);
+    let age = now.saturating_sub(turn.timestamp);
+    ui.label(
+        egui::RichText::new(format!(
+            "• {} {} {} ({}t ago)",
+            speaker_name, intent, topic, age
+        ))
+        .small(),
+    );
+}
+
+fn conv_intent_label(intent: ConvIntent) -> &'static str {
+    match intent {
+        ConvIntent::Greet => "greets",
+        ConvIntent::Ask => "asks about",
+        ConvIntent::Answer => "answers about",
+        ConvIntent::Share => "shares",
+        ConvIntent::Empathize => "empathizes about",
+        ConvIntent::Agree => "agrees about",
+        ConvIntent::Disagree => "disagrees about",
+        ConvIntent::Thank => "thanks for",
+        ConvIntent::Farewell => "says goodbye",
+        ConvIntent::Acknowledge => "acknowledges",
+    }
+}
+
+fn conv_topic_label(world: &World, topic: ConvTopic) -> String {
+    match topic {
+        ConvTopic::General => "small talk".to_string(),
+        ConvTopic::Help => "help".to_string(),
+        ConvTopic::Location(c) => format!("{:?}", c),
+        ConvTopic::State(e) | ConvTopic::Person(e) => world
+            .get::<Name>(e)
+            .map(|n| n.to_string())
+            .unwrap_or_else(|| format!("{:?}", e)),
+    }
+}
+
+fn conversation_topic_label(topic: ConversationTopic) -> &'static str {
+    match topic {
+        ConversationTopic::Greetings => "greeted",
+        ConversationTopic::Knowledge => "shared knowledge",
+        ConversationTopic::Feelings => "shared feelings",
+        ConversationTopic::Gossip => "gossiped",
+        ConversationTopic::Request => "asked help",
     }
 }
 
@@ -736,7 +893,7 @@ struct SocialRow {
     trust: f32,
     affection: f32,
     respect: f32,
-    recent_count: usize,
+    recent_interactions: Vec<InteractionRecord>,
 }
 
 #[derive(Clone, Copy)]
@@ -1034,6 +1191,58 @@ fn render_inventory(ui: &mut egui::Ui, world: &World, entity: Entity) {
                 ui.end_row();
             }
         });
+}
+
+// ============================================================================
+// ACTIVITY TAB
+// ============================================================================
+
+fn render_activity(ui: &mut egui::Ui, world: &World, entity: Entity) {
+    let Some(log) = world.get_resource::<GameLog>() else {
+        ui.label("No game log available.");
+        return;
+    };
+
+    ui.heading("Recent Activity");
+    ui.label(
+        egui::RichText::new("Game-log entries that mention this agent, newest first.")
+            .small()
+            .color(Color32::LIGHT_GRAY),
+    );
+    ui.add_space(2.0);
+
+    let mut entries: Vec<_> = log
+        .all_entries()
+        .filter(|e| e.entity == Some(entity))
+        .collect();
+    entries.reverse();
+    entries.truncate(60);
+
+    if entries.is_empty() {
+        ui.label(egui::RichText::new("Nothing logged for this agent yet.").italics());
+        return;
+    }
+
+    for entry in entries {
+        ui.horizontal(|ui| {
+            ui.label(
+                egui::RichText::new(format!("[{}]", entry.timestamp))
+                    .small()
+                    .color(Color32::LIGHT_GRAY),
+            );
+            let count_suffix = if entry.count > 1 {
+                format!(" (×{})", entry.count)
+            } else {
+                String::new()
+            };
+            ui.label(format!(
+                "{} {}{}",
+                entry.category.prefix(),
+                entry.message,
+                count_suffix
+            ));
+        });
+    }
 }
 
 // ============================================================================
