@@ -126,6 +126,14 @@ pub fn start_actions(
             // Resolve hard conflicts by preempting interruptible actions.
             let requirements = action_def.body_channels();
             let before_preempt: Vec<ActionType> = active.iter().map(|a| a.action_type).collect();
+
+            // #223: Two ActionKind::Movement actions cannot coexist (only one
+            // transform). Displace any existing interruptible Movement before
+            // the channel-based preemption pass runs. Most-recent wins. The
+            // event emission loop below catches the removal via the
+            // `before_preempt` snapshot.
+            preempt_existing_movement(&mut active, &registry, &mut target, action_def.kind());
+
             if !preempt_to_make_room(
                 &mut active,
                 &registry,
@@ -553,6 +561,47 @@ pub fn apply_action_effects(
 // Preemption helpers
 // ============================================================================
 
+/// Enforce "at most one `ActionKind::Movement` action active at a time."
+///
+/// The channel system models *body parts* (Legs, Mouth, Hands, …). Two
+/// Movement actions sharing Legs at intensity 0.4 each don't channel-conflict
+/// (load 0.8 < hard threshold 1.4) and would otherwise be admitted in
+/// parallel. But there is exactly one `transform.translation` — two
+/// simultaneous moves toward different targets are physically incoherent.
+/// They tick in parallel, both call `move_toward`, both mutate the transform,
+/// and the agent bounces between targets forever (see #223).
+///
+/// When a new Movement action is about to be admitted, this function removes
+/// any existing *interruptible* Movement action so the new one can take over
+/// the transform exclusively. The most-recent Movement always wins — the
+/// brain re-thinks every 60 ticks, so this converges to the right answer
+/// within one cycle.
+///
+/// Returns the displaced action type if one was preempted, `None` otherwise.
+/// The caller is responsible for emitting `SimEvent::ActionPreempted` (the
+/// existing snapshot-and-diff loop in `start_actions` handles this).
+fn preempt_existing_movement(
+    active: &mut ActiveActions,
+    registry: &ActionRegistry,
+    target: &mut TargetPosition,
+    incoming_kind: ActionKind,
+) -> Option<ActionType> {
+    if !matches!(incoming_kind, ActionKind::Movement) {
+        return None;
+    }
+    let existing = active.iter().find_map(|s| {
+        let def = registry.get(s.action_type)?;
+        if matches!(def.kind(), ActionKind::Movement) && def.interruptible() {
+            Some(s.action_type)
+        } else {
+            None
+        }
+    })?;
+    active.remove(existing);
+    target.0 = None;
+    Some(existing)
+}
+
 /// Try to admit `requirements` into `active`, preempting interruptible actions
 /// until there's no hard conflict. Returns false if preemption can't make room
 /// (e.g. an uninterruptible action holds a conflicting channel).
@@ -925,5 +974,91 @@ mod tests {
             }
             other => panic!("Build must be ActionKind::Timed, got {other:?}"),
         }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // #223: ActionKind::Movement mutual exclusion
+    // ─────────────────────────────────────────────────────────────────────
+    //
+    // The channel system models body parts (Legs, Mouth, Hands…). Two
+    // Movement actions sharing Legs at intensity 0.4 each don't channel-
+    // conflict (load 0.8 < hard threshold 1.4) and would otherwise be
+    // admitted in parallel. But there's only one `transform.translation` —
+    // two simultaneous moves toward different targets are physically
+    // incoherent. The agent can't walk toward two places at once.
+    //
+    // `preempt_existing_movement` enforces "at most one Movement action
+    // active at a time" by removing any existing interruptible Movement
+    // when a new Movement is about to be admitted. The new movement
+    // overrides the old (most-recent wins).
+
+    #[test]
+    fn admitting_walk_preempts_existing_wander() {
+        let registry = build_registry();
+        let mut active = ActiveActions::empty();
+        active.insert(ActionState::new(ActionType::Wander, 0));
+        let mut target = TargetPosition(Some(Vec2::new(10.0, 10.0)));
+
+        let preempted =
+            preempt_existing_movement(&mut active, &registry, &mut target, ActionKind::Movement);
+
+        assert_eq!(
+            preempted,
+            Some(ActionType::Wander),
+            "An incoming Movement must displace the existing Wander Movement"
+        );
+        assert!(!active.contains(ActionType::Wander));
+        assert_eq!(
+            target.0, None,
+            "TargetPosition must clear with the old movement"
+        );
+    }
+
+    #[test]
+    fn admitting_walk_preempts_existing_explore() {
+        let registry = build_registry();
+        let mut active = ActiveActions::empty();
+        active.insert(ActionState::new(ActionType::Explore, 0));
+        let mut target = TargetPosition(Some(Vec2::new(50.0, 50.0)));
+
+        let preempted =
+            preempt_existing_movement(&mut active, &registry, &mut target, ActionKind::Movement);
+
+        assert_eq!(preempted, Some(ActionType::Explore));
+        assert!(!active.contains(ActionType::Explore));
+    }
+
+    #[test]
+    fn non_movement_action_does_not_preempt_movement() {
+        // Eat is not Movement — it shouldn't touch a running Walk.
+        let registry = build_registry();
+        let mut active = ActiveActions::empty();
+        active.insert(ActionState::new(ActionType::Walk, 0));
+        let mut target = TargetPosition(Some(Vec2::new(99.0, 99.0)));
+        let target_before = target.0;
+
+        let eat_kind = registry.get(ActionType::Eat).unwrap().kind();
+        let preempted = preempt_existing_movement(&mut active, &registry, &mut target, eat_kind);
+
+        assert_eq!(
+            preempted, None,
+            "Non-Movement admission must not preempt Movement"
+        );
+        assert!(active.contains(ActionType::Walk));
+        assert_eq!(target.0, target_before, "TargetPosition must be untouched");
+    }
+
+    #[test]
+    fn movement_admission_with_no_existing_movement_does_nothing() {
+        let registry = build_registry();
+        let mut active = ActiveActions::empty();
+        active.insert(ActionState::new(ActionType::Eat, 0).with_duration(20));
+        let mut target = TargetPosition::default();
+
+        let preempted =
+            preempt_existing_movement(&mut active, &registry, &mut target, ActionKind::Movement);
+
+        assert_eq!(preempted, None);
+        assert!(active.contains(ActionType::Eat));
     }
 }

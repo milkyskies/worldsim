@@ -149,6 +149,7 @@ pub fn arbitrate_parallel(
 
     let mut admitted: Vec<BrainProposal> = Vec::new();
     let mut load = ChannelLoad::new();
+    let mut movement_admitted = false;
 
     for (_score, proposal) in scored {
         let Some(action_def) = registry.get(proposal.action.action_type) else {
@@ -162,6 +163,17 @@ pub fn arbitrate_parallel(
             continue;
         }
 
+        let kind = action_def.kind();
+
+        // #223: Two ActionKind::Movement actions cannot coexist (the agent has
+        // exactly one transform; two simultaneous moves toward different
+        // targets fight over it). Skip any further Movement proposals once
+        // one has already been admitted this tick. The highest-scoring
+        // Movement wins because the loop iterates in score order.
+        if matches!(kind, crate::agent::actions::ActionKind::Movement) && movement_admitted {
+            continue;
+        }
+
         let requirements = action_def.body_channels();
 
         if load.would_hard_conflict(requirements, capacities) {
@@ -169,6 +181,9 @@ pub fn arbitrate_parallel(
         }
 
         load.add(requirements);
+        if matches!(kind, crate::agent::actions::ActionKind::Movement) {
+            movement_admitted = true;
+        }
         admitted.push(proposal);
     }
 
@@ -346,6 +361,52 @@ mod tests {
             "intent dedup must drop competing Explore"
         );
         assert_eq!(admitted[0].action.action_type, ActionType::Walk);
+    }
+
+    /// #223: At most one ActionKind::Movement proposal can be admitted per
+    /// tick. Two competing Movement proposals (e.g. Walk and Wander, with
+    /// different intents so they survive intent dedup) must collapse to one,
+    /// because the agent has exactly one transform and can't move toward two
+    /// targets at once. The higher-scoring Movement wins.
+    #[test]
+    fn arbitrate_parallel_admits_at_most_one_movement_per_tick() {
+        let powers = unit_powers();
+        let registry = ActionRegistry::new();
+        let capacities = ChannelCapacities::full();
+
+        // Walk (intent: SatisfyHunger) — higher urgency, wins.
+        let walk = make_proposal(
+            BrainType::Rational,
+            ActionType::Walk,
+            60.0,
+            Intent::SatisfyHunger,
+        );
+        // Wander (intent: None — passes through dedup, doesn't collide on
+        // intent) — second Movement, must be skipped despite no channel
+        // conflict.
+        let wander = make_proposal(BrainType::Rational, ActionType::Wander, 30.0, Intent::None);
+
+        let proposals = [Some(walk), Some(wander), None];
+        let admitted = arbitrate_parallel(&proposals, &powers, &capacities, &registry);
+
+        let movement_count = admitted
+            .iter()
+            .filter(|p| {
+                matches!(
+                    registry.get(p.action.action_type).map(|d| d.kind()),
+                    Some(crate::agent::actions::ActionKind::Movement)
+                )
+            })
+            .count();
+        assert_eq!(
+            movement_count, 1,
+            "exactly one Movement may be admitted per tick, got {admitted:?}"
+        );
+        assert_eq!(
+            admitted[0].action.action_type,
+            ActionType::Walk,
+            "highest-scoring Movement should win, expected Walk"
+        );
     }
 
     #[test]
