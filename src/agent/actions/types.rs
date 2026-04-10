@@ -77,6 +77,7 @@ impl ActionType {
             ActionType::Sleep => "Sleeping",
             ActionType::WakeUp => "Waking up",
             ActionType::Drink => "Drinking",
+            ActionType::Graze => "Grazing",
             ActionType::Harvest => "Harvesting",
             ActionType::Pickup => "Picking up",
             ActionType::Drop => "Dropping",
