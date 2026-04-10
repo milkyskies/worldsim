@@ -34,6 +34,7 @@ use bevy::prelude::*;
 use crate::agent::Agent;
 use crate::agent::actions::registry::{ActionState, ActiveActions};
 use crate::agent::actions::types::ActionType;
+use crate::agent::brains::rational::RationalBrain;
 use crate::agent::events::{ConversationTopic, GameEvent, SimEvent};
 use crate::agent::mind::conversation::{
     Conversation, ConversationAbandoned, ConversationManager, ConversationState, InConversation,
@@ -249,14 +250,16 @@ impl EntityCommand for RemoveConverseMarker {
 /// PR — issue #46 will read agent state, goals, and relationship to pick
 /// nuanced intents.
 ///
-/// **Content selection** uses [`pick_small_talk_triples`] (#40) — for `Share`
+/// **Content selection** uses [`deliberate_talk::pick_deliberate_content`] (#42) — for `Share`
 /// intents the speaker offers up to `SMALL_TALK_TRIPLES_PER_TURN` triples
-/// from their own MindGraph that score high on recency / salience / novelty
-/// to the partner.
+/// selected by goal relevance, novelty, salience, and recency. The topic is
+/// inferred from the selected content (danger warning → Help, location knowledge
+/// → Location, otherwise General).
 pub fn select_turn_intent(
     mut manager: ResMut<ConversationManager>,
     tick: Res<TickCount>,
     minds: Query<&MindGraph>,
+    rational_brains: Query<&RationalBrain>,
 ) {
     let now = tick.current;
     for conv in manager.conversations.values_mut() {
@@ -271,20 +274,24 @@ pub fn select_turn_intent(
         let speaker = conv.current_speaker();
         let listener = conv.other_participant(speaker);
         let intent = next_intent_for(conv);
-        let topic = Topic::General;
 
         // Only Share intents carry content; Greet/Farewell/Acknowledge are pure speech acts.
-        let content = if matches!(intent, Intent::Share)
+        let (content, topic) = if matches!(intent, Intent::Share)
             && let (Ok(speaker_mind), Ok(listener_mind)) = (minds.get(speaker), minds.get(listener))
         {
-            crate::agent::mind::small_talk::pick_small_talk_triples(
+            let goal = rational_brains
+                .get(speaker)
+                .ok()
+                .and_then(|b| b.current_goal.as_ref());
+            crate::agent::mind::deliberate_talk::pick_deliberate_content(
                 speaker_mind,
+                goal,
                 listener_mind,
                 now,
                 SMALL_TALK_TRIPLES_PER_TURN,
             )
         } else {
-            Vec::new()
+            (Vec::new(), Topic::General)
         };
 
         let turn = Turn {

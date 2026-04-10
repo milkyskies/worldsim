@@ -2,6 +2,7 @@ pub mod belief_state;
 pub mod belief_updater;
 pub mod consolidation;
 pub mod conversation;
+pub mod deliberate_talk;
 pub mod epistemic;
 pub mod knowledge;
 pub mod memory;
