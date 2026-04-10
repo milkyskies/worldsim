@@ -40,6 +40,7 @@ fn wolf_danger_triple(timestamp: u64) -> Triple {
             informant: None,
             evidence: Vec::new(),
             salience: 0.9,
+            source_sense: None,
         },
     )
 }

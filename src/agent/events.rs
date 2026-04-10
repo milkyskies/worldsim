@@ -253,6 +253,21 @@ pub enum SimEvent {
         triple_count: usize,
     },
 
+    /// An agent felt warmth from a heat source (temperature sense).
+    WarmthPerceived {
+        agent: Entity,
+        tick: u64,
+        source: Entity,
+    },
+
+    /// An agent heard a sound (hearing sense).
+    SoundPerceived {
+        agent: Entity,
+        tick: u64,
+        source: Entity,
+        kind: crate::world::sense_sources::SoundKind,
+    },
+
     /// An agent's theory of mind was updated — they changed their belief
     /// about what another agent knows.
     TheoryOfMindUpdated {

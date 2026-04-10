@@ -1,13 +1,14 @@
 //! Campfire spawning logic.
 //!
 //! Reads: ItemSlots (none — campfires have no inventory)
-//! Writes: Campfire entities (marker, EntityType, Physical, Transform)
+//! Writes: Campfire entities (marker, EntityType, Physical, HeatSource, Transform)
 //! Upstream: execution system (Build action on_complete → SpawnRequest)
-//! Downstream: world entities (visible, perceivable by agents)
+//! Downstream: world entities (visible, perceivable by agents), perceive_temperature (reads HeatSource)
 
 use crate::agent::inventory::EntityType;
 use crate::agent::mind::knowledge::Concept;
 use crate::world::map::TILE_SIZE;
+use crate::world::sense_sources::HeatSource;
 use bevy::prelude::*;
 
 /// Marker component identifying a campfire entity.
@@ -29,6 +30,10 @@ pub fn spawn_campfire(commands: &mut Commands, position: Vec2) -> Entity {
             Name::new("Campfire"),
             EntityType(Concept::Campfire),
             CampfireMarker,
+            HeatSource {
+                range: 64.0,
+                intensity: 0.8,
+            },
             crate::world::Physical,
             Transform::from_translation(position.extend(1.0)),
             GlobalTransform::default(),
@@ -66,6 +71,10 @@ pub fn spawn_campfire_headless(commands: &mut Commands, position: Vec2) -> Entit
             Name::new("Campfire"),
             EntityType(Concept::Campfire),
             CampfireMarker,
+            HeatSource {
+                range: 64.0,
+                intensity: 0.8,
+            },
             crate::world::Physical,
             Transform::from_translation(position.extend(1.0)),
             GlobalTransform::default(),
