@@ -58,10 +58,13 @@ pub const STRANGER_CONSPECIFIC_AFFECTION: f32 = 0.05;
 
 /// Extra extravert bonus on top of `STRANGER_CONSPECIFIC_AFFECTION`.
 /// At extraversion 1.0 a Person treats a stranger as if Affection were
-/// `baseline + bonus = 0.05 + 0.20 = 0.25` (still less than a kin signal of
-/// 0.8 but enough to noticeably soothe a crowd-loving extravert). At
-/// extraversion 0.0 the bonus is zero, so introverts get the bare 0.05.
-pub const EXTRAVERT_STRANGER_BONUS: f32 = 0.20;
+/// `baseline + bonus = 0.05 + 0.05 = 0.10`. Kept intentionally small so
+/// the proximity decay doesn't drain the social drive below the
+/// conversation-initiation threshold (0.55) before agents can walk into
+/// range and actually start talking. The personality signal is real
+/// ("extraverts are more comforted by crowds") but shallow — the big
+/// social satisfier for humans is conversation, not mere proximity.
+pub const EXTRAVERT_STRANGER_BONUS: f32 = 0.05;
 
 /// Affection-weighted decay rate applied to the social drive per second.
 /// At `affection_sum = 1.0` (e.g. two herd-mates at 0.5 each, or one at 1.0)
