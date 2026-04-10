@@ -21,8 +21,8 @@ pub struct AgentConfig {
     pub hunger: f32,
     /// Thirst value (0.0 = hydrated, 100.0 = dehydrated).
     pub thirst: f32,
-    /// Energy value (0.0 = exhausted, 100.0 = fully rested).
-    pub energy: f32,
+    /// Stamina value (0.0 = exhausted, 100.0 = fully rested).
+    pub stamina: f32,
     /// Optional override for social drive (0.0 = satisfied, 1.0 = lonely).
     /// `None` keeps the personality-derived value (mirrors the real spawner).
     /// `Some(v)` clamps the spawned agent's social drive to `v`.
@@ -40,7 +40,7 @@ impl Default for AgentConfig {
             name: None,
             hunger: 0.0,
             thirst: 0.0,
-            energy: 100.0,
+            stamina: 100.0,
             social_drive: None,
             personality: Personality::default(),
             knowledge: Vec::new(),

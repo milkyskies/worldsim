@@ -1,7 +1,7 @@
 //! EmitsEffect: general substrate for entities that apply effects to nearby agents.
 //!
 //! Reads: EmitsEffect (component), Transform, TickCount
-//! Writes: PhysicalNeeds (energy), EmotionalState (stress_level, fear), SimEvent::EffectApplied
+//! Writes: PhysicalNeeds (stamina), EmotionalState (stress_level, fear), SimEvent::EffectApplied
 //! Upstream: World entities with EmitsEffect (campfires, lanterns, hostile zones)
 //! Downstream: Perception (agents experience effects without necessarily knowing why)
 
@@ -48,20 +48,20 @@ impl EmitsEffect {
 /// Sign convention: positive values increase the stat, negative values decrease it.
 /// - `StressPerSec(-0.5)` → campfire-style, stress drops 0.5/sec
 /// - `StressPerSec(2.0)` → hostile zone, stress rises 2/sec
-/// - `EnergyPerSec(2.0)` → campfire-style, energy recovers 2/sec
+/// - `StaminaPerSec(2.0)` → campfire-style, stamina recovers 2/sec
 /// - `FearPerSec(-1.0)` → lantern, fear drops 1 intensity/sec
 #[derive(Clone, Debug)]
 pub enum EffectKind {
     /// Per-second change to `stress_level`. Negative decreases stress (comfort
     /// zones); positive increases stress (hostile zones, cursed ground).
     StressPerSec(f32),
-    /// Per-second change to `energy`. Positive restores energy; negative drains it.
-    EnergyPerSec(f32),
+    /// Per-second change to `stamina`. Positive restores stamina; negative drains it.
+    StaminaPerSec(f32),
     /// Per-second change to fear-emotion intensity. Negative reduces fear (lanterns,
     /// safe havens); positive increases fear.
     FearPerSec(f32),
     /// Apply every sub-effect. Use for entities with multiple simultaneous effects,
-    /// e.g. `All([StressPerSec(-0.5), EnergyPerSec(2.0)])` for a campfire.
+    /// e.g. `All([StressPerSec(-0.5), StaminaPerSec(2.0)])` for a campfire.
     All(Vec<EffectKind>),
 }
 
@@ -82,8 +82,10 @@ fn apply_effect(
         EffectKind::StressPerSec(rate) => {
             emotional.stress_level = (emotional.stress_level + rate * dt).clamp(0.0, 100.0);
         }
-        EffectKind::EnergyPerSec(rate) => {
-            physical.energy = (physical.energy + rate * dt).clamp(0.0, 100.0);
+        EffectKind::StaminaPerSec(rate) => {
+            // Campfires and similar emitters restore the sustained (aerobic)
+            // pool. Sprint reserve refills on its own at low intensity.
+            physical.stamina.adjust_aerobic(rate * dt);
         }
         EffectKind::FearPerSec(rate) => {
             let delta = rate * dt;

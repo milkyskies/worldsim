@@ -90,7 +90,7 @@ pub struct PersonInit {
     pub position: Vec2,
     /// Personality traits. Drives are derived from these.
     pub personality: Personality,
-    /// Initial physical needs (hunger, thirst, energy, health).
+    /// Initial physical needs (hunger, thirst, stamina, health).
     pub physical_needs: PhysicalNeeds,
     /// Override for the personality-derived social drive. `None` keeps the
     /// derived value, `Some(v)` clamps it to `v` (used by tests that want

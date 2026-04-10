@@ -6,7 +6,7 @@ use crate::agent::actions::registry::{Action, ActionContext, ActionKind, Complet
 use crate::agent::brains::thinking::TriplePattern;
 use crate::agent::events::FailureReason;
 use crate::agent::mind::knowledge::{Node, Predicate, Triple, Value};
-use crate::constants::actions::eat::{DURATION_TICKS, ENERGY_GAIN, HUNGER_REDUCTION};
+use crate::constants::actions::eat::{DURATION_TICKS, HUNGER_REDUCTION, STAMINA_GAIN};
 
 pub struct EatAction;
 
@@ -59,8 +59,8 @@ impl Action for EatAction {
         // Reduce hunger
         ctx.physical.hunger = (ctx.physical.hunger - HUNGER_REDUCTION).max(0.0);
 
-        // Gain energy
-        ctx.physical.energy = (ctx.physical.energy + ENERGY_GAIN).min(100.0);
+        // Gain stamina
+        ctx.physical.stamina.adjust_aerobic(STAMINA_GAIN);
 
         // Consume first item from inventory
         let concept = ctx.inventory.all_items().next().map(|t| t.concept);

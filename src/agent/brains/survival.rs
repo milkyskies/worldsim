@@ -12,7 +12,7 @@ use crate::agent::item_slots::ItemSlots;
 use crate::agent::mind::knowledge::Ontology;
 use crate::agent::nervous_system::cns::CentralNervousSystem;
 use crate::agent::nervous_system::urgency::UrgencySource;
-use crate::constants::brains::survival::WAKE_ENERGY_THRESHOLD;
+use crate::constants::brains::survival::WAKE_STAMINA_THRESHOLD;
 use bevy::prelude::*;
 
 pub struct SurvivalBrainContext<'a> {
@@ -40,7 +40,7 @@ pub fn survival_brain_propose(
     let survival_sources = [
         UrgencySource::Hunger,
         UrgencySource::Thirst,
-        UrgencySource::Energy,
+        UrgencySource::Stamina,
         UrgencySource::Pain,
         UrgencySource::Fear,
     ];
@@ -84,7 +84,7 @@ pub fn survival_brain_propose(
                 });
             }
         }
-        UrgencySource::Energy => {
+        UrgencySource::Stamina => {
             if let Some(action) = action_registry.get(ActionType::Sleep) {
                 return Some(BrainProposal {
                     brain: BrainType::Survival,
@@ -128,11 +128,13 @@ fn check_sleep_wake(
     active: &ActiveActions,
     action_registry: &crate::agent::actions::ActionRegistry,
 ) -> Option<BrainProposal> {
-    let energy = context.physical.energy;
+    // Sleep/wake decisions gate on aerobic — the sustained fatigue pool.
+    // Anaerobic refills too quickly to drive sleep behaviour.
+    let aerobic = context.physical.stamina.aerobic;
     let is_sleeping = active.contains(ActionType::Sleep);
 
     if is_sleeping {
-        if energy >= WAKE_ENERGY_THRESHOLD {
+        if aerobic >= WAKE_STAMINA_THRESHOLD {
             let wake_action = action_registry
                 .get(ActionType::WakeUp)
                 .map(|a| a.to_template(None))
@@ -141,16 +143,16 @@ fn check_sleep_wake(
                 brain: BrainType::Survival,
                 action: wake_action,
                 urgency: 50.0,
-                intent: Intent::SatisfyEnergy,
-                reasoning: format!("Rested! Energy {:.0} — waking up", energy),
+                intent: Intent::SatisfyStamina,
+                reasoning: format!("Rested! Aerobic {:.0} — waking up", aerobic),
             });
         } else if let Some(action) = action_registry.get(ActionType::Sleep) {
             return Some(BrainProposal {
                 brain: BrainType::Survival,
                 action: action.to_template(None),
-                urgency: 100.0 - energy,
-                intent: Intent::SatisfyEnergy,
-                reasoning: format!("Still tired... {:.0} energy", energy),
+                urgency: 100.0 - aerobic,
+                intent: Intent::SatisfyStamina,
+                reasoning: format!("Still tired... {:.0} aerobic", aerobic),
             });
         }
     }

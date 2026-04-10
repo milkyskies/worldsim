@@ -65,8 +65,8 @@ pub struct NeedSatisfaction {
     pub hunger_reduced: f32,
     /// How much thirst dropped (positive = thirst went down).
     pub thirst_reduced: f32,
-    /// How much energy rose (positive = energy went up).
-    pub energy_gained: f32,
+    /// How much stamina rose (positive = stamina went up).
+    pub stamina_gained: f32,
     /// Hunger level just before the action completed (0–100).
     pub pre_hunger: f32,
     /// Thirst level just before the action completed (0–100).

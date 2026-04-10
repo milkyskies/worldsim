@@ -102,7 +102,7 @@ struct AgentSpec {
     pos: Option<Vec2>,
     personality: Option<Personality>,
     hunger: Option<f32>,
-    energy: Option<f32>,
+    stamina: Option<f32>,
     social_drive: Option<f32>,
     group: Option<String>,
     knowledge: Vec<Triple>,
@@ -114,7 +114,7 @@ struct GroupSpec {
     near: Option<Vec2>,
     personality: Option<Personality>,
     hunger: Option<f32>,
-    energy: Option<f32>,
+    stamina: Option<f32>,
     knows_each_other: bool,
 }
 
@@ -171,9 +171,9 @@ impl AgentBuilder {
         self
     }
 
-    /// Energy value (0.0 = exhausted, 100.0 = fully rested).
-    pub fn energy(mut self, v: f32) -> Self {
-        self.spec.energy = Some(v);
+    /// Stamina value (0.0 = exhausted, 100.0 = fully rested).
+    pub fn stamina(mut self, v: f32) -> Self {
+        self.spec.stamina = Some(v);
         self
     }
 
@@ -236,9 +236,9 @@ impl GroupBuilder {
         self
     }
 
-    /// Energy value applied to all agents in the group.
-    pub fn energy(mut self, v: f32) -> Self {
-        self.spec.energy = Some(v);
+    /// Stamina value applied to all agents in the group.
+    pub fn stamina(mut self, v: f32) -> Self {
+        self.spec.stamina = Some(v);
         self
     }
 
@@ -330,7 +330,7 @@ impl ScenarioBuilder {
                 near: None,
                 personality: None,
                 hunger: None,
-                energy: None,
+                stamina: None,
                 knows_each_other: false,
             },
         }
@@ -348,7 +348,7 @@ impl ScenarioBuilder {
                 pos: None,
                 personality: None,
                 hunger: None,
-                energy: None,
+                stamina: None,
                 social_drive: None,
                 group: None,
                 knowledge: Vec::new(),
@@ -542,7 +542,7 @@ fn spawn_group(world: &mut TestWorld, spec: &GroupSpec) -> Vec<Entity> {
             pos,
             name: Some(format!("{}_agent_{}", spec.name, i)),
             hunger: spec.hunger.unwrap_or(0.0),
-            energy: spec.energy.unwrap_or(100.0),
+            stamina: spec.stamina.unwrap_or(100.0),
             personality: spec.personality.clone().unwrap_or_default(),
             ..Default::default()
         };
@@ -557,7 +557,7 @@ fn spawn_named_agent(world: &mut TestWorld, spec: &AgentSpec) -> Entity {
         pos: spec.pos.unwrap_or(Vec2::ZERO),
         name: Some(spec.name.clone()),
         hunger: spec.hunger.unwrap_or(0.0),
-        energy: spec.energy.unwrap_or(100.0),
+        stamina: spec.stamina.unwrap_or(100.0),
         social_drive: spec.social_drive,
         personality: spec.personality.clone().unwrap_or_default(),
         knowledge: spec.knowledge.clone(),

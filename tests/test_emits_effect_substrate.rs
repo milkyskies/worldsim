@@ -27,13 +27,16 @@ fn advance_tick(app: &mut App) {
     app.update();
 }
 
-fn spawn_agent(app: &mut App, pos: Vec2, stress: f32, energy: f32) -> Entity {
+fn spawn_agent(app: &mut App, pos: Vec2, stress: f32, aerobic: f32) -> Entity {
     app.world_mut()
         .spawn((
             Agent,
             Transform::from_xyz(pos.x, pos.y, 0.0),
             PhysicalNeeds {
-                energy,
+                stamina: worldsim::agent::body::needs::Stamina {
+                    aerobic,
+                    ..Default::default()
+                },
                 hunger: 0.0,
                 thirst: 0.0,
                 health: 100.0,
@@ -112,14 +115,14 @@ fn effect_not_applied_to_agent_outside_radius() {
 fn composite_all_applies_every_subeffect() {
     let mut app = test_app();
     let agent = spawn_agent(&mut app, Vec2::ZERO, 50.0, 50.0);
-    // Campfire-like: both stress reduction and energy recovery in one tick.
+    // Campfire-like: both stress reduction and stamina recovery in one tick.
     spawn_emitter(
         &mut app,
         Vec2::ZERO,
         5.0,
         EffectKind::All(vec![
             EffectKind::StressPerSec(-10.0),
-            EffectKind::EnergyPerSec(10.0),
+            EffectKind::StaminaPerSec(10.0),
         ]),
     );
 
@@ -127,14 +130,14 @@ fn composite_all_applies_every_subeffect() {
 
     let world = app.world();
     let stress = world.get::<EmotionalState>(agent).unwrap().stress_level;
-    let energy = world.get::<PhysicalNeeds>(agent).unwrap().energy;
+    let aerobic = world.get::<PhysicalNeeds>(agent).unwrap().stamina.aerobic;
     assert!(
         stress < 50.0,
         "All composite must apply the stress sub-effect; got {stress}"
     );
     assert!(
-        energy > 50.0,
-        "All composite must apply the energy sub-effect; got {energy}"
+        aerobic > 50.0,
+        "All composite must apply the stamina sub-effect; got {aerobic}"
     );
 }
 
@@ -219,21 +222,21 @@ fn agent_outside_all_emitters_unchanged() {
         &mut app,
         Vec2::new(10.0, 0.0),
         5.0,
-        EffectKind::EnergyPerSec(10.0),
+        EffectKind::StaminaPerSec(10.0),
     );
 
     advance_tick(&mut app);
 
     let world = app.world();
     let stress = world.get::<EmotionalState>(agent).unwrap().stress_level;
-    let energy = world.get::<PhysicalNeeds>(agent).unwrap().energy;
+    let aerobic = world.get::<PhysicalNeeds>(agent).unwrap().stamina.aerobic;
     assert_eq!(
         stress, 50.0,
         "Stress must be unchanged when agent is outside all emitters"
     );
     assert_eq!(
-        energy, 50.0,
-        "Energy must be unchanged when agent is outside all emitters"
+        aerobic, 50.0,
+        "Aerobic must be unchanged when agent is outside all emitters"
     );
 }
 

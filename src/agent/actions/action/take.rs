@@ -16,7 +16,7 @@ use crate::agent::actions::registry::{
 use crate::agent::brains::thinking::TriplePattern;
 use crate::agent::events::FailureReason;
 use crate::agent::mind::knowledge::{Concept, MindGraph, Node, Predicate, Triple, Value};
-use crate::constants::actions::take::{DURATION_TICKS, ENERGY_PER_SEC, HUNGER_PER_SEC};
+use crate::constants::actions::take::{DURATION_TICKS, HUNGER_PER_SEC, STAMINA_PER_SEC};
 
 pub struct TakeAction;
 
@@ -96,7 +96,7 @@ impl Action for TakeAction {
 
     fn runtime_effects(&self) -> RuntimeEffects {
         RuntimeEffects {
-            energy_per_sec: ENERGY_PER_SEC,
+            stamina_per_sec: STAMINA_PER_SEC,
             hunger_per_sec: HUNGER_PER_SEC,
             ..Default::default()
         }

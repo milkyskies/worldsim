@@ -5,10 +5,10 @@
 //! Upstream: activity system (CurrentActivity, ActivityConfig), core::tick (TickCount)
 //! Downstream: nervous_system::urgency (reads updated needs to recalculate urgencies)
 
-use crate::agent::activity::ActivityConfig;
-use crate::agent::activity::CurrentActivity;
+use crate::agent::activity::{ActivityConfig, CurrentActivity};
 use crate::agent::body::needs::{Consciousness, PhysicalNeeds, PsychologicalDrives};
 use crate::agent::psyche::emotions::{Emotion, EmotionalState};
+use crate::agent::psyche::personality::Personality;
 use crate::core::TickCount;
 use bevy::prelude::*;
 
@@ -23,6 +23,7 @@ pub fn apply_activity_effects(
         &mut Consciousness,
         Option<&mut PsychologicalDrives>,
         &mut EmotionalState,
+        &Personality,
     )>,
 ) {
     // Pause is handled by run_if(not_paused) at the plugin level
@@ -33,16 +34,38 @@ pub fn apply_activity_effects(
     let max_stat = 100.0;
     let max_drive = 1.0;
 
-    for (activity, mut physical, mut consciousness, drives, mut emotions) in query.iter_mut() {
+    for (activity, mut physical, mut consciousness, drives, mut emotions, personality) in
+        query.iter_mut()
+    {
         let base_config = &activity_config.base.effects;
         let config = &activity_config.get(activity).effects;
 
         // --- PHYSICAL NEEDS (0-100) ---
         // Sum base + specific
 
-        // Energy
-        let d_energy = (base_config.energy_change + config.energy_change) * dt;
-        physical.energy = (physical.energy + d_energy).clamp(0.0, max_stat);
+        // Stamina — routes through the aerobic sub-pool. Anaerobic is managed
+        // by the intensity-driven drain/recover functions that the locomotion
+        // system will call; activity_effects only moves aerobic. Sleep is the
+        // exception: it refills both pools via restore_full below.
+        let raw_stamina_change = base_config.stamina_change + config.stamina_change;
+        // Low-conscientiousness agents tire faster from physical work. Only
+        // applies to drain; positive (recovery) is not penalized by personality.
+        let stamina_change = if raw_stamina_change < 0.0 {
+            let conscientiousness_relief = personality.traits.conscientiousness
+                * crate::constants::brains::cognition::CONSCIENTIOUSNESS_STAMINA_RELIEF;
+            raw_stamina_change * (1.0 - conscientiousness_relief)
+        } else {
+            raw_stamina_change
+        };
+        physical.stamina.adjust_aerobic(stamina_change * dt);
+
+        // Sleep specifically refills both pools fast and boosts alertness
+        // restoration. The activity's stamina_change contributes to aerobic;
+        // anaerobic is refilled here at the same per-second rate.
+        if matches!(activity, CurrentActivity::Sleeping) && raw_stamina_change > 0.0 {
+            physical.stamina.anaerobic = (physical.stamina.anaerobic + raw_stamina_change * dt)
+                .min(physical.stamina.anaerobic_max);
+        }
 
         // Hunger
         let d_hunger = (base_config.hunger_change + config.hunger_change) * dt;

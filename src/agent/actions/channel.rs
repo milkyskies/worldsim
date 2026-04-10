@@ -12,14 +12,14 @@
 //! owns which parts offer which channels; this module just consumes the
 //! aggregate `channel_capacity`.
 //!
-//! Reads: Body (per-channel capacity after injury), PhysicalNeeds (energy for exhaustion)
+//! Reads: Body (per-channel capacity after injury), PhysicalNeeds (stamina for exhaustion)
 //! Writes: nothing - this is a pure helper module
 //! Upstream: actions::registry (Action trait body_channels()), biology::body, body::needs
 //! Downstream: nervous_system::execution, brains::arbitration
 
 use crate::agent::biology::body::Body;
 use crate::agent::body::needs::PhysicalNeeds;
-use crate::constants::movement::{TIRED_ENERGY_THRESHOLD, TIRED_SPEED_MULTIPLIER};
+use crate::constants::movement::{TIRED_SPEED_MULTIPLIER, TIRED_STAMINA_THRESHOLD};
 use bevy::prelude::*;
 
 /// Saturation at which a channel begins degrading actions but still permits parallel use.
@@ -76,7 +76,7 @@ impl Channel {
 
     /// Is this channel subject to exhaustion scaling? Abstract channels
     /// (FullBody, Cognition) are exempt so Sleep and planning stay reachable
-    /// at zero energy.
+    /// at zero stamina.
     #[inline]
     fn exhausts(self) -> bool {
         !matches!(self, Channel::FullBody | Channel::Cognition)
@@ -121,19 +121,23 @@ impl Channel {
     }
 }
 
-/// Computes the exhaustion multiplier from physical needs energy.
-/// Returns 1.0 above the threshold; scales to `TIRED_SPEED_MULTIPLIER` at zero energy.
+/// Computes the exhaustion multiplier from physical needs stamina.
+/// Returns 1.0 above the threshold; scales to `TIRED_SPEED_MULTIPLIER` at zero stamina.
 /// Reuses the same threshold and floor as `movement::calculate_speed` so the
 /// "exhausted" curve is consistent across the codebase.
+///
+/// Gated on **aerobic** stamina — the sustained pool. Anaerobic is for sprint
+/// bursts and recovers in seconds, so it doesn't represent durable fatigue.
 fn exhaustion_factor(physical: Option<&PhysicalNeeds>) -> f32 {
     let Some(p) = physical else {
         return 1.0;
     };
-    if p.energy >= TIRED_ENERGY_THRESHOLD {
+    let aerobic = p.stamina.aerobic;
+    if aerobic >= TIRED_STAMINA_THRESHOLD {
         return 1.0;
     }
-    let energy_fraction = (p.energy / TIRED_ENERGY_THRESHOLD).clamp(0.0, 1.0);
-    TIRED_SPEED_MULTIPLIER + energy_fraction * (1.0 - TIRED_SPEED_MULTIPLIER)
+    let aerobic_fraction = (aerobic / TIRED_STAMINA_THRESHOLD).clamp(0.0, 1.0);
+    TIRED_SPEED_MULTIPLIER + aerobic_fraction * (1.0 - TIRED_SPEED_MULTIPLIER)
 }
 
 /// Per-channel capacity snapshot, computed once per agent per tick.
@@ -560,12 +564,16 @@ mod tests {
 
     #[test]
     fn exhaustion_scales_active_channels_only() {
+        use crate::agent::body::needs::Stamina;
         let body = Body::human();
         let exhausted = PhysicalNeeds {
-            energy: 0.0,
+            stamina: Stamina {
+                aerobic: 0.0,
+                ..Default::default()
+            },
             ..Default::default()
         };
-        // Active channels collapse to TIRED_SPEED_MULTIPLIER at zero energy.
+        // Active channels collapse to TIRED_SPEED_MULTIPLIER at zero stamina.
         let legs = Channel::Locomotion.max_capacity(Some(&body), Some(&exhausted));
         assert!((legs - TIRED_SPEED_MULTIPLIER).abs() < 1e-4);
         let hands = Channel::Manipulation.max_capacity(Some(&body), Some(&exhausted));
@@ -584,9 +592,13 @@ mod tests {
 
     #[test]
     fn exhaustion_at_threshold_is_full_capacity() {
+        use crate::agent::body::needs::Stamina;
         let body = Body::human();
         let rested = PhysicalNeeds {
-            energy: TIRED_ENERGY_THRESHOLD,
+            stamina: Stamina {
+                aerobic: TIRED_STAMINA_THRESHOLD,
+                ..Default::default()
+            },
             ..Default::default()
         };
         for ch in [
@@ -602,11 +614,15 @@ mod tests {
 
     #[test]
     fn exhaustion_at_midpoint_is_linear() {
+        use crate::agent::body::needs::Stamina;
         // At half the threshold, the multiplier is halfway between the floor
         // and 1.0 - i.e. the linear ramp is honored.
         let body = Body::human();
         let half = PhysicalNeeds {
-            energy: TIRED_ENERGY_THRESHOLD / 2.0,
+            stamina: Stamina {
+                aerobic: TIRED_STAMINA_THRESHOLD / 2.0,
+                ..Default::default()
+            },
             ..Default::default()
         };
         let expected = TIRED_SPEED_MULTIPLIER + 0.5 * (1.0 - TIRED_SPEED_MULTIPLIER);
@@ -619,9 +635,13 @@ mod tests {
 
     #[test]
     fn exhausted_agent_cannot_flee_but_can_walk() {
+        use crate::agent::body::needs::Stamina;
         let body = Body::human();
         let exhausted = PhysicalNeeds {
-            energy: 0.0,
+            stamina: Stamina {
+                aerobic: 0.0,
+                ..Default::default()
+            },
             ..Default::default()
         };
         let caps = caps_for(&body, Some(&exhausted));
@@ -634,11 +654,15 @@ mod tests {
 
     #[test]
     fn channel_capacities_compute_matches_per_channel_max_capacity() {
+        use crate::agent::body::needs::Stamina;
         let mut body = Body::human();
         let leg = body.part_mut("left leg").unwrap();
         injure(leg, 0.5);
         let physical = PhysicalNeeds {
-            energy: 10.0,
+            stamina: Stamina {
+                aerobic: 10.0,
+                ..Default::default()
+            },
             ..Default::default()
         };
         let caps = ChannelCapacities::compute(Some(&body), Some(&physical));

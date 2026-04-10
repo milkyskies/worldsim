@@ -139,7 +139,7 @@ pub enum ActionKind {
 /// Per-tick effects applied while action is running
 #[derive(Debug, Clone, Default)]
 pub struct RuntimeEffects {
-    pub energy_per_sec: f32,
+    pub stamina_per_sec: f32,
     pub hunger_per_sec: f32,
     pub alertness_per_sec: f32,
 }
@@ -311,7 +311,7 @@ pub trait Action: Send + Sync + 'static {
         true
     }
 
-    /// Per-tick effects (energy drain while moving, etc.)
+    /// Per-tick effects (stamina drain while moving, etc.)
     fn runtime_effects(&self) -> RuntimeEffects {
         RuntimeEffects::default()
     }

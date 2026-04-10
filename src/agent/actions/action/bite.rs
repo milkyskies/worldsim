@@ -12,7 +12,7 @@ use crate::agent::actions::registry::{
     TargetSource,
 };
 use crate::agent::mind::knowledge::{Concept, MindGraph, Triple};
-use crate::constants::actions::attack::{BASE_COST, DURATION_TICKS, ENERGY_PER_SEC};
+use crate::constants::actions::attack::{BASE_COST, DURATION_TICKS, STAMINA_PER_SEC};
 
 pub struct BiteAction;
 
@@ -74,7 +74,7 @@ impl Action for BiteAction {
 
     fn runtime_effects(&self) -> RuntimeEffects {
         RuntimeEffects {
-            energy_per_sec: ENERGY_PER_SEC,
+            stamina_per_sec: STAMINA_PER_SEC,
             ..Default::default()
         }
     }

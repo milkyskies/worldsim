@@ -725,45 +725,45 @@ fn find_explicit_actions_for_goal(
     candidates
 }
 
-/// The energy precondition pattern the planner adds before a Walk when the agent needs to sleep
-/// first. Sleep's plan_effect is `(Self_, Energy, Int(100))`, so this pattern matches it.
+/// The stamina precondition pattern the planner adds before a Walk when the agent needs to sleep
+/// first. Sleep's plan_effect is `(Self_, Stamina, Int(100))`, so this pattern matches it.
 fn energy_full_pattern() -> TriplePattern {
     TriplePattern::new(
         Some(MindNode::Self_),
-        Some(Predicate::Energy),
+        Some(Predicate::Stamina),
         Some(Value::Int(100)),
     )
 }
 
 /// Builds the unmet-goal list for the state after a Walk action, injecting a Sleep precondition
-/// if the agent's current energy is insufficient to complete the walk.
+/// if the agent's current stamina is insufficient to complete the walk.
 ///
 /// Uses a worst-case estimate (entire walk at tired speed) so the planner errs on the side of
-/// caution. Returns None if the walk is infeasible even with full energy.
+/// caution. Returns None if the walk is infeasible even with full stamina.
 fn build_walk_goals(
     dist_tiles: f32,
     remaining_goals: &[TriplePattern],
     mind: &MindGraph,
 ) -> Option<Vec<TriplePattern>> {
-    // Worst-case energy cost: whole trip at tired speed (conservative).
-    let energy_needed = dist_tiles * walk_const::ENERGY_PER_TILE_TIRED;
+    // Worst-case stamina cost: whole trip at tired speed (conservative).
+    let stamina_needed = dist_tiles * walk_const::STAMINA_PER_TILE_TIRED;
 
-    // Even with full energy (100), the walk is impossible.
-    if energy_needed > 100.0 - EXHAUSTION_TRIGGER {
+    // Even with full stamina (100), the walk is impossible.
+    if stamina_needed > 100.0 - EXHAUSTION_TRIGGER {
         return None;
     }
 
-    let current_energy = match mind.get(&MindNode::Self_, Predicate::Energy) {
+    let current_stamina = match mind.get(&MindNode::Self_, Predicate::Stamina) {
         Some(Value::Int(e)) => *e as f32,
         Some(Value::Float(e)) => *e,
-        _ => 100.0, // Unknown energy — assume full, let it proceed
+        _ => 100.0, // Unknown stamina — assume full, let it proceed
     };
 
     let mut goals = remaining_goals.to_vec();
 
     // If the agent can't complete the walk without risking exhaustion sleep-interruption,
-    // add an energy precondition so the planner prepends Sleep.
-    if current_energy - energy_needed < EXHAUSTION_TRIGGER {
+    // add an stamina precondition so the planner prepends Sleep.
+    if current_stamina - stamina_needed < EXHAUSTION_TRIGGER {
         goals.insert(0, energy_full_pattern());
     }
 
@@ -799,7 +799,7 @@ fn build_walk_template(world_pos: Vec2, tile: (i32, i32)) -> ActionTemplate {
 /// brain's `to_template_for_target` snapshots the candidate's current tile
 /// at template-build time, and this generator chains a Walk to satisfy it.
 ///
-/// Energy-aware: if the agent cannot complete the walk on current energy,
+/// Stamina-aware: if the agent cannot complete the walk on current stamina,
 /// prepends a Sleep precondition so the planner inserts Sleep before Walk.
 /// Returns None if the walk is impossible even after sleeping.
 fn generate_implicit_walk(
@@ -1107,7 +1107,7 @@ mod tests {
         );
     }
 
-    // ─── Energy-aware walk planning ───────────────────────────────────────────
+    // ─── Stamina-aware walk planning ───────────────────────────────────────────
 
     /// Harvest action that requires being at a specific tile (mimics real proximity actions).
     fn harvest_at_tile(entity: Entity, concept: Concept, tile: (i32, i32)) -> ActionTemplate {
@@ -1130,8 +1130,8 @@ mod tests {
         }
     }
 
-    /// Mind with agent at origin, given energy, and food entity at `food_tile`.
-    fn mind_with_food_and_energy(food: Entity, food_tile: (i32, i32), energy: i32) -> MindGraph {
+    /// Mind with agent at origin, given stamina, and food entity at `food_tile`.
+    fn mind_with_food_and_energy(food: Entity, food_tile: (i32, i32), stamina: i32) -> MindGraph {
         let mut mind = test_mind();
         mind.add(Triple::new(
             MindNode::Self_,
@@ -1140,8 +1140,8 @@ mod tests {
         ));
         mind.add(Triple::new(
             MindNode::Self_,
-            Predicate::Energy,
-            Value::Int(energy),
+            Predicate::Stamina,
+            Value::Int(stamina),
         ));
         mind.add(Triple::new(
             MindNode::Entity(food),
@@ -1166,7 +1166,7 @@ mod tests {
 
     #[test]
     fn short_walk_with_high_energy_needs_no_sleep() {
-        // Agent energy 80, food 10 tiles away — should plan Walk → Harvest, no Sleep.
+        // Agent stamina 80, food 10 tiles away — should plan Walk → Harvest, no Sleep.
         let food = Entity::from_bits(10);
         let food_tile = (10i32, 0i32); // 10 tiles from origin
         let mind = mind_with_food_and_energy(food, food_tile, 80);
@@ -1184,7 +1184,7 @@ mod tests {
 
         assert!(
             !plan.iter().any(|a| a.action_type == ActionType::Sleep),
-            "no sleep needed when energy is sufficient"
+            "no sleep needed when stamina is sufficient"
         );
         assert!(
             plan.iter().any(|a| a.action_type == ActionType::Walk),
@@ -1198,9 +1198,9 @@ mod tests {
 
     #[test]
     fn long_walk_with_low_energy_inserts_sleep() {
-        // Agent energy 20, food 60 tiles away — should plan Sleep → Walk → Harvest.
+        // Agent stamina 20, food 60 tiles away — should plan Sleep → Walk → Harvest.
         let food = Entity::from_bits(11);
-        let food_tile = (60i32, 0i32); // 60 tiles from origin, costs 12 energy at tired rate
+        let food_tile = (60i32, 0i32); // 60 tiles from origin, costs 12 stamina at tired rate
         let mind = mind_with_food_and_energy(food, food_tile, 20);
 
         let registry = minimal_registry();
@@ -1229,7 +1229,7 @@ mod tests {
 
     #[test]
     fn impossibly_long_walk_returns_no_plan() {
-        // Food 500 tiles away — impossible even after sleeping (energy cost > 85).
+        // Food 500 tiles away — impossible even after sleeping (stamina cost > 85).
         let food = Entity::from_bits(12);
         let food_tile = (500i32, 0i32);
         let mind = mind_with_food_and_energy(food, food_tile, 20);
@@ -1250,8 +1250,8 @@ mod tests {
 
     #[test]
     fn energy_check_applies_to_non_food_harvest() {
-        // Same energy logic applies to any walk, not just food plans.
-        // Agent energy 20, stone node 60 tiles away — Sleep should be prepended.
+        // Same stamina logic applies to any walk, not just food plans.
+        // Agent stamina 20, stone node 60 tiles away — Sleep should be prepended.
         let stone = Entity::from_bits(13);
         let stone_tile = (60i32, 0i32);
         let mut mind = test_mind();
@@ -1262,7 +1262,7 @@ mod tests {
         ));
         mind.add(Triple::new(
             MindNode::Self_,
-            Predicate::Energy,
+            Predicate::Stamina,
             Value::Int(20),
         ));
         mind.add(Triple::new(
@@ -1374,7 +1374,7 @@ mod tests {
         ));
         mind.add(Triple::new(
             MindNode::Self_,
-            Predicate::Energy,
+            Predicate::Stamina,
             Value::Int(100),
         ));
         mind.add(Triple::new(

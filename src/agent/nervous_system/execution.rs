@@ -304,7 +304,7 @@ pub fn tick_actions(
     ) in agents.iter_mut()
     {
         // Snapshot the load and capacities at the start of the tick. Capacities
-        // freeze the start-of-tick energy so degradation doesn't compound as
+        // freeze the start-of-tick stamina so degradation doesn't compound as
         // physical needs are mutated by per-action effects.
         let load = active.channel_load(&registry);
         let capacities = ChannelCapacities::compute(body, Some(&*physical));
@@ -367,7 +367,7 @@ pub fn tick_actions(
                             if ticks > 0 {
                                 action_state.last_movement_tick = current_tick;
                                 let mut speed =
-                                    calculate_speed(physical.energy, None) * degradation;
+                                    calculate_speed(physical.stamina.aerobic, None) * degradation;
 
                                 if action_type == ActionType::Flee {
                                     speed *= 1.5;
@@ -419,7 +419,7 @@ pub fn tick_actions(
             // Snapshot needs before on_complete so we can compute the delta.
             let pre_hunger = physical.hunger;
             let pre_thirst = physical.thirst;
-            let pre_energy = physical.energy;
+            let pre_aerobic = physical.stamina.aerobic;
 
             let agent_position = transform.translation.truncate();
             let mut spawn_requests = Vec::new();
@@ -496,8 +496,8 @@ pub fn tick_actions(
             // Walk/Idle/Wander complete with no effects — skip the allocation.
             let hunger_reduced = pre_hunger - physical.hunger;
             let thirst_reduced = pre_thirst - physical.thirst;
-            let energy_gained = physical.energy - pre_energy;
-            if hunger_reduced > 0.0 || thirst_reduced > 0.0 || energy_gained > 0.0 {
+            let stamina_gained = physical.stamina.aerobic - pre_aerobic;
+            if hunger_reduced > 0.0 || thirst_reduced > 0.0 || stamina_gained > 0.0 {
                 outcome_events.write(ActionOutcomeEvent {
                     actor: entity,
                     outcome: ActionOutcome::Success {
@@ -508,7 +508,7 @@ pub fn tick_actions(
                         need_satisfaction: Some(NeedSatisfaction {
                             hunger_reduced,
                             thirst_reduced,
-                            energy_gained,
+                            stamina_gained,
                             pre_hunger,
                             pre_thirst,
                         }),
@@ -587,8 +587,8 @@ pub fn apply_action_effects(
 
     for (active, mut physical, mut consciousness, body) in agents.iter_mut() {
         let load = active.channel_load(&registry);
-        // Capacities freeze the start-of-tick energy so degradation doesn't
-        // compound as the loop mutates physical.energy mid-iteration.
+        // Capacities freeze the start-of-tick stamina so degradation doesn't
+        // compound as the loop mutates physical.stamina mid-iteration.
         let capacities = ChannelCapacities::compute(body, Some(&*physical));
 
         for action_state in active.iter() {
@@ -598,8 +598,12 @@ pub fn apply_action_effects(
             let effects = action_def.runtime_effects();
             let degradation = load.degradation_factor(action_def.body_channels(), &capacities);
 
-            physical.energy =
-                (physical.energy + effects.energy_per_sec * dt * degradation).clamp(0.0, 100.0);
+            // Runtime effects also route through aerobic. Sleep-style full
+            // recovery is handled separately by activity_effects when the
+            // activity is Sleeping.
+            physical
+                .stamina
+                .adjust_aerobic(effects.stamina_per_sec * dt * degradation);
             physical.hunger =
                 (physical.hunger + effects.hunger_per_sec * dt * degradation).clamp(0.0, 100.0);
             consciousness.alertness = (consciousness.alertness

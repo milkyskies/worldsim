@@ -55,7 +55,7 @@ impl CurrentActivity {
 #[derive(Debug, Clone, Reflect, Default)]
 pub struct ActivityEffects {
     /// Physical Needs
-    pub energy_change: f32, // +gain / -loss
+    pub stamina_change: f32, // +gain / -loss
     pub hunger_change: f32, // +increase (getting hungrier)
     pub thirst_change: f32, // +increase (getting thirstier)
     pub health_change: f32, // +healing / -damage
@@ -105,7 +105,7 @@ impl Default for ActivityConfig {
             base: ActivityTypeConfig {
                 name: "Base Metabolism".to_string(),
                 effects: ActivityEffects {
-                    energy_change: -0.15,
+                    stamina_change: -0.15,
                     hunger_change: 0.5,
                     ..Default::default()
                 },
@@ -113,25 +113,29 @@ impl Default for ActivityConfig {
             idle: ActivityTypeConfig {
                 name: "Idle".to_string(),
                 effects: ActivityEffects {
-                    alertness_change: 5.0, // Slowly waking up / staying awake
-                    // Relaxing reduces stress? (Stress is emotion-derived now, maybe implicit)
+                    // Idle restores mental fuel at a moderate pace — sitting
+                    // still lets the mind recover even though the body is only
+                    // resting slowly.
+                    alertness_change: 2.5,
                     ..Default::default()
                 },
             },
             wandering: ActivityTypeConfig {
                 name: "Wander".to_string(),
                 effects: ActivityEffects {
-                    energy_change: -0.2,
+                    stamina_change: -0.2,
                     hunger_change: 2.0,
+                    // Low cognitive load; mild passive recovery.
+                    alertness_change: 0.5,
                     ..Default::default()
                 },
             },
             sleeping: ActivityTypeConfig {
                 name: "Sleeping".to_string(),
                 effects: ActivityEffects {
-                    energy_change: 20.0,
+                    stamina_change: 20.0,
                     hunger_change: 0.2,      // Low hunger rate
-                    alertness_change: -50.0, // Fall asleep hard
+                    alertness_change: -50.0, // Unconscious: alertness collapses during sleep
                     emotion_changes: vec![(EmotionType::Joy, 2.0)], // Comfort
                     ..Default::default()
                 },
@@ -150,16 +154,18 @@ impl Default for ActivityConfig {
             harvesting: ActivityTypeConfig {
                 name: "Harvesting".to_string(),
                 effects: ActivityEffects {
-                    energy_change: -0.2,
+                    stamina_change: -0.2,
                     hunger_change: 2.0,
+                    // Focused physical task drains a little mental fuel.
+                    alertness_change: -0.5,
                     ..Default::default()
                 },
             },
             moving: ActivityTypeConfig {
                 name: "Moving".to_string(),
                 effects: ActivityEffects {
-                    energy_change: -0.3,
-                    alertness_change: 10.0,
+                    stamina_change: -0.3,
+                    // Walking is mentally easy — neutral on alertness.
                     ..Default::default()
                 },
             },
@@ -173,9 +179,10 @@ impl Default for ActivityConfig {
             exploring: ActivityTypeConfig {
                 name: "Exploring".to_string(),
                 effects: ActivityEffects {
-                    energy_change: -0.25,
+                    stamina_change: -0.25,
                     hunger_change: 2.5,
-                    alertness_change: 5.0,
+                    // Actively scanning for novel features drains focus.
+                    alertness_change: -1.0,
                     ..Default::default()
                 },
             },

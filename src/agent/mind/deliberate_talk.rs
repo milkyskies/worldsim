@@ -90,7 +90,7 @@ pub fn pick_deliberate_content(
 ///
 /// Excludes:
 /// - Universal knowledge (Intrinsic/Cultural sources)
-/// - Self-state (Hunger, Thirst, Energy, Pain, SocialDrive)
+/// - Self-state (Hunger, Thirst, Stamina, Pain, SocialDrive)
 /// - Relationship dimensions (Trust, Affection, Respect, PowerBalance)
 /// - Social perception (Doing, AppearsMood, AppearsInjured, Heading)
 fn is_deliberate_shareable(triple: &Triple) -> bool {
@@ -108,7 +108,7 @@ fn is_deliberate_shareable(triple: &Triple) -> bool {
         triple.predicate,
         Predicate::Hunger
             | Predicate::Thirst
-            | Predicate::Energy
+            | Predicate::Stamina
             | Predicate::Pain
             | Predicate::SocialDrive
     ) {
@@ -286,7 +286,7 @@ mod tests {
         ));
         speaker.assert(episodic(
             Node::Self_,
-            Predicate::Energy,
+            Predicate::Stamina,
             Value::Int(10),
             100,
             0.9,

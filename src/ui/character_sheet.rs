@@ -216,9 +216,9 @@ fn character_sheet_system(world: &mut World) {
                 );
                 ui.label("⚡");
                 ui.add(
-                    egui::ProgressBar::new(summary.energy_pct)
+                    egui::ProgressBar::new(summary.stamina_pct)
                         .desired_width(110.0)
-                        .text(format!("{:.0}", summary.energy_pct * 100.0)),
+                        .text(format!("{:.0}", summary.stamina_pct * 100.0)),
                 );
             });
 
@@ -267,7 +267,7 @@ struct HeaderSummary {
     mood_color: Color32,
     action_text: String,
     hp_pct: f32,
-    energy_pct: f32,
+    stamina_pct: f32,
 }
 
 fn build_header_summary(world: &World, entity: Entity) -> HeaderSummary {
@@ -278,9 +278,9 @@ fn build_header_summary(world: &World, entity: Entity) -> HeaderSummary {
 
     let action_text = current_action_summary(world, entity);
 
-    let (hp_pct, energy_pct) = world
+    let (hp_pct, stamina_pct) = world
         .get::<PhysicalNeeds>(entity)
-        .map(|n| (n.health / 100.0, n.energy / 100.0))
+        .map(|n| (n.health / 100.0, n.stamina.aerobic_fraction()))
         .unwrap_or((0.0, 0.0));
 
     HeaderSummary {
@@ -288,7 +288,7 @@ fn build_header_summary(world: &World, entity: Entity) -> HeaderSummary {
         mood_color,
         action_text,
         hp_pct,
-        energy_pct,
+        stamina_pct,
     }
 }
 
@@ -497,10 +497,17 @@ fn render_needs(ui: &mut egui::Ui, world: &World, entity: Entity) {
         );
         need_bar(
             ui,
-            "Energy",
-            needs.energy,
-            100.0,
-            urgency_for(UrgencySource::Energy),
+            "Aerobic",
+            needs.stamina.aerobic,
+            needs.stamina.aerobic_max,
+            urgency_for(UrgencySource::Stamina),
+        );
+        need_bar(
+            ui,
+            "Anaerobic",
+            needs.stamina.anaerobic,
+            needs.stamina.anaerobic_max,
+            None,
         );
         need_bar(ui, "Health", needs.health, 100.0, None);
     }

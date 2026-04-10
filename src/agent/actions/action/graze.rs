@@ -23,7 +23,7 @@ use crate::agent::actions::registry::{
 use crate::agent::events::FailureReason;
 use crate::agent::mind::knowledge::{Concept, Node, Predicate, Triple, Value};
 use crate::constants::actions::graze::{
-    ALERTNESS_PER_SEC, BASE_COST, ENERGY_PER_SEC, HUNGER_PER_SEC,
+    ALERTNESS_PER_SEC, BASE_COST, HUNGER_PER_SEC, STAMINA_PER_SEC,
 };
 use crate::world::map::TileType;
 
@@ -64,7 +64,7 @@ impl Action for GrazeAction {
 
     fn runtime_effects(&self) -> RuntimeEffects {
         RuntimeEffects {
-            energy_per_sec: ENERGY_PER_SEC,
+            stamina_per_sec: STAMINA_PER_SEC,
             hunger_per_sec: HUNGER_PER_SEC,
             alertness_per_sec: ALERTNESS_PER_SEC,
         }

@@ -48,8 +48,8 @@ pub fn formulate_goals(
                 UrgencySource::Hunger => {
                     vec![TriplePattern::self_has(Predicate::Hunger, Value::Int(0))]
                 }
-                UrgencySource::Energy => {
-                    vec![TriplePattern::self_has(Predicate::Energy, Value::Int(100))]
+                UrgencySource::Stamina => {
+                    vec![TriplePattern::self_has(Predicate::Stamina, Value::Int(100))]
                 }
                 UrgencySource::Social => vec![TriplePattern::self_has(
                     Predicate::SocialDrive,

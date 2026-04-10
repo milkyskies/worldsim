@@ -19,7 +19,7 @@ use bevy::prelude::*;
 pub enum Intent {
     SatisfyHunger,
     SatisfyThirst,
-    SatisfyEnergy,
+    SatisfyStamina,
     SatisfySocial,
     /// Flee, hide, defend against threats.
     SatisfySafety,
@@ -41,7 +41,7 @@ impl Intent {
         match source {
             UrgencySource::Hunger => Intent::SatisfyHunger,
             UrgencySource::Thirst => Intent::SatisfyThirst,
-            UrgencySource::Energy => Intent::SatisfyEnergy,
+            UrgencySource::Stamina => Intent::SatisfyStamina,
             UrgencySource::Social => Intent::SatisfySocial,
             UrgencySource::Fear => Intent::SatisfySafety,
             UrgencySource::Pain => Intent::SatisfyPainRelief,

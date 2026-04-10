@@ -235,7 +235,7 @@ pub enum Predicate {
     // ─── Agent state ───
     Hunger,      // (Self, Hunger, Int)
     Thirst,      // (Self, Thirst, Int)
-    Energy,      // (Self, Energy, Int)
+    Stamina,     // (Self, Stamina, Int)
     Pain,        // (Self, Pain, Int)
     SocialDrive, // (Self, SocialDrive, Int) - 0 = satisfied, 100 = lonely
 
@@ -287,7 +287,7 @@ impl Predicate {
             Predicate::LocatedAt
                 | Predicate::Hunger
                 | Predicate::Thirst
-                | Predicate::Energy
+                | Predicate::Stamina
                 | Predicate::RegenerationRate
                 | Predicate::LastObserved
                 | Predicate::Actor

@@ -220,11 +220,11 @@ impl Default for NervousSystemConfig {
                     min_threshold: 0.01,
                     bypasses_gating: false,
                 },
-                // ENERGY (Fatigue): Note inputs are inverted logic in urgency.rs if needed,
+                // STAMINA (Fatigue): Note inputs are inverted logic in urgency.rs if needed,
                 // but config just defines the response curve.
                 DriveConfig {
                     name: "Fatigue".to_string(),
-                    source: UrgencySource::Energy,
+                    source: UrgencySource::Stamina,
                     base_constant: 0.0,
                     curve: ResponseCurve::Sigmoid {
                         k: 10.0,
@@ -251,9 +251,9 @@ impl Default for NervousSystemConfig {
                         scale: 1.0,
                     },
                     modifiers: vec![
-                        // UrgencySource::Energy is implicit "Energy" input
+                        // UrgencySource::Stamina is implicit "Stamina" input
                         ContextModifier {
-                            input_source: UrgencySource::Energy, // Acts as "Have Energy?"
+                            input_source: UrgencySource::Stamina, // Acts as "Have Stamina?"
                             operation: ModifierOp::DampenByLow,
                             factor: 1.0,
                         },
@@ -342,7 +342,7 @@ impl Default for NervousSystemConfig {
                 sources: vec![
                     UrgencySource::Boredom,
                     UrgencySource::Fun,
-                    UrgencySource::Energy,
+                    UrgencySource::Stamina,
                 ],
             },
             thinking_interval: 60,

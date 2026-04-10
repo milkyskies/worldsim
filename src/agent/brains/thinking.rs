@@ -70,7 +70,7 @@ impl TriplePattern {
 
     /// Check if self is awake (high alertness)
     pub fn self_awake() -> Self {
-        Self::self_has(Predicate::Energy, Value::Int(1)) // Placeholder - actual check is more complex
+        Self::self_has(Predicate::Stamina, Value::Int(1)) // Placeholder - actual check is more complex
     }
 }
 
