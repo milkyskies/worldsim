@@ -748,7 +748,7 @@ mod tests {
     fn scenario_builder_fill_rect_applies_region() {
         let (_world, _agents) = TestWorld::scenario(3)
             .map_size(16, 16)
-            .fill_rect(0, 0, 4, 4, TileType::Forest)
+            .fill_rect(0, 0, 4, 4, TileType::Grass)
             .build();
         // Builds without panic — region fill was applied.
     }
