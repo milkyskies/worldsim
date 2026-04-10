@@ -81,14 +81,22 @@ impl Plugin for AgentPlugin {
                         .after(nervous_system::execution::start_actions),
                     nervous_system::execution::apply_action_effects
                         .after(nervous_system::execution::tick_actions),
+                    // Becomes substrate: process entity transformations after slot
+                    // mutations from action effects. Runs before perception so observers
+                    // see consistent post-transformation state on the same tick.
+                    crate::world::becomes::becomes_system
+                        .after(nervous_system::execution::apply_action_effects),
                 )
                     .run_if(not_paused),
             )
             .add_systems(
                 Update,
                 (
-                    // Perception must run first so agents can see resources
-                    mind::perception::update_visual_perception,
+                    // Perception must run first so agents can see resources.
+                    // Run after `becomes_system` so a freshly transformed entity
+                    // is observed at its new identity rather than its old one.
+                    mind::perception::update_visual_perception
+                        .after(crate::world::becomes::becomes_system),
                     mind::perception::write_perceptions_to_mind
                         .after(mind::perception::update_visual_perception),
                     mind::perception::update_body_perception,

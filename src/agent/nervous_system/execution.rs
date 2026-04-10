@@ -395,20 +395,35 @@ pub fn tick_actions(
 
             // Process any entity spawn requests from the action.
             for req in spawn_requests {
-                use crate::agent::mind::knowledge::Concept;
-                match req.concept {
-                    Concept::Campfire => {
-                        crate::world::campfire::spawn_campfire_headless(
+                use crate::agent::actions::registry::SpawnRequest;
+                match req {
+                    SpawnRequest::Entity { concept, position } => {
+                        if crate::world::spawn::spawn_concept_entity(
                             &mut commands,
-                            req.position,
-                        );
+                            concept,
+                            position,
+                        )
+                        .is_none()
+                        {
+                            game_log.log_debug(format!(
+                                "Unhandled spawn request for concept {concept:?}"
+                            ));
+                        }
                     }
-                    _ => {
-                        // Unknown spawn request — log and skip.
-                        game_log.log_debug(format!(
-                            "Unhandled spawn request for concept {:?}",
-                            req.concept
-                        ));
+                    SpawnRequest::Site {
+                        target,
+                        position,
+                        requirements,
+                        initial_items,
+                    } => {
+                        crate::world::construction_site::spawn_construction_site_headless(
+                            &mut commands,
+                            target,
+                            position,
+                            &requirements,
+                            &initial_items,
+                            current_tick,
+                        );
                     }
                 }
             }

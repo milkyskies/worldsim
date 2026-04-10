@@ -90,6 +90,12 @@ pub enum Concept {
     Campfire,
     LeanTo,
 
+    // ─── Transformation intermediates ───
+    /// A partially-built world entity that becomes a finished structure when its
+    /// Construction slots are filled. Sites are the first concrete use of the
+    /// `Becomes` substrate (#61).
+    ConstructionSite,
+
     // ─── Abstract needs / states ───
     Safety,
     Warmth,
@@ -160,6 +166,7 @@ pub enum Predicate {
     Requires,  // (Harvest, Requires, AtLocation)
     Provides,  // (Campfire, Provides, Warmth)
     BuildTime, // (Campfire, BuildTime, 120) — ticks to construct
+    Becomes,   // (ConstructionSite_42, Becomes, Campfire) — observed transformation rule
 
     // ─── Temporal ───
     RegenerationRate, // (AppleTree, RegenerationRate, 10.0)

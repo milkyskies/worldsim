@@ -1,0 +1,33 @@
+//! Generic concept-to-entity spawn dispatch.
+//!
+//! Reads: Concept (target type)
+//! Writes: Spawns world entities via Commands
+//! Upstream: action SpawnRequest processing, Becomes substrate transformations
+//! Downstream: world entities (visible, perceivable by agents)
+//!
+//! Single source of truth for "spawn an entity of this Concept at this position".
+//! Add new branches here as new spawnable entity types come online.
+
+use crate::agent::mind::knowledge::Concept;
+use bevy::prelude::*;
+
+/// Spawn an entity of the given concept at the given world position.
+///
+/// Returns `Some(entity_id)` for handled concepts; returns `None` for concepts
+/// without a registered spawner. Callers may log/skip when `None` is returned.
+///
+/// Currently uses headless spawners (no sprites) so the same dispatch works
+/// in both runtime and test environments. Visual variants are layered on by
+/// the visual world systems separately.
+pub fn spawn_concept_entity(
+    commands: &mut Commands,
+    concept: Concept,
+    position: Vec2,
+) -> Option<Entity> {
+    match concept {
+        Concept::Campfire => Some(crate::world::campfire::spawn_campfire_headless(
+            commands, position,
+        )),
+        _ => None,
+    }
+}
