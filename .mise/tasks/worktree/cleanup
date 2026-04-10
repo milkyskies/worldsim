@@ -1,5 +1,5 @@
 #!/bin/bash
-#MISE description="Remove worktree + per-worktree database"
+#MISE description="Remove worktree + per-worktree database + dev target cache"
 #MISE args=["num"]
 set -euo pipefail
 
@@ -7,9 +7,11 @@ NUM="$1"
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 WT_DIR="$REPO_ROOT/../worldsim-worktrees/$NUM"
 DB_NAME="worldsim_wt_$NUM"
+DEV_CACHE="${XDG_CACHE_HOME:-$HOME/.cache}/worldsim-dev/$NUM"
 
 git worktree remove "$WT_DIR" 2>/dev/null || true
 dropdb "$DB_NAME" 2>/dev/null || true
 git worktree prune
+rm -rf "$DEV_CACHE"
 
-echo "Cleaned up worktree $NUM (database: $DB_NAME)"
+echo "Cleaned up worktree $NUM (database: $DB_NAME, dev cache: $DEV_CACHE)"

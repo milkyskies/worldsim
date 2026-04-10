@@ -293,10 +293,18 @@ pub fn rational_brain_propose(
         let action = &plan[brain.plan_index];
         // Re-verify preconditions before proposing (e.g., still have food to eat?)
         if are_preconditions_met(action, mind) {
+            // Plan continuation urgency tracks the goal that drove the plan, so it
+            // sits on the same scale as Survival's `urgency * 100` proposals. The
+            // constant fallback only kicks in if the goal cleared mid-plan.
+            let urgency = cns
+                .current_goal
+                .as_ref()
+                .map(|g| g.priority * 100.0)
+                .unwrap_or(PLAN_CONTINUATION_URGENCY);
             return Some(BrainProposal {
                 brain: BrainType::Rational,
                 action: action.clone(),
-                urgency: PLAN_CONTINUATION_URGENCY,
+                urgency,
                 intent: goal_intent,
                 reasoning: format!("Continuing plan step {}: {}", brain.plan_index, action.name),
             });
@@ -322,7 +330,7 @@ pub fn rational_brain_propose(
                 return Some(BrainProposal {
                     brain: BrainType::Rational,
                     action: first_action.clone(),
-                    urgency: goal.priority,
+                    urgency: goal.priority * 100.0,
                     intent: goal_intent,
                     reasoning: format!("New plan for goal: {:?}", goal.conditions),
                 });
@@ -341,8 +349,16 @@ pub fn rational_brain_propose(
             }
         }
 
-        // Fallback: Explore to find resources ourselves
+        // Fallback: Explore to find resources ourselves — but only for goals
+        // exploration could plausibly satisfy. A social or pain-relief goal
+        // can't be solved by wandering the map; proposing Explore there would
+        // dedup against (and outscore, post-units-fix) the Emotional brain's
+        // own answer for the same intent.
         // TODO(#46): reintroduce epistemic ask via CommunicationPlugin
+        if !matches!(goal_intent, Intent::SatisfyHunger | Intent::SatisfyThirst) {
+            return None;
+        }
+
         let explore_action = action_registry
             .get(ActionType::Explore)
             .map(|a| a.to_template(None))
@@ -351,7 +367,7 @@ pub fn rational_brain_propose(
         return Some(BrainProposal {
             brain: BrainType::Rational,
             action: explore_action,
-            urgency: goal.priority * EXPLORE_FALLBACK_PRIORITY_MULTIPLIER,
+            urgency: goal.priority * EXPLORE_FALLBACK_PRIORITY_MULTIPLIER * 100.0,
             intent: goal_intent,
             reasoning: "Can't plan - exploring for resources".to_string(),
         });
@@ -425,4 +441,264 @@ fn collect_planning_actions(
     }
 
     actions
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::agent::actions::ActionRegistry;
+    use crate::agent::brains::thinking::Goal;
+    use crate::agent::nervous_system::cns::CentralNervousSystem;
+    use crate::agent::nervous_system::urgency::{Urgency, UrgencySource};
+    use bevy::ecs::system::SystemState;
+
+    fn template(name: &str, action_type: ActionType) -> ActionTemplate {
+        ActionTemplate {
+            name: name.to_string(),
+            action_type,
+            target_entity: None,
+            target_position: None,
+            preconditions: vec![],
+            effects: vec![],
+            consumes: vec![],
+            base_cost: 1.0,
+        }
+    }
+
+    fn cns_with_goal(priority: f32, source: UrgencySource) -> CentralNervousSystem {
+        let mut cns = CentralNervousSystem::default();
+        cns.urgencies.push(Urgency::new(source, priority));
+        cns.current_goal = Some(Goal {
+            conditions: vec![],
+            priority,
+        });
+        cns
+    }
+
+    fn brain_with_plan(goal: Option<Goal>) -> RationalBrain {
+        RationalBrain {
+            current_plan: Some(vec![template("FakeStep", ActionType::Idle)]),
+            current_goal: goal,
+            plan_index: 0,
+        }
+    }
+
+    /// Calls `rational_brain_propose` against the given brain/cns. Constructs the
+    /// throwaway Bevy state (world, query, registry) needed to satisfy the signature.
+    fn propose(brain: &RationalBrain, cns: &CentralNervousSystem) -> BrainProposal {
+        let mut world = World::new();
+        let mut state: SystemState<
+            Query<(
+                &GlobalTransform,
+                Option<&crate::agent::affordance::Affordance>,
+            )>,
+        > = SystemState::new(&mut world);
+        let affordances = state.get(&world);
+
+        let registry = {
+            let mut r = ActionRegistry::default();
+            r.register(crate::agent::actions::action::WanderAction);
+            r.register(crate::agent::actions::action::ExploreAction);
+            r
+        };
+        let inventory = ItemSlots::agent_carry();
+        let transform = Transform::default();
+        let mind = MindGraph::default();
+        let visible = crate::agent::mind::perception::VisibleObjects::default();
+        let world_map = WorldMap::new(64, 64);
+
+        rational_brain_propose(
+            brain,
+            cns,
+            &inventory,
+            &transform,
+            &mind,
+            &visible,
+            &world_map,
+            &registry,
+            &affordances,
+        )
+        .expect("rational brain should always produce a proposal")
+    }
+
+    #[test]
+    fn plan_continuation_urgency_scales_with_current_goal_priority() {
+        let cns = cns_with_goal(1.0, UrgencySource::Hunger);
+        let brain = brain_with_plan(Some(cns.current_goal.clone().unwrap()));
+
+        let proposal = propose(&brain, &cns);
+
+        assert_eq!(proposal.brain, BrainType::Rational);
+        assert!(
+            (proposal.urgency - 100.0).abs() < 0.01,
+            "expected urgency ~100 for goal priority 1.0, got {}",
+            proposal.urgency
+        );
+    }
+
+    #[test]
+    fn plan_continuation_urgency_halves_when_goal_priority_halves() {
+        let cns = cns_with_goal(0.5, UrgencySource::Hunger);
+        let brain = brain_with_plan(Some(cns.current_goal.clone().unwrap()));
+
+        let proposal = propose(&brain, &cns);
+
+        assert!(
+            (proposal.urgency - 50.0).abs() < 0.01,
+            "expected urgency ~50 for goal priority 0.5, got {}",
+            proposal.urgency
+        );
+    }
+
+    /// Plan-continuation urgency must sit on the same numerical scale as Survival's
+    /// `urgency * 100` proposals — otherwise dedup and cross-intent comparisons skew
+    /// against Rational.
+    #[test]
+    fn plan_continuation_urgency_matches_survival_scale_for_same_drive() {
+        let priority = 0.9;
+        let cns = cns_with_goal(priority, UrgencySource::Hunger);
+        let brain = brain_with_plan(Some(cns.current_goal.clone().unwrap()));
+
+        let proposal = propose(&brain, &cns);
+        let survival_equivalent = priority * 100.0;
+
+        assert!(
+            (proposal.urgency - survival_equivalent).abs() < 0.01,
+            "rational plan-continuation urgency ({}) must match Survival scale ({})",
+            proposal.urgency,
+            survival_equivalent
+        );
+    }
+
+    /// If the goal cleared mid-plan, fall back to the constant rather than reading a
+    /// stale priority. The constant only exists for this edge case.
+    #[test]
+    fn plan_continuation_falls_back_to_constant_when_goal_cleared() {
+        let cns = CentralNervousSystem::default(); // no current_goal
+        let brain = brain_with_plan(None);
+
+        let proposal = propose(&brain, &cns);
+
+        assert!(
+            (proposal.urgency - PLAN_CONTINUATION_URGENCY).abs() < 0.01,
+            "expected fallback constant ({}) when goal is cleared, got {}",
+            PLAN_CONTINUATION_URGENCY,
+            proposal.urgency
+        );
+    }
+
+    /// Explore fallback (no plan, planner failed) must also be on Survival's scale.
+    /// Without `* 100`, an unsatisfiable hunger goal would propose explore at 0.3 instead
+    /// of 30 — losing every dedup against any other proposal on the same intent.
+    #[test]
+    fn explore_fallback_urgency_uses_survival_scale() {
+        // No plan and an unsatisfiable goal — drives the explore-fallback branch
+        // (planner can't reach the goal with the registered Wander/Explore actions).
+        let priority = 1.0;
+        let unsatisfiable = Goal {
+            conditions: vec![TriplePattern::new(
+                Some(crate::agent::mind::knowledge::Node::Self_),
+                Some(crate::agent::mind::knowledge::Predicate::Hunger),
+                Some(crate::agent::mind::knowledge::Value::Int(0)),
+            )],
+            priority,
+        };
+        let mut cns = CentralNervousSystem::default();
+        cns.urgencies
+            .push(Urgency::new(UrgencySource::Hunger, priority));
+        cns.current_goal = Some(unsatisfiable.clone());
+        let brain = RationalBrain {
+            current_plan: None,
+            current_goal: Some(unsatisfiable),
+            plan_index: 0,
+        };
+
+        let proposal = propose(&brain, &cns);
+
+        assert_eq!(proposal.action.action_type, ActionType::Explore);
+        let expected = priority * EXPLORE_FALLBACK_PRIORITY_MULTIPLIER * 100.0;
+        assert!(
+            (proposal.urgency - expected).abs() < 0.01,
+            "explore-fallback urgency should be {} (priority * mult * 100), got {}",
+            expected,
+            proposal.urgency
+        );
+    }
+
+    /// Rational must NOT propose Explore for non-resource intents like Social.
+    /// Exploring the map can't satisfy a social drive; proposing Explore here
+    /// would dedup against (and post-units-fix outscore) the Emotional brain's
+    /// own answer for the same intent, breaking conversation initiation.
+    #[test]
+    fn no_explore_fallback_when_intent_cannot_be_satisfied_by_exploration() {
+        let priority = 0.8;
+        let unsatisfiable = Goal {
+            conditions: vec![TriplePattern::new(
+                Some(crate::agent::mind::knowledge::Node::Self_),
+                Some(crate::agent::mind::knowledge::Predicate::SocialDrive),
+                Some(crate::agent::mind::knowledge::Value::Int(0)),
+            )],
+            priority,
+        };
+        let mut cns = CentralNervousSystem::default();
+        cns.urgencies
+            .push(Urgency::new(UrgencySource::Social, priority));
+        cns.current_goal = Some(unsatisfiable.clone());
+        let brain = RationalBrain {
+            current_plan: None,
+            current_goal: Some(unsatisfiable),
+            plan_index: 0,
+        };
+
+        // Build the same setup as `propose()` but tolerate `None`.
+        let mut world = World::new();
+        let mut state: SystemState<
+            Query<(
+                &GlobalTransform,
+                Option<&crate::agent::affordance::Affordance>,
+            )>,
+        > = SystemState::new(&mut world);
+        let affordances = state.get(&world);
+        let mut registry = ActionRegistry::default();
+        registry.register(crate::agent::actions::action::WanderAction);
+        registry.register(crate::agent::actions::action::ExploreAction);
+        let inventory = ItemSlots::agent_carry();
+        let transform = Transform::default();
+        let mind = MindGraph::default();
+        let visible = crate::agent::mind::perception::VisibleObjects::default();
+        let world_map = WorldMap::new(64, 64);
+
+        let proposal = rational_brain_propose(
+            &brain,
+            &cns,
+            &inventory,
+            &transform,
+            &mind,
+            &visible,
+            &world_map,
+            &registry,
+            &affordances,
+        );
+
+        assert!(
+            proposal.is_none(),
+            "rational must defer (not propose Explore) when the goal can't be \
+             satisfied by exploration; got: {proposal:?}"
+        );
+    }
+
+    /// Idle wander (no plan, no goal) should still propose, untouched by the units fix.
+    #[test]
+    fn idle_wander_proposal_unchanged_by_urgency_units_fix() {
+        let cns = CentralNervousSystem::default();
+        let brain = RationalBrain::default();
+
+        let proposal = propose(&brain, &cns);
+
+        assert_eq!(proposal.action.action_type, ActionType::Wander);
+        assert!(
+            (proposal.urgency - IDLE_WANDER_URGENCY).abs() < 0.01,
+            "idle wander urgency should equal IDLE_WANDER_URGENCY"
+        );
+    }
 }

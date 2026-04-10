@@ -56,6 +56,7 @@ pub fn survival_brain_propose(
 
     match top.source {
         UrgencySource::Hunger => {
+            // Direct reflex: eat if we have something edible in hand.
             if inventory.has_edible(ontology)
                 && let Some(action) = action_registry.get(ActionType::Eat)
             {
@@ -67,16 +68,10 @@ pub fn survival_brain_propose(
                     reasoning: format!("Hunger urgency {:.2} — eating!", top.value),
                 });
             }
-            // No food in inventory — search for some.
-            if let Some(action) = action_registry.get(ActionType::Explore) {
-                return Some(BrainProposal {
-                    brain: BrainType::Survival,
-                    action: action.to_template(None),
-                    urgency: urgency_score * 0.7,
-                    intent,
-                    reasoning: format!("Hunger urgency {:.2} — searching for food!", top.value),
-                });
-            }
+            // No food in hand — defer to Rational. The planner can find a known
+            // food source or fall back to its own Explore. Survival proposing
+            // Explore here would duplicate Rational's job and outscore the
+            // planner's actual plan inside intent dedup, blocking it.
         }
         UrgencySource::Thirst => {
             if let Some(action) = action_registry.get(ActionType::Drink) {
@@ -201,8 +196,14 @@ mod tests {
         assert_eq!(proposal.unwrap().action.name, "Eat");
     }
 
+    /// Survival is for direct reflexive actions only — eating food in hand,
+    /// drinking, sleeping, fleeing, curling up in pain. Random exploration to
+    /// FIND food is a planning concern; Rational owns it (planner +
+    /// rational.rs's own Explore fallback). Survival proposing Explore would
+    /// duplicate Rational's job and outscore Rational's actual plan inside
+    /// intent dedup, blocking the planner from ever executing.
     #[test]
-    fn high_hunger_urgency_proposes_explore_when_no_food() {
+    fn hunger_with_no_food_returns_none_so_rational_can_plan() {
         let ontology = setup_ontology();
         let physical = PhysicalNeeds::default();
         let cns = cns_with_top(UrgencySource::Hunger, 0.9);
@@ -213,11 +214,15 @@ mod tests {
 
         let mut registry = crate::agent::actions::ActionRegistry::default();
         registry.register(crate::agent::actions::action::ExploreAction);
+        registry.register(crate::agent::actions::action::EatAction);
 
         let proposal = survival_brain_propose(context, &inventory, &active, &ontology, &registry);
 
-        assert!(proposal.is_some());
-        assert_eq!(proposal.unwrap().action.name, "Explore");
+        assert!(
+            proposal.is_none(),
+            "Survival must defer to Rational when starving but empty-handed; \
+             got proposal: {proposal:?}"
+        );
     }
 
     #[test]
