@@ -36,6 +36,14 @@ pub enum ActionType {
     #[default]
     Idle,
 
+    /// Work on a construction site that requires labor to complete.
+    /// Targets a world entity with a `Becomes` component whose trigger tree
+    /// contains a `LaborAccumulated` variant. Running this action each tick
+    /// causes the `labor_accumulation_system` to increment the site's labor
+    /// counter by one. The action runs indefinitely until the target is
+    /// despawned (i.e. the site transforms into the finished entity).
+    Construct,
+
     // Social / Combat
     Wave,
     /// Walk-to-target marker proposed by brains to start a conversation.
