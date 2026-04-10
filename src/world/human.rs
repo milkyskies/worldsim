@@ -77,6 +77,7 @@ pub fn spawn_person(
             psychological_drives,
             crate::agent::actions::ActiveActions::default(),
             crate::agent::psyche::emotions::EmotionalState::default(),
+            crate::agent::brains::history::BrainHistory::default(),
         ))
         .id();
 

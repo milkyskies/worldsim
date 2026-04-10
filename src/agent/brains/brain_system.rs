@@ -1,13 +1,14 @@
 //! Three-brains orchestration: runs all brain systems and arbitrates between their proposals each tick.
 //!
-//! Reads: PhysicalNeeds, Consciousness, PsychologicalDrives, EmotionalState, Body, Personality, ItemSlots, VisibleObjects, MindGraph, ActiveActions, WorldMap
-//! Writes: BrainState (chosen action, winner, proposals, powers), SimEvent::Decision
+//! Reads: PhysicalNeeds, Consciousness, PsychologicalDrives, EmotionalState, Body, Personality, ItemSlots, VisibleObjects, MindGraph, ActiveActions, WorldMap, BrainHistory
+//! Writes: BrainState (chosen action, winner, proposals, powers), BrainHistory (active attributions), SimEvent::Decision
 //! Upstream: survival/emotional/rational brain modules, arbitration, perception, knowledge
 //! Downstream: nervous_system::cns (executes the chosen action), SimEvent consumers
 
 use super::arbitration::{arbitrate_parallel, calculate_brain_powers};
 use super::emotional::emotional_brain_propose;
-use super::proposal::BrainState;
+use super::history::BrainHistory;
+use super::proposal::{BrainPowers, BrainState, BrainType};
 use super::rational::rational_brain_propose;
 use super::survival::{SurvivalBrainContext, survival_brain_propose};
 use crate::agent::biology::body::Body;
@@ -62,6 +63,7 @@ pub fn three_brains_system(
     mut game_log: ResMut<crate::core::GameLog>,
     ontology: Res<crate::agent::mind::knowledge::Ontology>,
     mut sim_events: MessageWriter<crate::agent::events::SimEvent>,
+    mut brain_histories: Query<&mut BrainHistory>,
 ) {
     for (
         entity,
@@ -113,15 +115,35 @@ pub fn three_brains_system(
             &affordances,
         );
 
-        // 2. Calculate brain powers
-        let powers = calculate_brain_powers(physical, consciousness, body, emotions, personality);
+        // 2. Calculate brain powers, then apply history-based multiplier
+        let base_powers =
+            calculate_brain_powers(physical, consciousness, body, emotions, personality);
+        let powers = if let Ok(history) = brain_histories.get(entity) {
+            BrainPowers {
+                survival: base_powers.survival * history.power_multiplier(BrainType::Survival),
+                emotional: base_powers.emotional * history.power_multiplier(BrainType::Emotional),
+                rational: base_powers.rational * history.power_multiplier(BrainType::Rational),
+            }
+        } else {
+            base_powers
+        };
 
         // 3. Arbitrate - greedy multi-action admission across body channels
         let proposals = [survival_proposal, emotional_proposal, rational_proposal];
         let capacities = crate::agent::actions::ChannelCapacities::compute(body, Some(physical));
         let admitted = arbitrate_parallel(&proposals, &powers, &capacities, &action_registry);
 
-        // 4. Store for debugging/UI and execution
+        // 4. Update attribution map so outcome events can credit the right brain
+        if let Ok(mut history) = brain_histories.get_mut(entity) {
+            history.active.retain(|at, _| active_actions.contains(*at));
+            for proposal in &admitted {
+                history
+                    .active
+                    .insert(proposal.action.action_type, proposal.brain);
+            }
+        }
+
+        // 5. Store for debugging/UI and execution
         brain_state.proposals = proposals.into_iter().flatten().collect();
         brain_state.powers = powers;
 
