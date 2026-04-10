@@ -603,23 +603,11 @@ impl TestWorld {
         spawn_test_wood_log(self.app.world_mut(), pos, wood)
     }
 
-    /// Spawns a campfire (logic-only) at the given position. Includes HeatSource.
+    /// Spawns a campfire (logic-only) at the given position. Includes LightSource and HeatSource.
     pub fn spawn_campfire(&mut self, pos: Vec2) -> Entity {
-        use crate::agent::inventory::EntityType;
         self.app
             .world_mut()
-            .spawn((
-                Name::new("Campfire"),
-                EntityType(Concept::Campfire),
-                crate::world::campfire::CampfireMarker,
-                crate::world::sense_sources::HeatSource {
-                    range: 64.0,
-                    intensity: 0.8,
-                },
-                crate::world::Physical,
-                Transform::from_translation(pos.extend(1.0)),
-                GlobalTransform::default(),
-            ))
+            .spawn(crate::world::campfire::campfire_components(pos))
             .id()
     }
 

@@ -13,7 +13,8 @@ use crate::core::GameLog;
 use crate::core::tick::TickCount;
 use crate::world::environment::LightLevel;
 use crate::world::map::{CHUNK_SIZE, TILE_SIZE};
-use crate::world::sense_sources::{HeatSource, SoundSource};
+use crate::world::property::HeatSource;
+use crate::world::sense_sources::SoundSource;
 use crate::world::spatial_index::SpatialIndex;
 use bevy::prelude::*;
 
@@ -522,7 +523,7 @@ pub fn perceive_temperature(
 
             let source_pos = source_transform.translation.truncate();
             let distance = agent_pos.distance(source_pos);
-            let effective_range = heat.range.min(TEMPERATURE_SENSE_RANGE);
+            let effective_range = heat.radius.min(TEMPERATURE_SENSE_RANGE);
 
             if distance > effective_range {
                 continue;
