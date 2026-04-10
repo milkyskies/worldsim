@@ -26,19 +26,26 @@ pub fn calculate_brain_powers(
     emotions: &EmotionalState,
     personality: &Personality,
 ) -> BrainPowers {
-    // === SURVIVAL POWER ===
-    // Sum urgency-weighted contributions from survival-relevant drives.
-    // Weights match rough priority: physical deprivation > fear.
-    let survival_power = cns
-        .urgencies
-        .iter()
-        .map(|u| match u.source {
-            UrgencySource::Hunger | UrgencySource::Thirst | UrgencySource::Pain => u.value * 100.0,
-            UrgencySource::Energy => u.value * 80.0,
-            UrgencySource::Fear => u.value * 50.0,
-            _ => 0.0,
-        })
-        .sum::<f32>();
+    // === SURVIVAL POWER + RATIONAL NEEDS PENALTY ===
+    // Single pass over urgencies: accumulate survival power (how much the survival
+    // brain dominates) and the raw deprivation sum (how much it impairs rational
+    // thought). Weights match rough priority: physical deprivation > fear.
+    let (survival_power, survival_urgency) = {
+        let mut power = 0.0f32;
+        let mut deprivation = 0.0f32;
+        for u in &cns.urgencies {
+            match u.source {
+                UrgencySource::Hunger | UrgencySource::Thirst | UrgencySource::Pain => {
+                    power += u.value * 100.0;
+                    deprivation += u.value;
+                }
+                UrgencySource::Energy => power += u.value * 80.0,
+                UrgencySource::Fear => power += u.value * 50.0,
+                _ => {}
+            }
+        }
+        (power, deprivation.min(1.0))
+    };
 
     // === EMOTIONAL POWER ===
     // Base instinctual drive (social, curiosity) keeps emotional brain active
@@ -58,18 +65,6 @@ pub fn calculate_brain_powers(
     let stress_penalty = stress_factor * 0.5;
 
     // High survival urgency makes it hard to think straight.
-    let survival_urgency: f32 = cns
-        .urgencies
-        .iter()
-        .filter(|u| {
-            matches!(
-                u.source,
-                UrgencySource::Hunger | UrgencySource::Thirst | UrgencySource::Pain
-            )
-        })
-        .map(|u| u.value)
-        .sum::<f32>()
-        .min(1.0);
     let needs_penalty = survival_urgency * 0.3;
 
     let alertness_penalty = if consciousness.alertness < 0.5 {
