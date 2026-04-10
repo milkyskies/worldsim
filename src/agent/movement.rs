@@ -129,3 +129,95 @@ pub fn calculate_speed(stamina: f32, body: Option<&crate::agent::biology::body::
 
     BASE_SPEED_PER_TICK * speed_modifier * injury_modifier
 }
+
+/// Maps a locomotion intensity in [0, 1] to a speed multiplier applied on
+/// top of [`calculate_speed`]. Calibrated so Walk's default (0.5) produces
+/// 1.2x base and Flee's default (1.0) produces 2.0x base.
+///
+/// At intensity 0.0 the agent is still, not crawling — callers should
+/// usually skip movement entirely rather than call this with 0.
+pub fn intensity_speed_multiplier(intensity: f32) -> f32 {
+    let i = intensity.clamp(0.0, 1.0);
+    0.4 + i * 1.6
+}
+
+/// Graceful-degradation cap on desired locomotion intensity: if the body
+/// can't deliver the requested intensity because stamina reserves are
+/// depleted, return the highest intensity it actually *can* sustain. The
+/// caller's desired intensity is preserved elsewhere (on `ActionState`) so
+/// the agent's *intent* stays visible.
+///
+/// - Sprint (`> 0.7`) requires anaerobic reserve. With anaerobic empty,
+///   caps at `0.5` (jog).
+/// - Sustained (`> 0.3`) requires aerobic reserve. With aerobic also low,
+///   caps at `0.3` (walk).
+/// - Walk-or-slower always allowed.
+pub fn effective_intensity(desired: f32, stamina: &crate::agent::body::needs::Stamina) -> f32 {
+    let d = desired.clamp(0.0, 1.0);
+    if d > 0.7 && stamina.anaerobic < 5.0 {
+        return if stamina.aerobic < 10.0 { 0.3 } else { 0.5 };
+    }
+    if d > 0.3 && stamina.aerobic < 10.0 {
+        return 0.3;
+    }
+    d
+}
+
+#[cfg(test)]
+mod intensity_tests {
+    use super::*;
+    use crate::agent::body::needs::Stamina;
+
+    #[test]
+    fn walk_default_intensity_yields_1_2x_multiplier() {
+        // Walk's default intensity is 0.5 → 0.4 + 0.8 = 1.2
+        let m = intensity_speed_multiplier(0.5);
+        assert!((m - 1.2).abs() < 1e-5, "expected 1.2x, got {m}");
+    }
+
+    #[test]
+    fn flee_default_intensity_yields_2_0x_multiplier() {
+        // Flee's default intensity is 1.0 → 0.4 + 1.6 = 2.0
+        let m = intensity_speed_multiplier(1.0);
+        assert!((m - 2.0).abs() < 1e-5, "expected 2.0x, got {m}");
+    }
+
+    #[test]
+    fn effective_intensity_passes_through_when_rested() {
+        let s = Stamina::default();
+        assert_eq!(effective_intensity(1.0, &s), 1.0);
+        assert_eq!(effective_intensity(0.5, &s), 0.5);
+        assert_eq!(effective_intensity(0.2, &s), 0.2);
+    }
+
+    #[test]
+    fn effective_intensity_caps_sprint_when_anaerobic_empty() {
+        let s = Stamina {
+            anaerobic: 0.0,
+            aerobic: 80.0,
+            ..Default::default()
+        };
+        // Desired sprint downgrades to jog (0.5) when anaerobic is empty
+        // but aerobic remains.
+        assert_eq!(effective_intensity(1.0, &s), 0.5);
+    }
+
+    #[test]
+    fn effective_intensity_caps_to_walk_when_both_low() {
+        let s = Stamina {
+            anaerobic: 0.0,
+            aerobic: 5.0,
+            ..Default::default()
+        };
+        // Both pools empty: even sustained effort degrades to walk.
+        assert_eq!(effective_intensity(1.0, &s), 0.3);
+        assert_eq!(effective_intensity(0.5, &s), 0.3);
+    }
+
+    #[test]
+    fn effective_intensity_does_not_upgrade() {
+        // A walk-intensity desired never gets boosted.
+        let s = Stamina::default();
+        assert_eq!(effective_intensity(0.25, &s), 0.25);
+    }
+}

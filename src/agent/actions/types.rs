@@ -76,6 +76,37 @@ impl std::fmt::Display for ActionType {
 }
 
 impl ActionType {
+    /// Default desired locomotion intensity in [0, 1] for Movement-class
+    /// actions (#339). `0.0` means this action isn't locomotion and the
+    /// intensity field is unused. Brains may override the default via
+    /// `pick_locomotion_intensity` to reflect urgency.
+    pub fn default_locomotion_intensity(self) -> f32 {
+        match self {
+            ActionType::Wander => 0.3, // slow drift
+            ActionType::Walk => 0.5,   // purposeful walk
+            ActionType::Explore => 0.5,
+            ActionType::Graze => 0.25, // walk-and-eat shuffle
+            ActionType::Flee => 1.0,   // sprint
+            ActionType::InitiateConversation => 0.5,
+            _ => 0.0,
+        }
+    }
+
+    /// Blend an action's default intensity with the brain's urgency so
+    /// desperate agents push harder on the same action. Urgency is expected
+    /// in the [0, 1] "normalized drive" scale (the brain produces 0-100
+    /// scores; callers divide before passing). The boost caps at 0.3 so an
+    /// ambient Walk can accelerate toward sprint without skipping straight
+    /// to 1.0 on the first urgency bump.
+    pub fn pick_locomotion_intensity(self, urgency_unit: f32) -> f32 {
+        let default = self.default_locomotion_intensity();
+        if default == 0.0 {
+            return 0.0;
+        }
+        let boost = urgency_unit.clamp(0.0, 1.0) * 0.3;
+        (default + boost).clamp(0.0, 1.0)
+    }
+
     /// Human-readable present-participle verb ("Eating", "Fleeing from", ...)
     /// for the character sheet. Verbs ending in a preposition imply a target
     /// follows (e.g. "Walking to <place>", "Attacking <target>").
