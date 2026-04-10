@@ -281,11 +281,7 @@ mod tests {
     #[test]
     fn talking_agent_shows_ellipsis() {
         use crate::agent::mind::conversation::InConversation;
-        use bevy::prelude::Entity;
-        let dummy = InConversation {
-            conversation_id: 0,
-            partner: Entity::PLACEHOLDER,
-        };
+        let dummy = InConversation { conversation_id: 0 };
         assert_eq!(
             status_icon(
                 &idle_actions(),
