@@ -7,10 +7,18 @@
 //! 3. On arrival within CONVERSATION_RANGE the plugin registers a Conversation,
 //!    swaps InitiateConversation -> Converse, and inserts InConversation on both
 //! 4. SimEvent::ConversationStarted/Ended fire on the observability bus
+//!
+//! Intent selection tests (issue #46):
+//! 5. After a Greet turn (expects_response=true), the partner uses Answer intent
+//! 6. An agent with personal high-salience danger knowledge warns their partner
 
 use bevy::math::Vec2;
 use worldsim::agent::actions::ActionType;
 use worldsim::agent::events::SimEvent;
+use worldsim::agent::mind::conversation::{ConversationManager, Intent};
+use worldsim::agent::mind::knowledge::{
+    Concept, MemoryType, Metadata, MindGraph, Node, Predicate, Source, Triple, Value,
+};
 use worldsim::agent::nervous_system::config::NervousSystemConfig;
 use worldsim::testing::TestWorld;
 
@@ -232,4 +240,134 @@ fn conversations_can_end_gracefully_after_enough_turns() {
         ended_count >= 1,
         "expected at least one ConversationEnded SimEvent, got {ended_count}"
     );
+}
+
+// ─── Intent selection tests (#46) ────────────────────────────────────────────
+
+/// After the first Greet turn (which sets `expects_response = true`), the
+/// partner's next turn must use `Intent::Answer`. This verifies that the
+/// priority order in `select_intent` routes through Answer before falling
+/// back to Share or Acknowledge.
+#[test]
+fn second_turn_intent_is_answer_after_greet() {
+    let (mut world, agents) = TestWorld::scenario(42)
+        .map_size(64, 64)
+        .noise_biomes(false)
+        .agent("alice")
+        .pos(Vec2::new(200.0, 200.0))
+        .social_drive(HIGH_SOCIAL)
+        .done()
+        .agent("bob")
+        .pos(Vec2::new(210.0, 200.0))
+        .social_drive(HIGH_SOCIAL)
+        .done()
+        .build();
+
+    fast_brains(&mut world);
+    world.tick(200);
+
+    let alice = agents["alice"];
+
+    // Conversations may have ended by tick 200 — check the full history.
+    let had_conversation = world
+        .sim_events()
+        .all()
+        .iter()
+        .any(|e| matches!(e, SimEvent::ConversationStarted { .. }));
+    if !had_conversation {
+        world.print_agent_state(alice);
+        world.print_recent_events(200);
+        panic!("alice and bob should have started a conversation within 200 ticks");
+    }
+
+    // ConversationManager retains ended conversations — read all turns.
+    let app_world = world.app().world();
+    let manager = app_world.resource::<ConversationManager>();
+    let intents: Vec<Intent> = manager
+        .conversations
+        .values()
+        .flat_map(|c| c.turns.iter().map(|t| t.intent))
+        .collect();
+
+    assert!(
+        intents.contains(&Intent::Answer),
+        "expected Answer turn after Greet — got: {intents:?}"
+    );
+}
+
+/// An agent who has personally observed a high-salience danger (wolf nearby)
+/// should warn their conversation partner via `Intent::Share` with
+/// `Topic::Help` content. After the conversation the partner's personal
+/// MindGraph should contain the wolf-danger triple as hearsay.
+#[test]
+fn agent_warns_partner_about_personally_observed_danger() {
+    // High-salience personal observation that wolves are dangerous. Alice has
+    // experienced this directly; bob only carries the abstract ontology fact.
+    // The novelty check in `pick_deliberate_content` ignores ontology entries
+    // (a primitive stranger model — see #67), so this triple still scores as
+    // novel content for bob and gets delivered as the warn payload.
+    let wolf_danger_triple = Triple::with_meta(
+        Node::Concept(Concept::Wolf),
+        Predicate::HasTrait,
+        Value::Concept(Concept::Dangerous),
+        Metadata {
+            source: Source::Experienced,
+            memory_type: MemoryType::Episodic,
+            timestamp: 0,
+            confidence: 1.0,
+            informant: None,
+            evidence: Vec::new(),
+            salience: 0.9, // above DANGER_WARN_SALIENCE (0.7)
+        },
+    );
+
+    let (mut world, agents) = TestWorld::scenario(42)
+        .map_size(64, 64)
+        .noise_biomes(false)
+        .agent("alice")
+        .pos(Vec2::new(200.0, 200.0))
+        .social_drive(HIGH_SOCIAL)
+        .knowledge(vec![wolf_danger_triple])
+        .done()
+        .agent("bob")
+        .pos(Vec2::new(210.0, 200.0))
+        .social_drive(HIGH_SOCIAL)
+        .done()
+        .build();
+
+    fast_brains(&mut world);
+    world.tick(300);
+
+    let alice = agents["alice"];
+    let bob = agents["bob"];
+
+    // Verify a conversation occurred — it may have ended by tick 200.
+    let had_conversation = world
+        .sim_events()
+        .all()
+        .iter()
+        .any(|e| matches!(e, SimEvent::ConversationStarted { .. }));
+    if !had_conversation {
+        world.print_agent_state(alice);
+        world.print_recent_events(200);
+        panic!("alice and bob should have started a conversation within 200 ticks");
+    }
+
+    // Bob should have received the wolf-danger triple as hearsay from alice.
+    // We check personal triples only — bob's ontology already says wolves are
+    // dangerous abstractly, but the warn delivers a specific personal record
+    // attributed to alice.
+    let bob_mind = world.get::<MindGraph>(bob);
+    let bob_received_warning = bob_mind.triples.iter().any(|t| {
+        t.predicate == Predicate::HasTrait
+            && t.object == Value::Concept(Concept::Dangerous)
+            && t.subject == Node::Concept(Concept::Wolf)
+            && t.meta.informant == Some(alice)
+    });
+
+    if !bob_received_warning {
+        world.print_conversation(alice);
+        world.print_mind_graph(bob);
+        panic!("bob should have received wolf-danger warning from alice as hearsay");
+    }
 }
