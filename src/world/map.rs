@@ -302,10 +302,9 @@ pub fn generate_terrain(width: u32, height: u32, seed: u32) -> Vec<TileType> {
 pub fn river_center_x(y: u32, width: u32, seed: u32) -> u32 {
     let meander = Simplex::new(seed.wrapping_add(97));
     let ty = y as f64;
-    // Three octaves: big meanders, medium wiggles, fine detail.
-    let offset = meander.get([ty * 0.030, 0.0]) * 12.0
-        + meander.get([ty * 0.090, 100.0]) * 4.0
-        + meander.get([ty * 0.250, 200.0]) * 1.5;
+    // Two octaves: long slow meanders plus gentle wiggles. No high-frequency
+    // octave — keeps the river smooth instead of jagged.
+    let offset = meander.get([ty * 0.028, 0.0]) * 13.0 + meander.get([ty * 0.075, 100.0]) * 3.0;
     let base = (width / 2) as i32;
     base.saturating_add(offset as i32)
         .clamp(12, width as i32 - 12) as u32
@@ -330,13 +329,15 @@ fn carve_river(tiles: &mut Vec<TileType>, width: u32, height: u32, seed: u32) {
         let ty = y as f64;
         let cx = river_center_x(y, width, seed) as i32;
 
-        // Variable core half-width: 1..3 (core = 3..7 tiles wide).
+        // Variable core half-width: 1..3 (core = 3..7 tiles wide). Low noise
+        // frequency so the width changes gradually instead of flickering.
         let core_half =
-            ((1.8 + width_noise.get([ty * 0.05, 0.0]) * 0.9).round() as i32).clamp(1, 3);
+            ((1.8 + width_noise.get([ty * 0.035, 0.0]) * 0.9).round() as i32).clamp(1, 3);
 
-        // Asymmetric shallow banks: 1..2 tiles per side.
-        let bank_l = ((1.5 + bank_l_noise.get([ty * 0.11, 0.0]) * 0.6).round() as i32).clamp(1, 2);
-        let bank_r = ((1.5 + bank_r_noise.get([ty * 0.11, 50.0]) * 0.6).round() as i32).clamp(1, 2);
+        // Asymmetric shallow banks: 1..2 tiles per side. Slow frequency so
+        // banks widen and narrow smoothly.
+        let bank_l = ((1.5 + bank_l_noise.get([ty * 0.06, 0.0]) * 0.6).round() as i32).clamp(1, 2);
+        let bank_r = ((1.5 + bank_r_noise.get([ty * 0.06, 50.0]) * 0.6).round() as i32).clamp(1, 2);
 
         // Shallow (ford) detection: noise + bias near target ford rows. Using
         // a triangular bump kernel (width ~4 rows) around each ford row means
