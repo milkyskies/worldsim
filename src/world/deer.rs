@@ -78,54 +78,61 @@ pub fn spawn_deer(
             crate::agent::body::needs::Consciousness::default(),
             crate::agent::actions::ActiveActions::default(),
             crate::agent::psyche::emotions::EmotionalState::default(),
-            crate::ui::sprite_animation::SpriteAnimation::with_phase(index as f32 * 1.618),
         ))
         .id();
 
-    // Add body parts as children
     commands.entity(entity).with_children(|parent| {
-        // Body (horizontal oval-ish)
-        parent.spawn((
-            Sprite {
-                color: body_color,
-                custom_size: Some(Vec2::new(14.0, 8.0)), // Horizontal body
-                ..default()
-            },
-            Transform::from_translation(Vec3::new(0.0, 0.0, 0.0)),
-        ));
+        // SpriteBody wrapper — animated (hops)
+        parent
+            .spawn((
+                crate::ui::sprite_animation::SpriteBody::new(entity, index as f32 * 1.618),
+                Transform::default(),
+                GlobalTransform::default(),
+                Visibility::default(),
+                InheritedVisibility::default(),
+                ViewVisibility::default(),
+            ))
+            .with_children(|body| {
+                body.spawn((
+                    Sprite {
+                        color: body_color,
+                        custom_size: Some(Vec2::new(14.0, 8.0)),
+                        ..default()
+                    },
+                    Transform::from_translation(Vec3::new(0.0, 0.0, 0.0)),
+                ));
 
-        // Head (smaller, to the right)
-        parent.spawn((
-            Sprite {
-                color: head_color,
-                custom_size: Some(Vec2::new(6.0, 6.0)),
-                ..default()
-            },
-            Transform::from_translation(Vec3::new(8.0, 2.0, 0.1)),
-        ));
+                body.spawn((
+                    Sprite {
+                        color: head_color,
+                        custom_size: Some(Vec2::new(6.0, 6.0)),
+                        ..default()
+                    },
+                    Transform::from_translation(Vec3::new(8.0, 2.0, 0.1)),
+                ));
 
-        // Legs (4 small rectangles)
-        let leg_color = Color::srgb(0.5, 0.35, 0.18);
-        let leg_size = Vec2::new(2.0, 5.0);
-        let leg_positions = [
-            Vec3::new(-4.0, -5.0, 0.0),
-            Vec3::new(-1.0, -5.0, 0.0),
-            Vec3::new(2.0, -5.0, 0.0),
-            Vec3::new(5.0, -5.0, 0.0),
-        ];
+                let leg_color = Color::srgb(0.5, 0.35, 0.18);
+                let leg_size = Vec2::new(2.0, 5.0);
+                let leg_positions = [
+                    Vec3::new(-4.0, -5.0, 0.0),
+                    Vec3::new(-1.0, -5.0, 0.0),
+                    Vec3::new(2.0, -5.0, 0.0),
+                    Vec3::new(5.0, -5.0, 0.0),
+                ];
 
-        for pos in leg_positions {
-            parent.spawn((
-                Sprite {
-                    color: leg_color,
-                    custom_size: Some(leg_size),
-                    ..default()
-                },
-                Transform::from_translation(pos),
-            ));
-        }
+                for pos in leg_positions {
+                    body.spawn((
+                        Sprite {
+                            color: leg_color,
+                            custom_size: Some(leg_size),
+                            ..default()
+                        },
+                        Transform::from_translation(pos),
+                    ));
+                }
+            });
 
-        // NAME TAG
+        // NAME TAG — direct child of root, stays still
         parent.spawn((
             Text2d::new(format!("Deer {}", index)),
             TextFont {

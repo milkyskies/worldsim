@@ -77,83 +77,91 @@ pub fn spawn_wolf(
             PsychologicalDrives::default(),
             crate::agent::actions::ActiveActions::default(),
             crate::agent::psyche::emotions::EmotionalState::default(),
-            crate::ui::sprite_animation::SpriteAnimation::with_phase(index as f32 * 1.618),
         ))
         .id();
 
     commands.entity(entity).with_children(|parent| {
-        // Body (horizontal, slightly longer than deer)
-        parent.spawn((
-            Sprite {
-                color: body_color,
-                custom_size: Some(Vec2::new(16.0, 9.0)),
-                ..default()
-            },
-            Transform::from_translation(Vec3::new(0.0, 0.0, 0.0)),
-        ));
+        // SpriteBody wrapper — animated (hops)
+        parent
+            .spawn((
+                crate::ui::sprite_animation::SpriteBody::new(entity, index as f32 * 1.618),
+                Transform::default(),
+                GlobalTransform::default(),
+                Visibility::default(),
+                InheritedVisibility::default(),
+                ViewVisibility::default(),
+            ))
+            .with_children(|body| {
+                body.spawn((
+                    Sprite {
+                        color: body_color,
+                        custom_size: Some(Vec2::new(16.0, 9.0)),
+                        ..default()
+                    },
+                    Transform::from_translation(Vec3::new(0.0, 0.0, 0.0)),
+                ));
 
-        // Head (to the right, with snout shape)
-        parent.spawn((
-            Sprite {
-                color: head_color,
-                custom_size: Some(Vec2::new(8.0, 7.0)),
-                ..default()
-            },
-            Transform::from_translation(Vec3::new(9.0, 1.0, 0.1)),
-        ));
+                body.spawn((
+                    Sprite {
+                        color: head_color,
+                        custom_size: Some(Vec2::new(8.0, 7.0)),
+                        ..default()
+                    },
+                    Transform::from_translation(Vec3::new(9.0, 1.0, 0.1)),
+                ));
 
-        // Left ear
-        parent.spawn((
-            Sprite {
-                color: body_color,
-                custom_size: Some(Vec2::new(3.0, 4.0)),
-                ..default()
-            },
-            Transform::from_translation(Vec3::new(7.0, 6.0, 0.2)),
-        ));
+                // Ears
+                body.spawn((
+                    Sprite {
+                        color: body_color,
+                        custom_size: Some(Vec2::new(3.0, 4.0)),
+                        ..default()
+                    },
+                    Transform::from_translation(Vec3::new(7.0, 6.0, 0.2)),
+                ));
 
-        // Right ear
-        parent.spawn((
-            Sprite {
-                color: body_color,
-                custom_size: Some(Vec2::new(3.0, 4.0)),
-                ..default()
-            },
-            Transform::from_translation(Vec3::new(10.0, 6.0, 0.2)),
-        ));
+                body.spawn((
+                    Sprite {
+                        color: body_color,
+                        custom_size: Some(Vec2::new(3.0, 4.0)),
+                        ..default()
+                    },
+                    Transform::from_translation(Vec3::new(10.0, 6.0, 0.2)),
+                ));
 
-        // Legs (4)
-        let leg_color = Color::srgb(0.45, 0.45, 0.45);
-        let leg_size = Vec2::new(2.5, 5.0);
-        let leg_positions = [
-            Vec3::new(-5.0, -6.0, 0.0),
-            Vec3::new(-2.0, -6.0, 0.0),
-            Vec3::new(2.0, -6.0, 0.0),
-            Vec3::new(5.0, -6.0, 0.0),
-        ];
+                // Legs
+                let leg_color = Color::srgb(0.45, 0.45, 0.45);
+                let leg_size = Vec2::new(2.5, 5.0);
+                let leg_positions = [
+                    Vec3::new(-5.0, -6.0, 0.0),
+                    Vec3::new(-2.0, -6.0, 0.0),
+                    Vec3::new(2.0, -6.0, 0.0),
+                    Vec3::new(5.0, -6.0, 0.0),
+                ];
 
-        for pos in leg_positions {
-            parent.spawn((
-                Sprite {
-                    color: leg_color,
-                    custom_size: Some(leg_size),
-                    ..default()
-                },
-                Transform::from_translation(pos),
-            ));
-        }
+                for pos in leg_positions {
+                    body.spawn((
+                        Sprite {
+                            color: leg_color,
+                            custom_size: Some(leg_size),
+                            ..default()
+                        },
+                        Transform::from_translation(pos),
+                    ));
+                }
 
-        // Tail (extending left)
-        parent.spawn((
-            Sprite {
-                color: body_color,
-                custom_size: Some(Vec2::new(7.0, 3.0)),
-                ..default()
-            },
-            Transform::from_translation(Vec3::new(-10.0, 2.0, 0.0)),
-        ));
+                // Tail
+                body.spawn((
+                    Sprite {
+                        color: body_color,
+                        custom_size: Some(Vec2::new(7.0, 3.0)),
+                        ..default()
+                    },
+                    Transform::from_translation(Vec3::new(-10.0, 2.0, 0.0)),
+                ));
+            });
 
-        // Name tag
+        // Name tag — direct child of root, stays still
         parent.spawn((
             Text2d::new(format!("Wolf {}", index)),
             TextFont {
