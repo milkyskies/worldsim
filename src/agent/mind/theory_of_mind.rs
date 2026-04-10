@@ -238,46 +238,40 @@ pub fn update_shared_experience_tom(
             continue;
         }
 
-        // For each observer in the group, look at what they can see, find
-        // the intersection with every other participant, and mark those
-        // shared high-salience facts as beliefs the partner probably also holds.
-        for observer in conv.participants.iter().copied() {
-            let Ok(vis_observer) = visible_query.get(observer) else {
+        // Precompute each participant's visible-entity set once so the
+        // inner N×N loop is a pure lookup instead of rebuilding a HashSet
+        // per (observer, partner) pair.
+        let vis_sets: Vec<(Entity, HashSet<Entity>)> = conv
+            .participants
+            .iter()
+            .copied()
+            .filter_map(|p| {
+                visible_query
+                    .get(p)
+                    .ok()
+                    .map(|v| (p, v.entities.iter().copied().collect()))
+            })
+            .collect();
+
+        for (observer, observer_set) in &vis_sets {
+            let Ok(mind) = minds.get(*observer) else {
                 continue;
             };
-            let Ok(mind) = minds.get(observer) else {
-                continue;
-            };
-            let Ok(mut tom) = toms.get_mut(observer) else {
+            let Ok(mut tom) = toms.get_mut(*observer) else {
                 continue;
             };
 
-            for partner in conv.participants.iter().copied() {
+            for (partner, partner_set) in &vis_sets {
                 if partner == observer {
                     continue;
                 }
-                let Ok(vis_partner) = visible_query.get(partner) else {
-                    continue;
-                };
-                let vis_partner_set: HashSet<Entity> =
-                    vis_partner.entities.iter().copied().collect();
-                let shared_visible: Vec<Entity> = vis_observer
-                    .entities
-                    .iter()
-                    .filter(|e| vis_partner_set.contains(e))
-                    .copied()
-                    .collect();
-                if shared_visible.is_empty() {
-                    continue;
-                }
-
                 let mut count = 0usize;
-                for &visible_entity in &shared_visible {
-                    let node = Node::Entity(visible_entity);
+                for visible_entity in observer_set.iter().filter(|e| partner_set.contains(e)) {
+                    let node = Node::Entity(*visible_entity);
                     for triple in mind.query(Some(&node), None, None) {
                         if triple.meta.salience >= SHARED_EXPERIENCE_MIN_SALIENCE {
                             tom.record_belief(
-                                partner,
+                                *partner,
                                 triple.subject.clone(),
                                 triple.predicate,
                                 triple.object.clone(),
@@ -291,8 +285,8 @@ pub fn update_shared_experience_tom(
 
                 if count > 0 {
                     sim_events.write(crate::agent::events::SimEvent::TheoryOfMindUpdated {
-                        agent: observer,
-                        about: partner,
+                        agent: *observer,
+                        about: *partner,
                         tick: tick.current,
                         source: crate::agent::events::TheoryOfMindSource::SharedExperience,
                         belief_count: count,

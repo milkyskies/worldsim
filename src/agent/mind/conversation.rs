@@ -112,28 +112,32 @@ impl Conversation {
         }
     }
 
-    /// Returns the entity whose turn it currently is. Falls back to the
-    /// first participant if the turn index has drifted (possible after a
-    /// participant leaves).
+    /// Returns the entity whose turn it currently is.
+    ///
+    /// Invariant: `self.turn < self.participants.len()` whenever
+    /// `participants` is non-empty. `remove_participant` re-clamps `turn`
+    /// on every removal, `set_speaker` only accepts existing participants,
+    /// and conversations with fewer than two participants are marked
+    /// `Ended` by `evaluate_conversation_continuation` before the next
+    /// turn is selected.
     pub fn current_speaker(&self) -> Entity {
-        self.participants
-            .get(self.turn)
-            .copied()
-            .unwrap_or_else(|| {
-                self.participants
-                    .first()
-                    .copied()
-                    .expect("conversation must have at least one participant")
-            })
+        self.participants[self.turn]
     }
 
-    /// Iterate over all non-speaker participants.
-    pub fn listeners(&self) -> impl Iterator<Item = Entity> + '_ {
-        let speaker = self.current_speaker();
+    /// Iterate over every participant except `speaker`. Used by systems
+    /// that process a specific turn (where the speaker is `turn.speaker`,
+    /// which may differ from the current `current_speaker()` after the
+    /// floor advances).
+    pub fn listeners_for(&self, speaker: Entity) -> impl Iterator<Item = Entity> + '_ {
         self.participants
             .iter()
             .copied()
             .filter(move |e| *e != speaker)
+    }
+
+    /// Iterate over all non-speaker participants (speaker = current turn).
+    pub fn listeners(&self) -> impl Iterator<Item = Entity> + '_ {
+        self.listeners_for(self.current_speaker())
     }
 
     /// True if the most recent turn was a question expecting a response.

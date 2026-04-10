@@ -8,8 +8,7 @@
 //! # Architecture
 //!
 //! Conversations live as a separate **channel** from the action system and
-//! support two or more participants (group conversations — the campfire
-//! scenario from #65):
+//! support two or more participants (group conversations):
 //!
 //! ```text
 //! ActionSystem                  CommunicationSystem
@@ -46,7 +45,7 @@ use crate::agent::brains::thinking::Goal;
 use crate::agent::events::{ConversationTopic, GameEvent, SimEvent};
 use crate::agent::mind::conversation::{
     Conversation, ConversationAbandoned, ConversationManager, ConversationState, InConversation,
-    Intent, Topic, Turn,
+    Intent, MAX_GROUP_SIZE, Topic, Turn,
 };
 use crate::agent::mind::knowledge::{Concept, Metadata, MindGraph, Node, Predicate, Value};
 use crate::agent::mind::social_perception::CONVERSATION_RANGE;
@@ -134,9 +133,9 @@ impl Plugin for CommunicationPlugin {
 /// 2. If the agent has reached `CONVERSATION_RANGE`, either:
 ///    - **Starts a new conversation** with the partner (if the partner is
 ///      not already talking), or
-///    - **Joins the partner's existing conversation** if one is active and
-///      has capacity (supports the campfire scenario — three agents chat
-///      as a group instead of two disjoint pair chats).
+///    - **Joins the partner's existing conversation** if one is active
+///      and has capacity — three agents chat as a group instead of
+///      splintering into two disjoint pair chats.
 /// 3. Swaps `InitiateConversation` for `Converse` in `ActiveActions`
 ///    **in-place** (no command queue), inserts `InConversation`, and emits
 ///    `SimEvent::ConversationStarted` (or `ConversationJoined` for a join).
@@ -425,6 +424,7 @@ pub fn select_turn_intent(
             (Vec::new(), Topic::General)
         };
 
+        let expects_response = matches!(intent, Intent::Greet | Intent::Ask);
         let turn = Turn {
             speaker,
             intent,
@@ -432,13 +432,19 @@ pub fn select_turn_intent(
             emotion: None,
             content,
             timestamp: now,
-            expects_response: matches!(intent, Intent::Greet | Intent::Ask),
+            expects_response,
         };
         conv.add_turn(turn);
-        // Speaker just spoke — clear their "wants to speak" flag.
         conv.wants_to_speak.remove(&speaker);
+        // Direct question → flag the primary listener so the weighted
+        // pick favors them next turn. In a 2-agent conversation this is
+        // a no-op (they're the only candidate), but in a group it routes
+        // "Alice asks Bob" → Bob answers next instead of a random
+        // extravert jumping in.
+        if expects_response {
+            conv.wants_to_speak.insert(primary_listener);
+        }
 
-        // State machine: Greeting -> Active -> Wrapping -> Ended.
         conv.state = match (conv.state, intent) {
             (_, Intent::Farewell) => ConversationState::Ended,
             (ConversationState::Greeting, _) => {
@@ -454,7 +460,6 @@ pub fn select_turn_intent(
             (state, _) => state,
         };
 
-        // Advance the floor: personality-weighted pick among non-speakers.
         let next = pick_next_speaker(conv, &personalities);
         conv.set_speaker(next);
     }
@@ -483,47 +488,44 @@ pub(crate) fn speak_desire(personality: Option<&Personality>, wants_to_speak: bo
 /// deterministic weighted pseudo-random selection seeded by the conversation
 /// id and turn count.
 ///
-/// The current speaker is excluded from the pool (rotation property). If the
-/// only non-speaker is also missing a `Personality` component, they speak by
-/// default.
+/// The current speaker is excluded from the pool so the floor rotates.
+/// MAX_GROUP_SIZE is small enough (6) to score onto the stack.
 pub(crate) fn pick_next_speaker(
     conv: &Conversation,
     personalities: &Query<&Personality>,
 ) -> Entity {
     let speaker = conv.current_speaker();
-    let candidates: Vec<Entity> = conv
-        .participants
-        .iter()
-        .copied()
-        .filter(|e| *e != speaker)
-        .collect();
-    if candidates.is_empty() {
+    let mut candidates: [Entity; MAX_GROUP_SIZE] = [speaker; MAX_GROUP_SIZE];
+    let mut scores: [f32; MAX_GROUP_SIZE] = [0.0; MAX_GROUP_SIZE];
+    let mut count = 0usize;
+    let mut total = 0.0f32;
+    for entity in conv.listeners() {
+        let p = personalities.get(entity).ok();
+        let wants = conv.wants_to_speak.contains(&entity);
+        let score = speak_desire(p, wants).max(0.01);
+        candidates[count] = entity;
+        scores[count] = score;
+        total += score;
+        count += 1;
+    }
+    if count == 0 {
         return speaker;
     }
-    if candidates.len() == 1 {
+    if count == 1 {
         return candidates[0];
     }
 
-    let scores: Vec<f32> = candidates
-        .iter()
-        .map(|e| {
-            let p = personalities.get(*e).ok();
-            let wants = conv.wants_to_speak.contains(e);
-            speak_desire(p, wants).max(0.01)
-        })
-        .collect();
-    let total: f32 = scores.iter().sum();
     // Deterministic selector: hash conv id + turn count into [0, total).
     let seed = conv.id.wrapping_mul(2_654_435_761) ^ (conv.turns.len() as u64);
     let frac = ((seed % 1_000_000) as f32) / 1_000_000.0;
     let mut target = frac * total;
-    for (i, s) in scores.iter().enumerate() {
-        target -= *s;
+    for i in 0..count {
+        target -= scores[i];
         if target <= 0.0 {
             return candidates[i];
         }
     }
-    *candidates.last().unwrap()
+    candidates[count - 1]
 }
 
 /// Select the intent for the speaker's next turn based on their knowledge,
@@ -672,17 +674,12 @@ pub fn update_speaker_theory_of_mind(
         if turn.timestamp != tick.current || turn.content.is_empty() {
             continue;
         }
-        let listeners: Vec<Entity> = conv
-            .participants
-            .iter()
-            .copied()
-            .filter(|e| *e != turn.speaker)
-            .collect();
-        let Ok(mut speaker_tom) = toms.get_mut(turn.speaker) else {
+        let speaker = turn.speaker;
+        let Ok(mut speaker_tom) = toms.get_mut(speaker) else {
             continue;
         };
         let count = turn.content.len();
-        for listener in listeners {
+        for listener in conv.listeners_for(speaker) {
             speaker_tom.record_shared_triples(
                 listener,
                 &turn.content,
@@ -690,7 +687,7 @@ pub fn update_speaker_theory_of_mind(
                 tick.current,
             );
             sim_events.write(SimEvent::TheoryOfMindUpdated {
-                agent: turn.speaker,
+                agent: speaker,
                 about: listener,
                 tick: tick.current,
                 source: crate::agent::events::TheoryOfMindSource::Communicated,
@@ -706,8 +703,7 @@ pub fn update_speaker_theory_of_mind(
 
 /// Apply the most recent turn's `content` triples to every listener's
 /// MindGraph as Hearsay knowledge. In group conversations this broadcasts
-/// shared knowledge to all participants simultaneously — the "the whole
-/// group hears it" property required by #65.
+/// shared knowledge to all participants simultaneously.
 pub fn process_received_communication(
     manager: Res<ConversationManager>,
     mut minds: Query<&mut MindGraph>,
@@ -725,13 +721,7 @@ pub fn process_received_communication(
         if turn.content.is_empty() {
             continue;
         }
-        let listeners: Vec<Entity> = conv
-            .participants
-            .iter()
-            .copied()
-            .filter(|e| *e != turn.speaker)
-            .collect();
-        for listener in listeners {
+        for listener in conv.listeners_for(turn.speaker) {
             let Ok(mut mind) = minds.get_mut(listener) else {
                 continue;
             };

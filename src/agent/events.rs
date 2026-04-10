@@ -199,17 +199,17 @@ pub enum SimEvent {
         conversation_id: u64,
     },
 
-    /// A third+ agent joined an existing conversation, extending it from a
-    /// 1-on-1 (or smaller group) into a group conversation.
+    /// A new agent joined an existing conversation as an additional
+    /// participant (group grew from N to N+1).
     ConversationJoined {
         joiner: Entity,
         tick: u64,
         conversation_id: u64,
     },
 
-    /// An agent left a conversation gracefully while the rest kept talking.
-    /// Distinct from `ConversationEnded` (whole group broke up) and
-    /// `ConversationAbandoned` (the leaver ditched rudely).
+    /// A single agent left a multi-agent conversation gracefully while
+    /// the rest kept talking. Distinct from `ConversationEnded` (whole
+    /// group broke up) and `ConversationAbandoned` (leaver ditched rudely).
     ConversationLeft {
         leaver: Entity,
         tick: u64,
