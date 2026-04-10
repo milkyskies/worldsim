@@ -14,22 +14,56 @@ use worldsim::agent::mind::knowledge::{
 use worldsim::agent::psyche::emotions::{EmotionType, EmotionalState};
 use worldsim::testing::{AgentConfig, TestWorld};
 
-/// Wolves should recognize deer as food intrinsically.
+/// Wolves should know how to extract meat from deer intrinsically: deer is
+/// prey, deer produces meat, and meat is food (the last fact lives in the
+/// shared ontology). Together these triples give a wolf's rational planner
+/// the full chain from "I'm hungry" to "kill that deer."
 #[test]
-fn wolf_knows_deer_is_food() {
+fn wolf_knows_deer_yields_meat() {
     let mut world = TestWorld::with_seed(42);
     let wolf = world.spawn_wolf(Vec2::new(100.0, 100.0));
 
     let mind = world.get::<MindGraph>(wolf);
-    let triples = mind.query(
+
+    // Direct innate knowledge: deer is prey.
+    let prey = mind.query(
+        Some(&Node::Concept(Concept::Deer)),
+        Some(Predicate::HasTrait),
+        Some(&Value::Concept(Concept::Prey)),
+    );
+    assert!(
+        !prey.is_empty(),
+        "wolf should know Deer HasTrait Prey intrinsically"
+    );
+
+    // Direct innate knowledge: deer produces meat.
+    let produces = mind.query(
+        Some(&Node::Concept(Concept::Deer)),
+        Some(Predicate::Produces),
+        Some(&Value::Item(Concept::Meat, 1)),
+    );
+    assert!(
+        !produces.is_empty(),
+        "wolf should know Deer Produces Meat intrinsically"
+    );
+
+    // Universal ontology fact: meat is food. The wolf inherits this through
+    // its shared ontology rather than asserting it itself.
+    assert!(
+        mind.is_a(&Node::Concept(Concept::Meat), Concept::Food),
+        "wolf's ontology should classify Meat IsA Food"
+    );
+
+    // Regression: the old `(Deer, IsA, Food)` category-error triple is gone.
+    let category_error = mind.query(
         Some(&Node::Concept(Concept::Deer)),
         Some(Predicate::IsA),
         Some(&Value::Concept(Concept::Food)),
     );
-
     assert!(
-        !triples.is_empty(),
-        "wolf should have intrinsic knowledge that Deer IsA Food"
+        category_error.is_empty(),
+        "wolf must not assert the category-error triple Deer IsA Food — \
+         a live deer is not food, meat is food"
     );
 }
 

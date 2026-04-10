@@ -8,6 +8,7 @@ pub mod emits_effect;
 pub mod environment;
 pub mod human;
 pub mod map;
+pub mod meat;
 pub mod property;
 pub mod sense_sources;
 pub mod spatial_index;

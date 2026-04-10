@@ -28,6 +28,9 @@ pub fn spawn_concept_entity(
         Concept::Campfire => Some(crate::world::campfire::spawn_campfire_headless(
             commands, position,
         )),
+        Concept::Meat => Some(crate::world::meat::spawn_meat_drop_headless(
+            commands, position,
+        )),
         _ => None,
     }
 }

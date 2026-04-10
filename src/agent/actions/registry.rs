@@ -54,9 +54,15 @@ pub enum TargetSource {
     Implicit,
     /// Iterate entities the agent has knowledge of and keep the ones whose
     /// world `Affordance` component declares this action type.
-    /// Examples: Harvest, Take, Deposit, Attack (apple trees, wood logs,
+    /// Examples: Harvest, Take, Deposit (apple trees, wood logs,
     /// stone nodes, berry bushes, etc).
     EntityAffordance,
+    /// Iterate every perceived entity whose ontology trait inheritance contains
+    /// the given concept. Used by Attack/Bite to find any entity the agent
+    /// knows is `HasTrait Prey` — works regardless of whether the entity has
+    /// an inventory or world `Affordance` component, since prey-ness lives
+    /// in the agent's beliefs about the entity type, not on the entity itself.
+    EntityWithTrait(Concept),
     /// Iterate tiles matching `Tile(?) HasTrait <concept>` in the MindGraph.
     /// The tile-based mirror of `EntityWithTrait`. Drink uses this with
     /// `Concept::Drinkable` so the planner can chain `Walk → Drink` against
@@ -161,6 +167,15 @@ pub enum SpawnRequest {
         requirements: Vec<(crate::agent::mind::knowledge::Concept, u32)>,
         initial_items: Vec<(crate::agent::mind::knowledge::Concept, u32)>,
     },
+    /// Attach a `Becomes` transformation to an existing world entity. The
+    /// transformation fires immediately (`AfterTicks(0)`), so on the next
+    /// `becomes_system` tick the entity is despawned and replaced by a
+    /// fresh entity of `target`. Used by Attack/Bite to turn slain prey
+    /// into meat drops via the Becomes substrate.
+    BecomesAttach {
+        entity: bevy::prelude::Entity,
+        target: crate::agent::mind::knowledge::Concept,
+    },
 }
 
 /// Context provided to actions when they complete
@@ -170,6 +185,10 @@ pub struct CompletionContext<'a> {
     pub inventory: &'a mut crate::agent::item_slots::ItemSlots,
     /// Psychological drives (social, curiosity, etc.)
     pub drives: Option<&'a mut crate::agent::body::needs::PsychologicalDrives>,
+    /// The agent's MindGraph (read-only). Lets actions consult the agent's
+    /// beliefs about the target — e.g. Attack/Bite check
+    /// `has_trait(target, Prey)` to gate the hunt-kill path.
+    pub mind: &'a crate::agent::mind::knowledge::MindGraph,
     /// Target entity's inventory (for Harvest, etc.)
     pub target_inventory: Option<&'a mut crate::agent::item_slots::ItemSlots>,
     /// Target entity

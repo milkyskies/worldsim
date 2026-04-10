@@ -41,10 +41,12 @@ fn run_on_complete(
 ) {
     let mut physical = PhysicalNeeds::default();
     let mut spawn_requests: Vec<SpawnRequest> = Vec::new();
+    let mind = empty_mind();
     let mut ctx = CompletionContext {
         physical: &mut physical,
         inventory,
         drives: None,
+        mind: &mind,
         target_inventory,
         target_entity: None,
         tick: 0,

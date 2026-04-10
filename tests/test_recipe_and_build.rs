@@ -215,6 +215,7 @@ fn build_action_consumes_wood() {
         physical: &mut physical,
         inventory: &mut inventory,
         drives: None,
+        mind: &mind,
         target_inventory: None,
         target_entity: None,
         tick: 0,

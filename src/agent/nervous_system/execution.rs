@@ -266,6 +266,7 @@ pub fn tick_actions(
         &mut ItemSlots,
         Option<&mut crate::agent::body::needs::PsychologicalDrives>,
         Option<&Body>,
+        &crate::agent::mind::knowledge::MindGraph,
     )>,
     mut target_inventories: Query<&mut ItemSlots, Without<PhysicalNeeds>>,
     living_entities: Query<()>,
@@ -282,6 +283,7 @@ pub fn tick_actions(
         mut inventory,
         mut drives,
         body,
+        mind,
     ) in agents.iter_mut()
     {
         // Snapshot the load and capacities at the start of the tick. Capacities
@@ -409,6 +411,7 @@ pub fn tick_actions(
                 physical: &mut physical,
                 inventory: &mut inventory,
                 drives: drives.as_deref_mut(),
+                mind,
                 target_inventory: target_inv_ptr,
                 target_entity: snapshot.target_entity,
                 tick: current_tick,
@@ -449,6 +452,15 @@ pub fn tick_actions(
                             &initial_items,
                             current_tick,
                         );
+                    }
+                    SpawnRequest::BecomesAttach { entity, target } => {
+                        commands
+                            .entity(entity)
+                            .insert(crate::world::becomes::Becomes::new(
+                                target,
+                                crate::world::becomes::BecomesTrigger::AfterTicks(0),
+                                current_tick,
+                            ));
                     }
                 }
             }
