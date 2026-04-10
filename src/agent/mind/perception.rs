@@ -375,6 +375,77 @@ pub fn perceive_water_tiles(
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+// GRASS PERCEPTION — Detect grazable tiles for herbivores
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Grass tiles are static terrain — scan infrequently (every 30 ticks per agent).
+///
+/// Gated to herbivores so the planner only considers grazing for species that
+/// would actually do it. Carnivores and omnivores never get `HasTrait Grazable`
+/// asserted, keeping their MindGraph free of useless noise and their rational
+/// brain from enumerating grass tiles as food candidates.
+pub fn perceive_grass_tiles(
+    mut agents: Query<
+        (
+            Entity,
+            &Transform,
+            &Vision,
+            &crate::agent::body::species::SpeciesProfile,
+            &mut MindGraph,
+        ),
+        With<Agent>,
+    >,
+    world_map: Res<crate::world::map::WorldMap>,
+    light_level: Res<LightLevel>,
+    tick: Res<TickCount>,
+) {
+    use crate::agent::body::species::Diet;
+    use crate::world::map::TileType;
+
+    let current_time = tick.current;
+
+    for (entity, transform, vision, species, mut mind) in agents.iter_mut() {
+        if !matches!(species.diet, Diet::Herbivore) {
+            continue;
+        }
+        if !tick.should_run(entity, 30) {
+            continue;
+        }
+
+        let pos = transform.translation.truncate();
+        let view_range = vision.range * light_level.0;
+        let tile_range = (view_range / TILE_SIZE).ceil() as i32;
+
+        let center_tx = (pos.x / TILE_SIZE).floor() as i32;
+        let center_ty = (pos.y / TILE_SIZE).floor() as i32;
+
+        for dx in -tile_range..=tile_range {
+            for dy in -tile_range..=tile_range {
+                let tx = center_tx + dx;
+                let ty = center_ty + dy;
+                if tx < 0 || ty < 0 {
+                    continue;
+                }
+
+                let tile_world = world_map.tile_to_world(tx, ty);
+                if pos.distance(tile_world) > view_range {
+                    continue;
+                }
+
+                if let Some(TileType::Grass) = world_map.get_tile(tx as u32, ty as u32) {
+                    mind.assert(Triple::with_meta(
+                        Node::Tile((tx, ty)),
+                        Predicate::HasTrait,
+                        Value::Concept(Concept::Grazable),
+                        Metadata::semantic(current_time),
+                    ));
+                }
+            }
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // DANGER PERCEPTION — Contextual threat assessment produces Fear
 // ═══════════════════════════════════════════════════════════════════════════
 

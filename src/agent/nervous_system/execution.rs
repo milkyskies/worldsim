@@ -179,6 +179,13 @@ pub fn start_actions(
                 let new_target = match wanted_action {
                     ActionType::Explore => find_explore_target(pos, mind, &world_map, tick.current),
                     ActionType::Wander => pick_random_walkable_target(pos, &world_map, 10.0..30.0),
+                    ActionType::Graze => pick_random_grass_target(
+                        pos,
+                        &world_map,
+                        crate::constants::actions::graze::DRIFT_RANGE_MIN
+                            ..crate::constants::actions::graze::DRIFT_RANGE_MAX,
+                    )
+                    .or(action_template.target_position),
                     ActionType::Flee => {
                         if let Some(threat) = action_template.target_entity {
                             if let Ok(threat_t) = entity_transforms.get(threat) {
@@ -740,6 +747,33 @@ fn pick_random_walkable_target(
         let angle = base_angle + (i as f32 * std::f32::consts::TAU / 8.0);
         let test_pos = pos + Vec2::new(angle.cos(), angle.sin()) * dist;
         if world_map.in_bounds(test_pos) && world_map.is_walkable(test_pos) {
+            return Some(test_pos);
+        }
+    }
+    None
+}
+
+/// Pick a nearby grass tile as a drift target. Grazing only happens on grass,
+/// so this refuses to return non-grass positions rather than silently letting
+/// the grazer wander onto sand, forest, or rock.
+fn pick_random_grass_target(
+    pos: Vec2,
+    world_map: &WorldMap,
+    dist_range: std::ops::Range<f32>,
+) -> Option<Vec2> {
+    use crate::world::map::TileType;
+
+    let mut rng = rand::rng();
+    let base_angle: f32 = rng.random_range(0.0..std::f32::consts::TAU);
+    let dist: f32 = rng.random_range(dist_range);
+
+    for i in 0..8 {
+        let angle = base_angle + (i as f32 * std::f32::consts::TAU / 8.0);
+        let test_pos = pos + Vec2::new(angle.cos(), angle.sin()) * dist;
+        if !world_map.in_bounds(test_pos) {
+            continue;
+        }
+        if matches!(world_map.tile_at(test_pos), Some(TileType::Grass)) {
             return Some(test_pos);
         }
     }
