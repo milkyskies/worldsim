@@ -205,6 +205,7 @@ pub fn update_shared_experience_tom(
     minds: Query<&super::knowledge::MindGraph>,
     mut toms: Query<&mut TheoryOfMind>,
     tick: Res<crate::core::tick::TickCount>,
+    mut sim_events: MessageWriter<crate::agent::events::SimEvent>,
 ) {
     for conv in manager.conversations.values() {
         if conv.state == crate::agent::mind::conversation::ConversationState::Ended {
@@ -240,6 +241,7 @@ pub fn update_shared_experience_tom(
                 continue;
             };
 
+            let mut count = 0usize;
             for &visible_entity in &shared_visible {
                 let node = Node::Entity(visible_entity);
                 for triple in mind.query(Some(&node), None, None) {
@@ -252,8 +254,19 @@ pub fn update_shared_experience_tom(
                             SHARED_EXPERIENCE_CONFIDENCE,
                             tick.current,
                         );
+                        count += 1;
                     }
                 }
+            }
+
+            if count > 0 {
+                sim_events.write(crate::agent::events::SimEvent::TheoryOfMindUpdated {
+                    agent: observer,
+                    about: partner,
+                    tick: tick.current,
+                    source: crate::agent::events::TheoryOfMindSource::SharedExperience,
+                    belief_count: count,
+                });
             }
         }
     }

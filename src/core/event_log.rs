@@ -212,6 +212,13 @@ fn event_meta<'a>(
             *tick,
             vec![agent_resolve(*speaker), agent_resolve(*listener)],
         ),
+        SimEvent::TheoryOfMindUpdated {
+            agent, about, tick, ..
+        } => (
+            "TheoryOfMindUpdated",
+            *tick,
+            vec![agent_resolve(*agent), agent_resolve(*about)],
+        ),
     }
 }
 
@@ -423,6 +430,22 @@ fn event_to_json(
                 "speaker": resolve(*speaker),
                 "listener": resolve(*listener),
                 "triple_count": triple_count,
+            })
+        }
+        SimEvent::TheoryOfMindUpdated {
+            agent,
+            about,
+            source,
+            belief_count,
+            ..
+        } => {
+            serde_json::json!({
+                "tick": tick,
+                "type": event_type,
+                "agent": resolve(*agent),
+                "about": resolve(*about),
+                "source": format!("{source:?}"),
+                "belief_count": belief_count,
             })
         }
     }

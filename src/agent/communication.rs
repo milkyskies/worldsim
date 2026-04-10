@@ -530,6 +530,7 @@ pub fn update_speaker_theory_of_mind(
     manager: Res<ConversationManager>,
     tick: Res<TickCount>,
     mut toms: Query<&mut TheoryOfMind>,
+    mut sim_events: MessageWriter<SimEvent>,
 ) {
     for conv in manager.conversations.values() {
         let Some(turn) = conv.turns.last() else {
@@ -542,12 +543,20 @@ pub fn update_speaker_theory_of_mind(
         let Ok(mut speaker_tom) = toms.get_mut(turn.speaker) else {
             continue;
         };
+        let count = turn.content.len();
         speaker_tom.record_shared_triples(
             listener,
             &turn.content,
             theory_of_mind::COMMUNICATED_BELIEF_CONFIDENCE,
             tick.current,
         );
+        sim_events.write(SimEvent::TheoryOfMindUpdated {
+            agent: turn.speaker,
+            about: listener,
+            tick: tick.current,
+            source: crate::agent::events::TheoryOfMindSource::Communicated,
+            belief_count: count,
+        });
     }
 }
 
@@ -563,6 +572,7 @@ pub fn process_received_communication(
     mut minds: Query<&mut MindGraph>,
     mut toms: Query<&mut TheoryOfMind>,
     tick: Res<TickCount>,
+    mut sim_events: MessageWriter<SimEvent>,
 ) {
     for conv in manager.conversations.values() {
         let Some(turn) = conv.turns.last() else {
@@ -589,12 +599,20 @@ pub fn process_received_communication(
         // Update listener's theory of mind: the speaker clearly knows what
         // they just shared (high confidence — they volunteered the info).
         if let Ok(mut listener_tom) = toms.get_mut(listener) {
+            let count = turn.content.len();
             listener_tom.record_shared_triples(
                 turn.speaker,
                 &turn.content,
                 theory_of_mind::COMMUNICATED_BELIEF_CONFIDENCE,
                 tick.current,
             );
+            sim_events.write(SimEvent::TheoryOfMindUpdated {
+                agent: listener,
+                about: turn.speaker,
+                tick: tick.current,
+                source: crate::agent::events::TheoryOfMindSource::Received,
+                belief_count: count,
+            });
         }
     }
 }

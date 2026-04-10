@@ -252,6 +252,18 @@ pub enum SimEvent {
         tick: u64,
         triple_count: usize,
     },
+
+    /// An agent's theory of mind was updated — they changed their belief
+    /// about what another agent knows.
+    TheoryOfMindUpdated {
+        agent: Entity,
+        about: Entity,
+        tick: u64,
+        /// How the belief was formed
+        source: TheoryOfMindSource,
+        /// Number of beliefs updated in this batch
+        belief_count: usize,
+    },
 }
 
 /// Which relationship dimension changed.
@@ -259,4 +271,15 @@ pub enum SimEvent {
 pub enum RelationshipDimension {
     Trust,
     Affection,
+}
+
+/// How a theory of mind belief was formed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Reflect)]
+pub enum TheoryOfMindSource {
+    /// "I told them this" — speaker recording what they shared
+    Communicated,
+    /// "They told me this, so they know it" — listener recording speaker's knowledge
+    Received,
+    /// "We both saw this" — shared experience from co-location
+    SharedExperience,
 }
