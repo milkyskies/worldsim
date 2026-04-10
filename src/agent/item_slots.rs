@@ -466,6 +466,17 @@ impl ItemSlots {
     pub fn extract_thing(&mut self, concept: Concept) -> Option<Thing> {
         self.remove_thing(concept)
     }
+
+    /// Returns a map of concept → count across all slots.
+    /// Used for UI display and belief assertions where per-instance properties
+    /// don't matter, only the total count per type.
+    pub fn group_by_concept(&self) -> std::collections::HashMap<Concept, u32> {
+        let mut counts = std::collections::HashMap::new();
+        for thing in self.all_items() {
+            *counts.entry(thing.concept).or_default() += 1;
+        }
+        counts
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

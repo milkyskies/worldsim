@@ -165,7 +165,6 @@ impl Action for DepositAction {
             return;
         };
 
-        // Find the first concept from the agent's inventory that the target accepts.
         let concept = ctx
             .inventory
             .all_items()
@@ -174,24 +173,11 @@ impl Action for DepositAction {
 
         let Some(concept) = concept else { return };
 
-        // Transfer as many Things of that concept as the target will hold.
-        loop {
-            if !target_inv
-                .slots
-                .iter()
-                .any(|s| s.can_deposit(concept, 1, None))
-            {
+        while let Some(thing) = ctx.inventory.remove_thing(concept) {
+            if !target_inv.deposit_thing(thing.clone(), None) {
+                // Slot full or rejected — put it back and stop.
+                ctx.inventory.add_thing(thing);
                 break;
-            }
-            match ctx.inventory.remove_thing(concept) {
-                None => break,
-                Some(thing) => {
-                    if !target_inv.deposit_thing(thing.clone(), None) {
-                        // Target rejected — put it back and stop.
-                        ctx.inventory.add_thing(thing);
-                        break;
-                    }
-                }
             }
         }
     }

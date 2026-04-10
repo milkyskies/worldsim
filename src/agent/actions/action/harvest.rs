@@ -8,7 +8,7 @@ use crate::agent::actions::registry::{
 };
 use crate::agent::brains::thinking::TriplePattern;
 use crate::agent::events::FailureReason;
-use crate::agent::item_slots::{Thing, ThingProperties, perishable_decay_rate};
+use crate::agent::item_slots::{Thing, perishable_decay_rate};
 use crate::agent::mind::knowledge::{Concept, MindGraph, Node, Predicate, Triple, Value};
 use crate::constants::actions::harvest::{DURATION_TICKS, ENERGY_PER_SEC, HUNGER_PER_SEC};
 
@@ -142,14 +142,7 @@ impl Action for HarvestAction {
         target_inv.remove(concept, 1);
 
         let thing = if perishable_decay_rate(concept).is_some() {
-            Thing {
-                concept,
-                properties: ThingProperties {
-                    freshness: Some(1.0),
-                    created_at: Some(ctx.tick),
-                    ..Default::default()
-                },
-            }
+            Thing::fresh(concept, ctx.tick)
         } else {
             Thing::new(concept)
         };

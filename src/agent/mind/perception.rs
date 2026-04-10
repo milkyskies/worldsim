@@ -284,12 +284,7 @@ fn perceive_inventory(
     let mut observed_concepts = std::collections::HashSet::new();
 
     // 1. Record what IS there (group Things by concept for belief representation)
-    let mut concept_counts: std::collections::HashMap<crate::agent::mind::knowledge::Concept, u32> =
-        std::collections::HashMap::new();
-    for item in inventory.all_items() {
-        *concept_counts.entry(item.concept).or_default() += 1;
-    }
-    for (concept, qty) in concept_counts {
+    for (concept, qty) in inventory.group_by_concept() {
         observed_concepts.insert(concept);
         mind.assert(Triple::with_meta(
             subject_node.clone(),

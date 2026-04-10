@@ -948,12 +948,7 @@ fn agent_viewer_ui_for_agent(world: &mut World, entity: Entity, ui: &mut egui::U
     // --- 6. Inventory ---
     egui::CollapsingHeader::new("🎒 Inventory").show(ui, |ui| {
         if let Some(inventory) = world.get::<crate::agent::item_slots::ItemSlots>(entity) {
-            // Group Things by concept for display
-            let mut counts: std::collections::HashMap<crate::agent::mind::knowledge::Concept, u32> =
-                std::collections::HashMap::new();
-            for item in inventory.all_items() {
-                *counts.entry(item.concept).or_default() += 1;
-            }
+            let counts = inventory.group_by_concept();
             if counts.is_empty() {
                 ui.label("Empty");
             } else {
