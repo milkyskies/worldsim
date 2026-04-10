@@ -170,6 +170,8 @@ pub enum Concept {
     ShelterProviding, // Entity provides shelter from weather (e.g. lean-to, cave)
     Flammable,        // Entity can catch fire and burn
     FuelConsuming,    // Entity consumes fuel to function (e.g. campfire)
+    Degradable,       // Entity degrades over time and despawns at zero durability
+    ManMade,          // Entity was built by an agent (vs spawned by world generation)
 
     // ─── Action categories ───
     SocialAction,

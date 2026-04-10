@@ -27,7 +27,6 @@ impl Plugin for WorldPlugin {
         app.register_type::<Physical>()
             .register_type::<becomes::Becomes>()
             .register_type::<construction_site::ConstructionSiteMarker>()
-            .register_type::<sense_sources::HeatSource>()
             .register_type::<sense_sources::SoundSource>()
             .add_plugins(map::MapPlugin)
             .add_plugins(environment::EnvironmentPlugin)
