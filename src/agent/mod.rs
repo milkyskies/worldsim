@@ -92,11 +92,13 @@ impl Plugin for AgentPlugin {
             .add_systems(
                 Update,
                 (
-                    // Perception must run first so agents can see resources.
-                    // Run after `becomes_system` so a freshly transformed entity
-                    // is observed at its new identity rather than its old one.
-                    mind::perception::update_visual_perception
-                        .after(crate::world::becomes::becomes_system),
+                    // Perception runs early in the tick so brains see fresh data.
+                    // Note: a freshly-transformed Becomes entity is perceived at
+                    // its NEW identity one tick after the transformation fires —
+                    // an acceptable 1-tick lag, much smaller than vision cadence,
+                    // and preserves the perception → brain → action ordering that
+                    // every other system relies on.
+                    mind::perception::update_visual_perception,
                     mind::perception::write_perceptions_to_mind
                         .after(mind::perception::update_visual_perception),
                     mind::perception::update_body_perception,

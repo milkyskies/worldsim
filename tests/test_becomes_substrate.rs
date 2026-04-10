@@ -179,15 +179,19 @@ fn after_ticks_trigger_fires_at_deadline() {
         ))
         .id();
 
-    // Tick 100 + 1 = 101: not yet
+    // Tick 100 (age 0): not fired
     app.update();
     assert!(app.world().get_entity(entity).is_ok());
 
-    // Tick 102
+    // Tick 101 (age 1): not fired
     advance_tick(&mut app);
     assert!(app.world().get_entity(entity).is_ok());
 
-    // Tick 103: deadline reached → fires
+    // Tick 102 (age 2): not fired
+    advance_tick(&mut app);
+    assert!(app.world().get_entity(entity).is_ok());
+
+    // Tick 103 (age 3): deadline reached → fires
     advance_tick(&mut app);
     assert!(
         app.world().get_entity(entity).is_err(),
