@@ -115,7 +115,7 @@ fn animate_sprites(
 
         // Undo previous frame's visual offset
         transform.translation.y -= anim.prev_y_offset;
-        transform.rotation = transform.rotation * Quat::from_rotation_z(-anim.prev_rotation);
+        transform.rotation *= Quat::from_rotation_z(-anim.prev_rotation);
         if anim.prev_y_scale != 0.0 {
             transform.scale.y /= anim.prev_y_scale;
         }
@@ -171,7 +171,7 @@ fn animate_sprites(
         };
 
         transform.translation.y += y_offset;
-        transform.rotation = transform.rotation * Quat::from_rotation_z(rotation);
+        transform.rotation *= Quat::from_rotation_z(rotation);
         transform.scale.y *= y_scale;
 
         anim.prev_y_offset = y_offset;
