@@ -531,7 +531,7 @@ pub fn apply_action_effects(
         Option<&Body>,
     )>,
 ) {
-    let dt = tick.ticks_per_second / 3600.0;
+    let dt = tick.dt();
 
     for (active, mut physical, mut consciousness, body) in agents.iter_mut() {
         let load = active.channel_load(&registry);
