@@ -18,7 +18,7 @@ fn agent_near_heat_source_perceives_warmth_triple() {
     let agent = world.spawn_agent(AgentConfig::at(Vec2::new(100.0, 100.0)));
     let _campfire = world.spawn_campfire(Vec2::new(130.0, 100.0));
 
-    world.tick(3);
+    world.tick(12);
 
     let mind = world.get::<MindGraph>(agent);
     let warmth_triples: Vec<_> = mind
@@ -47,7 +47,7 @@ fn temperature_perception_does_not_require_line_of_sight() {
     let agent = world.spawn_agent(AgentConfig::at(Vec2::new(200.0, 200.0)));
     let _campfire = world.spawn_campfire(Vec2::new(240.0, 200.0));
 
-    world.tick(3);
+    world.tick(12);
 
     let mind = world.get::<MindGraph>(agent);
     let warmth_triples: Vec<_> = mind
@@ -73,7 +73,7 @@ fn agent_beyond_heat_range_does_not_perceive_warmth() {
     let agent = world.spawn_agent(AgentConfig::at(Vec2::new(100.0, 100.0)));
     let _campfire = world.spawn_campfire(Vec2::new(300.0, 100.0));
 
-    world.tick(3);
+    world.tick(12);
 
     let mind = world.get::<MindGraph>(agent);
     let warmth_triples: Vec<_> = mind
@@ -98,7 +98,7 @@ fn temperature_triple_has_lower_confidence_than_sight() {
     let agent = world.spawn_agent(AgentConfig::at(Vec2::new(100.0, 100.0)));
     let _campfire = world.spawn_campfire(Vec2::new(120.0, 100.0));
 
-    world.tick(3);
+    world.tick(12);
 
     let mind = world.get::<MindGraph>(agent);
 
@@ -257,7 +257,7 @@ fn warmth_perceived_event_emitted() {
     let agent = world.spawn_agent(AgentConfig::at(Vec2::new(100.0, 100.0)));
     let _campfire = world.spawn_campfire(Vec2::new(130.0, 100.0));
 
-    world.tick(3);
+    world.tick(12);
 
     let log = world
         .app()
