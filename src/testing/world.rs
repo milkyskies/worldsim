@@ -479,6 +479,7 @@ impl TestWorld {
         app.insert_resource(TickCount::new(60.0));
         app.insert_resource(GameLog::new(100));
         app.init_resource::<GameTime>();
+        app.insert_resource(crate::core::SimRng::from_seed(seed));
         app.add_plugins(SpatialIndexPlugin);
 
         // SimEvent history — collected automatically each tick.
