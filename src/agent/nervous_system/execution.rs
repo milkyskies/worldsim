@@ -878,8 +878,7 @@ mod tests {
         active.insert(ActionState::new(ActionType::Walk, 0));
 
         let sleep_def = registry.get(ActionType::Sleep).unwrap();
-        let mut target = TargetPosition::default();
-        target.0 = Some(Vec2::new(99.0, 99.0));
+        let mut target = TargetPosition(Some(Vec2::new(99.0, 99.0)));
         let target_before = target.0;
 
         let admitted = preempt_to_make_room(
