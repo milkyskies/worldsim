@@ -201,14 +201,12 @@ mod tests {
                 extraversion: 1.0,
                 ..Default::default()
             },
-            ..Default::default()
         };
         let introvert = Personality {
             traits: PersonalityTraits {
                 extraversion: 0.0,
                 ..Default::default()
             },
-            ..Default::default()
         };
 
         let extra = stranger_affection_for(Some(&species), Some(&extravert));
