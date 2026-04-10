@@ -6,6 +6,8 @@
 /// World spawning configuration
 pub mod world {
     pub const HUMAN_SPAWN_COUNT: usize = 6;
+    /// Number of humans in the second cluster spawned across the river.
+    pub const SECOND_GROUP_SPAWN_COUNT: usize = 4;
     pub const APPLE_TREE_SPAWN_COUNT: usize = 24;
     pub const BERRY_BUSH_SPAWN_COUNT: usize = 32;
     pub const DEER_SPAWN_COUNT: usize = 8;

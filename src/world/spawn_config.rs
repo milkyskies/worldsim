@@ -12,11 +12,13 @@ use rand_chacha::ChaCha8Rng;
 use crate::constants::world::{
     APPLE_TREE_SPAWN_COUNT, BERRY_BUSH_SPAWN_COUNT, DEER_HERD_RADIUS_TILES, DEER_HERD_SIZE,
     DEER_MIN_DISTANCE_FROM_SETTLEMENT, DEER_SPAWN_COUNT, HUMAN_CLUSTER_RADIUS_TILES,
-    HUMAN_SPAWN_COUNT, MAX_SPAWN_ATTEMPTS, SETTLEMENT_BERRY_BUSH_COUNT,
+    HUMAN_SPAWN_COUNT, MAX_SPAWN_ATTEMPTS, SECOND_GROUP_SPAWN_COUNT, SETTLEMENT_BERRY_BUSH_COUNT,
     SETTLEMENT_FOOD_RADIUS_TILES, STONE_NODE_SPAWN_COUNT, WOLF_MIN_DISTANCE_FROM_SETTLEMENT,
     WOLF_PACK_RADIUS_TILES, WOLF_PACK_SIZE, WOLF_SPAWN_COUNT, WOOD_LOG_SPAWN_COUNT,
 };
-use crate::world::map::{TileType, WORLD_HEIGHT, WORLD_WIDTH, WorldMap};
+use crate::world::map::{
+    DEFAULT_TERRAIN_SEED, TileType, WORLD_HEIGHT, WORLD_WIDTH, WorldMap, river_center_x,
+};
 use crate::world::spawn_placement::{
     SettlementSearch, cluster_positions, find_biome_tile, find_settlement_center,
     find_tile_away_from,
@@ -39,6 +41,9 @@ pub enum SpawnAlgorithm {
 pub struct WorldSpawnConfig {
     pub map_size: (u32, u32),
     pub humans: usize,
+    /// Number of humans in the second group, spawned on the opposite side of
+    /// the river from the first settlement. Zero disables the second group.
+    pub second_humans: usize,
     pub deer: usize,
     pub wolves: usize,
     pub berry_bushes: usize,
@@ -57,6 +62,7 @@ impl WorldSpawnConfig {
         Self {
             map_size: (WORLD_WIDTH, WORLD_HEIGHT),
             humans: HUMAN_SPAWN_COUNT,
+            second_humans: SECOND_GROUP_SPAWN_COUNT,
             deer: DEER_SPAWN_COUNT,
             wolves: WOLF_SPAWN_COUNT,
             berry_bushes: BERRY_BUSH_SPAWN_COUNT,
@@ -83,6 +89,10 @@ impl WorldSpawnConfig {
 #[derive(Debug, Clone, Default)]
 pub struct SpawnLayout {
     pub human_positions: Vec<Vec2>,
+    /// Second human cluster, spawned on the opposite side of the river from
+    /// [`Self::human_positions`]. Empty when the config disables it or when
+    /// no suitable site was found on the other side.
+    pub second_human_positions: Vec<Vec2>,
     pub deer_positions: Vec<Vec2>,
     pub wolf_positions: Vec<Vec2>,
     /// Each entry is (world position, initial berry count).
@@ -130,6 +140,21 @@ fn compute_realistic_layout(config: &WorldSpawnConfig, map: &WorldMap) -> SpawnL
         None => fallback_random_walkable(map, &mut rng, config.humans),
     };
 
+    // Second human group across the river: strangers separated by a natural
+    // barrier so stranger dynamics and cultural divergence can emerge.
+    if config.second_humans > 0
+        && let Some(first) = settlement
+        && let Some(second_center) = find_second_settlement_across_river(map, first)
+    {
+        layout.second_human_positions = cluster_positions(
+            map,
+            second_center,
+            config.second_humans,
+            HUMAN_CLUSTER_RADIUS_TILES,
+            &mut rng,
+        );
+    }
+
     // Apple trees prefer forest biomes.
     for _ in 0..config.apple_trees {
         if let Some(pos) = find_biome_tile(map, &mut rng, &[TileType::Forest], MAX_SPAWN_ATTEMPTS) {
@@ -175,6 +200,31 @@ fn compute_realistic_layout(config: &WorldSpawnConfig, map: &WorldMap) -> SpawnL
     layout.wolf_positions = compute_wolf_pack_positions(map, settlement, config.wolves, &mut rng);
 
     layout
+}
+
+/// Finds a settlement site on the opposite side of the river from `first`.
+///
+/// Determines which side of the river the first settlement is on by sampling
+/// `river_center_x` at the first settlement's row, then constrains the
+/// settlement search to the opposite half of the map (with a 4-tile buffer
+/// away from the river itself so the cluster doesn't spill onto the banks).
+fn find_second_settlement_across_river(map: &WorldMap, first: UVec2) -> Option<UVec2> {
+    const RIVER_BUFFER_TILES: u32 = 4;
+
+    let river_cx = river_center_x(first.y, map.width, DEFAULT_TERRAIN_SEED);
+    let x_range = if first.x < river_cx {
+        (river_cx + RIVER_BUFFER_TILES, map.width)
+    } else {
+        (0, river_cx.saturating_sub(RIVER_BUFFER_TILES))
+    };
+
+    find_settlement_center(
+        map,
+        &SettlementSearch {
+            x_range: Some(x_range),
+            ..Default::default()
+        },
+    )
 }
 
 fn compute_deer_herd_positions(
