@@ -1,12 +1,13 @@
 //! Campfire spawning logic.
 //!
 //! Reads: ItemSlots (none — campfires have no inventory)
-//! Writes: Campfire entities (CampfireMarker, EntityType, Physical, LightSource, HeatSource, FuelConsumer, Transform)
+//! Writes: Campfire entities (CampfireMarker, EntityType, Physical, LightSource, HeatSource, FuelConsumer, EmitsEffect, Transform)
 //! Upstream: execution system (Build action on_complete → SpawnRequest)
-//! Downstream: world entities (visible, perceivable by agents), perceive_temperature (reads HeatSource)
+//! Downstream: world entities (visible, perceivable by agents), perceive_temperature (reads HeatSource), emits_effect_system (reads EmitsEffect)
 
 use crate::agent::inventory::EntityType;
 use crate::agent::mind::knowledge::Concept;
+use crate::world::emits_effect::{EffectKind, EmitsEffect};
 use crate::world::map::TILE_SIZE;
 use crate::world::property::{FuelConsumer, HeatSource, LightSource};
 use bevy::prelude::*;
@@ -21,6 +22,7 @@ pub struct CampfireMarker;
 /// - [`LightSource`]: emits light in a radius, perceivable by agents at night
 /// - [`HeatSource`]: emits heat, perceivable by agents via temperature sense
 /// - [`FuelConsumer`]: burns wood; removes LightSource and HeatSource when fuel runs out
+/// - [`EmitsEffect`]: comfort aura — reduces stress and restores energy for nearby agents
 pub fn campfire_components(position: Vec2) -> impl Bundle {
     (
         Name::new("Campfire"),
@@ -39,6 +41,13 @@ pub fn campfire_components(position: Vec2) -> impl Bundle {
             fuel_remaining: 200.0,
             consumption_rate: 1.0,
         },
+        EmitsEffect::new(
+            80.0,
+            EffectKind::All(vec![
+                EffectKind::StressPerSec(-0.5),
+                EffectKind::EnergyPerSec(2.0),
+            ]),
+        ),
         crate::world::Physical,
         Transform::from_translation(position.extend(1.0)),
         GlobalTransform::default(),

@@ -221,6 +221,15 @@ pub(crate) fn add_wolf_knowledge(mind: &mut MindGraph, spawn_tile: (i32, i32)) {
         meta.clone(),
     ));
 
+    // Fire-fear: react_to_danger reacts to any visible entity with the
+    // Dangerous trait, so this triple alone keeps wolves away from campfires.
+    mind.assert(Triple::with_meta(
+        Node::Concept(Concept::Campfire),
+        Predicate::HasTrait,
+        Value::Concept(Concept::Dangerous),
+        meta.clone(),
+    ));
+
     // Natal territory: mark the spawn tile as owned territory.
     // The Territoriality drive system queries (tile, HasTrait, Territory) triples.
     mind.assert(Triple::with_meta(
