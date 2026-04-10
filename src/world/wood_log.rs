@@ -51,9 +51,6 @@ pub fn spawn_wood_log(commands: &mut Commands, position: Vec2, wood: u32) -> Ent
             },
             HarvestableComponent {
                 yields: Concept::Wood,
-                remaining: wood,
-                max: 6,
-                regrow_rate: 0.0,
             },
             ResourceRegeneration {
                 timer: 0.0,

@@ -64,9 +64,6 @@ pub fn spawn_apple_tree(commands: &mut Commands, position: Vec2, apples: u32) ->
             },
             HarvestableComponent {
                 yields: Concept::Apple,
-                remaining: apples,
-                max: 20,
-                regrow_rate: 0.0,
             },
             ResourceRegeneration {
                 timer: 0.0,
