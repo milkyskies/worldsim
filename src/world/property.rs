@@ -220,8 +220,7 @@ mod tests {
         let count_after_second = ontology.triples.len();
         assert_eq!(count_before + 1, count_after_first);
         assert_eq!(
-            count_after_first,
-            count_after_second,
+            count_after_first, count_after_second,
             "duplicate call must not add a second triple"
         );
     }
