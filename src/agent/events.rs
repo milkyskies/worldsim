@@ -270,6 +270,15 @@ pub enum SimEvent {
         triple_count: usize,
     },
 
+    /// An agent contributed one labor-tick to a construction site.
+    /// Emitted once per active constructor per simulation tick by
+    /// `labor_accumulation_system`.
+    LaborContributed {
+        agent: Entity,
+        tick: u64,
+        site: Entity,
+    },
+
     /// An agent felt warmth from a heat source (temperature sense).
     WarmthPerceived {
         agent: Entity,
@@ -295,6 +304,19 @@ pub enum SimEvent {
         source: TheoryOfMindSource,
         /// Number of beliefs updated in this batch
         belief_count: usize,
+    },
+
+    /// A perishable item's freshness hit zero and its concept transitioned
+    /// to its rotten variant (e.g. Apple → RottenApple). Fires once per item
+    /// per spoilage — not every tick while rotten.
+    ///
+    /// `agent` is the entity holding the item (agent inventory, chest, etc.);
+    /// not necessarily a thinking agent.
+    ItemSpoiled {
+        agent: Entity,
+        tick: u64,
+        from: Concept,
+        to: Concept,
     },
 
     /// An environmental effect (aura, zone, emitter) was applied to an agent.

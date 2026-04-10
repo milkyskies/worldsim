@@ -14,7 +14,6 @@ use crate::agent::actions::registry::{
 };
 use crate::agent::brains::thinking::TriplePattern;
 use crate::agent::events::FailureReason;
-use crate::agent::item_slots::ItemSlots;
 use crate::agent::mind::knowledge::{Concept, MindGraph, Node, Predicate, Triple, Value};
 use crate::constants::actions::deposit::{DURATION_TICKS, ENERGY_PER_SEC, HUNGER_PER_SEC};
 
@@ -150,35 +149,35 @@ impl Action for DepositAction {
         if ctx.target_entity.is_none() {
             return Err(FailureReason::TargetGone);
         }
-        if ctx.inventory.all_items().all(|s| s.quantity == 0) {
+        if ctx.inventory.all_items().next().is_none() {
             return Err(FailureReason::MissingMaterials);
         }
         Ok(())
     }
 
-    /// Transfer the first matching item from agent inventory into the target's
-    /// first accepting slot. Walks the agent's items in iteration order and
-    /// stops on the first successful deposit. Removes from the agent only the
-    /// quantity that the target actually accepted (handles partial deposits
-    /// where the target's slot has less room than the full stack).
+    /// Transfer items from agent inventory into the target's first accepting
+    /// slot, preserving per-instance properties (freshness, quality, provenance).
+    ///
+    /// Finds the first concept the target accepts, then transfers as many Things
+    /// of that concept as the target slot will hold (respecting its capacity).
     fn on_complete(&self, ctx: &mut CompletionContext) {
         let Some(target_inv) = ctx.target_inventory.as_deref_mut() else {
             return;
         };
 
-        // Snapshot agent items so we can mutate inventory inside the loop.
-        let agent_items: Vec<(Concept, u32)> = ctx
+        let concept = ctx
             .inventory
             .all_items()
-            .filter(|s| s.quantity > 0)
-            .map(|s| (s.concept, s.quantity))
-            .collect();
+            .map(|t| t.concept)
+            .find(|&c| target_inv.slots.iter().any(|s| s.can_deposit(c, 1, None)));
 
-        for (concept, qty) in agent_items {
-            let deposited = deposit_up_to(target_inv, concept, qty);
-            if deposited > 0 {
-                ctx.inventory.remove(concept, deposited);
-                return;
+        let Some(concept) = concept else { return };
+
+        while let Some(thing) = ctx.inventory.remove_thing(concept) {
+            if !target_inv.deposit_thing(thing.clone(), None) {
+                // Slot full or rejected — put it back and stop.
+                ctx.inventory.add_thing(thing);
+                break;
             }
         }
     }
@@ -186,23 +185,4 @@ impl Action for DepositAction {
     fn complete_log(&self) -> Option<&'static str> {
         Some("deposited")
     }
-}
-
-/// Try to deposit up to `qty` units of `concept` into the target slots.
-/// Returns the number of units actually deposited (0 if no slot accepts).
-///
-/// Tries a single full-stack deposit first for efficiency. Falls back to
-/// one-at-a-time deposits if the full stack won't fit, so partial fills
-/// (e.g. agent has 5 wood but the slot only has room for 2) work correctly.
-fn deposit_up_to(target: &mut ItemSlots, concept: Concept, qty: u32) -> u32 {
-    if target.deposit(concept, qty, None) {
-        return qty;
-    }
-    let mut deposited = 0;
-    let mut remaining = qty;
-    while remaining > 0 && target.deposit(concept, 1, None) {
-        deposited += 1;
-        remaining -= 1;
-    }
-    deposited
 }
