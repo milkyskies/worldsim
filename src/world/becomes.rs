@@ -127,6 +127,18 @@ impl BecomesTrigger {
             _ => false,
         }
     }
+
+    /// Return the `current` value of the first `LaborAccumulated` node found
+    /// in the trigger tree (depth-first), or `None` if no such node exists.
+    pub fn labor_current(&self) -> Option<u32> {
+        match self {
+            BecomesTrigger::LaborAccumulated { current, .. } => Some(*current),
+            BecomesTrigger::All(subs) | BecomesTrigger::Any(subs) => {
+                subs.iter().find_map(|s| s.labor_current())
+            }
+            _ => None,
+        }
+    }
 }
 
 /// Returns true if the entity has at least one Construction slot AND every
@@ -382,6 +394,28 @@ mod tests {
         } else {
             panic!("wrong variant");
         }
+    }
+
+    #[test]
+    fn labor_current_returns_current_value() {
+        assert_eq!(
+            BecomesTrigger::LaborAccumulated {
+                required: 10,
+                current: 7,
+            }
+            .labor_current(),
+            Some(7)
+        );
+        assert_eq!(BecomesTrigger::SlotsFilled.labor_current(), None);
+        // Nested inside All
+        let trigger = BecomesTrigger::All(vec![
+            BecomesTrigger::SlotsFilled,
+            BecomesTrigger::LaborAccumulated {
+                required: 5,
+                current: 3,
+            },
+        ]);
+        assert_eq!(trigger.labor_current(), Some(3));
     }
 
     #[test]

@@ -96,7 +96,7 @@ pub fn spawn_construction_site_headless(
     if labor_required.is_some() {
         entity_cmd.insert(Affordance {
             action_type: ActionType::Construct,
-            cost: 3.0,
+            cost: crate::constants::actions::construct::BASE_COST,
             distance: INTERACTION_DISTANCE,
             risk: 0.0,
         });

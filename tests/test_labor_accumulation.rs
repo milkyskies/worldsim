@@ -11,10 +11,7 @@ use worldsim::agent::mind::knowledge::Concept;
 use worldsim::world::becomes::{
     Becomes, BecomesTrigger, becomes_system, labor_accumulation_system,
 };
-use worldsim::world::campfire::CampfireMarker;
-use worldsim::world::construction_site::{
-    ConstructionSiteMarker, spawn_construction_site_headless,
-};
+use worldsim::world::construction_site::spawn_construction_site_headless;
 
 // ═══════════════════════════════════════════════════════════════════════════
 // TEST APP HELPERS
@@ -73,18 +70,10 @@ fn labor_current(app: &App, site: Entity) -> u32 {
         .entity(site)
         .get::<Becomes>()
         .expect("Site must have Becomes component");
-    find_labor_current(&becomes.trigger)
+    becomes
+        .trigger
+        .labor_current()
         .expect("Becomes trigger tree must contain LaborAccumulated")
-}
-
-fn find_labor_current(trigger: &BecomesTrigger) -> Option<u32> {
-    match trigger {
-        BecomesTrigger::LaborAccumulated { current, .. } => Some(*current),
-        BecomesTrigger::All(subs) | BecomesTrigger::Any(subs) => {
-            subs.iter().find_map(find_labor_current)
-        }
-        _ => None,
-    }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -383,7 +372,7 @@ fn spawn_helper_creates_labor_site_with_correct_trigger() {
         "Labor site trigger tree must contain LaborAccumulated"
     );
     assert_eq!(
-        find_labor_current(&becomes.trigger).unwrap(),
+        becomes.trigger.labor_current().unwrap(),
         0,
         "Labor must start at 0"
     );
