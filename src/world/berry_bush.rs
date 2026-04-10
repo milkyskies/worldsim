@@ -4,6 +4,7 @@ use crate::agent::inventory::EntityType;
 use crate::agent::item_slots::ItemSlots;
 use crate::agent::mind::knowledge::Concept;
 use crate::world::map::TILE_SIZE;
+use crate::world::property::HarvestableComponent;
 use bevy::prelude::*;
 
 use super::apple_tree::ResourceRegeneration;
@@ -50,6 +51,12 @@ pub fn spawn_berry_bush(commands: &mut Commands, position: Vec2, berries: u32) -
                 cost: 3.0, // Easier to harvest than trees
                 distance: 24.0,
                 risk: 0.0,
+            },
+            HarvestableComponent {
+                yields: Concept::Berry,
+                remaining: berries,
+                max: 15,
+                regrow_rate: 0.125,
             },
             ResourceRegeneration {
                 timer: 0.0,

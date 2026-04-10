@@ -1,44 +1,37 @@
 use bevy::prelude::*;
-use worldsim::agent::culture::{Culture, create_cultural_knowledge};
-use worldsim::agent::mind::knowledge::{Concept, Node as MindNode, Predicate, Value};
+use worldsim::agent::mind::knowledge::{
+    Concept, Node as MindNode, Predicate, Value, setup_ontology,
+};
 use worldsim::testing::TestWorld;
 
-/// All cultures share universal knowledge about stone and wood nodes.
+/// WoodLog→Wood and StoneNode→Stone are universal ontology facts, accessible
+/// to all agents through their MindGraph's ontology layer.
 #[test]
-fn all_cultures_know_stone_node_produces_stone() {
-    for culture in [
-        Culture::Nomad,
-        Culture::Farmer,
-        Culture::Hunter,
-        Culture::Gatherer,
-    ] {
-        let knowledge = create_cultural_knowledge(culture);
-        let knows = knowledge.iter().any(|t| {
-            t.subject == MindNode::Concept(Concept::StoneNode)
-                && t.predicate == Predicate::Produces
-                && t.object == Value::Item(Concept::Stone, 1)
-        });
-        assert!(knows, "{culture:?} should know StoneNode produces Stone");
-    }
+fn ontology_has_wood_log_produces_wood() {
+    let ontology = setup_ontology();
+    let knows = ontology.triples.iter().any(|t| {
+        t.subject == MindNode::Concept(Concept::WoodLog)
+            && t.predicate == Predicate::Produces
+            && t.object == Value::Item(Concept::Wood, 1)
+    });
+    assert!(
+        knows,
+        "Ontology should contain WoodLog→Wood production triple (universal fact)"
+    );
 }
 
-/// All cultures share universal knowledge about wood logs.
 #[test]
-fn all_cultures_know_wood_log_produces_wood() {
-    for culture in [
-        Culture::Nomad,
-        Culture::Farmer,
-        Culture::Hunter,
-        Culture::Gatherer,
-    ] {
-        let knowledge = create_cultural_knowledge(culture);
-        let knows = knowledge.iter().any(|t| {
-            t.subject == MindNode::Concept(Concept::WoodLog)
-                && t.predicate == Predicate::Produces
-                && t.object == Value::Item(Concept::Wood, 1)
-        });
-        assert!(knows, "{culture:?} should know WoodLog produces Wood");
-    }
+fn ontology_has_stone_node_produces_stone() {
+    let ontology = setup_ontology();
+    let knows = ontology.triples.iter().any(|t| {
+        t.subject == MindNode::Concept(Concept::StoneNode)
+            && t.predicate == Predicate::Produces
+            && t.object == Value::Item(Concept::Stone, 1)
+    });
+    assert!(
+        knows,
+        "Ontology should contain StoneNode→Stone production triple (universal fact)"
+    );
 }
 
 /// Stone node spawns with the expected stone count in its inventory.

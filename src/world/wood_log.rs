@@ -1,7 +1,7 @@
 //! Wood log spawning logic.
 //!
 //! Reads: ItemSlots, ResourceRegeneration, WorldMap (biome tiles via spawn_config)
-//! Writes: WoodLog entities (EntityType, ItemSlots, Affordance, ResourceRegeneration)
+//! Writes: WoodLog entities (EntityType, ItemSlots, Affordance, HarvestableComponent, ResourceRegeneration)
 //! Upstream: world::spawn_config (layout), world::apple_tree (ResourceRegeneration)
 //! Downstream: world::spawner (registered and synced each frame)
 
@@ -10,6 +10,7 @@ use crate::agent::item_slots::ItemSlots;
 use crate::agent::mind::knowledge::Concept;
 use crate::world::apple_tree::ResourceRegeneration;
 use crate::world::map::TILE_SIZE;
+use crate::world::property::HarvestableComponent;
 use bevy::prelude::*;
 
 /// Marker component for wood visual pieces on a log.
@@ -47,6 +48,12 @@ pub fn spawn_wood_log(commands: &mut Commands, position: Vec2, wood: u32) -> Ent
                 cost: 4.0,
                 distance: 24.0,
                 risk: 0.0,
+            },
+            HarvestableComponent {
+                yields: Concept::Wood,
+                remaining: wood,
+                max: 6,
+                regrow_rate: 0.022,
             },
             ResourceRegeneration {
                 timer: 0.0,

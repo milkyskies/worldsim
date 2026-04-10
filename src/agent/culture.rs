@@ -1,5 +1,5 @@
 use crate::agent::mind::knowledge::{
-    Concept, MemoryType, Metadata, Node, Predicate, Source, Triple, Value,
+    Concept, MemoryType, Metadata, Node, Ontology, Predicate, Source, Triple, Value,
 };
 use bevy::prelude::*;
 
@@ -24,7 +24,13 @@ impl Culture {
 }
 
 /// Generates a set of innate knowledge triples based on the given culture.
-pub fn create_cultural_knowledge(culture: Culture) -> Vec<Triple> {
+///
+/// Universal production facts (WoodLog→Wood, StoneNode→Stone) are now in the
+/// shared ontology and no longer seeded here — agents access them via the
+/// ontology layer in their MindGraph. Only culture-differentiating knowledge
+/// (AppleTree→Apple for Farmers/Gatherers, BerryBush→Berry for Gatherers) is
+/// seeded here as shared cultural knowledge with Source::Cultural metadata.
+pub fn create_cultural_knowledge(culture: Culture, _ontology: &Ontology) -> Vec<Triple> {
     let mut triples = Vec::new();
     let current_time = 0; // Innate knowledge exists from the beginning
 
@@ -52,11 +58,9 @@ pub fn create_cultural_knowledge(culture: Culture) -> Vec<Triple> {
 
     // ─── Universal Cultural Knowledge (All cultures know this) ───
 
-    // Material resources — all cultures know stone and wood can be gathered
-    add(c(WoodLog), Produces, Value::Item(Wood, 1));
-    add(c(WoodLog), HasTrait, v(Harvestable));
-    add(c(StoneNode), Produces, Value::Item(Stone, 1));
-    add(c(StoneNode), HasTrait, v(Harvestable));
+    // Material resources — Wood and Stone production facts are in the
+    // base ontology (setup_ontology), so agents find them there.
+    // Only classification triples are seeded here.
     add(c(Wood), IsA, v(Resource));
     add(c(Stone), IsA, v(Resource));
 
@@ -130,9 +134,9 @@ pub fn create_cultural_knowledge(culture: Culture) -> Vec<Triple> {
             add(c(Water), IsA, v(Resource));
         }
         Culture::Farmer => {
-            // Farmers know trees produce apples
+            // Farmers know trees produce apples. HasTrait Harvestable is
+            // inherited from Plant→Harvestable in the ontology.
             add(c(AppleTree), Produces, Value::Item(Apple, 1));
-            add(c(AppleTree), HasTrait, v(Harvestable)); // Can harvest from trees
             add(c(Apple), IsA, v(Food));
             add(c(AppleTree), RegenerationRate, Value::Float(10.0));
         }
@@ -142,13 +146,13 @@ pub fn create_cultural_knowledge(culture: Culture) -> Vec<Triple> {
             add(c(Animal), HasTrait, v(Harvestable));
         }
         Culture::Gatherer => {
-            // Gatherers know diverse plants - both apples and berries
+            // Gatherers know diverse plants - both apples and berries.
+            // HasTrait Harvestable for AppleTree and BerryBush is inherited
+            // from Plant→Harvestable in the ontology.
             add(c(Apple), IsA, v(Food));
             add(c(AppleTree), Produces, Value::Item(Apple, 1));
-            add(c(AppleTree), HasTrait, v(Harvestable)); // Can harvest from trees
             add(c(Berry), IsA, v(Food));
             add(c(BerryBush), Produces, Value::Item(Berry, 1));
-            add(c(BerryBush), HasTrait, v(Harvestable)); // Can harvest from bushes
         }
     }
 
@@ -159,5 +163,170 @@ pub fn create_cultural_knowledge(culture: Culture) -> Vec<Triple> {
 impl From<crate::agent::actions::ActionType> for Node {
     fn from(action: crate::agent::actions::ActionType) -> Self {
         Node::Action(action)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::agent::mind::knowledge::setup_ontology;
+
+    fn ontology() -> Ontology {
+        setup_ontology()
+    }
+
+    #[test]
+    fn gatherer_knows_berrybush_produces_berry() {
+        let triples = create_cultural_knowledge(Culture::Gatherer, &ontology());
+        let has_it = triples.iter().any(|t| {
+            t.subject == Node::Concept(Concept::BerryBush)
+                && t.predicate == Predicate::Produces
+                && t.object == Value::Item(Concept::Berry, 1)
+        });
+        assert!(
+            has_it,
+            "Gatherer culture should know BerryBush produces Berry"
+        );
+    }
+
+    #[test]
+    fn nomad_does_not_know_berrybush_produces_berry() {
+        let triples = create_cultural_knowledge(Culture::Nomad, &ontology());
+        let has_it = triples.iter().any(|t| {
+            t.subject == Node::Concept(Concept::BerryBush)
+                && t.predicate == Predicate::Produces
+                && t.object == Value::Item(Concept::Berry, 1)
+        });
+        assert!(
+            !has_it,
+            "Nomad culture should not know BerryBush produces Berry"
+        );
+    }
+
+    #[test]
+    fn farmer_does_not_know_berrybush_produces_berry() {
+        let triples = create_cultural_knowledge(Culture::Farmer, &ontology());
+        let has_it = triples.iter().any(|t| {
+            t.subject == Node::Concept(Concept::BerryBush) && t.predicate == Predicate::Produces
+        });
+        assert!(
+            !has_it,
+            "Farmer culture should not know BerryBush produces anything"
+        );
+    }
+
+    #[test]
+    fn no_duplicate_woodlog_produces_triples() {
+        let ontology = ontology();
+        // WoodLog→Wood is in the ontology; culture should not re-add it.
+        for culture in [
+            Culture::Nomad,
+            Culture::Farmer,
+            Culture::Hunter,
+            Culture::Gatherer,
+        ] {
+            let triples = create_cultural_knowledge(culture, &ontology);
+            let count = triples
+                .iter()
+                .filter(|t| {
+                    t.subject == Node::Concept(Concept::WoodLog)
+                        && t.predicate == Predicate::Produces
+                })
+                .count();
+            assert_eq!(
+                count, 0,
+                "{culture:?} culture should not redefine WoodLog production (it's in the ontology)"
+            );
+        }
+    }
+
+    #[test]
+    fn no_duplicate_stonenode_produces_triples() {
+        let ontology = ontology();
+        // StoneNode→Stone is in the ontology; culture should not re-add it.
+        for culture in [
+            Culture::Nomad,
+            Culture::Farmer,
+            Culture::Hunter,
+            Culture::Gatherer,
+        ] {
+            let triples = create_cultural_knowledge(culture, &ontology);
+            let count = triples
+                .iter()
+                .filter(|t| {
+                    t.subject == Node::Concept(Concept::StoneNode)
+                        && t.predicate == Predicate::Produces
+                })
+                .count();
+            assert_eq!(
+                count, 0,
+                "{culture:?} culture should not redefine StoneNode production (it's in the ontology)"
+            );
+        }
+    }
+
+    #[test]
+    fn no_hastraitharvestable_duplicates_in_culture() {
+        // HasTrait Harvestable for AppleTree and BerryBush is inherited from
+        // Plant in the ontology. No culture should manually re-add these.
+        let ontology = ontology();
+        for culture in [
+            Culture::Nomad,
+            Culture::Farmer,
+            Culture::Hunter,
+            Culture::Gatherer,
+        ] {
+            let triples = create_cultural_knowledge(culture, &ontology);
+            for concept in [Concept::AppleTree, Concept::BerryBush] {
+                let has_explicit = triples.iter().any(|t| {
+                    t.subject == Node::Concept(concept)
+                        && t.predicate == Predicate::HasTrait
+                        && t.object == Value::Concept(Concept::Harvestable)
+                });
+                assert!(
+                    !has_explicit,
+                    "{culture:?} culture has redundant ({}:?, HasTrait, Harvestable) — inherited from Plant",
+                    format!("{concept:?}")
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn ontology_has_woodlog_and_stonenode_produces() {
+        let ontology = ontology();
+        let has_wood = ontology.triples.iter().any(|t| {
+            t.subject == Node::Concept(Concept::WoodLog)
+                && t.predicate == Predicate::Produces
+                && t.object == Value::Item(Concept::Wood, 1)
+        });
+        let has_stone = ontology.triples.iter().any(|t| {
+            t.subject == Node::Concept(Concept::StoneNode)
+                && t.predicate == Predicate::Produces
+                && t.object == Value::Item(Concept::Stone, 1)
+        });
+        assert!(
+            has_wood,
+            "Ontology should have WoodLog→Wood production triple"
+        );
+        assert!(
+            has_stone,
+            "Ontology should have StoneNode→Stone production triple"
+        );
+    }
+
+    #[test]
+    fn appletree_inherits_harvestable_from_plant_in_ontology() {
+        let ontology = ontology();
+        // AppleTree IsA Plant, Plant HasTrait Harvestable → AppleTree inherits
+        // Harvestable through the ontology's IsA chain.
+        assert!(
+            ontology.has_trait(Concept::AppleTree, Concept::Harvestable),
+            "AppleTree should inherit Harvestable from Plant via the ontology"
+        );
+        assert!(
+            ontology.has_trait(Concept::BerryBush, Concept::Harvestable),
+            "BerryBush should inherit Harvestable from Plant via the ontology"
+        );
     }
 }
