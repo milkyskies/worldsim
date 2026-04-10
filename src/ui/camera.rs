@@ -5,6 +5,23 @@ use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 use bevy_egui::egui;
 
+/// Should the camera respond to a gesture at this cursor position?
+///
+/// When the debug dock is enabled, `UiState::viewport_rect` carries the inner
+/// game-view rect and gestures outside it are ignored so the UI panels can
+/// handle their own input. When the dock is disabled, `viewport_rect` is
+/// empty and the whole window counts as the game view.
+fn cursor_in_game_viewport(cursor: Vec2, ui_state: Option<&UiState>) -> bool {
+    let Some(ui_state) = ui_state else {
+        return true;
+    };
+    let viewport = ui_state.viewport_rect;
+    if viewport.width() <= 0.0 || viewport.height() <= 0.0 {
+        return true;
+    }
+    viewport.contains(egui::pos2(cursor.x, cursor.y))
+}
+
 pub struct CameraPlugin;
 
 impl Plugin for CameraPlugin {
@@ -33,14 +50,9 @@ fn camera_zoom(
         return;
     };
 
-    // Check if cursor is in viewport
-    if let Some(ui_state) = ui_state {
-        let viewport = ui_state.viewport_rect;
-        if !viewport.contains(egui::pos2(cursor_pos.x, cursor_pos.y)) {
-            // Consume events but don't apply
-            for _ in events.read() {}
-            return;
-        }
+    if !cursor_in_game_viewport(cursor_pos, ui_state.as_deref()) {
+        for _ in events.read() {}
+        return;
     }
 
     for event in events.read() {
@@ -78,12 +90,8 @@ fn camera_drag(
         return;
     };
 
-    // Check if cursor is in viewport
-    if let Some(ui_state) = ui_state {
-        let viewport = ui_state.viewport_rect;
-        if !viewport.contains(egui::pos2(cursor_pos.x, cursor_pos.y)) {
-            return;
-        }
+    if !cursor_in_game_viewport(cursor_pos, ui_state.as_deref()) {
+        return;
     }
 
     if buttons.pressed(MouseButton::Right) {
@@ -111,12 +119,9 @@ fn touchpad_pinch_zoom(
         return;
     };
 
-    if let Some(ui_state) = ui_state {
-        let viewport = ui_state.viewport_rect;
-        if !viewport.contains(egui::pos2(cursor_pos.x, cursor_pos.y)) {
-            for _ in events.read() {}
-            return;
-        }
+    if !cursor_in_game_viewport(cursor_pos, ui_state.as_deref()) {
+        for _ in events.read() {}
+        return;
     }
 
     for event in events.read() {
@@ -146,12 +151,9 @@ fn touchpad_pan(
         return;
     };
 
-    if let Some(ui_state) = ui_state {
-        let viewport = ui_state.viewport_rect;
-        if !viewport.contains(egui::pos2(cursor_pos.x, cursor_pos.y)) {
-            for _ in events.read() {}
-            return;
-        }
+    if !cursor_in_game_viewport(cursor_pos, ui_state.as_deref()) {
+        for _ in events.read() {}
+        return;
     }
 
     for event in events.read() {
