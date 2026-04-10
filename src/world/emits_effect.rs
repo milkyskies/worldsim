@@ -50,9 +50,8 @@ impl EmitsEffect {
 /// - `StressPerSec(2.0)` → hostile zone, stress rises 2/sec
 /// - `EnergyPerSec(2.0)` → campfire-style, energy recovers 2/sec
 /// - `FearPerSec(-1.0)` → lantern, fear drops 1 intensity/sec
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub enum EffectKind {
-    #[default]
     /// Per-second change to `stress_level`. Negative decreases stress (comfort
     /// zones); positive increases stress (hostile zones, cursed ground).
     StressPerSec(f32),
@@ -64,6 +63,12 @@ pub enum EffectKind {
     /// Apply every sub-effect. Use for entities with multiple simultaneous effects,
     /// e.g. `All([StressPerSec(-0.5), EnergyPerSec(2.0)])` for a campfire.
     All(Vec<EffectKind>),
+}
+
+impl Default for EffectKind {
+    fn default() -> Self {
+        Self::StressPerSec(0.0)
+    }
 }
 
 /// Apply a single `EffectKind` to one agent's body state. Called recursively for `All`.
