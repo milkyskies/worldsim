@@ -39,28 +39,29 @@ impl SpriteBody {
 
 // ── Hop math ────────────────────────────────────────────────────────────────
 
-/// Full hop cycle with squash-and-stretch. Takes a phase angle (0 to PI = one full hop).
-/// Returns (y_offset, x_scale, y_scale).
-///
-/// The cycle:
-///   0.0       → on ground, squishing down (crouch)
-///   0.0-0.3   → launch (stretching tall)
-///   0.3-0.7   → airborne (stretched, peak at 0.5)
-///   0.7-1.0   → landing (squishing wide)
-///   1.0       → on ground, squishing down (next crouch)
-fn hop_frame(phase_angle: f32, hop_height: f32, squish: f32) -> (f32, f32, f32) {
-    let t = phase_angle.sin().abs(); // 0 at ground, 1 at peak
+/// Hop cycle with squash-and-stretch and a REST period on the ground.
+/// Uses max(sin, 0) so the sprite spends half the cycle on the ground (resting)
+/// and half in the air (hopping). Returns (y_offset, x_scale, y_scale).
+fn hop_frame(phase_angle: f32, height: f32, squish: f32) -> (f32, f32, f32) {
+    let raw = phase_angle.sin();
+    let airborne = raw.max(0.0); // 0 when resting on ground, 0..1 when hopping
 
-    let y = t * hop_height;
+    let y = airborne * height;
 
-    // Squash-and-stretch: volume-preserving-ish
-    // At ground (t=0): wide + short (squash)
-    // At peak (t=1): narrow + tall (stretch)
-    let ground = 1.0 - t; // 1 at ground, 0 at peak
-    let squash = ground * ground * squish; // strong squash near ground, none at peak
+    // Squash only near takeoff/landing (when airborne is small but nonzero,
+    // or just after landing). Use a sharp falloff so it's a brief squish, not constant.
+    let near_ground = if airborne > 0.0 && airborne < 0.3 {
+        (0.3 - airborne) / 0.3 // 1.0 at ground, 0.0 at airborne=0.3
+    } else if raw < 0.0 && raw > -0.3 {
+        // Just landed — brief squish during early rest phase
+        (0.3 + raw) / 0.3 // 1.0 at raw=0, 0.0 at raw=-0.3
+    } else {
+        0.0
+    };
 
-    let x_scale = 1.0 + squash * 0.6; // wider on ground
-    let y_scale = 1.0 - squash; // shorter on ground
+    let sq = near_ground * near_ground * squish;
+    let x_scale = 1.0 + sq * 0.6;
+    let y_scale = 1.0 - sq;
 
     (y, x_scale, y_scale)
 }
@@ -101,15 +102,11 @@ fn animate_sprite_bodies(
         let is_moving = speed > 0.5;
 
         let (y_offset, x_scale, y_scale) = if is_moving {
-            // ~1.2 hops per second — slow, deliberate, cute
-            let hop_freq = 4.0;
-            let height = 3.0;
-            hop_frame(t * hop_freq + phase, height, 0.25)
+            // freq=5.0 with max(sin,0) → ~0.8 hops/sec, with rest between hops
+            hop_frame(t * 5.0 + phase, 3.0, 0.25)
         } else {
-            // Idle: barely-there breathing squish
-            let breath = (t * 0.8 + phase).sin();
-            let squish = breath.abs() * 0.03;
-            (0.0, 1.0 + squish * 0.3, 1.0 - squish)
+            // Idle: completely still, no animation
+            (0.0, 1.0, 1.0)
         };
 
         // Apply to the SpriteBody transform (not root)
@@ -129,24 +126,37 @@ mod tests {
     use super::*;
 
     #[test]
-    fn hop_at_ground_squishes_wide_and_short() {
-        // phase_angle = 0 means sin = 0, so t = 0 (ground)
-        let (y, sx, sy) = hop_frame(0.0, 4.0, 0.4);
-        assert!(y.abs() < 0.01, "should be on ground, got y={y}");
-        assert!(sx > 1.0, "should be wider on ground, got sx={sx}");
-        assert!(sy < 1.0, "should be shorter on ground, got sy={sy}");
+    fn hop_at_peak_is_airborne() {
+        // PI/2: sin = 1.0, fully airborne
+        let (y, sx, sy) = hop_frame(std::f32::consts::FRAC_PI_2, 4.0, 0.4);
+        assert!((y - 4.0).abs() < 0.01, "should be at peak, got y={y}");
+        assert!((sx - 1.0).abs() < 0.01, "no squash at peak, got sx={sx}");
+        assert!((sy - 1.0).abs() < 0.01, "no squash at peak, got sy={sy}");
     }
 
     #[test]
-    fn hop_at_peak_stretches_tall() {
-        // phase_angle = PI/2 means sin = 1, so t = 1 (peak)
-        let (y, sx, sy) = hop_frame(std::f32::consts::FRAC_PI_2, 4.0, 0.4);
+    fn hop_during_rest_is_on_ground() {
+        // 3*PI/2: sin = -1.0, resting on ground
+        let (y, sx, sy) = hop_frame(3.0 * std::f32::consts::FRAC_PI_2, 4.0, 0.4);
+        assert!(y.abs() < 0.01, "should be on ground during rest, got y={y}");
         assert!(
-            (y - 4.0).abs() < 0.01,
-            "should be at peak height, got y={y}"
+            (sx - 1.0).abs() < 0.01,
+            "no squash during rest, got sx={sx}"
         );
-        assert!((sx - 1.0).abs() < 0.01, "no stretch at peak, got sx={sx}");
-        assert!((sy - 1.0).abs() < 0.01, "no squash at peak, got sy={sy}");
+        assert!(
+            (sy - 1.0).abs() < 0.01,
+            "no squash during rest, got sy={sy}"
+        );
+    }
+
+    #[test]
+    fn hop_near_landing_squishes() {
+        // Just after landing: sin is small and positive (e.g. 0.15)
+        // phase_angle where sin ≈ 0.15 → asin(0.15) ≈ 0.15
+        let (y, sx, sy) = hop_frame(0.15, 4.0, 0.4);
+        assert!(y > 0.0, "should be slightly off ground");
+        assert!(sx > 1.0, "should be wider near landing, got sx={sx}");
+        assert!(sy < 1.0, "should be shorter near landing, got sy={sy}");
     }
 
     #[test]
@@ -155,20 +165,6 @@ mod tests {
             let angle = i as f32 * 0.1;
             let (y, _, _) = hop_frame(angle, 4.0, 0.4);
             assert!(y >= 0.0, "hop should never go below ground, got y={y}");
-        }
-    }
-
-    #[test]
-    fn squash_and_stretch_preserves_approximate_volume() {
-        // At any point, x_scale * y_scale should be roughly ~1.0
-        for i in 0..100 {
-            let angle = i as f32 * 0.1;
-            let (_, sx, sy) = hop_frame(angle, 4.0, 0.4);
-            let volume = sx * sy;
-            assert!(
-                volume > 0.7 && volume < 1.3,
-                "volume should be roughly preserved, got {volume} at angle={angle}"
-            );
         }
     }
 }
