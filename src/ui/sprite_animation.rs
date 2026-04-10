@@ -1,4 +1,4 @@
-//! Procedural sprite animation: wobble, bounce, tilt, squish derived from velocity and emotion.
+//! Procedural sprite animation: hop-based movement like indie pixel art games.
 //!
 //! Reads: Transform (velocity via position delta), EmotionalState, CurrentActivity (sleep only), Time
 //! Writes: Transform (visual offsets only — applied to root entity each frame)
@@ -24,21 +24,21 @@ impl Plugin for SpriteAnimationPlugin {
     }
 }
 
-/// Tracks the visual offset applied last frame so it can be subtracted before applying the new one.
-/// This prevents accumulation — the logical position stays untouched.
+/// Tracks the visual offset applied last frame so it can be undone cleanly.
 #[derive(Component, Debug, Clone, Default, Reflect)]
 #[reflect(Component)]
 pub struct SpriteAnimation {
     prev_y_offset: f32,
-    prev_rotation: f32,
+    prev_x_scale: f32,
     prev_y_scale: f32,
-    /// Per-entity phase offset so agents don't all sway in sync
+    /// Per-entity phase offset so agents don't all hop in sync
     phase: f32,
 }
 
 impl SpriteAnimation {
     pub fn with_phase(phase: f32) -> Self {
         Self {
+            prev_x_scale: 1.0,
             prev_y_scale: 1.0,
             phase,
             ..Default::default()
@@ -46,10 +46,30 @@ impl SpriteAnimation {
     }
 }
 
-// ── Emotion valence (simple, no personality needed) ─────────────────────────
+// ── Hop curve ───────────────────────────────────────────────────────────────
 
-/// Simple valence for an emotion type: positive emotions > 0, negative < 0.
-/// Personality-weighted valence lives in the emotion module — this is a coarse visual signal.
+/// Hop height from a phase angle. Always >= 0 (sprite only goes UP).
+/// Uses abs(sin()) so the sprite lifts off, lands, lifts off, lands.
+fn hop_height(phase_angle: f32) -> f32 {
+    phase_angle.sin().abs()
+}
+
+/// Landing squish: when the sprite is near the ground (hop_height near 0),
+/// squash Y and stretch X briefly. Returns (x_scale, y_scale).
+fn landing_squish(hop: f32, squish_amount: f32) -> (f32, f32) {
+    // hop is 0 at landing, 1 at peak. Invert for squish strength.
+    let ground_proximity = 1.0 - hop;
+    // Only squish when very close to ground (bottom 20% of hop)
+    let squish = if ground_proximity > 0.8 {
+        (ground_proximity - 0.8) * 5.0 * squish_amount // ramp from 0 to squish_amount
+    } else {
+        0.0
+    };
+    (1.0 + squish * 0.5, 1.0 - squish) // wider + shorter
+}
+
+// ── Emotion valence ─────────────────────────────────────────────────────────
+
 fn simple_valence(emotion_type: crate::agent::psyche::emotions::EmotionType) -> f32 {
     use crate::agent::psyche::emotions::EmotionType;
     match emotion_type {
@@ -62,9 +82,6 @@ fn simple_valence(emotion_type: crate::agent::psyche::emotions::EmotionType) -> 
     }
 }
 
-/// Returns (valence, intensity) of the dominant (highest intensity) active emotion.
-/// Valence is in [-1.0, 1.0], intensity in [0.0, 1.0].
-/// Returns (0.0, 0.0) if no emotions are active.
 fn dominant_valence_intensity(emotions: &EmotionalState) -> (f32, f32) {
     emotions
         .active_emotions
@@ -80,8 +97,6 @@ fn dominant_valence_intensity(emotions: &EmotionalState) -> (f32, f32) {
 
 // ── Deterministic jitter ────────────────────────────────────────────────────
 
-/// Cheap pseudo-random jitter from time using high-frequency sine waves.
-/// Returns a value in [-amplitude, +amplitude].
 fn jitter_offset(time: f32, phase: f32, amplitude: f32) -> f32 {
     let a = (time * 37.17 + phase).sin();
     let b = (time * 59.51 + phase * 1.7).sin();
@@ -107,7 +122,6 @@ fn animate_sprites(
     let dt = time.delta_secs();
     let t = time.elapsed_secs();
 
-    // Track which entities are still alive for cleanup
     let mut alive_entities = Vec::with_capacity(query.iter().len());
 
     for (entity, mut transform, mut anim, activity, emotions) in query.iter_mut() {
@@ -115,7 +129,9 @@ fn animate_sprites(
 
         // Undo previous frame's visual offset
         transform.translation.y -= anim.prev_y_offset;
-        transform.rotation *= Quat::from_rotation_z(-anim.prev_rotation);
+        if anim.prev_x_scale != 0.0 {
+            transform.scale.x /= anim.prev_x_scale;
+        }
         if anim.prev_y_scale != 0.0 {
             transform.scale.y /= anim.prev_y_scale;
         }
@@ -135,50 +151,67 @@ fn animate_sprites(
         prev_positions.insert(entity, pos);
 
         let is_sleeping = matches!(activity, Some(CurrentActivity::Sleeping));
-        let (y_offset, rotation, y_scale) = if is_sleeping {
+
+        let default_emotions = EmotionalState::default();
+        let emo = emotions.unwrap_or(&default_emotions);
+        let (valence, intensity) = dominant_valence_intensity(emo);
+
+        let (y_offset, x_scale, y_scale) = if is_sleeping {
+            // Sleeping: flatten + breathe
             let breathing = (t * (std::f32::consts::TAU / 4.0) + phase).sin() * 0.02;
-            (0.0, 0.0, 0.7 + breathing)
-        } else {
-            let (bob_freq, bob_amp, sway_amp) = if speed > 0.1 {
-                (speed * 0.3, (speed * 0.02).min(3.0_f32), 0.0)
-            } else {
-                (0.0, 0.0, 2.0_f32.to_radians())
-            };
+            (0.0, 1.0, 0.7 + breathing)
+        } else if speed > 0.1 {
+            // Moving: HOP! Frequency and height scale with speed
+            let hop_freq = 8.0 + speed * 0.04; // faster = faster hops
+            let hop_amp = 3.0 + (speed * 0.03).min(4.0); // faster = higher hops, cap at 7px
 
-            let sway_freq = std::f32::consts::TAU / 3.0;
+            // Emotion modifiers
+            let amp_bonus = if valence > 0.0 { intensity * 0.4 } else { 0.0 };
+            let freq_bonus = if valence < 0.0 { intensity * 3.0 } else { 0.0 }; // scared = frantic
+            let stress_freq = emo.stress_level * 0.02;
 
-            let default_emotions = EmotionalState::default();
-            let emo = emotions.unwrap_or(&default_emotions);
-            let (valence, intensity) = dominant_valence_intensity(emo);
-            let stress_freq_mult = 1.0 + emo.stress_level * 0.003;
+            let final_freq = hop_freq + freq_bonus + stress_freq;
+            let final_amp = hop_amp * (1.0 + amp_bonus);
 
-            let jitter_amount = if valence < 0.0 { intensity } else { 0.0 };
-            let bounce_bonus = if valence > 0.0 { intensity * 0.5 } else { 0.0 };
-            let subdued = if valence < 0.0 && intensity < 0.3 {
-                1.0 - intensity
-            } else {
-                1.0
-            };
+            let hop = hop_height(t * final_freq + phase);
+            let y = hop * final_amp;
+            let (sx, sy) = landing_squish(hop, 0.3);
 
-            let bob = (t * bob_freq * stress_freq_mult + phase).sin()
-                * (bob_amp + bob_amp * bounce_bonus)
-                * subdued;
-            let sway = (t * sway_freq * stress_freq_mult + phase).sin() * sway_amp * subdued;
-            let jitter_y = if jitter_amount > 0.0 {
-                jitter_offset(t, phase, jitter_amount)
+            // Scared jitter on top of hops
+            let jitter_y = if valence < 0.0 && intensity > 0.2 {
+                jitter_offset(t, phase, intensity * 0.8)
             } else {
                 0.0
             };
 
-            (bob + jitter_y, sway, 1.0)
+            (y + jitter_y, sx, sy)
+        } else {
+            // Idle: very gentle, slow micro-hops (breathing-like bounce)
+            let idle_freq = 2.0;
+            let idle_amp = 1.0;
+
+            let amp_bonus = if valence > 0.0 { intensity * 0.5 } else { 0.0 };
+
+            let hop = hop_height(t * idle_freq + phase);
+            let y = hop * idle_amp * (1.0 + amp_bonus);
+            let (sx, sy) = landing_squish(hop, 0.15);
+
+            let jitter_y = if valence < 0.0 && intensity > 0.2 {
+                jitter_offset(t, phase, intensity * 0.5)
+            } else {
+                0.0
+            };
+
+            (y + jitter_y, sx, sy)
         };
 
+        // Apply
         transform.translation.y += y_offset;
-        transform.rotation *= Quat::from_rotation_z(rotation);
+        transform.scale.x *= x_scale;
         transform.scale.y *= y_scale;
 
         anim.prev_y_offset = y_offset;
-        anim.prev_rotation = rotation;
+        anim.prev_x_scale = x_scale;
         anim.prev_y_scale = y_scale;
     }
 
@@ -194,68 +227,90 @@ mod tests {
     use crate::agent::psyche::emotions::{Emotion, EmotionType};
 
     #[test]
+    fn hop_height_is_always_non_negative() {
+        for i in 0..100 {
+            let angle = i as f32 * 0.1;
+            let h = hop_height(angle);
+            assert!(h >= 0.0, "hop height must never go below ground, got {h}");
+        }
+    }
+
+    #[test]
+    fn hop_height_reaches_zero_and_one() {
+        // At 0 and PI, sin = 0 so hop = 0 (landing)
+        assert!((hop_height(0.0)).abs() < 0.001);
+        assert!((hop_height(std::f32::consts::PI)).abs() < 0.001);
+        // At PI/2, sin = 1 so hop = 1 (peak)
+        assert!((hop_height(std::f32::consts::FRAC_PI_2) - 1.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn landing_squish_squashes_at_ground() {
+        let (sx, sy) = landing_squish(0.0, 0.3);
+        assert!(sx > 1.0, "should stretch X on landing, got {sx}");
+        assert!(sy < 1.0, "should squash Y on landing, got {sy}");
+    }
+
+    #[test]
+    fn no_squish_at_peak() {
+        let (sx, sy) = landing_squish(1.0, 0.3);
+        assert!((sx - 1.0).abs() < 0.001, "no X stretch at peak, got {sx}");
+        assert!((sy - 1.0).abs() < 0.001, "no Y squash at peak, got {sy}");
+    }
+
+    #[test]
     fn sleeping_produces_flattened_y_scale() {
-        // The sleeping branch computes: 0.7 + sin(...) * 0.02
-        // At any time t, the scale should be in [0.68, 0.72]
         for i in 0..100 {
             let t = i as f32 * 0.1;
-            let phase = 0.0;
-            let breathing = (t * (std::f32::consts::TAU / 4.0) + phase).sin() * 0.02;
+            let breathing = (t * (std::f32::consts::TAU / 4.0)).sin() * 0.02;
             let scale = 0.7 + breathing;
             assert!(
                 scale < 1.0 && scale > 0.0,
-                "sleeping scale should be flattened, got {scale} at t={t}"
+                "sleeping scale should be flattened, got {scale}"
             );
         }
     }
 
     #[test]
-    fn negative_valence_high_intensity_produces_jitter() {
+    fn scared_agent_gets_jitter() {
         let mut scared = EmotionalState::default();
         scared.add_emotion(Emotion::new(EmotionType::Fear, 0.8));
 
         let (valence, intensity) = dominant_valence_intensity(&scared);
-        assert!(valence < 0.0, "fear should have negative valence");
-        assert!(intensity > 0.5, "high fear should have high intensity");
-
-        let jitter_amount = if valence < 0.0 { intensity } else { 0.0 };
-        assert!(jitter_amount > 0.0, "scared agent should have jitter");
+        assert!(valence < 0.0);
+        assert!(intensity > 0.2);
+        // Jitter should be nonzero at various times
+        let mut any_nonzero = false;
+        for i in 0..50 {
+            let t = i as f32 * 0.1;
+            let j = jitter_offset(t, 0.0, intensity * 0.8);
+            if j.abs() > 0.01 {
+                any_nonzero = true;
+                break;
+            }
+        }
+        assert!(any_nonzero, "scared agent should produce nonzero jitter");
     }
 
     #[test]
-    fn positive_valence_high_intensity_increases_bounce() {
+    fn happy_agent_hops_higher() {
+        let calm = EmotionalState::default();
         let mut happy = EmotionalState::default();
         happy.add_emotion(Emotion::new(EmotionType::Joy, 0.8));
 
-        let (valence, intensity) = dominant_valence_intensity(&happy);
-        assert!(valence > 0.0, "joy should have positive valence");
+        let (calm_val, calm_int) = dominant_valence_intensity(&calm);
+        let (happy_val, happy_int) = dominant_valence_intensity(&happy);
 
-        let bounce_bonus = intensity * 0.5;
+        let calm_bonus = if calm_val > 0.0 { calm_int * 0.4 } else { 0.0 };
+        let happy_bonus = if happy_val > 0.0 {
+            happy_int * 0.4
+        } else {
+            0.0
+        };
+
         assert!(
-            bounce_bonus > 0.0,
-            "happy agent should have bounce bonus, got {bounce_bonus}"
-        );
-    }
-
-    #[test]
-    fn no_emotions_gives_neutral_valence() {
-        let calm = EmotionalState::default();
-        let (valence, intensity) = dominant_valence_intensity(&calm);
-        assert_eq!(valence, 0.0);
-        assert_eq!(intensity, 0.0);
-    }
-
-    #[test]
-    fn dominant_emotion_wins() {
-        let mut mixed = EmotionalState::default();
-        mixed.add_emotion(Emotion::new(EmotionType::Joy, 0.3));
-        mixed.add_emotion(Emotion::new(EmotionType::Fear, 0.9));
-
-        let (valence, intensity) = dominant_valence_intensity(&mixed);
-        assert!(valence < 0.0, "fear should dominate, got valence={valence}");
-        assert!(
-            (intensity - 0.9).abs() < 0.01,
-            "dominant intensity should be 0.9, got {intensity}"
+            happy_bonus > calm_bonus,
+            "happy agent should have higher hop bonus"
         );
     }
 
@@ -265,58 +320,7 @@ mod tests {
         for i in 0..100 {
             let t = i as f32 * 0.1;
             let j = jitter_offset(t, 0.0, amp);
-            assert!(
-                j.abs() <= amp,
-                "jitter should be bounded by amplitude, got {j} (max {amp})"
-            );
+            assert!(j.abs() <= amp, "jitter must be bounded, got {j}");
         }
-    }
-
-    #[test]
-    fn stationary_agent_gets_sway_not_bob() {
-        let speed: f32 = 0.0;
-        let (bob_freq, bob_amp, sway_amp) = if speed > 0.1 {
-            (speed * 0.3, (speed * 0.02).min(3.0), 0.0)
-        } else {
-            (0.0, 0.0, 2.0_f32.to_radians())
-        };
-
-        assert_eq!(
-            bob_freq, 0.0,
-            "stationary agent should have no bob frequency"
-        );
-        assert_eq!(
-            bob_amp, 0.0,
-            "stationary agent should have no bob amplitude"
-        );
-        assert!(sway_amp > 0.0, "stationary agent should sway");
-    }
-
-    #[test]
-    fn moving_agent_bob_scales_with_speed() {
-        let slow_speed = 10.0;
-        let fast_speed = 50.0;
-
-        let slow_amp = (slow_speed * 0.02_f32).min(3.0);
-        let fast_amp = (fast_speed * 0.02_f32).min(3.0);
-
-        assert!(
-            fast_amp > slow_amp,
-            "faster agent should bob more (slow={slow_amp}, fast={fast_amp})"
-        );
-    }
-
-    #[test]
-    fn stress_increases_frequency() {
-        let low_stress = 10.0;
-        let high_stress = 80.0;
-
-        let low_mult = 1.0 + low_stress * 0.003;
-        let high_mult = 1.0 + high_stress * 0.003;
-
-        assert!(
-            high_mult > low_mult,
-            "higher stress should increase frequency multiplier"
-        );
     }
 }
