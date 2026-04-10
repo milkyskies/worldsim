@@ -12,6 +12,7 @@ use crate::agent::affordance::Affordance;
 use crate::agent::biology::body::Body;
 use crate::agent::body::needs::{Consciousness, PhysicalNeeds, PsychologicalDrives};
 use crate::agent::body::species::SpeciesProfile;
+use crate::agent::brains::history::BrainHistory;
 use crate::agent::brains::proposal::BrainState;
 use crate::agent::brains::rational::RationalBrain;
 use crate::agent::inventory::EntityType;
@@ -85,6 +86,7 @@ pub(super) fn spawn_test_person(
             },
             ActiveActions::default(),
             EmotionalState::default(),
+            BrainHistory::default(),
             // Body is normally added by `setup_biology` on the next Update;
             // pre-insert it so brain queries that read `Option<&Body>` see it
             // immediately and tests can inspect injuries without an extra tick.
