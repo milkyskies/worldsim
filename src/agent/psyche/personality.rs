@@ -19,6 +19,14 @@ impl Personality {
             traits: PersonalityTraits::random(),
         }
     }
+
+    /// Deterministic variant — used by TestWorld and other seeded contexts
+    /// where reproducibility matters.
+    pub fn from_rng<R: Rng>(rng: &mut R) -> Self {
+        Self {
+            traits: PersonalityTraits::from_rng(rng),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Reflect)]
@@ -51,7 +59,11 @@ impl Default for PersonalityTraits {
 
 impl PersonalityTraits {
     pub fn random() -> Self {
-        let mut rng = rand::rng();
+        Self::from_rng(&mut rand::rng())
+    }
+
+    /// Sample traits from an explicit RNG (deterministic when caller seeds it).
+    pub fn from_rng<R: Rng>(rng: &mut R) -> Self {
         Self {
             openness: rng.random_range(0.0..=1.0),
             conscientiousness: rng.random_range(0.0..=1.0),

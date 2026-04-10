@@ -23,8 +23,10 @@ pub struct AgentConfig {
     pub thirst: f32,
     /// Energy value (0.0 = exhausted, 100.0 = fully rested).
     pub energy: f32,
-    /// Social drive (0.0 = satisfied, 1.0 = lonely).
-    pub social_drive: f32,
+    /// Optional override for social drive (0.0 = satisfied, 1.0 = lonely).
+    /// `None` keeps the personality-derived value (mirrors the real spawner).
+    /// `Some(v)` clamps the spawned agent's social drive to `v`.
+    pub social_drive: Option<f32>,
     /// Personality traits. Defaults to all 0.5 (neutral).
     pub personality: Personality,
     /// Pre-loaded knowledge triples added to the agent's MindGraph at spawn.
@@ -39,7 +41,7 @@ impl Default for AgentConfig {
             hunger: 0.0,
             thirst: 0.0,
             energy: 100.0,
-            social_drive: 0.5,
+            social_drive: None,
             personality: Personality::default(),
             knowledge: Vec::new(),
         }

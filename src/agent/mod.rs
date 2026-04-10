@@ -14,6 +14,7 @@ pub mod mind;
 pub mod movement;
 pub mod nervous_system;
 pub mod psyche;
+pub mod spawn_human;
 
 pub mod subject;
 

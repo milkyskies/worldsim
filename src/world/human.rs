@@ -1,10 +1,8 @@
 //! Human (Person) spawning logic.
 
-use crate::agent::affordance;
-use crate::agent::body::species::SpeciesProfile;
-use crate::agent::mind::knowledge::{Concept, MindGraph, Ontology};
-use crate::agent::mind::theory_of_mind::TheoryOfMind;
-use crate::agent::{Agent, Person, inventory::EntityType, item_slots::ItemSlots};
+use crate::agent::body::needs::PhysicalNeeds;
+use crate::agent::mind::knowledge::Ontology;
+use crate::agent::spawn_human::{PersonInit, build_person_logic};
 use bevy::prelude::*;
 
 /// Spawns a Person (Human Agent)
@@ -20,15 +18,20 @@ pub fn spawn_person(
     use rand::Rng;
 
     let mut rng = rand::rng();
-    let species_profile = SpeciesProfile::human();
-    let inventory = ItemSlots::agent_carry();
     let personality = Personality::random();
-    let psychological_drives =
-        crate::agent::body::needs::PsychologicalDrives::from_personality(&personality.traits);
 
-    // Initialize Mind with Ontology (Zero-copy clone)
-    let mut mind = MindGraph::new(ontology);
-    mind.add_shared_knowledge(cultural_knowledge);
+    let (core, perception, brain) = build_person_logic(
+        PersonInit {
+            name: format!("Person {} ({:?})", index, culture),
+            position,
+            personality,
+            physical_needs: PhysicalNeeds::default(),
+            social_drive_override: None,
+            cultural_knowledge,
+            extra_knowledge: Vec::new(),
+        },
+        ontology,
+    );
 
     // Random Skin Color
     let skin_tones = [
@@ -42,47 +45,16 @@ pub fn spawn_person(
     let skin_color = skin_tones[rng.random_range(0..skin_tones.len())];
 
     let entity = commands
-        .spawn((
-            Name::new(format!("Person {} ({:?})", index, culture)),
-            Agent,                       // All thinking entities have this
-            Person,                      // Human-specific marker
-            EntityType(Concept::Person), // What this entity IS
-            species_profile,
-            crate::world::Physical,
-            crate::agent::TargetPosition::default(),
-            crate::agent::movement::MovementState::default(),
-            inventory,
-            personality,
-            // ROOT HAS NO SPRITE (Invisible Container)
-            Transform::from_translation(position.extend(3.0)),
-            GlobalTransform::default(),
-        ))
+        .spawn(core)
+        .insert(perception)
         .insert((
-            affordance::Affordance::default(),
-            mind,
-            // Vision/Perception
-            crate::agent::mind::perception::Vision { range: 100.0 },
-            crate::agent::mind::perception::VisibleObjects::default(),
+            // Rendering visibility — needed by Bevy's visibility propagation,
+            // not part of the logic-only bundle since TestWorld skips it.
             Visibility::default(),
             InheritedVisibility::default(),
             ViewVisibility::default(),
         ))
-        .insert((
-            // Brains / Systems
-            crate::agent::mind::memory::WorkingMemory::default(),
-            crate::agent::brains::rational::RationalBrain::default(),
-            crate::agent::brains::proposal::BrainState::default(),
-            crate::agent::nervous_system::cns::CentralNervousSystem::default(),
-            crate::agent::body::needs::PhysicalNeeds::default(),
-            crate::agent::body::needs::Consciousness::default(),
-            psychological_drives,
-            crate::agent::actions::ActiveActions::default(),
-            crate::agent::psyche::emotions::EmotionalState::default(),
-            crate::agent::brains::history::BrainHistory::default(),
-            crate::agent::brains::active_plan::ActivePlans::default(),
-            crate::agent::psyche::relationships::RelationshipHistory::default(),
-            TheoryOfMind::default(),
-        ))
+        .insert(brain)
         .id();
 
     commands.entity(entity).with_children(|parent| {
