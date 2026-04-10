@@ -18,8 +18,8 @@ fn populated_index(n: usize) -> SpatialIndex {
     for i in 0..n {
         let entity = Entity::from_bits(i as u64 + 1);
         let chunk = IVec2::new(
-            (i as i32 % MAP_CHUNKS_X as i32),
-            ((i as i32 / MAP_CHUNKS_X as i32) % MAP_CHUNKS_Y as i32),
+            i as i32 % MAP_CHUNKS_X as i32,
+            (i as i32 / MAP_CHUNKS_X as i32) % MAP_CHUNKS_Y as i32,
         );
         index.update_entity(entity, chunk);
     }
@@ -32,7 +32,7 @@ fn linear_scan(positions: &[Vec2], query_pos: Vec2, radius: f32) -> Vec<usize> {
     positions
         .iter()
         .enumerate()
-        .filter(|(_, &pos)| query_pos.distance(pos) <= radius)
+        .filter(|&(_, pos)| query_pos.distance(*pos) <= radius)
         .map(|(i, _)| i)
         .collect()
 }
