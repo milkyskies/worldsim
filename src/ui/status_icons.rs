@@ -5,11 +5,11 @@
 //! Upstream: agent (actions, emotions, needs, conversation), world (spawning agents)
 //! Downstream: Bevy renderer (visual overlay)
 
-use crate::agent::Agent;
 use crate::agent::actions::{ActionType, ActiveActions};
 use crate::agent::body::needs::PhysicalNeeds;
 use crate::agent::mind::conversation::InConversation;
 use crate::agent::psyche::emotions::{EmotionType, EmotionalState};
+use crate::agent::Agent;
 use bevy::prelude::*;
 
 /// Camera scale above which status icons are hidden.
@@ -106,9 +106,9 @@ const ICON_SCARED: &str = "!";
 const ICON_TALKING: &str = "...";
 const ICON_EATING: &str = "nom";
 const ICON_DRINKING: &str = "sip";
-const ICON_HARVESTING: &str = "axe";
-const ICON_BUILDING: &str = "bld";
-const ICON_HUNGRY: &str = "!!";
+const ICON_HARVESTING: &str = "get";
+const ICON_BUILDING: &str = "build";
+const ICON_HUNGRY: &str = "hungry";
 const ICON_HAPPY: &str = ":)";
 const ICON_IDLE: &str = ".";
 
