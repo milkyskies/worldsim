@@ -123,16 +123,7 @@ fn hungry_hunter_kills_and_eats_nearby_deer() {
 /// A hungry wolf with no cultural knowledge should plan and execute the
 /// same chain via Bite, since wolf-intrinsic knowledge already mirrors
 /// the hunter culture's prey/produces triples.
-///
-/// Ignored: `pick_random_walkable_target` uses unseeded `rand::rng()`, so
-/// the wolf's first Wander target is non-deterministic. When it wanders
-/// away from the deer before its first planning cycle, it may never return.
-/// The fix is seeded RNG in the execution system — not in scope for #225.
-/// The hunter variant of this test passes reliably because the human's
-/// entity ID happens to align with a thinking_interval offset that plans
-/// before wandering.
 #[test]
-#[ignore = "flaky: unseeded rand::rng() in pick_random_walkable_target"]
 fn hungry_wolf_kills_and_eats_nearby_deer() {
     let mut world = TestWorld::with_seed(42);
 
