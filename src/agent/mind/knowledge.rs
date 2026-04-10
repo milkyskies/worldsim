@@ -6,6 +6,7 @@
 //! Downstream: all brain systems, thinking (TriplePattern queries), belief_state, nervous_system::cns
 
 use bevy::prelude::*;
+use smallvec::SmallVec;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -477,18 +478,17 @@ impl Triple {
 // NOTE: Ontology is now defined in the ONTOLOGY section below with caching support
 
 // ═══════════════════════════════════════════════════════════════════════════
-// MINDGRAPH INDEX
+// MINDGRAPH — Triple store with subject / predicate / (subject,predicate) indexes
 // ═══════════════════════════════════════════════════════════════════════════
 
-#[derive(Default, Clone, Reflect)]
-pub struct MindGraphIndex {
-    // Indices for O(1) lookup
-    // Using simple vectors of indices into the main triples vector
-}
+/// SmallVec sizing:
+/// - subject/predicate fan-out is usually small per agent — 8 covers the common case.
+/// - (subject, predicate) pairs are tighter still — 4 covers almost everything.
+type IdxList = SmallVec<[usize; 8]>;
+type SubjPredIdxList = SmallVec<[usize; 4]>;
 
-#[derive(Component, Clone, Reflect)]
+#[derive(Component, Clone, Reflect, Default)]
 #[reflect(Component)]
-#[derive(Default)]
 pub struct MindGraph {
     /// Shared universal truths (read-only, Arc for cheap clone)
     #[reflect(ignore)]
@@ -498,16 +498,23 @@ pub struct MindGraph {
     #[reflect(ignore)]
     pub shared_knowledge: Vec<Arc<Vec<Triple>>>,
 
-    /// All personal knowledge
-    pub triples: Vec<Triple>,
+    /// Canonical per-agent triple storage. `None` = tombstoned slot.
+    /// Indices into this vector are stable across assert/remove (only `compact()`
+    /// rewrites them), which lets indexes store bare `usize` ids.
+    triples: Vec<Option<Triple>>,
 
-    /// Indices for fast lookup of LOCAL triples
+    /// Number of tombstoned slots — reclaimed by `compact()`.
+    tombstone_count: usize,
+
+    /// Subject → live triple ids.
     #[reflect(ignore)]
-    pub by_subject: HashMap<Node, Vec<usize>>,
+    by_subject: HashMap<Node, IdxList>,
+    /// Predicate → live triple ids.
     #[reflect(ignore)]
-    pub by_subject_pred: HashMap<(Node, Predicate), usize>,
+    by_predicate: HashMap<Predicate, IdxList>,
+    /// (Subject, Predicate) → live triple ids. Most brain queries hit this one.
     #[reflect(ignore)]
-    pub by_predicate: HashMap<Predicate, Vec<usize>>,
+    by_subject_predicate: HashMap<(Node, Predicate), SubjPredIdxList>,
 }
 
 impl MindGraph {
@@ -516,9 +523,10 @@ impl MindGraph {
             ontology,
             shared_knowledge: Vec::new(),
             triples: Vec::new(),
+            tombstone_count: 0,
             by_subject: HashMap::new(),
-            by_subject_pred: HashMap::new(),
             by_predicate: HashMap::new(),
+            by_subject_predicate: HashMap::new(),
         }
     }
 
@@ -526,112 +534,240 @@ impl MindGraph {
         self.shared_knowledge.push(knowledge);
     }
 
-    /// Helper to rebuild indices
-    pub fn rebuild_indices(&mut self) {
-        self.by_subject.clear();
-        self.by_subject_pred.clear();
-        self.by_predicate.clear();
+    // ─── Accessors ──────────────────────────────────────────────────────────
 
-        for (i, triple) in self.triples.iter().enumerate() {
-            self.by_subject
-                .entry(triple.subject.clone())
-                .or_default()
-                .push(i);
+    /// Number of LIVE personal triples (excludes tombstones).
+    pub fn len(&self) -> usize {
+        self.triples.len() - self.tombstone_count
+    }
 
-            self.by_predicate
-                .entry(triple.predicate)
-                .or_default()
-                .push(i);
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
 
-            if triple.predicate.is_functional() {
-                self.by_subject_pred
-                    .insert((triple.subject.clone(), triple.predicate), i);
+    /// Total number of slots in the triple vector, including tombstones.
+    /// Exposed for compaction heuristics and tests.
+    pub fn total_slots(&self) -> usize {
+        self.triples.len()
+    }
+
+    pub fn tombstone_count(&self) -> usize {
+        self.tombstone_count
+    }
+
+    /// Iterate over live personal triples only.
+    pub fn iter(&self) -> impl Iterator<Item = &Triple> {
+        self.triples.iter().filter_map(|slot| slot.as_ref())
+    }
+
+    // ─── Index bookkeeping ──────────────────────────────────────────────────
+
+    fn index_insert(&mut self, idx: usize, subject: &Node, predicate: Predicate) {
+        self.by_subject
+            .entry(subject.clone())
+            .or_default()
+            .push(idx);
+        self.by_predicate.entry(predicate).or_default().push(idx);
+        self.by_subject_predicate
+            .entry((subject.clone(), predicate))
+            .or_default()
+            .push(idx);
+    }
+
+    fn index_remove(&mut self, idx: usize, subject: &Node, predicate: Predicate) {
+        if let Some(list) = self.by_subject.get_mut(subject) {
+            list.retain(|i| *i != idx);
+            if list.is_empty() {
+                self.by_subject.remove(subject);
+            }
+        }
+        if let Some(list) = self.by_predicate.get_mut(&predicate) {
+            list.retain(|i| *i != idx);
+            if list.is_empty() {
+                self.by_predicate.remove(&predicate);
+            }
+        }
+        let key = (subject.clone(), predicate);
+        if let Some(list) = self.by_subject_predicate.get_mut(&key) {
+            list.retain(|i| *i != idx);
+            if list.is_empty() {
+                self.by_subject_predicate.remove(&key);
             }
         }
     }
 
+    /// Tombstone the slot at `idx`. Assumes it is currently live.
+    fn tombstone(&mut self, idx: usize) {
+        if let Some(slot) = self.triples.get_mut(idx)
+            && let Some(triple) = slot.take()
+        {
+            self.tombstone_count += 1;
+            self.index_remove(idx, &triple.subject, triple.predicate);
+        }
+    }
+
+    /// Rebuild indexes and drop tombstoned slots. Triple ids are invalidated.
+    pub fn compact(&mut self) {
+        if self.tombstone_count == 0 {
+            return;
+        }
+        let mut new_triples: Vec<Option<Triple>> = Vec::with_capacity(self.len());
+        for slot in self.triples.drain(..) {
+            if slot.is_some() {
+                new_triples.push(slot);
+            }
+        }
+        self.triples = new_triples;
+        self.tombstone_count = 0;
+        self.rebuild_indexes();
+    }
+
+    /// Rebuild the subject / predicate / (subject, predicate) indexes from the
+    /// current triple vector.
+    fn rebuild_indexes(&mut self) {
+        self.by_subject.clear();
+        self.by_predicate.clear();
+        self.by_subject_predicate.clear();
+        for (i, slot) in self.triples.iter().enumerate() {
+            if let Some(triple) = slot {
+                self.by_subject
+                    .entry(triple.subject.clone())
+                    .or_default()
+                    .push(i);
+                self.by_predicate
+                    .entry(triple.predicate)
+                    .or_default()
+                    .push(i);
+                self.by_subject_predicate
+                    .entry((triple.subject.clone(), triple.predicate))
+                    .or_default()
+                    .push(i);
+            }
+        }
+    }
+
+    // ─── Mutations ──────────────────────────────────────────────────────────
+
+    /// Append a triple unconditionally. Use `assert` for deduplicated writes.
     pub fn add(&mut self, triple: Triple) {
         let idx = self.triples.len();
+        self.index_insert(idx, &triple.subject, triple.predicate);
+        self.triples.push(Some(triple));
+    }
 
-        // Update indices
-        self.by_subject
-            .entry(triple.subject.clone())
-            .or_default()
-            .push(idx);
-
-        self.by_predicate
-            .entry(triple.predicate)
-            .or_default()
-            .push(idx);
-
-        if triple.predicate.is_functional() {
-            self.by_subject_pred
-                .insert((triple.subject.clone(), triple.predicate), idx);
+    /// Retain only triples for which `f` returns true. Matching triples are
+    /// tombstoned in place — indexes stay consistent without a full rebuild.
+    /// Returns the number of triples that were forgotten.
+    pub fn retain<F>(&mut self, mut f: F) -> usize
+    where
+        F: FnMut(&Triple) -> bool,
+    {
+        let mut to_remove: SmallVec<[usize; 16]> = SmallVec::new();
+        for (i, slot) in self.triples.iter().enumerate() {
+            if let Some(triple) = slot
+                && !f(triple)
+            {
+                to_remove.push(i);
+            }
         }
-
-        self.triples.push(triple);
+        let removed = to_remove.len();
+        for idx in to_remove {
+            self.tombstone(idx);
+        }
+        removed
     }
 
     pub fn remove(&mut self, subject: &Node, predicate: Predicate, object: &Value) {
-        let initial_len = self.triples.len();
-        self.triples.retain(|t| {
-            !(t.subject == *subject && t.predicate == predicate && t.object == *object)
-        });
-
-        if self.triples.len() != initial_len {
-            self.rebuild_indices();
+        let Some(list) = self.by_subject_predicate.get(&(subject.clone(), predicate)) else {
+            return;
+        };
+        let mut to_remove: SmallVec<[usize; 4]> = SmallVec::new();
+        for &idx in list {
+            if let Some(Some(triple)) = self.triples.get(idx)
+                && triple.object == *object
+            {
+                to_remove.push(idx);
+            }
+        }
+        for idx in to_remove {
+            self.tombstone(idx);
         }
     }
 
     pub fn assert(&mut self, triple: Triple) {
-        // Special case: Contains + Item should replace by concept, not exact value
-        if triple.predicate == Predicate::Contains {
-            if let Value::Item(concept, _) = &triple.object {
-                let concept_copy = *concept;
-                let initial_len = self.triples.len();
-                self.triples.retain(|t| {
-                    !(t.subject == triple.subject
-                        && t.predicate == Predicate::Contains
-                        && matches!(&t.object, Value::Item(c, _) if *c == concept_copy))
-                });
-                if self.triples.len() != initial_len {
-                    self.rebuild_indices();
-                }
+        // Special case: Contains + Item should replace by concept, not exact value.
+        // Different item quantities for the same concept share one slot.
+        if triple.predicate == Predicate::Contains
+            && let Value::Item(concept, _) = &triple.object
+        {
+            let concept_copy = *concept;
+            let key = (triple.subject.clone(), Predicate::Contains);
+            let matching: SmallVec<[usize; 4]> = self
+                .by_subject_predicate
+                .get(&key)
+                .map(|list| {
+                    list.iter()
+                        .copied()
+                        .filter(|&idx| match self.triples.get(idx) {
+                            Some(Some(t)) => {
+                                matches!(&t.object, Value::Item(c, _) if *c == concept_copy)
+                            }
+                            _ => false,
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            for idx in matching {
+                self.tombstone(idx);
             }
+            self.add(triple);
+            return;
         }
-        // If functional, remove old variant
-        else if triple.predicate.is_functional() {
-            if let Some(&_old_idx) = self
-                .by_subject_pred
-                .get(&(triple.subject.clone(), triple.predicate))
-            {
-                // Remove old one.
-                self.triples
-                    .retain(|t| !(t.subject == triple.subject && t.predicate == triple.predicate));
-                self.rebuild_indices();
+
+        // Functional predicates have at most one object per subject — replace.
+        if triple.predicate.is_functional() {
+            let key = (triple.subject.clone(), triple.predicate);
+            let existing: SmallVec<[usize; 2]> = self
+                .by_subject_predicate
+                .get(&key)
+                .map(|list| list.iter().copied().collect())
+                .unwrap_or_default();
+            for idx in existing {
+                self.tombstone(idx);
             }
-        } else {
-            // Non-functional: Check for exact duplicate
-            if let Some(existing) = self.triples.iter_mut().find(|t| {
-                t.subject == triple.subject
-                    && t.predicate == triple.predicate
-                    && t.object == triple.object
-            }) {
-                existing.meta.timestamp = triple.meta.timestamp;
-                existing.meta.confidence = triple.meta.confidence;
-                return;
+            self.add(triple);
+            return;
+        }
+
+        // Non-functional: check for exact duplicate via the (subject, predicate)
+        // index, update in place if found.
+        let key = (triple.subject.clone(), triple.predicate);
+        if let Some(list) = self.by_subject_predicate.get(&key) {
+            let ids: SmallVec<[usize; 4]> = list.iter().copied().collect();
+            for idx in ids {
+                if let Some(Some(existing)) = self.triples.get_mut(idx)
+                    && existing.object == triple.object
+                {
+                    existing.meta.timestamp = triple.meta.timestamp;
+                    existing.meta.confidence = triple.meta.confidence;
+                    return;
+                }
             }
         }
 
         self.add(triple);
     }
 
+    // ─── Reads ──────────────────────────────────────────────────────────────
+
     pub fn get(&self, subject: &Node, predicate: Predicate) -> Option<&Value> {
         // 1. Check local knowledge (fastest)
-        if let Some(&idx) = self.by_subject_pred.get(&(subject.clone(), predicate))
-            && let Some(triple) = self.triples.get(idx)
-        {
-            return Some(&triple.object);
+        if let Some(list) = self.by_subject_predicate.get(&(subject.clone(), predicate)) {
+            for &idx in list {
+                if let Some(Some(triple)) = self.triples.get(idx) {
+                    return Some(&triple.object);
+                }
+            }
         }
 
         // 2. Check shared knowledge
@@ -645,7 +781,6 @@ impl MindGraph {
         }
 
         // 3. Fallback to ontology
-        // Ontology doesn't have a value index for triples yet, but simple find is okay for now
         self.ontology
             .triples
             .iter()
@@ -665,51 +800,43 @@ impl MindGraph {
                 && object.is_none_or(|o| t.object == *o)
         };
 
-        // If we have indices and specific queries, use them for LOCAL triples
-        let local_iter: Box<dyn Iterator<Item = &Triple>> =
-            if let (Some(sub), Some(pred)) = (subject, predicate) {
-                if let Some(&idx) = self.by_subject_pred.get(&(sub.clone(), pred)) {
-                    if let Some(t) = self.triples.get(idx).filter(|t| matcher(t)) {
-                        Box::new(std::iter::once(t))
-                    } else {
-                        Box::new(std::iter::empty())
-                    }
-                } else if let Some(indices) = self.by_subject.get(sub) {
+        // Pick the tightest index for LOCAL triples.
+        let local_iter: Box<dyn Iterator<Item = &Triple>> = match (subject, predicate) {
+            (Some(sub), Some(pred)) => {
+                if let Some(list) = self.by_subject_predicate.get(&(sub.clone(), pred)) {
                     Box::new(
-                        indices
-                            .iter()
-                            .filter_map(|&i| self.triples.get(i))
+                        list.iter()
+                            .filter_map(|&i| self.triples.get(i).and_then(|s| s.as_ref()))
                             .filter(|t| matcher(t)),
                     )
                 } else {
                     Box::new(std::iter::empty())
                 }
-            } else if let Some(sub) = subject {
-                if let Some(indices) = self.by_subject.get(sub) {
+            }
+            (Some(sub), None) => {
+                if let Some(list) = self.by_subject.get(sub) {
                     Box::new(
-                        indices
-                            .iter()
-                            .filter_map(|&i| self.triples.get(i))
+                        list.iter()
+                            .filter_map(|&i| self.triples.get(i).and_then(|s| s.as_ref()))
                             .filter(|t| matcher(t)),
                     )
                 } else {
                     Box::new(std::iter::empty())
                 }
-            } else if let Some(pred) = predicate {
-                if let Some(indices) = self.by_predicate.get(&pred) {
+            }
+            (None, Some(pred)) => {
+                if let Some(list) = self.by_predicate.get(&pred) {
                     Box::new(
-                        indices
-                            .iter()
-                            .filter_map(|&i| self.triples.get(i))
+                        list.iter()
+                            .filter_map(|&i| self.triples.get(i).and_then(|s| s.as_ref()))
                             .filter(|t| matcher(t)),
                     )
                 } else {
                     Box::new(std::iter::empty())
                 }
-            } else {
-                // Scan all
-                Box::new(self.triples.iter().filter(|t| matcher(t)))
-            };
+            }
+            (None, None) => Box::new(self.iter().filter(move |t| matcher(t))),
+        };
 
         // Combine sources: Ontology -> Shared -> Local
         self.ontology
@@ -723,6 +850,20 @@ impl MindGraph {
             )
             .chain(local_iter)
             .collect()
+    }
+
+    // ─── Diagnostics / inspection ──────────────────────────────────────────
+
+    pub fn by_subject_len(&self) -> usize {
+        self.by_subject.len()
+    }
+
+    pub fn by_predicate_len(&self) -> usize {
+        self.by_predicate.len()
+    }
+
+    pub fn by_subject_predicate_len(&self) -> usize {
+        self.by_subject_predicate.len()
     }
 
     // ─── Inheritance queries ───
@@ -1285,5 +1426,317 @@ mod tests {
         assert_eq!(tree_results.len(), 1);
         assert_eq!(bush_results.len(), 1);
         assert_ne!(tree_results[0].object, bush_results[0].object);
+    }
+
+    // ─── #197 indexing regression tests ───────────────────────────────────
+
+    /// Build a graph with N random-ish triples so index and linear-scan paths
+    /// both have to handle a non-trivial workload.
+    fn populated_graph(n: usize) -> MindGraph {
+        let mut mind = MindGraph::default();
+        for i in 0..n {
+            let entity = Entity::from_bits(1000 + i as u64);
+            // Three facts per entity — Contains, LocatedAt, IsA
+            mind.add(Triple::new(
+                Node::Entity(entity),
+                Predicate::Contains,
+                Value::Item(Concept::Apple, (i % 10) as u32),
+            ));
+            mind.add(Triple::new(
+                Node::Entity(entity),
+                Predicate::LocatedAt,
+                Value::Tile((i as i32, (i * 3) as i32)),
+            ));
+            mind.add(Triple::new(
+                Node::Entity(entity),
+                Predicate::IsA,
+                Value::Concept(Concept::AppleTree),
+            ));
+        }
+        mind
+    }
+
+    /// Reference linear scan over local triples only — used to prove the
+    /// indexed `query()` returns the same results as an O(n) walk.
+    fn linear_scan<'a>(
+        mind: &'a MindGraph,
+        subject: Option<&Node>,
+        predicate: Option<Predicate>,
+        object: Option<&Value>,
+    ) -> Vec<&'a Triple> {
+        mind.iter()
+            .filter(|t| subject.is_none_or(|s| t.subject == *s))
+            .filter(|t| predicate.is_none_or(|p| t.predicate == p))
+            .filter(|t| object.is_none_or(|o| t.object == *o))
+            .collect()
+    }
+
+    fn sort_by_ptr(mut v: Vec<&Triple>) -> Vec<*const Triple> {
+        v.sort_by_key(|t| *t as *const _ as usize);
+        v.into_iter().map(|t| t as *const _).collect()
+    }
+
+    #[test]
+    fn query_by_subject_matches_linear_scan() {
+        let mind = populated_graph(200);
+        let target = Node::Entity(Entity::from_bits(1042));
+
+        let indexed = mind.query(Some(&target), None, None);
+        let reference = linear_scan(&mind, Some(&target), None, None);
+
+        assert_eq!(indexed.len(), reference.len());
+        assert_eq!(sort_by_ptr(indexed), sort_by_ptr(reference));
+    }
+
+    #[test]
+    fn query_by_subject_predicate_matches_linear_scan() {
+        let mind = populated_graph(200);
+        let target = Node::Entity(Entity::from_bits(1017));
+
+        let indexed = mind.query(Some(&target), Some(Predicate::Contains), None);
+        let reference = linear_scan(&mind, Some(&target), Some(Predicate::Contains), None);
+
+        assert_eq!(indexed.len(), reference.len());
+        assert_eq!(sort_by_ptr(indexed), sort_by_ptr(reference));
+    }
+
+    #[test]
+    fn query_by_predicate_matches_linear_scan() {
+        let mind = populated_graph(50);
+
+        let indexed = mind.query(None, Some(Predicate::LocatedAt), None);
+        let reference = linear_scan(&mind, None, Some(Predicate::LocatedAt), None);
+
+        assert_eq!(indexed.len(), 50);
+        assert_eq!(indexed.len(), reference.len());
+        assert_eq!(sort_by_ptr(indexed), sort_by_ptr(reference));
+    }
+
+    #[test]
+    fn query_with_all_none_returns_all_live_triples() {
+        let mind = populated_graph(10);
+        let all = mind.query(None, None, None);
+        // 10 entities × 3 triples each = 30 (ontology is empty by default)
+        assert_eq!(all.len(), 30);
+    }
+
+    #[test]
+    fn assert_updates_all_indexes() {
+        let mut mind = MindGraph::default();
+        let e = Entity::from_bits(1);
+        mind.assert(Triple::new(
+            Node::Entity(e),
+            Predicate::IsA,
+            Value::Concept(Concept::Food),
+        ));
+
+        assert_eq!(mind.by_subject_len(), 1);
+        assert_eq!(mind.by_predicate_len(), 1);
+        assert_eq!(mind.by_subject_predicate_len(), 1);
+
+        // All three indexes resolve the same triple.
+        assert_eq!(mind.query(Some(&Node::Entity(e)), None, None).len(), 1);
+        assert_eq!(mind.query(None, Some(Predicate::IsA), None).len(), 1);
+        assert_eq!(
+            mind.query(Some(&Node::Entity(e)), Some(Predicate::IsA), None)
+                .len(),
+            1
+        );
+    }
+
+    #[test]
+    fn remove_tombstones_rather_than_compacting() {
+        let mut mind = MindGraph::default();
+        let e = Entity::from_bits(1);
+        mind.add(Triple::new(
+            Node::Entity(e),
+            Predicate::Contains,
+            Value::Item(Concept::Apple, 3),
+        ));
+        mind.add(Triple::new(
+            Node::Entity(e),
+            Predicate::Contains,
+            Value::Item(Concept::Berry, 1),
+        ));
+        assert_eq!(mind.len(), 2);
+        assert_eq!(mind.total_slots(), 2);
+
+        mind.remove(
+            &Node::Entity(e),
+            Predicate::Contains,
+            &Value::Item(Concept::Apple, 3),
+        );
+
+        // Live count drops; slot count does not.
+        assert_eq!(mind.len(), 1);
+        assert_eq!(mind.total_slots(), 2);
+        assert_eq!(mind.tombstone_count(), 1);
+
+        // Tombstoned triple is invisible to every query path.
+        let by_both = mind.query(Some(&Node::Entity(e)), Some(Predicate::Contains), None);
+        assert_eq!(by_both.len(), 1);
+        assert_eq!(by_both[0].object, Value::Item(Concept::Berry, 1));
+
+        let by_pred = mind.query(None, Some(Predicate::Contains), None);
+        assert_eq!(by_pred.len(), 1);
+
+        let by_all = mind.query(None, None, None);
+        assert_eq!(by_all.len(), 1);
+    }
+
+    #[test]
+    fn remove_updates_indexes() {
+        let mut mind = MindGraph::default();
+        let e = Entity::from_bits(1);
+        mind.add(Triple::new(
+            Node::Entity(e),
+            Predicate::Contains,
+            Value::Item(Concept::Apple, 3),
+        ));
+        mind.remove(
+            &Node::Entity(e),
+            Predicate::Contains,
+            &Value::Item(Concept::Apple, 3),
+        );
+
+        // With no more (subject, predicate) entries left, those index buckets
+        // should be empty so they don't leak memory.
+        assert_eq!(mind.by_subject_len(), 0);
+        assert_eq!(mind.by_predicate_len(), 0);
+        assert_eq!(mind.by_subject_predicate_len(), 0);
+    }
+
+    #[test]
+    fn compact_reclaims_tombstoned_slots() {
+        let mut mind = MindGraph::default();
+        for i in 1..=10 {
+            mind.add(Triple::new(
+                Node::Entity(Entity::from_bits(i)),
+                Predicate::IsA,
+                Value::Concept(Concept::Food),
+            ));
+        }
+        for i in 1..=5 {
+            mind.remove(
+                &Node::Entity(Entity::from_bits(i)),
+                Predicate::IsA,
+                &Value::Concept(Concept::Food),
+            );
+        }
+        assert_eq!(mind.len(), 5);
+        assert_eq!(mind.total_slots(), 10);
+
+        mind.compact();
+        assert_eq!(mind.len(), 5);
+        assert_eq!(mind.total_slots(), 5);
+        assert_eq!(mind.tombstone_count(), 0);
+
+        // Indexes survived the rebuild — queries still work.
+        let results = mind.query(None, Some(Predicate::IsA), None);
+        assert_eq!(results.len(), 5);
+    }
+
+    #[test]
+    fn retain_tombstones_filtered_triples() {
+        let mut mind = MindGraph::default();
+        for i in 1..=6 {
+            mind.add(Triple::new(
+                Node::Entity(Entity::from_bits(i)),
+                Predicate::IsA,
+                Value::Concept(if i % 2 == 0 {
+                    Concept::Food
+                } else {
+                    Concept::Resource
+                }),
+            ));
+        }
+
+        // Forget everything that isn't Food.
+        let removed = mind.retain(|t| matches!(t.object, Value::Concept(c) if c == Concept::Food));
+
+        assert_eq!(removed, 3);
+        assert_eq!(mind.len(), 3);
+        assert_eq!(mind.tombstone_count(), 3);
+
+        let survivors = mind.query(None, Some(Predicate::IsA), None);
+        assert_eq!(survivors.len(), 3);
+        assert!(
+            survivors
+                .iter()
+                .all(|t| matches!(t.object, Value::Concept(Concept::Food)))
+        );
+    }
+
+    #[test]
+    fn query_skips_tombstoned_entries_in_all_index_paths() {
+        let mut mind = populated_graph(20);
+        // Tombstone all Contains triples via retain().
+        let removed = mind.retain(|t| t.predicate != Predicate::Contains);
+        assert_eq!(removed, 20);
+
+        // Every access path must agree that Contains is gone.
+        assert!(mind.query(None, Some(Predicate::Contains), None).is_empty());
+        for i in 0..20 {
+            let e = Entity::from_bits(1000 + i);
+            assert!(
+                mind.query(Some(&Node::Entity(e)), Some(Predicate::Contains), None)
+                    .is_empty()
+            );
+            // by_subject path also returns only LocatedAt + IsA.
+            assert_eq!(mind.query(Some(&Node::Entity(e)), None, None).len(), 2);
+        }
+    }
+
+    #[test]
+    fn functional_assert_replaces_existing_via_indexes() {
+        let mut mind = MindGraph::default();
+        mind.assert(Triple::new(Node::Self_, Predicate::Hunger, Value::Int(50)));
+        mind.assert(Triple::new(Node::Self_, Predicate::Hunger, Value::Int(80)));
+
+        // Only one live value; the old one is tombstoned.
+        assert_eq!(mind.len(), 1);
+        assert_eq!(
+            mind.get(&Node::Self_, Predicate::Hunger),
+            Some(&Value::Int(80))
+        );
+    }
+
+    #[test]
+    fn get_prefers_live_triple_after_tombstone() {
+        let mut mind = MindGraph::default();
+        mind.assert(Triple::new(Node::Self_, Predicate::Hunger, Value::Int(50)));
+        mind.remove(&Node::Self_, Predicate::Hunger, &Value::Int(50));
+        // Nothing live should survive.
+        assert_eq!(mind.get(&Node::Self_, Predicate::Hunger), None);
+    }
+
+    #[test]
+    fn indexed_query_handles_long_live_lists() {
+        // Stress the (subject, predicate) index with many triples under the
+        // same key — forces SmallVec to spill to heap and still work.
+        let mut mind = MindGraph::default();
+        let subject = Node::Entity(Entity::from_bits(1));
+        for i in 0..100 {
+            mind.add(Triple::new(
+                subject.clone(),
+                Predicate::HasTrait,
+                Value::Concept(match i % 4 {
+                    0 => Concept::Dangerous,
+                    1 => Concept::Safe,
+                    2 => Concept::Edible,
+                    _ => Concept::Friendly,
+                }),
+            ));
+        }
+
+        let all = mind.query(Some(&subject), Some(Predicate::HasTrait), None);
+        assert_eq!(all.len(), 100);
+
+        let indexed = mind.query(
+            Some(&subject),
+            Some(Predicate::HasTrait),
+            Some(&Value::Concept(Concept::Dangerous)),
+        );
+        assert_eq!(indexed.len(), 25);
     }
 }

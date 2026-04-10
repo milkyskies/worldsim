@@ -62,7 +62,6 @@ pub fn pick_deliberate_content(
     }
 
     let mut scored: Vec<(f32, &Triple)> = speaker_mind
-        .triples
         .iter()
         .filter(|t| is_deliberate_shareable(t))
         .map(|t| {

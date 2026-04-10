@@ -32,7 +32,7 @@ pub fn consolidate_knowledge(
         let mut event_actors: HashMap<u64, Entity> = HashMap::new();
         let mut event_valences: HashMap<u64, f32> = HashMap::new();
 
-        for triple in &mind.triples {
+        for triple in mind.iter() {
             if let Node::Event(eid) = triple.subject {
                 match triple.predicate {
                     Predicate::Actor => {

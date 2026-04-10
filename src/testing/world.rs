@@ -968,8 +968,8 @@ impl TestWorld {
             }
         }
 
-        eprintln!("  Personal knowledge ({} triples):", mind.triples.len());
-        for triple in &mind.triples {
+        eprintln!("  Personal knowledge ({} triples):", mind.len());
+        for triple in mind.iter() {
             eprintln!(
                 "    {}  [conf={:.2} age={}]",
                 format_triple(triple),
@@ -1113,7 +1113,7 @@ impl TestWorld {
             .triples
             .iter()
             .chain(mind.shared_knowledge.iter().flat_map(|v| v.iter()))
-            .chain(mind.triples.iter());
+            .chain(mind.iter());
 
         all_triples
             .filter(|t| {
