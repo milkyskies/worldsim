@@ -29,6 +29,7 @@ use crate::testing::config::AgentConfig;
 use crate::world::Physical;
 use crate::world::apple_tree::ResourceRegeneration;
 use crate::world::deer::Deer;
+use crate::world::property::HarvestableComponent;
 use crate::world::wolf::Wolf;
 
 /// Spawns a Person agent with all logic components but no sprites/children/name tags.
@@ -214,6 +215,9 @@ pub(super) fn spawn_test_berry_bush(world: &mut World, pos: Vec2, berries: u32) 
                 distance: 24.0,
                 risk: 0.0,
             },
+            HarvestableComponent {
+                yields: Concept::Berry,
+            },
             ResourceRegeneration {
                 timer: 0.0,
                 interval: 8.0,
@@ -244,6 +248,9 @@ pub(super) fn spawn_test_stone_node(world: &mut World, pos: Vec2, stones: u32) -
                 cost: 6.0,
                 distance: 28.0,
                 risk: 0.0,
+            },
+            HarvestableComponent {
+                yields: Concept::Stone,
             },
             ResourceRegeneration {
                 timer: 0.0,
@@ -276,6 +283,9 @@ pub(super) fn spawn_test_wood_log(world: &mut World, pos: Vec2, wood: u32) -> En
                 distance: 24.0,
                 risk: 0.0,
             },
+            HarvestableComponent {
+                yields: Concept::Wood,
+            },
             ResourceRegeneration {
                 timer: 0.0,
                 interval: 45.0,
@@ -306,6 +316,9 @@ pub(super) fn spawn_test_apple_tree(world: &mut World, pos: Vec2, apples: u32) -
                 cost: 5.0,
                 distance: 32.0,
                 risk: 0.0,
+            },
+            HarvestableComponent {
+                yields: Concept::Apple,
             },
             ResourceRegeneration {
                 timer: 0.0,

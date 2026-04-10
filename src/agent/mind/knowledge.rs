@@ -152,6 +152,7 @@ pub enum Concept {
     // ─── Traits/Properties (adjectives) ───
     Edible,    // Items that can be eaten (Apple, Berry, Meat)
     Drinkable, // Tiles/items that can provide water (ShallowWater, Water)
+    Grazable,  // Tiles that can be grazed on (Grass) — drifting herbivore forage
     Prey,      // Creatures that can be hunted (Deer, Rabbit) → yields Meat
     Territory, // A tile the agent claims as its own (marked intrinsically at spawn)
     Dangerous,
@@ -1331,11 +1332,14 @@ pub fn setup_ontology() -> Ontology {
     add(c(Water), HasTrait, v(Drinkable));
     add(c(Person), HasTrait, v(Sentient));
     add(c(Animal), HasTrait, v(Sentient));
+    // AppleTree and BerryBush inherit Harvestable from Plant via IsA.
+    // WoodLog and StoneNode receive it at spawn time via
+    // derive_ontology_harvestable_component (they are not Plants).
     add(c(Plant), HasTrait, v(Harvestable));
-    add(c(AppleTree), HasTrait, v(Harvestable));
-    add(c(BerryBush), HasTrait, v(Harvestable));
-    add(c(WoodLog), HasTrait, v(Harvestable));
-    add(c(StoneNode), HasTrait, v(Harvestable));
+
+    // ─── Universal production facts (all agents know these) ───
+    add(c(WoodLog), Produces, Value::Item(Wood, 1));
+    add(c(StoneNode), Produces, Value::Item(Stone, 1));
 
     // ─── Action Categorization ───
     use crate::agent::actions::ActionType;
@@ -1353,6 +1357,7 @@ pub fn setup_ontology() -> Ontology {
     add(act(ActionType::Wander), IsA, val_act(MovementAction));
     add(act(ActionType::Harvest), IsA, val_act(SurvivalAction));
     add(act(ActionType::Drink), IsA, val_act(SurvivalAction));
+    add(act(ActionType::Graze), IsA, val_act(SurvivalAction));
 
     let mut ontology = Ontology {
         triples: Arc::new(triples),
