@@ -82,6 +82,10 @@ pub fn start_actions(
             }
 
             let Some(action_def) = registry.get(wanted_action) else {
+                warn!(
+                    "Agent {:?} ({}) wanted action {:?} which is not in the registry",
+                    entity, name, wanted_action
+                );
                 continue;
             };
 
