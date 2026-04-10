@@ -215,10 +215,10 @@ pub fn interpret_emotion(
 
 pub fn decay_emotions(
     mut agents: Query<&mut EmotionalState, With<crate::agent::Agent>>,
-    time: Res<Time>,
+    tick: Res<crate::core::tick::TickCount>,
     config: Res<EmotionConfig>,
 ) {
-    let dt = time.delta_secs();
+    let dt = tick.dt();
 
     for mut emotional_state in agents.iter_mut() {
         emotional_state.decay_tick(dt, &config);
@@ -286,9 +286,9 @@ pub fn update_mood(
         ),
         With<crate::agent::Agent>,
     >,
-    time: Res<Time>,
+    tick: Res<crate::core::tick::TickCount>,
 ) {
-    let dt = time.delta_secs();
+    let dt = tick.dt();
 
     for (mut emotional_state, personality, body) in agents.iter_mut() {
         let target_mood = compute_target_mood(&emotional_state, personality, body);
@@ -377,10 +377,10 @@ pub fn update_stress(
         ),
         With<crate::agent::Agent>,
     >,
-    time: Res<Time>,
+    tick: Res<crate::core::tick::TickCount>,
     config: Res<EmotionConfig>,
 ) {
-    let dt = time.delta_secs();
+    let dt = tick.dt();
 
     for (mut emotional_state, physical, body, personality) in agents.iter_mut() {
         let gain = compute_stress_gain_rate(

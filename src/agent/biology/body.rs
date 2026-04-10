@@ -260,8 +260,11 @@ impl BodyPart {
     }
 }
 
-pub fn process_healing(mut query: Query<(&mut Body, Option<&PhysicalNeeds>)>, time: Res<Time>) {
-    let dt = time.delta_secs();
+pub fn process_healing(
+    mut query: Query<(&mut Body, Option<&PhysicalNeeds>)>,
+    tick: Res<crate::core::tick::TickCount>,
+) {
+    let dt = tick.dt();
     let base_healing_speed = 0.05;
 
     for (mut body, needs) in query.iter_mut() {
@@ -305,8 +308,11 @@ pub fn process_healing(mut query: Query<(&mut Body, Option<&PhysicalNeeds>)>, ti
 }
 
 /// Starvation and dehydration system - applies damage if hunger or thirst is critical
-pub fn process_starvation(time: Res<Time>, mut query: Query<&mut PhysicalNeeds>) {
-    let dt = time.delta_secs();
+pub fn process_starvation(
+    tick: Res<crate::core::tick::TickCount>,
+    mut query: Query<&mut PhysicalNeeds>,
+) {
+    let dt = tick.dt();
 
     for mut physical in query.iter_mut() {
         if physical.hunger >= 90.0 {

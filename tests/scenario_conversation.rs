@@ -164,7 +164,6 @@ fn low_social_drive_agents_do_not_initiate() {
 }
 
 #[test]
-#[ignore = "flaky: wall-clock dt in update_stress/update_mood — see #203"]
 fn converse_marker_replaces_initiate_on_arrival() {
     let (mut world, agents) = TestWorld::scenario(42)
         .map_size(64, 64)
