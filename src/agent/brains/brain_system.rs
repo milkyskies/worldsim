@@ -140,7 +140,7 @@ pub fn three_brains_system(
             .get(entity)
             .ok()
             .map(|plans| CommitmentContext {
-                active_plans: &*plans,
+                active_plans: plans,
                 conscientiousness: personality.traits.conscientiousness,
                 current_tick: tick.current,
             });

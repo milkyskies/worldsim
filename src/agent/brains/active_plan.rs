@@ -125,15 +125,15 @@ impl ActivePlans {
     /// Register a new active plan or update an existing one for the same intent.
     pub fn activate(&mut self, owner: PlanOwner, intent: Intent, action: ActionType, tick: u64) {
         // If there's already an active plan for this intent, check if it's the same action
-        if let Some(existing) = self.plans.iter_mut().find(|p| p.intent == intent) {
-            if existing.action == action && existing.owner == owner {
-                // Same plan — mark as progressing
-                existing.progress = PlanProgress::Executing;
-                existing.commitment_strength =
-                    (existing.commitment_strength + PROGRESS_GROWTH_RATE).min(1.0);
-                return;
-            }
-            // Different plan for same intent — will be replaced below after removal
+        if let Some(existing) = self.plans.iter_mut().find(|p| p.intent == intent)
+            && existing.action == action
+            && existing.owner == owner
+        {
+            // Same plan — mark as progressing
+            existing.progress = PlanProgress::Executing;
+            existing.commitment_strength =
+                (existing.commitment_strength + PROGRESS_GROWTH_RATE).min(1.0);
+            return;
         }
 
         // Remove any existing plan for this intent
