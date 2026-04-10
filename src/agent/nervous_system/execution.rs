@@ -81,6 +81,19 @@ pub fn start_actions(
                 continue;
             }
 
+            // Sleep locks the whole agent — short-circuit everything except
+            // WakeUp while it's active. We can't enforce this through the
+            // channel system alone: capability-per-species means a "1.0 on
+            // every active channel" Sleep declaration would refuse to start
+            // on bodies whose per-channel capacity doesn't match the human
+            // default (a wolf's 0.4 Manipulation can never satisfy
+            // Manipulation 1.0 through the admission math). Sleep declares
+            // FullBody 1.0 to gate vs. other whole-body actions, and this
+            // branch gates it vs. the rest of the catalog.
+            if active.contains(ActionType::Sleep) && wanted_action != ActionType::WakeUp {
+                continue;
+            }
+
             let Some(action_def) = registry.get(wanted_action) else {
                 warn!(
                     "Agent {:?} ({}) wanted action {:?} which is not in the registry",
@@ -754,6 +767,7 @@ fn pick_random_walkable_target(
 mod tests {
     use super::*;
     use crate::agent::actions::ActionType;
+    use crate::agent::actions::channel::{ChannelLoad, ChannelUsage};
 
     fn build_registry() -> ActionRegistry {
         ActionRegistry::new()
@@ -793,7 +807,13 @@ mod tests {
     }
 
     #[test]
-    fn sleep_preempts_other_actions() {
+    fn sleep_channel_alone_does_not_preempt_everything() {
+        // After #291, Sleep declares only FullBody(1.0). Walk/Eat don't
+        // touch FullBody, so `preempt_to_make_room` alone can't clear them
+        // — that responsibility moved to the `start_actions` short-circuit
+        // (tested below by `sleep_active_blocks_other_action_admission`).
+        // This test documents the new boundary: channel-based preemption
+        // is orthogonal to the sleeping gate.
         let registry = build_registry();
         let mut active = ActiveActions::empty();
         active.insert(ActionState::new(ActionType::Walk, 0));
@@ -809,23 +829,69 @@ mod tests {
             &mut target,
         );
 
-        assert!(admitted, "Sleep should clear interruptible slots");
-        assert!(!active.contains(ActionType::Walk));
-        assert!(!active.contains(ActionType::Eat));
+        // Sleep fits (FullBody is free), and nothing else needed to be
+        // preempted via the channel system.
+        assert!(admitted);
+        assert!(active.contains(ActionType::Walk));
+        assert!(active.contains(ActionType::Eat));
     }
 
     #[test]
-    fn eat_plus_converse_creates_soft_conflict_with_degradation() {
+    fn sleep_vs_flee_still_hard_conflicts_via_full_body() {
+        // The one channel-level guarantee Sleep still provides: two
+        // whole-body actions can't coexist. Flee declares FullBody(0.5)
+        // alongside its Locomotion(1.0); starting Flee while Sleep is
+        // already running projects FullBody at 1.5, above the 1.4 hard
+        // threshold, so Sleep (interruptible is false, but Flee preempts
+        // via channel saturation — `preempt_to_make_room` will refuse and
+        // return false).
+        use crate::agent::actions::channel::Channel;
         let registry = build_registry();
         let mut active = ActiveActions::empty();
-        active.insert(ActionState::new(ActionType::Eat, 0).with_duration(20));
-        active.insert(ActionState::new(ActionType::Converse, 0));
+        active.insert(ActionState::new(ActionType::Sleep, 0));
 
-        let load = active.channel_load(&registry);
+        // Flee's channels would collide with Sleep's FullBody.
+        let flee_channels = &[
+            ChannelUsage::new(Channel::Locomotion, 1.0),
+            ChannelUsage::new(Channel::FullBody, 0.5),
+        ];
+        let mut target = TargetPosition::default();
+        let admitted = preempt_to_make_room(
+            &mut active,
+            &registry,
+            flee_channels,
+            &ChannelCapacities::full(),
+            &mut target,
+        );
+
+        // Sleep is uninterruptible, so preempt_to_make_room rolls back
+        // and rejects Flee at this level. (Arbitration in practice has
+        // other tiebreakers; this is just the channel guarantee.)
+        assert!(!admitted);
+        assert!(active.contains(ActionType::Sleep));
+    }
+
+    #[test]
+    fn oversaturated_consumption_degrades_eat() {
+        // After #291, Eat and Converse no longer share a channel — Eat uses
+        // Consumption and Converse uses Vocalization. This test now just
+        // verifies the degradation math still kicks in when *anything*
+        // oversaturates Consumption. Two pretend load sources sum beyond
+        // the soft threshold and Eat's computed factor drops below 1.0.
+        use crate::agent::actions::channel::Channel;
+        let registry = build_registry();
+
+        let mut load = ChannelLoad::new();
+        load.add(&[ChannelUsage::new(Channel::Consumption, 0.7)]);
+        load.add(&[ChannelUsage::new(Channel::Consumption, 0.6)]);
+
         let eat_channels = registry.get(ActionType::Eat).unwrap().body_channels();
         let factor = load.degradation_factor(eat_channels, &ChannelCapacities::full());
         let expected = 1.0 / 1.3;
-        assert!((factor - expected).abs() < 1e-4);
+        assert!(
+            (factor - expected).abs() < 1e-4,
+            "expected {expected}, got {factor}"
+        );
     }
 
     #[test]
@@ -891,58 +957,77 @@ mod tests {
     }
 
     #[test]
-    fn build_blocks_preemption_attempt_from_sleep() {
-        // Sleep declares all channels at 1.0 to dominate the body and
-        // would normally clear every interruptible slot. Build's
-        // uninterruptible flag must hold the line — Sleep cannot find a
-        // victim and is rejected.
+    fn build_blocks_preemption_from_custom_high_manipulation_interrupter() {
+        // After #291, Sleep no longer floods every active channel (it only
+        // declares FullBody 1.0), so the old "Sleep preempts Build" test
+        // case became mechanically impossible — Sleep doesn't touch
+        // Build's Manipulation channel. This test replaces it with a
+        // custom interrupter that actually collides with Build's channels:
+        // a hypothetical Manipulation-heavy action that would need Build
+        // out of the way. Build's uninterruptible flag must still hold.
+        use crate::agent::actions::channel::Channel;
         let registry = build_registry();
         let mut active = ActiveActions::empty();
         active.insert(ActionState::new(ActionType::Build, 0));
 
-        let sleep_def = registry.get(ActionType::Sleep).unwrap();
+        let interrupter = &[
+            ChannelUsage::new(Channel::Manipulation, 0.9),
+            ChannelUsage::new(Channel::Locomotion, 0.2),
+        ];
         let mut target = TargetPosition::default();
         let admitted = preempt_to_make_room(
             &mut active,
             &registry,
-            sleep_def.body_channels(),
+            interrupter,
             &ChannelCapacities::full(),
             &mut target,
         );
 
-        assert!(!admitted, "Sleep must NOT be allowed to preempt Build");
+        assert!(
+            !admitted,
+            "Manipulation-heavy interrupter must NOT be allowed to preempt Build"
+        );
         assert!(active.contains(ActionType::Build));
     }
 
     #[test]
     fn rejected_preempt_rolls_back_collateral_damage() {
-        // Build (Hands 0.9, Legs 0.2) and Walk (Legs 0.4) are both running.
-        // Sleep (all channels 1.0) tries to start. The search:
-        //   - drops Walk first (smallest interruptible touching saturated Legs)
-        //   - then can't find another victim because Build is uninterruptible
-        //     and still saturates Hands
+        // Build (Manipulation 0.9, Locomotion 0.2) and Walk (Locomotion
+        // 0.4) are both running. A custom interrupter needs both channels
+        // saturated (Locomotion 1.0, Manipulation 0.9). The search:
+        //   - drops Walk first (smallest interruptible touching Locomotion)
+        //   - then can't find another victim because Build is
+        //     uninterruptible and still saturates Manipulation
         //   - returns false → rolls back all mutations
         //
-        // Without the rollback, Walk would be destroyed for nothing. With it,
-        // the active set is exactly what it was before the failed attempt.
+        // Without the rollback, Walk would be destroyed for nothing. With
+        // it, the active set and target are exactly what they were before
+        // the failed attempt.
+        use crate::agent::actions::channel::Channel;
         let registry = build_registry();
         let mut active = ActiveActions::empty();
         active.insert(ActionState::new(ActionType::Build, 0));
         active.insert(ActionState::new(ActionType::Walk, 0));
 
-        let sleep_def = registry.get(ActionType::Sleep).unwrap();
+        let interrupter = &[
+            ChannelUsage::new(Channel::Locomotion, 1.0),
+            ChannelUsage::new(Channel::Manipulation, 0.9),
+        ];
         let mut target = TargetPosition(Some(Vec2::new(99.0, 99.0)));
         let target_before = target.0;
 
         let admitted = preempt_to_make_room(
             &mut active,
             &registry,
-            sleep_def.body_channels(),
+            interrupter,
             &ChannelCapacities::full(),
             &mut target,
         );
 
-        assert!(!admitted, "Sleep must be rejected because of Build");
+        assert!(
+            !admitted,
+            "interrupter must be rejected because of uninterruptible Build"
+        );
         assert!(
             active.contains(ActionType::Build),
             "Build must remain after a rejected preempt"

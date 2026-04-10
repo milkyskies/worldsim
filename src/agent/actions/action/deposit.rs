@@ -7,7 +7,7 @@
 //! `SlotFilter` and `Access` rules on the target decide what's possible.
 
 use crate::agent::actions::ActionType;
-use crate::agent::actions::channel::{BodyChannel, ChannelUsage};
+use crate::agent::actions::channel::{Channel, ChannelUsage};
 use crate::agent::actions::registry::{
     Action, ActionContext, ActionKind, CompletionContext, RuntimeEffects, TargetCandidate,
     TargetSource,
@@ -40,7 +40,7 @@ impl Action for DepositAction {
     }
 
     fn body_channels(&self) -> &'static [ChannelUsage] {
-        const CHANNELS: &[ChannelUsage] = &[ChannelUsage::new(BodyChannel::Hands, 0.4)];
+        const CHANNELS: &[ChannelUsage] = &[ChannelUsage::new(Channel::Manipulation, 0.4)];
         CHANNELS
     }
 
