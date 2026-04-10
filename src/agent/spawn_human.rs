@@ -105,28 +105,12 @@ pub struct PersonInit {
     pub extra_knowledge: Vec<Triple>,
 }
 
-/// Builds the three logic-only bundles for a Person agent. Both
-/// `world::human::spawn_person` (real game) and
-/// `testing::spawn::spawn_test_person` (TestWorld) call this — drift here
-/// causes brain divergence between the two paths.
 /// Adds innate biological knowledge all humans have regardless of culture.
-///
-/// This is hardwired survival knowledge — not learned, not cultural.
-/// Think of it as the human equivalent of wolf/deer instincts.
 fn add_person_knowledge(mind: &mut MindGraph) {
-    use crate::agent::mind::knowledge::{
-        MemoryType, Metadata, Node, Predicate, Source, Triple, Value,
-    };
+    use crate::agent::mind::knowledge::{Metadata, Node, Predicate, Triple, Value};
 
-    let meta = Metadata {
-        source: Source::Intrinsic,
-        memory_type: MemoryType::Intrinsic,
-        timestamp: 0,
-        confidence: 1.0,
-        ..Default::default()
-    };
+    let meta = Metadata::default(); // Source::Intrinsic, confidence 1.0
 
-    // Eating satisfies the food drive — biological hunger instinct.
     mind.assert(Triple::with_meta(
         Node::Action(crate::agent::actions::ActionType::Eat),
         Predicate::Satisfies,
@@ -134,7 +118,6 @@ fn add_person_knowledge(mind: &mut MindGraph) {
         meta.clone(),
     ));
 
-    // Wolves are predators — humans are born knowing to fear them.
     mind.assert(Triple::with_meta(
         Node::Concept(Concept::Wolf),
         Predicate::HasTrait,
@@ -142,6 +125,11 @@ fn add_person_knowledge(mind: &mut MindGraph) {
         meta,
     ));
 }
+
+/// Builds the three logic-only bundles for a Person agent. Both
+/// `world::human::spawn_person` (real game) and
+/// `testing::spawn::spawn_test_person` (TestWorld) call this — drift here
+/// causes brain divergence between the two paths.
 
 pub fn build_person_logic(
     init: PersonInit,

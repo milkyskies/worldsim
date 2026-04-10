@@ -169,17 +169,9 @@ pub fn spawn_deer(
 /// - Berries are food (but NOT apples)
 /// - Persons are dangerous (triggers fear → flee)
 pub(crate) fn add_deer_knowledge(mind: &mut MindGraph) {
-    use crate::agent::mind::knowledge::{
-        MemoryType, Metadata, Node, Predicate, Source, Triple, Value,
-    };
+    use crate::agent::mind::knowledge::{Metadata, Node, Predicate, Triple, Value};
 
-    let meta = Metadata {
-        source: Source::Intrinsic,
-        memory_type: MemoryType::Intrinsic,
-        timestamp: 0,
-        confidence: 1.0,
-        ..Default::default()
-    };
+    let meta = Metadata::default(); // Source::Intrinsic, confidence 1.0
 
     mind.assert(Triple::with_meta(
         Node::Concept(Concept::Berry),
