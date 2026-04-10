@@ -358,7 +358,7 @@ fn agent_warns_partner_about_personally_observed_danger() {
     // dangerous abstractly, but the warn delivers a specific personal record
     // attributed to alice.
     let bob_mind = world.get::<MindGraph>(bob);
-    let bob_received_warning = bob_mind.triples.iter().any(|t| {
+    let bob_received_warning = bob_mind.iter().any(|t| {
         t.predicate == Predicate::HasTrait
             && t.object == Value::Concept(Concept::Dangerous)
             && t.subject == Node::Concept(Concept::Wolf)
