@@ -788,6 +788,7 @@ fn build_walk_template(world_pos: Vec2, tile: (i32, i32)) -> ActionTemplate {
         )],
         consumes: Vec::new(),
         base_cost: 0.0,
+        locomotion_intensity: ActionType::Walk.default_locomotion_intensity(),
     }
 }
 
@@ -893,6 +894,7 @@ mod tests {
             )],
             consumes: vec![TriplePattern::entity_contains(target)],
             base_cost: 2.0,
+            locomotion_intensity: 0.0,
         }
     }
 
@@ -1127,6 +1129,7 @@ mod tests {
             )],
             consumes: vec![TriplePattern::entity_contains(entity)],
             base_cost: 2.0,
+            locomotion_intensity: 0.0,
         }
     }
 
@@ -1294,6 +1297,7 @@ mod tests {
                 )],
                 consumes: vec![TriplePattern::entity_contains(stone)],
                 base_cost: 2.0,
+                locomotion_intensity: 0.0,
             },
             sleep_template(&registry),
         ];

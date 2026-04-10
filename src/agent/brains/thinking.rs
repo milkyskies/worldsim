@@ -94,6 +94,11 @@ pub struct ActionTemplate {
     /// preventing it from generating plans that rely on the same finite resource twice.
     pub consumes: Vec<TriplePattern>,
     pub base_cost: f32,
+    /// Desired locomotion intensity in [0, 1] for Movement-class actions (#339).
+    /// `0.0` means "use the action's default". Brains populate this at
+    /// admission time from `ActionType::pick_locomotion_intensity(urgency)`
+    /// so the body gets an urgency-scaled push.
+    pub locomotion_intensity: f32,
 }
 
 /// A goal the agent wants to achieve.

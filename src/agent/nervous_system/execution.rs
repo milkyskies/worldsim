@@ -17,7 +17,10 @@ use crate::agent::brains::proposal::BrainState;
 use crate::agent::events::{ActionOutcome, ActionOutcomeEvent, NeedSatisfaction};
 use crate::agent::item_slots::ItemSlots;
 use crate::agent::mind::knowledge::{MindGraph, Node, Predicate, Value};
-use crate::agent::movement::{ARRIVAL_THRESHOLD, MoveResult, calculate_speed, move_toward};
+use crate::agent::movement::{
+    ARRIVAL_THRESHOLD, MoveResult, calculate_speed, effective_intensity,
+    intensity_speed_multiplier, move_toward,
+};
 use crate::core::SimRng;
 use crate::core::tick::TickCount;
 use crate::ui::hud::GameLog;
@@ -187,6 +190,14 @@ pub fn start_actions(
 
             if let ActionKind::Timed { duration_ticks } = action_def.kind() {
                 new_state = new_state.with_duration(duration_ticks);
+            }
+
+            // #339: propagate the brain's urgency-modulated intensity into
+            // the runtime action state. Non-movement actions carry 0.0 and
+            // are unaffected.
+            if action_template.locomotion_intensity > 0.0 {
+                new_state =
+                    new_state.with_locomotion_intensity(action_template.locomotion_intensity);
             }
 
             if matches!(action_def.kind(), ActionKind::Movement) {
@@ -374,12 +385,30 @@ pub fn tick_actions(
                                 current_tick.saturating_sub(action_state.last_movement_tick);
                             if ticks > 0 {
                                 action_state.last_movement_tick = current_tick;
-                                let mut speed =
-                                    calculate_speed(physical.stamina.aerobic, None) * degradation;
 
-                                if action_type == ActionType::Flee {
-                                    speed *= 1.5;
-                                }
+                                // Intensity-based locomotion (#339). Brain sets a
+                                // desired intensity on the ActionState; the body
+                                // caps it if stamina reserves are empty. Speed and
+                                // stamina drain both scale from the *effective*
+                                // intensity so a sprinted-out agent slows down and
+                                // a brisk walk costs more than a stroll.
+                                let desired = if action_state.locomotion_intensity > 0.0 {
+                                    action_state.locomotion_intensity
+                                } else {
+                                    action_type.default_locomotion_intensity()
+                                };
+                                let effective = effective_intensity(desired, &physical.stamina);
+                                let intensity_mult = intensity_speed_multiplier(effective);
+
+                                let speed = calculate_speed(physical.stamina.aerobic, None)
+                                    * degradation
+                                    * intensity_mult;
+
+                                // Stamina drain routes through the intensity-aware
+                                // drain formula from #331. Non-movement activities
+                                // still drain via activity_effects.
+                                let dt_sec = ticks as f32 * tick.dt();
+                                physical.stamina.drain(effective, dt_sec);
 
                                 match move_toward(
                                     current_pos,
@@ -605,13 +634,17 @@ pub fn apply_action_effects(
             };
             let effects = action_def.runtime_effects();
             let degradation = load.degradation_factor(action_def.body_channels(), &capacities);
+            let is_movement = matches!(action_def.kind(), ActionKind::Movement);
 
-            // Runtime effects also route through aerobic. Sleep-style full
-            // recovery is handled separately by activity_effects when the
-            // activity is Sleeping.
-            physical
-                .stamina
-                .adjust_aerobic(effects.stamina_per_sec * dt * degradation);
+            // Runtime stamina effects route through aerobic for non-movement
+            // actions. Movement actions (#339) drain stamina through the
+            // intensity-aware path in `tick_actions` instead, so skipping
+            // here avoids double-dipping.
+            if !is_movement {
+                physical
+                    .stamina
+                    .adjust_aerobic(effects.stamina_per_sec * dt * degradation);
+            }
             physical.hunger =
                 (physical.hunger + effects.hunger_per_sec * dt * degradation).clamp(0.0, 100.0);
             consciousness.alertness = (consciousness.alertness

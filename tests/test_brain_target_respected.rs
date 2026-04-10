@@ -20,6 +20,7 @@ fn make_walk_template(target: Vec2) -> ActionTemplate {
         effects: vec![],
         consumes: vec![],
         base_cost: 1.0,
+        locomotion_intensity: ActionType::Walk.default_locomotion_intensity(),
     }
 }
 

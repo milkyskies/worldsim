@@ -375,15 +375,19 @@ pub trait Action: Send + Sync + 'static {
     /// (Harvest yielding what the target produces, Drink with `self_at(tile)`)
     /// must go through `to_template_for_target`.
     fn to_template(&self, target_entity: Option<Entity>) -> ActionTemplate {
+        let action_type = self.action_type();
         ActionTemplate {
             name: self.name().to_string(),
-            action_type: self.action_type(),
+            action_type,
             target_entity,
             target_position: None,
             preconditions: self.preconditions(),
             effects: self.plan_effects(),
             consumes: self.plan_consumes(),
             base_cost: self.cost(),
+            // Start with the action's default locomotion intensity. The
+            // brain may override it based on urgency before admission.
+            locomotion_intensity: action_type.default_locomotion_intensity(),
         }
     }
 
@@ -418,15 +422,17 @@ pub trait Action: Send + Sync + 'static {
             TargetCandidate::Tile { pos, .. } => (None, Some(*pos)),
         };
 
+        let action_type = self.action_type();
         ActionTemplate {
             name: self.name().to_string(),
-            action_type: self.action_type(),
+            action_type,
             target_entity,
             target_position,
             preconditions,
             effects: self.plan_effects_for_target(target, mind),
             consumes,
             base_cost: self.cost(),
+            locomotion_intensity: action_type.default_locomotion_intensity(),
         }
     }
 }
@@ -459,6 +465,14 @@ pub struct ActionState {
     /// progress accumulates here and decrements `ticks_remaining` each time
     /// it crosses 1.0. Deterministic and replay-safe.
     pub progress_accumulator: f32,
+    /// Desired locomotion intensity in [0, 1] for Movement-class actions (#339).
+    /// `0.0` means this action isn't locomotion and the field is unused.
+    /// The brain sets this from the action's default plus an urgency boost
+    /// (see `ActionType::pick_locomotion_intensity`). The *effective*
+    /// intensity used by the body may be lower when stamina is exhausted,
+    /// but the desired intensity stored here stays put so the intent stays
+    /// clear (e.g. an exhausted Flee is still trying to Flee at 1.0).
+    pub locomotion_intensity: f32,
 }
 
 impl ActionState {
@@ -471,6 +485,7 @@ impl ActionState {
             progress_accumulator: 0.0,
             target_entity: None,
             target_position: None,
+            locomotion_intensity: action_type.default_locomotion_intensity(),
         }
     }
 
@@ -486,6 +501,11 @@ impl ActionState {
 
     pub fn with_duration(mut self, ticks: u32) -> Self {
         self.ticks_remaining = ticks;
+        self
+    }
+
+    pub fn with_locomotion_intensity(mut self, intensity: f32) -> Self {
+        self.locomotion_intensity = intensity.clamp(0.0, 1.0);
         self
     }
 }
