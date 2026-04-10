@@ -261,7 +261,7 @@ mod tests {
     }
 
     fn test_entity(id: u32) -> Entity {
-        Entity::from_raw(id)
+        Entity::from_bits(id as u64)
     }
 
     #[test]
