@@ -331,7 +331,6 @@ pub fn regressive_plan(
     mind: &MindGraph,
     goal: &Goal,
     available_actions: &[ActionTemplate],
-    action_registry: &crate::agent::actions::ActionRegistry,
 ) -> Option<Vec<ActionTemplate>> {
     use crate::constants::brains::planner::{HEURISTIC_MULTIPLIER, MAX_ITERATIONS};
     let start_time = std::time::Instant::now();
@@ -473,34 +472,18 @@ pub fn regressive_plan(
             );
         }
 
-        // B. Implicit tile walk (LocatedAt tile goal)
-        if let Some((walk_action, next_state, new_cost)) = generate_implicit_tile_walk(
+        // B. Implicit walk for any unmet `LocatedAt(Self_, Tile(...))` goal.
+        //
+        // After #219 entity-targeted actions snapshot a tile-based proximity
+        // precondition at template-build time, so a single tile walk
+        // generator handles every "I need to be near my target" case —
+        // entity-affordance actions (Harvest, Take, Deposit, Attack), tile
+        // trait actions (Drink), and explicit Walk goals all converge here.
+        if let Some((walk_action, next_state, new_cost)) = generate_implicit_walk(
             target_goal,
             remaining_goals,
             current_g,
             mind,
-            action_registry,
-            &current_state.consumed,
-        ) {
-            update_search_candidate(
-                walk_action,
-                next_state,
-                new_cost,
-                &current_state,
-                HEURISTIC_MULTIPLIER,
-                &mut came_from,
-                &mut g_score,
-                &mut open_set,
-            );
-        }
-
-        // C. Implicit entity walk (LocatedAt entity goal)
-        if let Some((walk_action, next_state, new_cost)) = generate_implicit_entity_walk(
-            target_goal,
-            remaining_goals,
-            current_g,
-            mind,
-            action_registry,
             &current_state.consumed,
         ) {
             update_search_candidate(
@@ -787,17 +770,43 @@ fn build_walk_goals(
     Some(goals)
 }
 
-/// Generates an implicit tile walk if the target goal requires Self_ to be at a tile.
+/// Construct the canonical Walk template that satisfies a `LocatedAt(Self_, Tile(t))`
+/// goal. The planner builds this directly rather than routing through
+/// `WalkAction::to_template_for_target` because Walk is `TargetSource::Implicit`
+/// and never gets enumerated by the brain — its only entry point is here.
+fn build_walk_template(world_pos: Vec2, tile: (i32, i32)) -> ActionTemplate {
+    ActionTemplate {
+        name: crate::agent::actions::action::walk::WALK_NAME.to_string(),
+        action_type: ActionType::Walk,
+        target_entity: None,
+        target_position: Some(world_pos),
+        preconditions: Vec::new(),
+        effects: vec![Triple::new(
+            MindNode::Self_,
+            Predicate::LocatedAt,
+            Value::Tile(tile),
+        )],
+        consumes: Vec::new(),
+        base_cost: 0.0,
+    }
+}
+
+/// Generates an implicit Walk if the target goal requires `Self_` to be at a tile.
 ///
-/// Energy-aware: if the agent cannot complete the walk on current energy, prepends a Sleep
-/// precondition so the planner inserts Sleep before Walk. Returns None if the walk is
-/// impossible even after sleeping (truly extreme distance).
-fn generate_implicit_tile_walk(
+/// This is the only implicit-walk path after #219 collapsed the entity-walk
+/// generator: every action that needs proximity (Harvest, Take, Deposit,
+/// Drink, Attack) declares a tile-based `self_at(t)` precondition — the
+/// brain's `to_template_for_target` snapshots the candidate's current tile
+/// at template-build time, and this generator chains a Walk to satisfy it.
+///
+/// Energy-aware: if the agent cannot complete the walk on current energy,
+/// prepends a Sleep precondition so the planner inserts Sleep before Walk.
+/// Returns None if the walk is impossible even after sleeping.
+fn generate_implicit_walk(
     target_goal: &TriplePattern,
     remaining_goals: &[TriplePattern],
     current_g: f32,
     mind: &MindGraph,
-    action_registry: &crate::agent::actions::ActionRegistry,
     current_consumed: &[TriplePattern],
 ) -> Option<(ActionTemplate, RegressiveState, f32)> {
     if target_goal.predicate != Some(Predicate::LocatedAt) {
@@ -824,65 +833,7 @@ fn generate_implicit_tile_walk(
         tile.1 as f32 * TILE_SIZE + TILE_SIZE / 2.0,
     );
 
-    let walk_action = action_registry
-        .get(ActionType::Walk)
-        .map(|a| a.to_template(None, Some(world_pos)))
-        .expect("Walk action must be registered");
-
-    let next_goals = build_walk_goals(dist, remaining_goals, mind)?;
-    let next_state = RegressiveState::new(next_goals, current_consumed.to_vec());
-    let new_cost = current_g + dist;
-
-    Some((walk_action, next_state, new_cost))
-}
-
-/// Generates an implicit entity walk if the target goal requires Self_ to be at an entity's location.
-///
-/// Energy-aware: if the agent cannot complete the walk on current energy, prepends a Sleep
-/// precondition so the planner inserts Sleep before Walk. Returns None if the walk is
-/// impossible even after sleeping (truly extreme distance).
-fn generate_implicit_entity_walk(
-    target_goal: &TriplePattern,
-    remaining_goals: &[TriplePattern],
-    current_g: f32,
-    mind: &MindGraph,
-    action_registry: &crate::agent::actions::ActionRegistry,
-    current_consumed: &[TriplePattern],
-) -> Option<(ActionTemplate, RegressiveState, f32)> {
-    if target_goal.predicate != Some(Predicate::LocatedAt) {
-        return None;
-    }
-    if !matches!(&target_goal.subject, Some(MindNode::Self_)) {
-        return None;
-    }
-
-    let entity = match &target_goal.object {
-        Some(Value::Entity(e)) => *e,
-        _ => return None,
-    };
-
-    let pos_val = mind.get(&MindNode::Entity(entity), Predicate::LocatedAt)?;
-    let (tx, ty) = match pos_val {
-        Value::Tile((tx, ty)) => (*tx, *ty),
-        _ => return None,
-    };
-
-    let current_pos_val = mind.get(&MindNode::Self_, Predicate::LocatedAt)?;
-    let (cx, cy) = match current_pos_val {
-        Value::Tile((cx, cy)) => (*cx, *cy),
-        _ => return None,
-    };
-
-    let dist = (((cx - tx).pow(2) + (cy - ty).pow(2)) as f32).sqrt();
-    let world_pos = Vec2::new(
-        tx as f32 * TILE_SIZE + TILE_SIZE / 2.0,
-        ty as f32 * TILE_SIZE + TILE_SIZE / 2.0,
-    );
-
-    let walk_action = action_registry
-        .get(ActionType::Walk)
-        .map(|a| a.to_template(Some(entity), Some(world_pos)))
-        .expect("Walk action must be registered");
+    let walk_action = build_walk_template(world_pos, tile);
 
     let next_goals = build_walk_goals(dist, remaining_goals, mind)?;
     let next_state = RegressiveState::new(next_goals, current_consumed.to_vec());
@@ -1051,9 +1002,8 @@ mod tests {
 
         let actions = vec![gather_template(tree, Concept::Apple)];
         let goal = goal_self_contains(Concept::Apple);
-        let registry = minimal_registry();
 
-        let plan = regressive_plan(&mind, &goal, &actions, &registry);
+        let plan = regressive_plan(&mind, &goal, &actions);
         assert!(plan.is_some(), "single gather should produce a valid plan");
         assert!(
             plan.unwrap()
@@ -1082,11 +1032,10 @@ mod tests {
             gather_template(node, Concept::Berry),
         ];
         let goal = goal_self_contains_both(Concept::Apple, Concept::Berry);
-        let registry = minimal_registry();
 
         // After planning the first gather (which consumes node 42), the second gather's
         // precondition `entity_contains(42)` is in consumed — so no valid plan exists.
-        let plan = regressive_plan(&mind, &goal, &actions, &registry);
+        let plan = regressive_plan(&mind, &goal, &actions);
         if let Some(ref p) = plan {
             let gather_count = p
                 .iter()
@@ -1124,9 +1073,8 @@ mod tests {
             gather_template(tree2, Concept::Berry),
         ];
         let goal = goal_self_contains_both(Concept::Apple, Concept::Berry);
-        let registry = minimal_registry();
 
-        let plan = regressive_plan(&mind, &goal, &actions, &registry);
+        let plan = regressive_plan(&mind, &goal, &actions);
         assert!(
             plan.is_some(),
             "two independent sources should produce a valid plan"
@@ -1150,9 +1098,8 @@ mod tests {
         ));
 
         let goal = goal_self_contains(Concept::Apple);
-        let registry = minimal_registry();
 
-        let plan = regressive_plan(&mind, &goal, &[], &registry);
+        let plan = regressive_plan(&mind, &goal, &[]);
         assert!(plan.is_some(), "goal already satisfied should return Some");
         assert!(
             plan.unwrap().is_empty(),
@@ -1213,7 +1160,7 @@ mod tests {
     fn sleep_template(registry: &ActionRegistry) -> ActionTemplate {
         registry
             .get(ActionType::Sleep)
-            .map(|a| a.to_template(None, None))
+            .map(|a| a.to_template(None))
             .expect("Sleep must be registered")
     }
 
@@ -1231,7 +1178,7 @@ mod tests {
         ];
         let goal = goal_self_contains(Concept::Apple);
 
-        let plan = regressive_plan(&mind, &goal, &actions, &registry);
+        let plan = regressive_plan(&mind, &goal, &actions);
         assert!(plan.is_some(), "should produce a valid plan");
         let plan = plan.unwrap();
 
@@ -1263,7 +1210,7 @@ mod tests {
         ];
         let goal = goal_self_contains(Concept::Apple);
 
-        let plan = regressive_plan(&mind, &goal, &actions, &registry);
+        let plan = regressive_plan(&mind, &goal, &actions);
         assert!(
             plan.is_some(),
             "should produce a plan (Sleep makes it feasible)"
@@ -1294,7 +1241,7 @@ mod tests {
         ];
         let goal = goal_self_contains(Concept::Apple);
 
-        let plan = regressive_plan(&mind, &goal, &actions, &registry);
+        let plan = regressive_plan(&mind, &goal, &actions);
         assert!(
             plan.is_none(),
             "planner must return None for truly infeasible walk"
@@ -1359,7 +1306,7 @@ mod tests {
             priority: 1.0,
         };
 
-        let plan = regressive_plan(&mind, &goal, &actions, &registry);
+        let plan = regressive_plan(&mind, &goal, &actions);
         assert!(plan.is_some(), "should produce a plan for stone harvest");
         let plan = plan.unwrap();
 
@@ -1440,7 +1387,7 @@ mod tests {
             conditions: vec![TriplePattern::self_at((5, 5))],
             priority: 1.0,
         };
-        let plan = regressive_plan(&mind, &goal, &[], &minimal_registry())
+        let plan = regressive_plan(&mind, &goal, &[])
             .expect("planner should produce a Walk plan, not an empty plan");
         assert!(
             plan.iter().any(|a| a.action_type == ActionType::Walk),

@@ -1,5 +1,5 @@
 use bevy::prelude::*;
-use worldsim::agent::actions::{ActionRegistry, ActionType};
+use worldsim::agent::actions::{ActionRegistry, ActionType, TargetCandidate};
 use worldsim::agent::brains::planner::regressive_plan;
 use worldsim::agent::brains::thinking::{Goal, TriplePattern};
 use worldsim::agent::culture::{Culture, create_cultural_knowledge};
@@ -126,16 +126,17 @@ fn goap_plans_harvest_then_build() {
     let registry = ActionRegistry::new();
 
     // Build action template (no entity target — agent builds at their location)
-    let build_template = registry
-        .get(ActionType::Build)
-        .unwrap()
-        .to_template(None, None);
+    let build_template = registry.get(ActionType::Build).unwrap().to_template(None);
 
-    // Harvest template for the log — use plan_effects_for_target so the planner
-    // sees "produces Wood" rather than the static fallback of Apple.
+    // Harvest template for the log — go through `to_template_for_target` so the
+    // planner sees "produces Wood" (per-target effect) and the auto-injected
+    // proximity precondition + entity-content precondition + consumes pattern.
     let harvest_action = registry.get(ActionType::Harvest).unwrap();
-    let mut harvest_template = harvest_action.to_template(Some(log_entity), Some(log_pos));
-    harvest_template.effects = harvest_action.plan_effects_for_target(Some(log_entity), &mind);
+    let harvest_target = TargetCandidate::Entity {
+        entity: log_entity,
+        pos: log_pos,
+    };
+    let harvest_template = harvest_action.to_template_for_target(&harvest_target, &mind);
 
     let available = vec![build_template, harvest_template];
 
@@ -149,7 +150,7 @@ fn goap_plans_harvest_then_build() {
         priority: 50.0,
     };
 
-    let plan = regressive_plan(&mind, &goal, &available, &registry);
+    let plan = regressive_plan(&mind, &goal, &available);
     assert!(plan.is_some(), "Planner must find a plan");
 
     let plan = plan.unwrap();

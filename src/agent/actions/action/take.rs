@@ -10,13 +10,13 @@
 use crate::agent::actions::ActionType;
 use crate::agent::actions::channel::{BodyChannel, ChannelUsage};
 use crate::agent::actions::registry::{
-    Action, ActionContext, ActionKind, CompletionContext, RuntimeEffects, TargetType,
+    Action, ActionContext, ActionKind, CompletionContext, RuntimeEffects, TargetCandidate,
+    TargetSource,
 };
-use crate::agent::brains::thinking::{ActionTemplate, TriplePattern};
+use crate::agent::brains::thinking::TriplePattern;
 use crate::agent::events::FailureReason;
 use crate::agent::mind::knowledge::{Concept, MindGraph, Node, Predicate, Triple, Value};
 use crate::constants::actions::take::{DURATION_TICKS, ENERGY_PER_SEC, HUNGER_PER_SEC};
-use bevy::prelude::*;
 
 pub struct TakeAction;
 
@@ -35,12 +35,17 @@ impl Action for TakeAction {
         }
     }
 
-    fn target_type(&self) -> TargetType {
-        TargetType::Entity
+    fn target_source(&self) -> TargetSource {
+        TargetSource::EntityAffordance
     }
 
-    fn requires_proximity(&self) -> bool {
-        true
+    /// Per-target consumed pattern: Take destroys items from the target so the
+    /// planner doesn't double-count the same stack across two plan steps.
+    fn target_consumes(&self, target: &TargetCandidate, _mind: &MindGraph) -> Vec<TriplePattern> {
+        match target.as_entity() {
+            Some(entity) => vec![TriplePattern::entity_contains(entity)],
+            None => vec![],
+        }
     }
 
     fn body_channels(&self) -> &'static [ChannelUsage] {
@@ -52,18 +57,10 @@ impl Action for TakeAction {
         2.0
     }
 
-    fn preconditions(&self) -> Vec<TriplePattern> {
-        vec![]
-    }
-
-    fn plan_effects(&self) -> Vec<Triple> {
-        vec![]
-    }
-
     /// Plan-time view: agent gains whatever the target is known to contain.
     /// One effect per item the agent's mind says the target holds.
-    fn plan_effects_for_target(&self, target: Option<Entity>, mind: &MindGraph) -> Vec<Triple> {
-        let Some(entity) = target else {
+    fn plan_effects_for_target(&self, target: &TargetCandidate, mind: &MindGraph) -> Vec<Triple> {
+        let Some(entity) = target.as_entity() else {
             return self.plan_effects();
         };
 
@@ -85,11 +82,13 @@ impl Action for TakeAction {
             .collect()
     }
 
-    fn is_plan_valid(&self, target: Option<Entity>, mind: &MindGraph) -> bool {
+    fn is_plan_valid(&self, target: &TargetCandidate, mind: &MindGraph) -> bool {
         // Valid if the target is known to contain at least one item with a
         // non-zero quantity. Belief about extract_access lives on the world
         // entity, not the mind, so the runtime check filters sealed slots.
-        let Some(entity) = target else { return false };
+        let Some(entity) = target.as_entity() else {
+            return false;
+        };
         mind.query(Some(&Node::Entity(entity)), Some(Predicate::Contains), None)
             .iter()
             .any(|t| matches!(t.object, Value::Item(_, qty) if qty > 0))
@@ -154,41 +153,5 @@ impl Action for TakeAction {
 
     fn complete_log(&self) -> Option<&'static str> {
         Some("took")
-    }
-
-    fn to_template(
-        &self,
-        target_entity: Option<Entity>,
-        target_position: Option<Vec2>,
-    ) -> ActionTemplate {
-        let mut preconditions = self.preconditions();
-
-        if let Some(pos) = target_position {
-            const TILE_SIZE: f32 = 16.0;
-            let tile = (
-                (pos.x / TILE_SIZE).floor() as i32,
-                (pos.y / TILE_SIZE).floor() as i32,
-            );
-            preconditions.push(TriplePattern::self_at(tile));
-        }
-
-        // Take destroys items from the target — declare it so the planner
-        // doesn't double-count the same stack across two plan steps.
-        let consumes = if let Some(entity) = target_entity {
-            vec![TriplePattern::entity_contains(entity)]
-        } else {
-            vec![]
-        };
-
-        ActionTemplate {
-            name: self.name().to_string(),
-            action_type: self.action_type(),
-            target_entity,
-            target_position,
-            preconditions,
-            effects: self.plan_effects(),
-            consumes,
-            base_cost: self.cost(),
-        }
     }
 }

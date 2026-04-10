@@ -8,9 +8,10 @@
 use crate::agent::actions::ActionType;
 use crate::agent::body::needs::Consciousness;
 use crate::agent::brains::proposal::{BrainProposal, BrainType, Intent};
+use crate::agent::brains::target_enumeration::enumerate_targets;
 use crate::agent::brains::thinking::{ActionTemplate, Goal, TriplePattern};
 use crate::agent::item_slots::ItemSlots;
-use crate::agent::mind::knowledge::{MindGraph, Node, Predicate, Value};
+use crate::agent::mind::knowledge::{MindGraph, Predicate, Value};
 use crate::agent::mind::perception::VisibleObjects;
 use crate::constants::brains::rational::{
     EXPLORE_FALLBACK_PRIORITY_MULTIPLIER, IDLE_WANDER_URGENCY, MIN_ALERTNESS_FOR_PLANNING,
@@ -219,33 +220,12 @@ pub fn update_rational_brain(
         // 3. Form Plan
         if brain.current_plan.is_none() && brain.current_goal.is_some() {
             let goal = brain.current_goal.as_ref().unwrap();
-            let mut actions = Vec::new();
-
-            // Generate actions from registry based on target type
-            for action in action_registry.all() {
-                use crate::agent::actions::TargetType;
-
-                match action.target_type() {
-                    TargetType::None => {
-                        // Global actions: Sleep, Eat, Wander, Idle, Explore
-                        actions.push(action.to_template(None, None));
-                    }
-                    TargetType::Entity => {
-                        let mut processed_entities = std::collections::HashSet::new();
-                        collect_resource_targets(
-                            action,
-                            mind,
-                            &affordances,
-                            &mut processed_entities,
-                            &mut actions,
-                        );
-                    }
-                    TargetType::Position => {
-                        // Position-targeted actions: Walk
-                        // Usually generated implicitly by regressive planner, skip for now
-                    }
-                }
-            }
+            let actions = collect_planning_actions(
+                &action_registry,
+                mind,
+                &affordances,
+                PlanningMode::Replan,
+            );
 
             plan_attempts += 1;
 
@@ -259,12 +239,8 @@ pub fn update_rational_brain(
                 ));
             }
 
-            if let Some(plan) = crate::agent::brains::planner::regressive_plan(
-                mind,
-                goal,
-                &actions,
-                &action_registry,
-            ) {
+            if let Some(plan) = crate::agent::brains::planner::regressive_plan(mind, goal, &actions)
+            {
                 brain.current_plan = Some(plan);
                 brain.plan_index = 0;
             }
@@ -337,27 +313,19 @@ pub fn rational_brain_propose(
     }
 
     if let Some(goal) = &cns.current_goal {
-        let mut actions = Vec::new();
         let agent_pos = transform.translation.truncate();
+        let mut actions =
+            collect_planning_actions(action_registry, mind, affordances, PlanningMode::Propose);
 
-        // GENERIC: Generate actions from registry based on target type
-        for action in action_registry.all() {
-            use crate::agent::actions::TargetType;
-
-            match action.target_type() {
-                TargetType::None => {
-                    actions.push(action.to_template(None, None));
-                }
-                TargetType::Entity => {
-                    collect_affordance_targets(action, mind, affordances, agent_pos, &mut actions);
-                }
-                TargetType::Position => {}
+        // Proposal path: bias selection toward closer targets so the agent
+        // doesn't grab a far-away tree when a near one will do.
+        for template in actions.iter_mut() {
+            if let Some(pos) = template.target_position {
+                template.base_cost += agent_pos.distance(pos);
             }
         }
 
-        if let Some(plan) =
-            crate::agent::brains::planner::regressive_plan(mind, goal, &actions, action_registry)
-        {
+        if let Some(plan) = crate::agent::brains::planner::regressive_plan(mind, goal, &actions) {
             if let Some(first_action) = plan.first() {
                 return Some(BrainProposal {
                     brain: BrainType::Rational,
@@ -369,7 +337,7 @@ pub fn rational_brain_propose(
             } else {
                 let wander_action = action_registry
                     .get(ActionType::Wander)
-                    .map(|a| a.to_template(None, None))
+                    .map(|a| a.to_template(None))
                     .expect("Wander action must be registered");
                 return Some(BrainProposal {
                     brain: BrainType::Rational,
@@ -393,7 +361,7 @@ pub fn rational_brain_propose(
 
         let explore_action = action_registry
             .get(ActionType::Explore)
-            .map(|a| a.to_template(None, None))
+            .map(|a| a.to_template(None))
             .expect("Explore action must be registered");
 
         return Some(BrainProposal {
@@ -407,7 +375,7 @@ pub fn rational_brain_propose(
 
     let wander_action = action_registry
         .get(ActionType::Wander)
-        .map(|a| a.to_template(None, None))
+        .map(|a| a.to_template(None))
         .expect("Wander action must be registered");
     Some(BrainProposal {
         brain: BrainType::Rational,
@@ -418,100 +386,61 @@ pub fn rational_brain_propose(
     })
 }
 
-/// Extends `actions` with templates for resource-type entity targets (e.g. Harvest, Attack).
-/// Uses belief confidence to filter low-certainty targets.
-fn collect_resource_targets(
-    action: &dyn crate::agent::actions::Action,
-    mind: &MindGraph,
-    affordances: &Query<(
-        &GlobalTransform,
-        Option<&crate::agent::affordance::Affordance>,
-    )>,
-    processed: &mut std::collections::HashSet<Entity>,
-    actions: &mut Vec<ActionTemplate>,
-) {
-    for triple in mind.query(None, Some(Predicate::Contains), None) {
-        let Node::Entity(target_entity) = triple.subject else {
-            continue;
-        };
-        if processed.contains(&target_entity) {
-            continue;
-        }
-
-        let Ok((target_transform, maybe_affordance)) = affordances.get(target_entity) else {
-            continue;
-        };
-        processed.insert(target_entity);
-
-        let Some(affordance) = maybe_affordance else {
-            continue;
-        };
-        if affordance.action_type != action.action_type() {
-            continue;
-        }
-
-        let belief_state = crate::agent::mind::belief_state::BeliefState::new(mind);
-        let pattern = TriplePattern::new(
-            Some(Node::Entity(target_entity)),
-            Some(Predicate::Contains),
-            None,
-        );
-        if belief_state.pattern_confidence(&pattern) > 0.1 {
-            let target_pos = target_transform.translation().truncate();
-            let mut template = action.to_template(Some(target_entity), Some(target_pos));
-            // Override effects with mind-derived effects (e.g. Harvest yields what the target produces)
-            template.effects = action.plan_effects_for_target(Some(target_entity), mind);
-            actions.push(template);
-        }
-    }
+/// Which gating policy `collect_planning_actions` uses to filter candidates.
+///
+/// The two policies are deliberately split because the rational brain runs
+/// them at different frequencies and trusts different signals:
+///
+/// - [`PlanningMode::Replan`] runs on the slower `thinking_interval` from
+///   `update_rational_brain`. It uses the legacy belief-confidence gate so
+///   the planner doesn't chase rumours about long-decayed targets.
+/// - [`PlanningMode::Propose`] runs every tick from `rational_brain_propose`.
+///   It defers to each `Action::is_plan_valid` instead — the action's own
+///   freshness check is faster than scoring a confidence pattern.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PlanningMode {
+    Replan,
+    Propose,
 }
 
-/// Extends `actions` with templates for entity targets that have a matching Affordance component.
-/// Uses `is_plan_valid` rather than belief confidence — used by the proposal (not planning) path.
-fn collect_affordance_targets(
-    action: &dyn crate::agent::actions::Action,
+/// Walk every action in the registry, ask `enumerate_targets` for its
+/// candidates, and turn each survivor into an `ActionTemplate` via
+/// `to_template_for_target`.
+///
+/// Single replacement for the old `collect_resource_targets` (planning path)
+/// and `collect_affordance_targets` (proposal path). Distance-based cost
+/// adjustment is the caller's job — the proposal path adds it, the plan
+/// path doesn't, matching pre-#219 behaviour.
+fn collect_planning_actions(
+    action_registry: &crate::agent::actions::ActionRegistry,
     mind: &MindGraph,
     affordances: &Query<(
         &GlobalTransform,
         Option<&crate::agent::affordance::Affordance>,
     )>,
-    agent_pos: Vec2,
-    actions: &mut Vec<ActionTemplate>,
-) {
-    let mut processed = std::collections::HashSet::new();
+    mode: PlanningMode,
+) -> Vec<ActionTemplate> {
+    let mut actions = Vec::new();
+    let belief_state = crate::agent::mind::belief_state::BeliefState::new(mind);
 
-    for triple in mind.query(None, Some(Predicate::Contains), None) {
-        let Node::Entity(entity) = triple.subject else {
-            continue;
-        };
-        if processed.contains(&entity) {
-            continue;
+    for action in action_registry.all() {
+        let source = action.target_source();
+        for candidate in enumerate_targets(&source, action.action_type(), mind, affordances) {
+            let keep = match mode {
+                PlanningMode::Replan => candidate.as_entity().is_none_or(|entity| {
+                    belief_state.pattern_confidence(&TriplePattern::entity_contains(entity)) > 0.1
+                }),
+                PlanningMode::Propose => action.is_plan_valid(&candidate, mind),
+            };
+            if !keep {
+                continue;
+            }
+
+            actions.push(action.to_template_for_target(&candidate, mind));
         }
-
-        let Ok((vis_transform, maybe_affordance)) = affordances.get(entity) else {
-            continue;
-        };
-        processed.insert(entity);
-
-        let Some(affordance) = maybe_affordance else {
-            continue;
-        };
-        if affordance.action_type != action.action_type() {
-            continue;
-        }
-
-        if !action.is_plan_valid(Some(entity), mind) {
-            continue;
-        }
-
-        let vis_pos = vis_transform.translation().truncate();
-        let dist = agent_pos.distance(vis_pos);
-        let mut template = action.to_template(Some(entity), Some(vis_pos));
-        // Override effects with mind-derived effects (e.g. Harvest yields what the target produces)
-        template.effects = action.plan_effects_for_target(Some(entity), mind);
-        template.base_cost += dist;
-        actions.push(template);
     }
+
+    actions
 }
 
 #[cfg(test)]

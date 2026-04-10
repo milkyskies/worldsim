@@ -342,19 +342,25 @@ fn two_agents_can_each_partially_fill_the_same_construction_site() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// to_template proximity precondition
+// to_template_for_target proximity injection (auto-injected by #219 default)
 // ═══════════════════════════════════════════════════════════════════════════
 
 #[test]
 fn deposit_template_includes_target_tile_precondition() {
+    use worldsim::agent::actions::TargetCandidate;
     use worldsim::agent::brains::thinking::TriplePattern;
-    use worldsim::agent::mind::knowledge::{Node, Predicate, Value};
+    use worldsim::agent::mind::knowledge::{Node, Predicate, Value, setup_ontology};
 
     let registry = ActionRegistry::new();
     let deposit = registry.get(ActionType::Deposit).unwrap();
+    let mind = worldsim::agent::mind::knowledge::MindGraph::new(setup_ontology());
 
     // Pixel (64, 64) at TILE_SIZE 16 maps to tile (4, 4)
-    let template = deposit.to_template(Some(Entity::from_bits(7)), Some(Vec2::new(64.0, 64.0)));
+    let target = TargetCandidate::Entity {
+        entity: Entity::from_bits(7),
+        pos: Vec2::new(64.0, 64.0),
+    };
+    let template = deposit.to_template_for_target(&target, &mind);
 
     let expected = TriplePattern::new(
         Some(Node::Self_),
@@ -363,19 +369,25 @@ fn deposit_template_includes_target_tile_precondition() {
     );
     assert!(
         template.preconditions.contains(&expected),
-        "Deposit template must include the target tile location precondition"
+        "Deposit template must include the auto-injected target tile location precondition"
     );
 }
 
 #[test]
 fn take_template_includes_target_tile_precondition() {
+    use worldsim::agent::actions::TargetCandidate;
     use worldsim::agent::brains::thinking::TriplePattern;
-    use worldsim::agent::mind::knowledge::{Node, Predicate, Value};
+    use worldsim::agent::mind::knowledge::{Node, Predicate, Value, setup_ontology};
 
     let registry = ActionRegistry::new();
     let take = registry.get(ActionType::Take).unwrap();
+    let mind = worldsim::agent::mind::knowledge::MindGraph::new(setup_ontology());
 
-    let template = take.to_template(Some(Entity::from_bits(7)), Some(Vec2::new(32.0, 48.0)));
+    let target = TargetCandidate::Entity {
+        entity: Entity::from_bits(7),
+        pos: Vec2::new(32.0, 48.0),
+    };
+    let template = take.to_template_for_target(&target, &mind);
 
     let expected = TriplePattern::new(
         Some(Node::Self_),
@@ -384,6 +396,6 @@ fn take_template_includes_target_tile_precondition() {
     );
     assert!(
         template.preconditions.contains(&expected),
-        "Take template must include the target tile location precondition"
+        "Take template must include the auto-injected target tile location precondition"
     );
 }
