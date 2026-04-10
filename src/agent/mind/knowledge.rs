@@ -252,6 +252,9 @@ pub enum Predicate {
     Introduced,   // (Self, Introduced, Entity) - exchanged names?
     NameOf,       // (Entity, NameOf, String) - what's their name?
 
+    // ─── Possession ───
+    Owns, // (Self, Owns, Entity<campfire>) - "this is mine"
+
     // ─── Relationship Dimensions ───
     Trust,        // (Entity, Trust, Float) - 0.0 to 1.0
     Affection,    // (Entity, Affection, Float) - 0.0 to 1.0

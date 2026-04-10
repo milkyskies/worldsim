@@ -468,6 +468,7 @@ pub fn tick_actions(
                             &initial_items,
                             labor_required,
                             current_tick,
+                            Some(entity),
                         );
                     }
                 }

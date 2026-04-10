@@ -1,9 +1,9 @@
 //! Construction site spawning.
 //!
 //! Reads: Concept (target recipe), recipe requirements
-//! Writes: Construction site entities (ItemSlots + Becomes + EntityType + Transform + optional Affordance)
+//! Writes: Construction site entities (ItemSlots + Becomes + EntityType + Transform + optional Affordance + optional BuiltBy)
 //! Upstream: execution system (Build action on_complete → SpawnRequest::Site)
-//! Downstream: becomes_system (transforms site → finished entity when slots fill),
+//! Downstream: becomes_system (transforms site → finished entity when slots fill, carries BuiltBy forward),
 //!             labor_accumulation_system (increments labor counter for Construct actions),
 //!             perception (observers see the site as a perceivable world entity)
 //!
@@ -23,6 +23,7 @@ use crate::agent::item_slots::{ItemSlots, Slot};
 use crate::agent::mind::knowledge::Concept;
 use crate::constants::actions::construct::INTERACTION_DISTANCE;
 use crate::world::becomes::{Becomes, BecomesTrigger};
+use crate::world::property::BuiltBy;
 use bevy::prelude::*;
 
 /// Marker for construction site entities. Lets queries narrow to "sites only"
@@ -51,6 +52,11 @@ pub struct ConstructionSiteMarker;
 ///
 /// `started_tick` records when the site was placed (used by composite triggers
 /// like `All([SlotsFilled, AfterTicks(N)])` for cooking-style processes).
+///
+/// `builder` is the agent who placed the site. When `Some`, a `BuiltBy`
+/// component is attached so the finished entity (after `becomes_system` fires)
+/// carries the world-truth record of who built it. The builder's MindGraph
+/// also receives a `(Self, Owns, finished_entity)` triple at transformation time.
 pub fn spawn_construction_site_headless(
     commands: &mut Commands,
     target: Concept,
@@ -59,6 +65,7 @@ pub fn spawn_construction_site_headless(
     initial_items: &[(Concept, u32)],
     labor_required: Option<u32>,
     started_tick: u64,
+    builder: Option<Entity>,
 ) -> Entity {
     let mut item_slots = ItemSlots {
         slots: requirements
@@ -99,6 +106,13 @@ pub fn spawn_construction_site_headless(
             cost: crate::constants::actions::construct::BASE_COST,
             distance: INTERACTION_DISTANCE,
             risk: 0.0,
+        });
+    }
+
+    if let Some(builder) = builder {
+        entity_cmd.insert(BuiltBy {
+            builder,
+            built_at: started_tick,
         });
     }
 

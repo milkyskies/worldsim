@@ -1,9 +1,10 @@
 //! Becomes: general substrate for entities that transform into other entities.
 //!
 //! Reads: Becomes (component), ItemSlots (for SlotsFilled trigger), Transform, TickCount,
-//!        ActiveActions (for LaborAccumulated trigger)
+//!        ActiveActions (for LaborAccumulated trigger), BuiltBy (carry-forward on transform)
 //! Writes: Despawns source entities, spawns target concept entities at the same position,
-//!         mutates LaborAccumulated.current on entities being actively constructed, SimEvent
+//!         mutates LaborAccumulated.current on entities being actively constructed, SimEvent,
+//!         MindGraph (writes (Self, Owns, new_entity) for the builder when BuiltBy is present)
 //! Upstream: Build action (creates construction sites), future cooking/growing/decay systems
 //! Downstream: Perception (observers see the transformation result on the next tick)
 //!
@@ -19,12 +20,14 @@ use std::collections::HashMap;
 
 use bevy::prelude::*;
 
+use crate::agent::Agent;
 use crate::agent::actions::ActionType;
 use crate::agent::actions::registry::ActiveActions;
 use crate::agent::events::SimEvent;
 use crate::agent::item_slots::{ItemSlots, SlotRole};
-use crate::agent::mind::knowledge::Concept;
+use crate::agent::mind::knowledge::{Concept, Metadata, MindGraph, Node, Predicate, Triple, Value};
 use crate::core::tick::TickCount;
+use crate::world::property::BuiltBy;
 use crate::world::spawn::spawn_concept_entity;
 
 /// World-truth component declaring "this entity will transform into `target`
@@ -163,21 +166,58 @@ pub fn slots_filled(slots: &ItemSlots) -> bool {
 /// fired this tick: read the entity's position, despawn it, and spawn the
 /// target concept entity at the same position.
 ///
+/// If the source carried a `BuiltBy` component, the world-truth record is
+/// copied onto the new entity AND the builder's MindGraph receives a
+/// `(Self, Owns, new_entity)` triple — experiential knowledge that they
+/// own what they built. The triple is written directly because ownership
+/// is a consequence of the build action, not something the builder needs
+/// to perceive.
+///
 /// Runs after action effects (which mutate slots) and before perception
 /// (so observers see consistent state).
 pub fn becomes_system(
     mut commands: Commands,
-    query: Query<(Entity, &Becomes, &Transform, Option<&ItemSlots>)>,
+    query: Query<(
+        Entity,
+        &Becomes,
+        &Transform,
+        Option<&ItemSlots>,
+        Option<&BuiltBy>,
+    )>,
+    mut agent_minds: Query<&mut MindGraph, With<Agent>>,
     tick: Res<TickCount>,
 ) {
-    for (entity, becomes, transform, slots) in query.iter() {
-        if becomes
+    for (entity, becomes, transform, slots, built_by) in query.iter() {
+        if !becomes
             .trigger
             .evaluate(slots, becomes.started_tick, tick.current)
         {
-            let position = transform.translation.truncate();
-            commands.entity(entity).despawn();
-            spawn_concept_entity(&mut commands, becomes.target, position, tick.current);
+            continue;
+        }
+
+        let position = transform.translation.truncate();
+        commands.entity(entity).despawn();
+        let Some(new_entity) =
+            spawn_concept_entity(&mut commands, becomes.target, position, tick.current)
+        else {
+            continue;
+        };
+
+        // Carry BuiltBy forward and record ownership in the builder's mind.
+        let Some(built_by) = built_by else {
+            continue;
+        };
+        commands.entity(new_entity).insert(BuiltBy {
+            builder: built_by.builder,
+            built_at: built_by.built_at,
+        });
+        if let Ok(mut mind) = agent_minds.get_mut(built_by.builder) {
+            mind.assert(Triple::with_meta(
+                Node::Self_,
+                Predicate::Owns,
+                Value::Entity(new_entity),
+                Metadata::default(),
+            ));
         }
     }
 }
