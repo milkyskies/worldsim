@@ -203,10 +203,10 @@ pub fn labor_accumulation_system(
     let mut constructor_pairs: Vec<(Entity, Entity)> = Vec::new();
     for (agent_entity, actions) in active_actions.iter() {
         for action_state in actions.iter() {
-            if action_state.action_type == ActionType::Construct {
-                if let Some(target) = action_state.target_entity {
-                    constructor_pairs.push((agent_entity, target));
-                }
+            if action_state.action_type == ActionType::Construct
+                && let Some(target) = action_state.target_entity
+            {
+                constructor_pairs.push((agent_entity, target));
             }
         }
     }
