@@ -290,10 +290,15 @@ impl RegressiveState {
         s
     }
 
-    /// Sort goals for canonical hashing
+    /// Canonicalize for stable hashing: sort then dedup so semantically-equal
+    /// states collapse to the same A* closed-set entry instead of being re-explored.
     fn normalize(&mut self) {
         self.unmet_goals.sort_by(compare_patterns);
+        self.unmet_goals
+            .dedup_by(|a, b| compare_patterns(a, b).is_eq());
         self.consumed.sort_by(compare_patterns);
+        self.consumed
+            .dedup_by(|a, b| compare_patterns(a, b).is_eq());
     }
 }
 
@@ -934,6 +939,22 @@ mod tests {
         ActionRegistry::new()
     }
 
+    fn self_apple_pattern() -> TriplePattern {
+        TriplePattern::new(
+            Some(MindNode::Self_),
+            Some(Predicate::Contains),
+            Some(Value::Item(Concept::Apple, 1)),
+        )
+    }
+
+    fn hash_state(state: &RegressiveState) -> u64 {
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::Hasher;
+        let mut h = DefaultHasher::new();
+        state.hash(&mut h);
+        h.finish()
+    }
+
     // ─── patterns_overlap ─────────────────────────────────────────────────────
 
     #[test]
@@ -1311,5 +1332,177 @@ mod tests {
             sleep_idx.unwrap() < walk_idx.unwrap(),
             "Sleep must come before Walk"
         );
+    }
+
+    // ─── Pattern matching correctness (#20) ───────────────────────────────────
+
+    #[test]
+    fn precondition_with_specific_subject_does_not_match_other_entities() {
+        // Regression for #20: a precondition that names a specific subject
+        // must not be satisfied by triples about other entities — otherwise
+        // the planner skips actions that should have been required.
+        let other = Entity::from_bits(99);
+        let mut mind = test_mind();
+        mind.add(Triple::new(
+            MindNode::Entity(other),
+            Predicate::Contains,
+            Value::Item(Concept::Apple, 1),
+        ));
+
+        assert!(
+            !mind_satisfies_pattern(&mind, &self_apple_pattern()),
+            "Self_ precondition must not be satisfied by another entity's items"
+        );
+
+        let stranger = Entity::from_bits(1234);
+        let stranger_apple = TriplePattern::new(
+            Some(MindNode::Entity(stranger)),
+            Some(Predicate::Contains),
+            Some(Value::Item(Concept::Apple, 1)),
+        );
+        assert!(
+            !mind_satisfies_pattern(&mind, &stranger_apple),
+            "entity X precondition must not be satisfied by entity Y's items"
+        );
+
+        let owner_apple = TriplePattern::new(
+            Some(MindNode::Entity(other)),
+            Some(Predicate::Contains),
+            Some(Value::Item(Concept::Apple, 1)),
+        );
+        assert!(mind_satisfies_pattern(&mind, &owner_apple));
+    }
+
+    #[test]
+    fn planner_does_not_treat_self_goal_as_satisfied_by_another_entity() {
+        // Regression for #20: goal "Self_ at (5,5)" must not be considered
+        // already-satisfied just because some other entity is at (5,5).
+        let other = Entity::from_bits(7);
+        let mut mind = test_mind();
+        mind.add(Triple::new(
+            MindNode::Self_,
+            Predicate::LocatedAt,
+            Value::Tile((0, 0)),
+        ));
+        mind.add(Triple::new(
+            MindNode::Self_,
+            Predicate::Energy,
+            Value::Int(100),
+        ));
+        mind.add(Triple::new(
+            MindNode::Entity(other),
+            Predicate::LocatedAt,
+            Value::Tile((5, 5)),
+        ));
+
+        let goal = Goal {
+            conditions: vec![TriplePattern::self_at((5, 5))],
+            priority: 1.0,
+        };
+        let plan = regressive_plan(&mind, &goal, &[], &minimal_registry())
+            .expect("planner should produce a Walk plan, not an empty plan");
+        assert!(
+            plan.iter().any(|a| a.action_type == ActionType::Walk),
+            "plan must include a Walk to reach the target tile"
+        );
+    }
+
+    #[test]
+    fn pattern_matches_triple_respects_specific_subject() {
+        let agent_apple = Triple::new(
+            MindNode::Self_,
+            Predicate::Contains,
+            Value::Item(Concept::Apple, 1),
+        );
+        let other_apple = Triple::new(
+            MindNode::Entity(Entity::from_bits(1)),
+            Predicate::Contains,
+            Value::Item(Concept::Apple, 1),
+        );
+
+        let pat_self = TriplePattern::new(
+            Some(MindNode::Self_),
+            Some(Predicate::Contains),
+            Some(Value::Item(Concept::Apple, 1)),
+        );
+        assert!(pattern_matches_triple(&pat_self, &agent_apple));
+        assert!(
+            !pattern_matches_triple(&pat_self, &other_apple),
+            "Self_ pattern must not match an entity-subject triple"
+        );
+    }
+
+    #[test]
+    fn pattern_matches_triple_wildcards_each_field() {
+        let triple = Triple::new(
+            MindNode::Entity(Entity::from_bits(42)),
+            Predicate::Contains,
+            Value::Item(Concept::Apple, 3),
+        );
+
+        // Wildcard subject
+        let pat = TriplePattern::new(
+            None,
+            Some(Predicate::Contains),
+            Some(Value::Item(Concept::Apple, 3)),
+        );
+        assert!(pattern_matches_triple(&pat, &triple));
+
+        // Wildcard predicate
+        let pat = TriplePattern::new(
+            Some(MindNode::Entity(Entity::from_bits(42))),
+            None,
+            Some(Value::Item(Concept::Apple, 3)),
+        );
+        assert!(pattern_matches_triple(&pat, &triple));
+
+        // Wildcard object
+        let pat = TriplePattern::new(
+            Some(MindNode::Entity(Entity::from_bits(42))),
+            Some(Predicate::Contains),
+            None,
+        );
+        assert!(pattern_matches_triple(&pat, &triple));
+
+        // Concrete mismatch
+        let pat = TriplePattern::new(
+            Some(MindNode::Entity(Entity::from_bits(99))),
+            Some(Predicate::Contains),
+            Some(Value::Item(Concept::Apple, 3)),
+        );
+        assert!(!pattern_matches_triple(&pat, &triple));
+    }
+
+    // ─── RegressiveState dedup (#20) ──────────────────────────────────────────
+
+    #[test]
+    fn regressive_state_canonicalizes_goal_order() {
+        let a = self_apple_pattern();
+        let b = TriplePattern::new(
+            Some(MindNode::Self_),
+            Some(Predicate::LocatedAt),
+            Some(Value::Tile((3, 5))),
+        );
+
+        let s1 = RegressiveState::new(vec![a.clone(), b.clone()], vec![]);
+        let s2 = RegressiveState::new(vec![b, a], vec![]);
+
+        assert_eq!(s1, s2, "goal order must not affect state equality");
+        assert_eq!(
+            hash_state(&s1),
+            hash_state(&s2),
+            "goal order must not affect state hash"
+        );
+    }
+
+    #[test]
+    fn regressive_state_deduplicates_repeated_goals() {
+        // `[A, A]` and `[A]` describe the same goal set; A* dedup must collapse them.
+        let a = self_apple_pattern();
+        let single = RegressiveState::new(vec![a.clone()], vec![]);
+        let duplicated = RegressiveState::new(vec![a.clone(), a], vec![]);
+
+        assert_eq!(single, duplicated);
+        assert_eq!(hash_state(&single), hash_state(&duplicated));
     }
 }

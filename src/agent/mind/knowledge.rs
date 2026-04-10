@@ -1166,4 +1166,117 @@ mod tests {
             .unwrap();
         assert_eq!(stick_count, 2);
     }
+
+    // ─── query() — pattern matching with wildcards (#20) ──────────────────────
+
+    fn three_entity_world() -> (MindGraph, Entity, Entity, Entity) {
+        let mut mind = MindGraph::default();
+        let agent = Entity::from_bits(1);
+        let tree = Entity::from_bits(2);
+        let bush = Entity::from_bits(3);
+
+        mind.add(Triple::new(
+            Node::Entity(agent),
+            Predicate::Contains,
+            Value::Item(Concept::Apple, 1),
+        ));
+        mind.add(Triple::new(
+            Node::Entity(tree),
+            Predicate::Contains,
+            Value::Item(Concept::Apple, 5),
+        ));
+        mind.add(Triple::new(
+            Node::Entity(bush),
+            Predicate::Contains,
+            Value::Item(Concept::Berry, 3),
+        ));
+        mind.add(Triple::new(
+            Node::Entity(tree),
+            Predicate::LocatedAt,
+            Value::Tile((4, 4)),
+        ));
+
+        (mind, agent, tree, bush)
+    }
+
+    #[test]
+    fn query_fully_specified_matches_only_the_target_triple() {
+        let (mind, _agent, tree, _bush) = three_entity_world();
+
+        let results = mind.query(
+            Some(&Node::Entity(tree)),
+            Some(Predicate::Contains),
+            Some(&Value::Item(Concept::Apple, 5)),
+        );
+
+        assert_eq!(
+            results.len(),
+            1,
+            "fully-specified query must match exactly one triple"
+        );
+        assert_eq!(results[0].subject, Node::Entity(tree));
+    }
+
+    #[test]
+    fn query_fully_specified_does_not_match_unintended_triples() {
+        // Regression for #20: a specific query must not match other entities.
+        let (mind, _agent, _tree, bush) = three_entity_world();
+
+        let results = mind.query(
+            Some(&Node::Entity(bush)),
+            Some(Predicate::Contains),
+            Some(&Value::Item(Concept::Apple, 5)),
+        );
+
+        assert!(results.is_empty());
+    }
+
+    #[test]
+    fn query_wildcard_subject_matches_any_subject() {
+        let (mind, _agent, _tree, _bush) = three_entity_world();
+
+        let results = mind.query(
+            None,
+            Some(Predicate::Contains),
+            Some(&Value::Item(Concept::Apple, 5)),
+        );
+
+        assert_eq!(results.len(), 1, "only the tree holds Apple(5)");
+        assert!(matches!(results[0].subject, Node::Entity(_)));
+    }
+
+    #[test]
+    fn query_wildcard_predicate_matches_any_predicate() {
+        let (mind, _agent, tree, _bush) = three_entity_world();
+
+        let results = mind.query(Some(&Node::Entity(tree)), None, None);
+
+        assert_eq!(results.len(), 2);
+        let predicates: Vec<_> = results.iter().map(|t| t.predicate).collect();
+        assert!(predicates.contains(&Predicate::Contains));
+        assert!(predicates.contains(&Predicate::LocatedAt));
+    }
+
+    #[test]
+    fn query_wildcard_object_matches_any_object() {
+        let (mind, _agent, tree, _bush) = three_entity_world();
+
+        let results = mind.query(Some(&Node::Entity(tree)), Some(Predicate::Contains), None);
+
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].object, Value::Item(Concept::Apple, 5));
+    }
+
+    #[test]
+    fn query_wildcard_object_does_not_leak_across_subjects() {
+        // Even with object wildcard, the subject filter must hold strictly.
+        let (mind, _agent, tree, bush) = three_entity_world();
+
+        let tree_results = mind.query(Some(&Node::Entity(tree)), Some(Predicate::Contains), None);
+        let bush_results = mind.query(Some(&Node::Entity(bush)), Some(Predicate::Contains), None);
+
+        assert_eq!(tree_results.len(), 1);
+        assert_eq!(bush_results.len(), 1);
+        assert_ne!(tree_results[0].object, bush_results[0].object);
+    }
 }
