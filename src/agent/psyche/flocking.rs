@@ -80,14 +80,21 @@ pub const SOCIAL_PROXIMITY_DECAY_PER_SEC: f32 = 0.15;
 /// comforted by being in a crowd of strangers, an introvert isn't.
 pub fn stranger_affection_for(
     species: Option<&SpeciesProfile>,
-    personality: Option<&Personality>,
+    _personality: Option<&Personality>,
 ) -> f32 {
     let is_person = matches!(species.map(|s| s.species), Some(Species::Human));
-    if !is_person {
-        return STRANGER_CONSPECIFIC_AFFECTION;
+    if is_person {
+        // Humans are not meaningfully comforted by mere proximity to
+        // strangers. Their social satisfier is conversation (handled by
+        // the activity effects system when InConversation is active).
+        // Known friends contribute via their Affection value, not via
+        // this stranger fallback.
+        return 0.0;
     }
-    let extraversion = personality.map(|p| p.traits.extraversion).unwrap_or(0.5);
-    STRANGER_CONSPECIFIC_AFFECTION + EXTRAVERT_STRANGER_BONUS * extraversion
+    // Animals: herd safety in numbers is real regardless of personality.
+    // Even a random deer standing next to an unfamiliar deer is slightly
+    // less anxious than a deer standing alone.
+    STRANGER_CONSPECIFIC_AFFECTION
 }
 
 /// Decay the `social` drive based on visible conspecifics, weighted by
@@ -180,54 +187,23 @@ mod tests {
     }
 
     #[test]
-    fn extravert_humans_get_more_stranger_comfort_than_introverts() {
-        use crate::agent::psyche::personality::{Personality, PersonalityTraits};
+    fn humans_get_zero_stranger_comfort() {
         let species = SpeciesProfile::human();
-
-        let extravert = Personality {
-            traits: PersonalityTraits {
-                extraversion: 1.0,
-                ..Default::default()
-            },
-            ..Default::default()
-        };
-        let introvert = Personality {
-            traits: PersonalityTraits {
-                extraversion: 0.0,
-                ..Default::default()
-            },
-            ..Default::default()
-        };
-
-        let extra = stranger_affection_for(Some(&species), Some(&extravert));
-        let intro = stranger_affection_for(Some(&species), Some(&introvert));
-        assert!(
-            extra > intro,
-            "extravert should get more stranger comfort: extra={extra}, intro={intro}"
-        );
-        assert_eq!(intro, STRANGER_CONSPECIFIC_AFFECTION);
+        let value = stranger_affection_for(Some(&species), None);
         assert_eq!(
-            extra,
-            STRANGER_CONSPECIFIC_AFFECTION + EXTRAVERT_STRANGER_BONUS
+            value, 0.0,
+            "humans should get zero comfort from stranger proximity — their satisfier is conversation"
         );
     }
 
     #[test]
-    fn animals_ignore_personality_for_stranger_comfort() {
-        use crate::agent::psyche::personality::{Personality, PersonalityTraits};
+    fn animals_get_nonzero_stranger_comfort() {
         let deer = SpeciesProfile::deer();
-        let extravert = Personality {
-            traits: PersonalityTraits {
-                extraversion: 1.0,
-                ..Default::default()
-            },
-            ..Default::default()
-        };
-        // A deer with maximum extraversion still uses the bare baseline:
-        // herd safety in numbers is universal for prey, not a personality
-        // dimension.
-        let value = stranger_affection_for(Some(&deer), Some(&extravert));
-        assert_eq!(value, STRANGER_CONSPECIFIC_AFFECTION);
+        let value = stranger_affection_for(Some(&deer), None);
+        assert_eq!(
+            value, STRANGER_CONSPECIFIC_AFFECTION,
+            "herd animals should get the safety-in-numbers baseline from any conspecific"
+        );
     }
 
     #[test]
