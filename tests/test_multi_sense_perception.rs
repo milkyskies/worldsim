@@ -5,9 +5,7 @@
 
 use bevy::prelude::*;
 use worldsim::agent::events::SimEvent;
-use worldsim::agent::mind::knowledge::{
-    CardinalDirection, Concept, MindGraph, Node, Predicate, Sense, Value,
-};
+use worldsim::agent::mind::knowledge::{Concept, MindGraph, Node, Predicate, Sense, Value};
 use worldsim::testing::{AgentConfig, TestWorld};
 use worldsim::world::sense_sources::{SoundKind, SoundSource};
 
