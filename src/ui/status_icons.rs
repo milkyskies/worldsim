@@ -17,6 +17,15 @@ const HIDE_ZOOM_THRESHOLD: f32 = 2.5;
 /// Y offset above the agent root transform where the icon floats.
 const ICON_Y_OFFSET: f32 = 32.0;
 
+/// Fear intensity above which the scared icon is shown.
+const FEAR_THRESHOLD: f32 = 0.5;
+
+/// Mood value above which the happy icon is shown.
+const MOOD_HAPPY_THRESHOLD: f32 = 0.5;
+
+/// Hunger level above which the hungry icon is shown (when not eating).
+const HUNGER_THRESHOLD: f32 = 80.0;
+
 pub struct StatusIconPlugin;
 
 impl Plugin for StatusIconPlugin {
@@ -71,15 +80,20 @@ fn update_status_icons(
             continue;
         };
 
-        if far_zoom {
-            *visibility = Visibility::Hidden;
-            continue;
+        let target_vis = if far_zoom {
+            Visibility::Hidden
+        } else {
+            Visibility::Inherited
+        };
+        if *visibility != target_vis {
+            *visibility = target_vis;
         }
-        *visibility = Visibility::Inherited;
 
-        let icon = status_icon(actions, emotions, needs, in_conversation);
-        if text.0 != icon {
-            text.0 = icon.to_string();
+        if !far_zoom {
+            let icon = status_icon(actions, emotions, needs, in_conversation);
+            if text.0 != icon {
+                text.0 = icon.to_string();
+            }
         }
     }
 }
@@ -103,14 +117,14 @@ const ICON_IDLE: &str = ".";
 ///
 /// Priority (highest first):
 /// 1. Sleeping
-/// 2. Scared (Fear > 0.5)
+/// 2. Scared (Fear > FEAR_THRESHOLD)
 /// 3. Talking (InConversation present)
 /// 4. Eating
 /// 5. Drinking
 /// 6. Harvesting
 /// 7. Building
-/// 8. Hungry (hunger > 80, not eating)
-/// 9. Happy (mood > 0.5)
+/// 8. Hungry (hunger > HUNGER_THRESHOLD, not eating)
+/// 9. Happy (mood > MOOD_HAPPY_THRESHOLD)
 /// 10. Idle (fallback)
 pub fn status_icon(
     actions: &ActiveActions,
@@ -121,7 +135,7 @@ pub fn status_icon(
     if actions.contains(ActionType::Sleep) {
         return ICON_SLEEP;
     }
-    if emotions.get_emotion_intensity(EmotionType::Fear) > 0.5 {
+    if emotions.get_emotion_intensity(EmotionType::Fear) > FEAR_THRESHOLD {
         return ICON_SCARED;
     }
     if in_conversation.is_some() {
@@ -139,10 +153,10 @@ pub fn status_icon(
     if actions.contains(ActionType::Build) {
         return ICON_BUILDING;
     }
-    if needs.hunger > 80.0 {
+    if needs.hunger > HUNGER_THRESHOLD {
         return ICON_HUNGRY;
     }
-    if emotions.current_mood > 0.5 {
+    if emotions.current_mood > MOOD_HAPPY_THRESHOLD {
         return ICON_HAPPY;
     }
     ICON_IDLE
