@@ -9,13 +9,18 @@ use crate::agent::Agent;
 use crate::agent::activity::CurrentActivity;
 use crate::agent::psyche::emotions::EmotionalState;
 use bevy::prelude::*;
+use bevy::transform::TransformSystems;
+use std::cmp::Ordering;
 use std::collections::HashMap;
 
 pub struct SpriteAnimationPlugin;
 
 impl Plugin for SpriteAnimationPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(PostUpdate, animate_sprites);
+        app.add_systems(
+            PostUpdate,
+            animate_sprites.before(TransformSystems::Propagate),
+        );
     }
 }
 
@@ -24,11 +29,8 @@ impl Plugin for SpriteAnimationPlugin {
 #[derive(Component, Debug, Clone, Default, Reflect)]
 #[reflect(Component)]
 pub struct SpriteAnimation {
-    /// Y offset applied last frame
     prev_y_offset: f32,
-    /// Rotation applied last frame
     prev_rotation: f32,
-    /// Y scale applied last frame (1.0 = no change)
     prev_y_scale: f32,
     /// Per-entity phase offset so agents don't all sway in sync
     phase: f32,
@@ -47,7 +49,7 @@ impl SpriteAnimation {
 // ── Emotion valence (simple, no personality needed) ─────────────────────────
 
 /// Simple valence for an emotion type: positive emotions > 0, negative < 0.
-/// This is a coarse visual signal — personality-weighted valence lives in the emotion module.
+/// Personality-weighted valence lives in the emotion module — this is a coarse visual signal.
 fn simple_valence(emotion_type: crate::agent::psyche::emotions::EmotionType) -> f32 {
     use crate::agent::psyche::emotions::EmotionType;
     match emotion_type {
@@ -67,14 +69,18 @@ fn dominant_valence_intensity(emotions: &EmotionalState) -> (f32, f32) {
     emotions
         .active_emotions
         .iter()
-        .max_by(|a, b| a.intensity.partial_cmp(&b.intensity).unwrap())
+        .max_by(|a, b| {
+            a.intensity
+                .partial_cmp(&b.intensity)
+                .unwrap_or(Ordering::Equal)
+        })
         .map(|e| (simple_valence(e.emotion_type), e.intensity))
         .unwrap_or((0.0, 0.0))
 }
 
 // ── Deterministic jitter ────────────────────────────────────────────────────
 
-/// Cheap pseudo-random jitter from time, avoiding the need for a random number generator.
+/// Cheap pseudo-random jitter from time using high-frequency sine waves.
 /// Returns a value in [-amplitude, +amplitude].
 fn jitter_offset(time: f32, phase: f32, amplitude: f32) -> f32 {
     let a = (time * 37.17 + phase).sin();
@@ -101,8 +107,13 @@ fn animate_sprites(
     let dt = time.delta_secs();
     let t = time.elapsed_secs();
 
+    // Track which entities are still alive for cleanup
+    let mut alive_entities = Vec::with_capacity(query.iter().len());
+
     for (entity, mut transform, mut anim, activity, emotions) in query.iter_mut() {
-        // 1. Undo previous frame's visual offset
+        alive_entities.push(entity);
+
+        // Undo previous frame's visual offset
         transform.translation.y -= anim.prev_y_offset;
         transform.rotation = transform.rotation * Quat::from_rotation_z(-anim.prev_rotation);
         if anim.prev_y_scale != 0.0 {
@@ -111,7 +122,7 @@ fn animate_sprites(
 
         let phase = anim.phase;
 
-        // 2. Compute velocity from position delta
+        // Compute velocity from position delta
         let pos = transform.translation.truncate();
         let speed = if dt > 0.0 {
             prev_positions
@@ -123,27 +134,22 @@ fn animate_sprites(
         };
         prev_positions.insert(entity, pos);
 
-        // 3. Sleep special case
         let (y_offset, rotation, y_scale) = if matches!(activity, CurrentActivity::Sleeping) {
             let breathing = (t * (std::f32::consts::TAU / 4.0) + phase).sin() * 0.02;
             (0.0, 0.0, 0.7 + breathing)
         } else {
-            // 4. Base motion from speed
             let (bob_freq, bob_amp, sway_amp) = if speed > 0.1 {
-                // Moving: bob scales with speed
                 (speed * 0.3, (speed * 0.02).min(3.0_f32), 0.0)
             } else {
-                // Stationary: gentle sway, no bob
-                (0.0, 0.0, 2.0_f32.to_radians()) // ~2 degrees
+                (0.0, 0.0, 2.0_f32.to_radians())
             };
 
-            let sway_freq = std::f32::consts::TAU / 3.0; // 3-second period
+            let sway_freq = std::f32::consts::TAU / 3.0;
 
-            // 5. Emotion modifier from valence x intensity
             let (valence, intensity) = dominant_valence_intensity(emotions);
             let stress_freq_mult = 1.0 + emotions.stress_level * 0.003;
 
-            let jitter_amount = if valence < 0.0 { intensity * 1.0 } else { 0.0 };
+            let jitter_amount = if valence < 0.0 { intensity } else { 0.0 };
             let bounce_bonus = if valence > 0.0 { intensity * 0.5 } else { 0.0 };
             let subdued = if valence < 0.0 && intensity < 0.3 {
                 1.0 - intensity
@@ -151,7 +157,6 @@ fn animate_sprites(
                 1.0
             };
 
-            // 6. Compute final values
             let bob = (t * bob_freq * stress_freq_mult + phase).sin()
                 * (bob_amp + bob_amp * bounce_bonus)
                 * subdued;
@@ -165,15 +170,18 @@ fn animate_sprites(
             (bob + jitter_y, sway, 1.0)
         };
 
-        // 7. Apply new visual offset
         transform.translation.y += y_offset;
         transform.rotation = transform.rotation * Quat::from_rotation_z(rotation);
         transform.scale.y *= y_scale;
 
-        // 8. Store for next frame's undo
         anim.prev_y_offset = y_offset;
         anim.prev_rotation = rotation;
         anim.prev_y_scale = y_scale;
+    }
+
+    // Clean up stale entries for despawned entities
+    if prev_positions.len() > alive_entities.len() {
+        prev_positions.retain(|e, _| alive_entities.contains(e));
     }
 }
 
@@ -183,13 +191,19 @@ mod tests {
     use crate::agent::psyche::emotions::{Emotion, EmotionType};
 
     #[test]
-    fn sleeping_scale_is_flattened() {
-        // Sleeping base scale is 0.7, breathing oscillates around it
-        let scale = 0.7;
-        assert!(
-            scale < 1.0,
-            "sleeping should flatten the sprite (scale < 1.0)"
-        );
+    fn sleeping_produces_flattened_y_scale() {
+        // The sleeping branch computes: 0.7 + sin(...) * 0.02
+        // At any time t, the scale should be in [0.68, 0.72]
+        for i in 0..100 {
+            let t = i as f32 * 0.1;
+            let phase = 0.0;
+            let breathing = (t * (std::f32::consts::TAU / 4.0) + phase).sin() * 0.02;
+            let scale = 0.7 + breathing;
+            assert!(
+                scale < 1.0 && scale > 0.0,
+                "sleeping scale should be flattened, got {scale} at t={t}"
+            );
+        }
     }
 
     #[test]
@@ -201,8 +215,7 @@ mod tests {
         assert!(valence < 0.0, "fear should have negative valence");
         assert!(intensity > 0.5, "high fear should have high intensity");
 
-        // Jitter amount = intensity * 1.0 when valence < 0
-        let jitter_amount = intensity * 1.0;
+        let jitter_amount = if valence < 0.0 { intensity } else { 0.0 };
         assert!(jitter_amount > 0.0, "scared agent should have jitter");
     }
 
@@ -236,7 +249,6 @@ mod tests {
         mixed.add_emotion(Emotion::new(EmotionType::Fear, 0.9));
 
         let (valence, intensity) = dominant_valence_intensity(&mixed);
-        // Fear is dominant (0.9 > 0.3)
         assert!(valence < 0.0, "fear should dominate, got valence={valence}");
         assert!(
             (intensity - 0.9).abs() < 0.01,
