@@ -444,19 +444,6 @@ impl Metadata {
         }
     }
 
-    pub fn perception_for_sense(timestamp: u64, sense: Sense) -> Self {
-        Self {
-            source: Source::Perception,
-            memory_type: MemoryType::Perception,
-            timestamp,
-            confidence: 1.0,
-            informant: None,
-            evidence: Vec::new(),
-            salience: 0.0,
-            source_sense: Some(sense),
-        }
-    }
-
     pub fn perception_sense_conf(timestamp: u64, confidence: f32, sense: Sense) -> Self {
         Self {
             source: Source::Perception,

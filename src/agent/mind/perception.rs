@@ -492,6 +492,9 @@ pub fn react_to_danger(
 /// maximum detection distance (whichever is smaller wins).
 const TEMPERATURE_SENSE_RANGE: f32 = 64.0;
 
+/// Heat sources are stable (campfires don't move), so scan every 10 ticks per agent.
+const TEMPERATURE_SCAN_INTERVAL: u64 = 10;
+
 pub fn perceive_temperature(
     mut agents: Query<(Entity, &Transform, &mut MindGraph), With<Agent>>,
     heat_sources: Query<(Entity, &Transform, &HeatSource)>,
@@ -502,6 +505,10 @@ pub fn perceive_temperature(
     let current_time = tick.current;
 
     for (agent_entity, agent_transform, mut mind) in agents.iter_mut() {
+        if !tick.should_run(agent_entity, TEMPERATURE_SCAN_INTERVAL) {
+            continue;
+        }
+
         let agent_pos = agent_transform.translation.truncate();
 
         for candidate in spatial_index.entities_near(agent_pos, TEMPERATURE_SENSE_RANGE) {
@@ -620,7 +627,6 @@ pub fn perceive_hearing(
             let cardinal = CardinalDirection::from_vec2(dir);
             let sound_concept = sound_kind_to_concept(sound.kind);
 
-            // Write: "heard a <sound_kind> from <direction>"
             mind.perceive_via_sense(
                 Node::Direction(cardinal),
                 Predicate::ProducedSound,
@@ -630,14 +636,7 @@ pub fn perceive_hearing(
                 Sense::Hearing,
             );
 
-            // If the sound is threatening (howl, combat, scream), also tag the direction
-            // as potentially dangerous so downstream brain systems can react
-            if matches!(
-                sound.kind,
-                crate::world::sense_sources::SoundKind::Howl
-                    | crate::world::sense_sources::SoundKind::Combat
-                    | crate::world::sense_sources::SoundKind::Scream
-            ) {
+            if sound.kind.is_threatening() {
                 mind.perceive_via_sense(
                     Node::Direction(cardinal),
                     Predicate::HasTrait,

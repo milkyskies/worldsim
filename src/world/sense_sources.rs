@@ -31,6 +31,13 @@ pub enum SoundKind {
     Combat,
 }
 
+impl SoundKind {
+    /// Whether this sound indicates danger to listeners.
+    pub fn is_threatening(self) -> bool {
+        matches!(self, Self::Howl | Self::Combat | Self::Scream)
+    }
+}
+
 /// A transient component for entities currently producing sound.
 /// Added when an action produces sound (howling, fighting, screaming)
 /// and removed after one perception tick. Event-like, not persistent state.
