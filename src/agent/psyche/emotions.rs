@@ -804,7 +804,7 @@ mod tests {
         let config = EmotionConfig::default();
         let traits = traits_with(0.5, 0.5, 0.5);
 
-        let mut prev = None;
+        let mut prev: Option<f32> = None;
         let mut max_step = 0.0f32;
         for h in 25..=35 {
             let mut needs = calm_needs();
