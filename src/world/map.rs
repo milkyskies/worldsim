@@ -280,7 +280,8 @@ fn classify_tile(elevation: f64, moisture: f64) -> TileType {
     }
 }
 
-/// Generate a `width x height` terrain grid using layered simplex noise.
+/// Generate a `width x height` terrain grid using layered simplex noise,
+/// then overlay a procedural winding river through the center.
 pub fn generate_terrain(width: u32, height: u32, seed: u32) -> Vec<TileType> {
     let noise = TerrainNoise::new(seed);
     let mut tiles = Vec::with_capacity((width * height) as usize);
@@ -290,7 +291,108 @@ pub fn generate_terrain(width: u32, height: u32, seed: u32) -> Vec<TileType> {
             tiles.push(classify_tile(e, m));
         }
     }
+    carve_river(&mut tiles, width, height, seed);
     tiles
+}
+
+/// Returns the center x-tile of the river at row `y` for the given terrain seed.
+///
+/// Uses the same multi-octave noise as [`carve_river`] so spawn placement and
+/// carving always agree on which side of the river a tile is on.
+pub fn river_center_x(y: u32, width: u32, seed: u32) -> u32 {
+    let meander = Simplex::new(seed.wrapping_add(97));
+    let ty = y as f64;
+    // Two octaves: long slow meanders plus gentle wiggles. No high-frequency
+    // octave — keeps the river smooth instead of jagged.
+    let offset = meander.get([ty * 0.028, 0.0]) * 13.0 + meander.get([ty * 0.075, 100.0]) * 3.0;
+    let base = (width / 2) as i32;
+    base.saturating_add(offset as i32)
+        .clamp(12, width as i32 - 12) as u32
+}
+
+/// Carves an organic winding river through the center of the tile grid.
+///
+/// The river's center line follows multi-octave simplex noise (not a sine
+/// wave) for natural meanders. Width and bank thickness vary along its length.
+/// Natural shallow "ford" sections emerge from a shallow-bias noise field,
+/// with extra bias near y = height/4 and y = 3*height/4 so there are always
+/// crossings. Tiles immediately outside the banks become sand shores.
+fn carve_river(tiles: &mut [TileType], width: u32, height: u32, seed: u32) {
+    let width_noise = Simplex::new(seed.wrapping_add(98));
+    let shoal_noise = Simplex::new(seed.wrapping_add(99));
+    let bank_l_noise = Simplex::new(seed.wrapping_add(100));
+    let bank_r_noise = Simplex::new(seed.wrapping_add(101));
+
+    let ford_centers = [height / 4, height * 3 / 4];
+
+    for y in 0..height {
+        let ty = y as f64;
+        let cx = river_center_x(y, width, seed) as i32;
+
+        // Variable core half-width: 1..3 (core = 3..7 tiles wide).
+        let core_half =
+            ((1.8 + width_noise.get([ty * 0.035, 0.0]) * 0.9).round() as i32).clamp(1, 3);
+
+        // Asymmetric banks: 1..2 tiles per side.
+        let bank_l = ((1.5 + bank_l_noise.get([ty * 0.06, 0.0]) * 0.6).round() as i32).clamp(1, 2);
+        let bank_r = ((1.5 + bank_r_noise.get([ty * 0.06, 50.0]) * 0.6).round() as i32).clamp(1, 2);
+
+        // Triangular bump kernel around each target ford row. At the center,
+        // proximity = 1.0; it fades linearly to 0 over 4 rows. Combined with
+        // per-tile 2D noise below, this gives ford zones a soft irregular
+        // edge instead of a hard rectangular cut.
+        let ford_proximity = ford_centers
+            .iter()
+            .map(|&fy| {
+                let d = (y as i32 - fy as i32).abs() as f64;
+                (1.0 - d / 4.0).max(0.0)
+            })
+            .fold(0.0_f64, f64::max);
+
+        let left_edge = cx - core_half - bank_l;
+        let right_edge = cx + core_half + bank_r;
+
+        // Carve water core + shallow banks.
+        for x in left_edge..=right_edge {
+            if x < 0 || x >= width as i32 {
+                continue;
+            }
+            let idx = (y * width + x as u32) as usize;
+            let dx = x - cx;
+            let is_core = dx.abs() <= core_half;
+
+            if !is_core {
+                // Bank: always shallow.
+                tiles[idx] = TileType::ShallowWater;
+                continue;
+            }
+
+            // Core tile: shallow if per-tile 2D noise + ford-proximity boost
+            // crosses the threshold. Per-tile noise means shoals are small
+            // scattered patches (not row-wide slabs), and the ford proximity
+            // term guarantees the center rows of each ford zone are shallow
+            // while letting the edges fade irregularly into deep water.
+            let shallow_score =
+                shoal_noise.get([x as f64 * 0.35, ty * 0.35]) + ford_proximity * 1.6;
+            tiles[idx] = if shallow_score > 0.75 {
+                TileType::ShallowWater
+            } else {
+                TileType::Water
+            };
+        }
+
+        // Sand shores: one tile of beach just outside each bank, but only if
+        // the noise-generated terrain there was land (don't overwrite water).
+        for &sx in &[left_edge - 1, right_edge + 1] {
+            if sx < 0 || sx >= width as i32 {
+                continue;
+            }
+            let idx = (y * width + sx as u32) as usize;
+            if !matches!(tiles[idx], TileType::Water | TileType::ShallowWater) {
+                tiles[idx] = TileType::Sand;
+            }
+        }
+    }
 }
 
 pub fn setup_map(mut commands: Commands, mut map_resource: ResMut<WorldMap>) {
@@ -445,5 +547,85 @@ mod tests {
         let a = generate_terrain(32, 32, 1);
         let b = generate_terrain(32, 32, 2);
         assert_ne!(a, b);
+    }
+
+    #[test]
+    fn river_runs_through_center_of_map() {
+        let tiles = generate_terrain(WORLD_WIDTH, WORLD_HEIGHT, DEFAULT_TERRAIN_SEED);
+        // Every row should have a Water or ShallowWater tile somewhere in the center third.
+        let center_range = (WORLD_WIDTH / 3)..(WORLD_WIDTH * 2 / 3);
+        let has_water_in_center = (0..WORLD_HEIGHT).all(|y| {
+            center_range.clone().any(|x| {
+                let t = tiles[(y * WORLD_WIDTH + x) as usize];
+                t == TileType::Water || t == TileType::ShallowWater
+            })
+        });
+        assert!(
+            has_water_in_center,
+            "river should pass through center third of every row"
+        );
+    }
+
+    #[test]
+    fn river_has_passable_ford_near_target_rows() {
+        // Near y = height/4 and y = 3*height/4 at least one row must be fully
+        // shallow at the river center (a crossing exists).
+        let tiles = generate_terrain(WORLD_WIDTH, WORLD_HEIGHT, DEFAULT_TERRAIN_SEED);
+        for &fy in &[WORLD_HEIGHT / 4, WORLD_HEIGHT * 3 / 4] {
+            let ford_zone = (fy.saturating_sub(3))..=(fy + 3).min(WORLD_HEIGHT - 1);
+            let has_ford = ford_zone.clone().any(|y| {
+                let cx = river_center_x(y, WORLD_WIDTH, DEFAULT_TERRAIN_SEED) as usize;
+                tiles[y as usize * WORLD_WIDTH as usize + cx] == TileType::ShallowWater
+            });
+            assert!(has_ford, "expected a ShallowWater crossing near y={fy}");
+        }
+    }
+
+    #[test]
+    fn river_contains_both_deep_water_and_shallows() {
+        // Sanity: the river must have deep water somewhere (it's a real barrier)
+        // and shallows somewhere (it has crossings).
+        let tiles = generate_terrain(WORLD_WIDTH, WORLD_HEIGHT, DEFAULT_TERRAIN_SEED);
+        let (mut deep, mut shallow) = (0, 0);
+        for y in 0..WORLD_HEIGHT {
+            let cx = river_center_x(y, WORLD_WIDTH, DEFAULT_TERRAIN_SEED) as usize;
+            match tiles[y as usize * WORLD_WIDTH as usize + cx] {
+                TileType::Water => deep += 1,
+                TileType::ShallowWater => shallow += 1,
+                _ => {}
+            }
+        }
+        assert!(
+            deep > WORLD_HEIGHT as usize / 2,
+            "expected mostly deep water, got {deep}"
+        );
+        assert!(
+            shallow >= 2,
+            "expected at least 2 shallow rows for crossings, got {shallow}"
+        );
+    }
+
+    #[test]
+    fn river_has_sand_shores() {
+        // Tiles immediately outside the river banks should be Sand shores
+        // (at least somewhere — not strictly every row, because noise-generated
+        // water in the area would block the sand conversion).
+        let tiles = generate_terrain(WORLD_WIDTH, WORLD_HEIGHT, DEFAULT_TERRAIN_SEED);
+        let sand_count = tiles.iter().filter(|&&t| t == TileType::Sand).count();
+        assert!(
+            sand_count >= 20,
+            "expected plenty of sand shores along the river, got {sand_count}"
+        );
+    }
+
+    #[test]
+    fn river_center_x_stays_in_bounds() {
+        for y in 0..WORLD_HEIGHT {
+            let cx = river_center_x(y, WORLD_WIDTH, DEFAULT_TERRAIN_SEED);
+            assert!(
+                (12..WORLD_WIDTH - 12).contains(&cx),
+                "river_center_x({y}) = {cx} out of bounds"
+            );
+        }
     }
 }

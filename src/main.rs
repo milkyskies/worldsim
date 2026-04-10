@@ -19,6 +19,11 @@ use worldsim::world::WorldPlugin;
 fn main() {
     let args = CliArgs::parse();
 
+    if args.dump_map {
+        print_terrain_matrix();
+        return;
+    }
+
     if args.headless {
         let report = headless::run_headless(args.to_headless_config());
         if args.report {
@@ -35,6 +40,31 @@ fn main() {
     }
 
     run_windowed();
+}
+
+/// Generates the default terrain and prints it to stdout as ASCII art.
+///
+/// Legend: `.` grass, `f` forest, `#` rock, `s` sand, `~` shallow water, `W` deep water.
+fn print_terrain_matrix() {
+    use worldsim::world::map::{
+        DEFAULT_TERRAIN_SEED, TileType, WORLD_HEIGHT, WORLD_WIDTH, generate_terrain,
+    };
+
+    let tiles = generate_terrain(WORLD_WIDTH, WORLD_HEIGHT, DEFAULT_TERRAIN_SEED);
+    // Print with y inverted so north is at the top (matches the rendered view).
+    for y in (0..WORLD_HEIGHT).rev() {
+        let row: String = (0..WORLD_WIDTH)
+            .map(|x| match tiles[(y * WORLD_WIDTH + x) as usize] {
+                TileType::Grass => '.',
+                TileType::Forest => 'f',
+                TileType::Rock => '#',
+                TileType::Sand => 's',
+                TileType::ShallowWater => '~',
+                TileType::Water => 'W',
+            })
+            .collect();
+        println!("{row}");
+    }
 }
 
 /// Builds and runs the full Bevy app with rendering and UI.

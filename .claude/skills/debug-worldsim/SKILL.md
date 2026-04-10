@@ -23,9 +23,13 @@ Read these files for current API and flag definitions — don't trust documented
 - `src/agent/brains/trace.rs` — decision trace ring buffer and config
 - `src/testing/world.rs` — `TestWorld` inspection methods (work in tests AND in the headless runner setup)
 
-## The four observability channels
+## The five observability channels
 
 Pick the right one for what you're trying to learn:
+
+### 0. Map matrix dump — for terrain generation
+
+`cargo run --release -- --dump-map` prints the default-seed terrain as ASCII (one char per tile, y inverted so north is on top) and exits. Use it when debugging `generate_terrain` / `carve_river` instead of launching the game.
 
 ### 1. JSONL event log — for post-mortem analysis with jq
 
