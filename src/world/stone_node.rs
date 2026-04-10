@@ -56,6 +56,16 @@ pub fn spawn_stone_node(commands: &mut Commands, position: Vec2, stones: u32) ->
             },
         ))
         .with_children(|parent| {
+            // Shadow — dark ellipse underneath the stones.
+            parent.spawn((
+                Sprite {
+                    color: Color::srgba(0.0, 0.0, 0.0, 0.35),
+                    custom_size: Some(Vec2::new(base_size.x * 1.1, base_size.y * 0.35)),
+                    ..default()
+                },
+                Transform::from_translation(Vec3::new(0.0, -base_size.y * 0.45, -0.05)),
+            ));
+
             parent.spawn((
                 Sprite {
                     color: base_color,

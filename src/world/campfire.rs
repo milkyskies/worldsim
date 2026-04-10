@@ -42,6 +42,16 @@ pub fn spawn_campfire(commands: &mut Commands, position: Vec2) -> Entity {
             ViewVisibility::default(),
         ))
         .with_children(|parent| {
+            // Shadow — dark ellipse underneath the fire.
+            parent.spawn((
+                Sprite {
+                    color: Color::srgba(0.0, 0.0, 0.0, 0.35),
+                    custom_size: Some(Vec2::new(fire_size.x * 1.2, fire_size.y * 0.35)),
+                    ..default()
+                },
+                Transform::from_translation(Vec3::new(0.0, -fire_size.y * 0.45, -0.05)),
+            ));
+
             // Base glow circle
             parent.spawn((
                 Sprite {
