@@ -229,11 +229,19 @@ fn build_action_consumes_wood() {
         "Build must consume all required Wood from inventory"
     );
 
+    // Build now spawns a construction site (target = Campfire) with the
+    // materials pre-deposited rather than spawning the campfire directly.
+    // The Becomes substrate transforms the filled site into a campfire on the
+    // next tick — see test_becomes_substrate.rs for that path.
     assert!(
-        spawn_requests
-            .iter()
-            .any(|r| r.concept == Concept::Campfire),
-        "Build must request a Campfire to be spawned"
+        spawn_requests.iter().any(|r| matches!(
+            r,
+            SpawnRequest::Site {
+                target: Concept::Campfire,
+                ..
+            }
+        )),
+        "Build must request a Campfire construction site to be spawned"
     );
 }
 

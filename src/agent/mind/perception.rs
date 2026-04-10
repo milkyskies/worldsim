@@ -171,6 +171,7 @@ pub fn write_perceptions_to_mind(
     transforms: Query<&Transform>,
     inventories: Query<&crate::agent::item_slots::ItemSlots>,
     entity_types: Query<&crate::agent::inventory::EntityType>,
+    becomes_components: Query<&crate::world::becomes::Becomes>,
     tick: Res<TickCount>,
 ) {
     let current_time = tick.current;
@@ -214,6 +215,20 @@ pub fn write_perceptions_to_mind(
                     entity,
                     Predicate::IsA,
                     Value::Concept(entity_type.0),
+                    current_time,
+                    confidence,
+                );
+            }
+
+            // 4. Perceive Becomes rule (#61): if the entity has a world `Becomes`
+            // component, the observer learns "this thing will turn into that thing".
+            // This is the agent's *belief* about a transformation rule, not the
+            // rule itself — the world component fires regardless of who knows.
+            if let Ok(becomes) = becomes_components.get(entity) {
+                mind.perceive_entity(
+                    entity,
+                    Predicate::Becomes,
+                    Value::Concept(becomes.target),
                     current_time,
                     confidence,
                 );

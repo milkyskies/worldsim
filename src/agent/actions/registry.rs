@@ -76,9 +76,23 @@ pub struct RuntimeEffects {
 
 /// A request to spawn a world entity at a position when an action completes.
 /// Processed by the execution system after `on_complete` returns.
-pub struct SpawnRequest {
-    pub concept: crate::agent::mind::knowledge::Concept,
-    pub position: bevy::prelude::Vec2,
+pub enum SpawnRequest {
+    /// Spawn a finished entity directly. Used for "instant" spawns that have
+    /// no construction phase (e.g. dropping an item, summoning).
+    Entity {
+        concept: crate::agent::mind::knowledge::Concept,
+        position: bevy::prelude::Vec2,
+    },
+    /// Spawn a construction site that will become `target` when its slots fill.
+    /// `requirements` defines the slot configuration; `initial_items` are
+    /// deposited into matching slots immediately (used when the agent already
+    /// has the materials in hand).
+    Site {
+        target: crate::agent::mind::knowledge::Concept,
+        position: bevy::prelude::Vec2,
+        requirements: Vec<(crate::agent::mind::knowledge::Concept, u32)>,
+        initial_items: Vec<(crate::agent::mind::knowledge::Concept, u32)>,
+    },
 }
 
 /// Context provided to actions when they complete
