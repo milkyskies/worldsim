@@ -1,3 +1,10 @@
+//! Personality: Big Five trait component and the PersonalityTrait indexing enum.
+//!
+//! Reads: nothing (pure data)
+//! Writes: Personality (set once at spawn)
+//! Upstream: agent spawning
+//! Downstream: nervous_system::urgency (trait modifiers), psyche::emotions, ui::character_sheet
+
 use bevy::prelude::*;
 use rand::Rng;
 
@@ -66,6 +73,14 @@ pub enum PersonalityTrait {
 }
 
 impl PersonalityTrait {
+    pub const ALL: [PersonalityTrait; 5] = [
+        Self::Openness,
+        Self::Conscientiousness,
+        Self::Extraversion,
+        Self::Agreeableness,
+        Self::Neuroticism,
+    ];
+
     pub fn get(&self, traits: &PersonalityTraits) -> f32 {
         match self {
             Self::Openness => traits.openness,
@@ -73,6 +88,49 @@ impl PersonalityTrait {
             Self::Extraversion => traits.extraversion,
             Self::Agreeableness => traits.agreeableness,
             Self::Neuroticism => traits.neuroticism,
+        }
+    }
+
+    pub fn display_name(&self) -> &'static str {
+        match self {
+            Self::Openness => "Openness",
+            Self::Conscientiousness => "Conscientiousness",
+            Self::Extraversion => "Extraversion",
+            Self::Agreeableness => "Agreeableness",
+            Self::Neuroticism => "Neuroticism",
+        }
+    }
+
+    /// Three short descriptions covering low, mid, and high values of this
+    /// trait. Ordered `[low, mid, high]`. Used by the character sheet to
+    /// translate raw 0..1 values into readable personality blurbs.
+    pub fn descriptions(&self) -> [&'static str; 3] {
+        match self {
+            Self::Openness => [
+                "Closed off, prefers routine, sceptical of new things",
+                "Practical, conventional, content with the familiar",
+                "Curious, open to new experiences, enjoys variety",
+            ],
+            Self::Conscientiousness => [
+                "Unreliable, easily distracted, impulsive",
+                "Balanced, generally dependable",
+                "Disciplined, organised, strong sense of duty",
+            ],
+            Self::Extraversion => [
+                "Reserved, prefers solitude, quiet",
+                "Ambiverted, comfortable alone or with others",
+                "Outgoing, seeks social contact, energised by people",
+            ],
+            Self::Agreeableness => [
+                "Competitive, blunt, sceptical of others' motives",
+                "Fair-minded, neither pushover nor antagonist",
+                "Warm, cooperative, trusting, quick to help",
+            ],
+            Self::Neuroticism => [
+                "Calm, emotionally stable, resilient under stress",
+                "Generally stable, occasional worries",
+                "Anxious, reactive, easily stressed",
+            ],
         }
     }
 }
