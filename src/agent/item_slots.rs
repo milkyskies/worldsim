@@ -499,18 +499,18 @@ pub fn freshness_decay_system(
                 };
                 let freshness = thing.properties.freshness.get_or_insert(1.0);
                 *freshness = (*freshness - rate).max(0.0);
-                if *freshness == 0.0 {
-                    if let Some(rotten) = rotten_variant(thing.concept) {
-                        let from = thing.concept;
-                        thing.concept = rotten;
-                        thing.properties.freshness = None;
-                        sim_events.write(crate::agent::events::SimEvent::ItemSpoiled {
-                            agent: owner,
-                            tick: tick.current,
-                            from,
-                            to: rotten,
-                        });
-                    }
+                if *freshness == 0.0
+                    && let Some(rotten) = rotten_variant(thing.concept)
+                {
+                    let from = thing.concept;
+                    thing.concept = rotten;
+                    thing.properties.freshness = None;
+                    sim_events.write(crate::agent::events::SimEvent::ItemSpoiled {
+                        agent: owner,
+                        tick: tick.current,
+                        from,
+                        to: rotten,
+                    });
                 }
             }
         }
@@ -915,11 +915,11 @@ mod tests {
                 if let Some(rate) = perishable_decay_rate(thing.concept) {
                     let freshness = thing.properties.freshness.get_or_insert(1.0);
                     *freshness = (*freshness - rate).max(0.0);
-                    if *freshness == 0.0 {
-                        if let Some(rotten) = rotten_variant(thing.concept) {
-                            thing.concept = rotten;
-                            thing.properties.freshness = None;
-                        }
+                    if *freshness == 0.0
+                        && let Some(rotten) = rotten_variant(thing.concept)
+                    {
+                        thing.concept = rotten;
+                        thing.properties.freshness = None;
                     }
                 }
             }
