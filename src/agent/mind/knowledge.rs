@@ -34,6 +34,38 @@ impl std::fmt::Display for AgentName {
     }
 }
 
+/// Cardinal/ordinal direction for imprecise perception (hearing, smell).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect)]
+pub enum CardinalDirection {
+    North,
+    NorthEast,
+    East,
+    SouthEast,
+    South,
+    SouthWest,
+    West,
+    NorthWest,
+}
+
+impl CardinalDirection {
+    /// Convert a 2D offset vector into the nearest cardinal/ordinal direction.
+    pub fn from_vec2(dir: Vec2) -> Self {
+        let angle = dir.y.atan2(dir.x).to_degrees();
+        // Normalize to [0, 360)
+        let angle = if angle < 0.0 { angle + 360.0 } else { angle };
+        match angle as u32 {
+            0..=22 | 338..=360 => CardinalDirection::East,
+            23..=67 => CardinalDirection::NorthEast,
+            68..=112 => CardinalDirection::North,
+            113..=157 => CardinalDirection::NorthWest,
+            158..=202 => CardinalDirection::West,
+            203..=247 => CardinalDirection::SouthWest,
+            248..=292 => CardinalDirection::South,
+            _ => CardinalDirection::SouthEast,
+        }
+    }
+}
+
 /// A node in the knowledge graph — can be a subject or object
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Reflect)]
 pub enum Node {
@@ -53,6 +85,8 @@ pub enum Node {
     Self_,
     /// An action type (e.g. Wave, Eat)
     Action(crate::agent::actions::ActionType),
+    /// A cardinal/ordinal direction (for non-precise perception like hearing)
+    Direction(CardinalDirection),
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -109,6 +143,12 @@ pub enum Concept {
     Deer,
     Wolf,
 
+    // ─── Sound kinds (perceived via hearing) ───
+    Howl,
+    AlarmCall,
+    Scream,
+    CombatSound,
+
     // ─── Traits/Properties (adjectives) ───
     Edible,    // Items that can be eaten (Apple, Berry, Meat)
     Drinkable, // Tiles/items that can provide water (ShallowWater, Water)
@@ -123,6 +163,13 @@ pub enum Concept {
     Harvestable,
     Awake,
     Asleep,
+
+    // ─── Property traits (auto-derived from ECS components via define_property_component!) ───
+    LightEmitting,    // Entity emits light (e.g. campfire, torch)
+    HeatEmitting,     // Entity emits heat (e.g. campfire, fire)
+    ShelterProviding, // Entity provides shelter from weather (e.g. lean-to, cave)
+    Flammable,        // Entity can catch fire and burn
+    FuelConsuming,    // Entity consumes fuel to function (e.g. campfire)
 
     // ─── Action categories ───
     SocialAction,
@@ -212,6 +259,10 @@ pub enum Predicate {
 
     // ─── Emotional ───
     TriggersEmotion, // (Wolf, TriggersEmotion, Fear(0.6))
+
+    // ─── Sensory ───
+    ProducedSound, // (Direction::North, ProducedSound, Concept(Howl)) — heard a sound
+    EmitsHeat,     // (Tile(x,y), EmitsHeat, Float(intensity)) — felt warmth
 }
 
 impl Predicate {
@@ -328,6 +379,22 @@ pub enum Source {
     Perception,   // I see it right now
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// SENSE — Which perceptual channel produced a triple
+// ═══════════════════════════════════════════════════════════════════════════
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect)]
+pub enum Sense {
+    /// Requires line-of-sight, high precision, medium range (~256px)
+    Sight,
+    /// No line-of-sight needed, short range (~64px), detects warmth zones
+    Temperature,
+    /// No line-of-sight needed, long range (~512px), direction only
+    Hearing,
+    /// Future: wind-dependent, medium range, no direction
+    Smell,
+}
+
 #[derive(Debug, Clone, Reflect)]
 pub struct Metadata {
     /// How did I learn this?
@@ -350,6 +417,9 @@ pub struct Metadata {
 
     /// How emotionally significant? (affects decay)
     pub salience: f32,
+
+    /// Which sense produced this triple (None for non-perceptual knowledge)
+    pub source_sense: Option<Sense>,
 }
 
 impl Default for Metadata {
@@ -362,6 +432,7 @@ impl Default for Metadata {
             informant: None,
             evidence: Vec::new(),
             salience: 0.0,
+            source_sense: None,
         }
     }
 }
@@ -376,6 +447,20 @@ impl Metadata {
             informant: None,
             evidence: Vec::new(),
             salience: 0.0,
+            source_sense: None,
+        }
+    }
+
+    pub fn perception_sense_conf(timestamp: u64, confidence: f32, sense: Sense) -> Self {
+        Self {
+            source: Source::Perception,
+            memory_type: MemoryType::Perception,
+            timestamp,
+            confidence,
+            informant: None,
+            evidence: Vec::new(),
+            salience: 0.0,
+            source_sense: Some(sense),
         }
     }
 
@@ -388,6 +473,7 @@ impl Metadata {
             informant: None,
             evidence: Vec::new(),
             salience: 0.0,
+            source_sense: None,
         }
     }
 
@@ -400,18 +486,20 @@ impl Metadata {
             informant: None,
             evidence: Vec::new(),
             salience: 0.0,
+            source_sense: None,
         }
     }
 
     pub fn experience(timestamp: u64) -> Self {
         Self {
             source: Source::Experienced,
-            memory_type: MemoryType::Semantic, // Learned from direct interaction
+            memory_type: MemoryType::Semantic,
             timestamp,
             confidence: 1.0,
             informant: None,
             evidence: Vec::new(),
             salience: 0.0,
+            source_sense: None,
         }
     }
 
@@ -424,6 +512,7 @@ impl Metadata {
             informant: None,
             evidence: Vec::new(),
             salience: 0.0,
+            source_sense: None,
         }
     }
 
@@ -439,6 +528,7 @@ impl Metadata {
             informant: Some(informant),
             evidence: Vec::new(),
             salience: 0.0,
+            source_sense: None,
         }
     }
 }
@@ -1019,6 +1109,24 @@ impl MindGraph {
             Metadata::perception_with_conf(timestamp, confidence),
         ));
     }
+
+    /// Like `perceive_entity` but tags the triple with the originating sense.
+    pub fn perceive_via_sense(
+        &mut self,
+        subject: Node,
+        predicate: Predicate,
+        object: Value,
+        timestamp: u64,
+        confidence: f32,
+        sense: Sense,
+    ) {
+        self.assert(Triple::with_meta(
+            subject,
+            predicate,
+            object,
+            Metadata::perception_sense_conf(timestamp, confidence, sense),
+        ));
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1067,6 +1175,46 @@ impl Ontology {
     /// Get direct parents of concept
     pub fn get_parents(&self, concept: Concept) -> Vec<Concept> {
         self.parent_cache.get(&concept).cloned().unwrap_or_default()
+    }
+
+    /// Assert that a concept has a trait, rebuilding caches if the triple is new.
+    /// Idempotent — calling twice with the same arguments is a no-op.
+    pub fn ensure_trait(&mut self, concept: Concept, trait_: Concept) {
+        if self.has_trait(concept, trait_) {
+            return;
+        }
+        let triple = Triple::new(
+            Node::Concept(concept),
+            Predicate::HasTrait,
+            Value::Concept(trait_),
+        );
+        let mut triples = (*self.triples).clone();
+        triples.push(triple);
+        self.triples = Arc::new(triples);
+        self.build_caches();
+    }
+
+    /// Assert that a concept produces another concept (e.g. BerryBush → Berry),
+    /// rebuilding caches if the triple is new.
+    /// Idempotent — calling twice with the same arguments is a no-op.
+    pub fn ensure_production(&mut self, producer: Concept, product: Concept) {
+        let already_exists = self.triples.iter().any(|t| {
+            t.subject == Node::Concept(producer)
+                && t.predicate == Predicate::Produces
+                && t.object == Value::Concept(product)
+        });
+        if already_exists {
+            return;
+        }
+        let triple = Triple::new(
+            Node::Concept(producer),
+            Predicate::Produces,
+            Value::Concept(product),
+        );
+        let mut triples = (*self.triples).clone();
+        triples.push(triple);
+        self.triples = Arc::new(triples);
+        // No cache rebuild needed — production triples don't affect trait/parent caches
     }
 
     /// Build caches from triples

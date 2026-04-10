@@ -212,6 +212,19 @@ fn event_meta<'a>(
             *tick,
             vec![agent_resolve(*speaker), agent_resolve(*listener)],
         ),
+        SimEvent::WarmthPerceived { agent, tick, .. } => {
+            ("WarmthPerceived", *tick, vec![agent_resolve(*agent)])
+        }
+        SimEvent::SoundPerceived { agent, tick, .. } => {
+            ("SoundPerceived", *tick, vec![agent_resolve(*agent)])
+        }
+        SimEvent::TheoryOfMindUpdated {
+            agent, about, tick, ..
+        } => (
+            "TheoryOfMindUpdated",
+            *tick,
+            vec![agent_resolve(*agent), agent_resolve(*about)],
+        ),
     }
 }
 
@@ -423,6 +436,44 @@ fn event_to_json(
                 "speaker": resolve(*speaker),
                 "listener": resolve(*listener),
                 "triple_count": triple_count,
+            })
+        }
+        SimEvent::WarmthPerceived { agent, source, .. } => {
+            serde_json::json!({
+                "tick": tick,
+                "type": event_type,
+                "agent": resolve(*agent),
+                "source": resolve(*source),
+            })
+        }
+        SimEvent::SoundPerceived {
+            agent,
+            source,
+            kind,
+            ..
+        } => {
+            serde_json::json!({
+                "tick": tick,
+                "type": event_type,
+                "agent": resolve(*agent),
+                "source": resolve(*source),
+                "kind": format!("{kind:?}"),
+            })
+        }
+        SimEvent::TheoryOfMindUpdated {
+            agent,
+            about,
+            source,
+            belief_count,
+            ..
+        } => {
+            serde_json::json!({
+                "tick": tick,
+                "type": event_type,
+                "agent": resolve(*agent),
+                "about": resolve(*about),
+                "source": format!("{source:?}"),
+                "belief_count": belief_count,
             })
         }
     }
