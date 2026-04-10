@@ -76,28 +76,52 @@ fn spawn_initial_population(
 /// Spawns all entities described by `layout` into the Bevy world using full
 /// visual spawners. Used by the windowed game path.
 pub fn apply_layout(commands: &mut Commands, ontology: &Ontology, layout: &SpawnLayout) {
-    use rand::Rng;
     use std::collections::HashMap;
     use std::sync::Arc;
+
+    use rand::Rng;
+
+    use crate::agent::culture::Culture;
     let mut rng = rand::rng();
 
-    let all_cultures = [
-        crate::agent::culture::Culture::Nomad,
-        crate::agent::culture::Culture::Farmer,
-        crate::agent::culture::Culture::Hunter,
-        crate::agent::culture::Culture::Gatherer,
-    ];
+    // First group stays on the original settlement side; second group spawns
+    // across the river. Cultures are split so the two groups have different
+    // starting knowledge and drift further apart behaviorally over time.
+    // Hunter is intentionally excluded until #225 (hunting loop) lands — its
+    // knowledge currently points at an action chain that doesn't exist.
+    let first_group_cultures = [Culture::Nomad, Culture::Farmer];
+    let second_group_cultures = [Culture::Gatherer];
+
     let mut cultural_knowledge_map = HashMap::new();
-    for culture in all_cultures {
-        let triples = crate::agent::culture::create_cultural_knowledge(culture);
-        cultural_knowledge_map.insert(culture, Arc::new(triples));
+    for culture in first_group_cultures
+        .iter()
+        .chain(second_group_cultures.iter())
+    {
+        let triples = crate::agent::culture::create_cultural_knowledge(*culture);
+        cultural_knowledge_map.insert(*culture, Arc::new(triples));
     }
 
-    for (i, &pos) in layout.human_positions.iter().enumerate() {
-        let culture = all_cultures[rng.random_range(0..all_cultures.len())];
-        let knowledge = cultural_knowledge_map.get(&culture).unwrap().clone();
-        spawn_person(commands, ontology.clone(), pos, i, culture, knowledge);
-    }
+    let mut spawn_group = |positions: &[Vec2], pool: &[Culture], index_offset: usize| {
+        for (i, &pos) in positions.iter().enumerate() {
+            let culture = pool[rng.random_range(0..pool.len())];
+            let knowledge = cultural_knowledge_map.get(&culture).unwrap().clone();
+            spawn_person(
+                commands,
+                ontology.clone(),
+                pos,
+                index_offset + i,
+                culture,
+                knowledge,
+            );
+        }
+    };
+
+    spawn_group(&layout.human_positions, &first_group_cultures, 0);
+    spawn_group(
+        &layout.second_human_positions,
+        &second_group_cultures,
+        layout.human_positions.len(),
+    );
 
     for (i, &pos) in layout.deer_positions.iter().enumerate() {
         spawn_deer(commands, ontology.clone(), pos, i);

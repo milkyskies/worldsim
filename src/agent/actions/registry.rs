@@ -487,8 +487,9 @@ impl ActiveActions {
 // ============================================================================
 
 use super::action::{
-    BuildAction, ConverseAction, DrinkAction, EatAction, ExploreAction, FleeAction, HarvestAction,
-    IdleAction, InitiateConversationAction, SleepAction, WakeUpAction, WalkAction, WanderAction,
+    BuildAction, ConverseAction, DepositAction, DrinkAction, EatAction, ExploreAction, FleeAction,
+    HarvestAction, IdleAction, InitiateConversationAction, SleepAction, TakeAction, WakeUpAction,
+    WalkAction, WanderAction,
 };
 
 #[derive(Resource, Default)]
@@ -511,6 +512,8 @@ impl ActionRegistry {
         registry.register(AttackAction);
         registry.register(HarvestAction);
         registry.register(BuildAction);
+        registry.register(DepositAction);
+        registry.register(TakeAction);
         registry.register(WanderAction);
         // Conversation actions — owned by the CommunicationPlugin.
         registry.register(InitiateConversationAction);

@@ -288,6 +288,31 @@ impl ItemSlots {
         }
         true // no slot holds it, nothing to block
     }
+
+    /// Attempt to remove `quantity` of `concept` from the first slot that
+    /// holds it AND permits extraction. Respects `extract_access` — the
+    /// access-checked dual of [`deposit`]. Returns `true` on success,
+    /// `false` if no eligible slot is found.
+    ///
+    /// Use this for externally-initiated transfers (the Take action). Use
+    /// [`remove`] for trusted internal writes that bypass access rules.
+    pub fn extract(&mut self, concept: Concept, quantity: u32) -> bool {
+        for slot in &mut self.slots {
+            if slot.extract_access == Access::None {
+                continue;
+            }
+            if let Some(stack) = slot.contents.iter_mut().find(|s| s.concept == concept)
+                && stack.quantity >= quantity
+            {
+                stack.quantity -= quantity;
+                if stack.quantity == 0 {
+                    slot.contents.retain(|s| s.concept != concept);
+                }
+                return true;
+            }
+        }
+        false
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

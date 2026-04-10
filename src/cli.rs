@@ -128,6 +128,12 @@ pub struct CliArgs {
     /// tick regardless of --ticks.
     #[arg(long)]
     pub at_tick: Option<u64>,
+
+    /// Generate the default-seed terrain and print it to stdout as an ASCII
+    /// matrix, then exit. Useful for inspecting river carving and biome
+    /// placement without launching the game window.
+    #[arg(long)]
+    pub dump_map: bool,
 }
 
 impl CliArgs {

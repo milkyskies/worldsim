@@ -15,6 +15,14 @@ pub enum ActionType {
     Pickup,
     Drop,
     Build,
+    /// Move items from the agent's own slots into a target entity's slots.
+    /// Polymorphic across construction sites, chests, furnaces, etc. — the
+    /// target's `ItemSlots` filters and access rules decide what's accepted.
+    Deposit,
+    /// Move items from a target entity's slots into the agent's own slots.
+    /// Polymorphic across chests, dropped piles, furnace outputs, etc. —
+    /// the target's `extract_access` decides what can leave.
+    Take,
 
     // Movement / Positioning
     Walk,    // "Travel"
