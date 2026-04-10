@@ -1,6 +1,7 @@
 pub mod body;
 
-use crate::agent::Person;
+use crate::agent::Agent;
+use crate::agent::body::species::SpeciesProfile;
 use crate::core::GameLog;
 use bevy::prelude::*;
 
@@ -23,14 +24,21 @@ impl Plugin for BiologyPlugin {
     }
 }
 
-// Automatically add Biology components to any new Person
+/// Attach a species-appropriate `Body` to any new agent that doesn't already
+/// have one. Runs for every `Agent` entity — including deer and wolves — so
+/// animal anatomy is a first-class part of the ECS and channel queries can
+/// rely on it existing. Without a `SpeciesProfile`, defaults to the human
+/// template (matches legacy behaviour where `Body::default()` was human).
 fn setup_biology(
     mut commands: Commands,
-    query: Query<Entity, Added<Person>>,
+    query: Query<(Entity, Option<&SpeciesProfile>), (Added<Agent>, Without<body::Body>)>,
     mut game_log: ResMut<GameLog>,
 ) {
-    for entity in query.iter() {
-        commands.entity(entity).insert(body::Body::default());
-        game_log.log_debug(format!("Biology initialized for Person {:?}", entity));
+    for (entity, species) in query.iter() {
+        let body = species
+            .map(|s| body::Body::for_species(s.species))
+            .unwrap_or_default();
+        commands.entity(entity).insert(body);
+        game_log.log_debug(format!("Biology initialized for agent {:?}", entity));
     }
 }

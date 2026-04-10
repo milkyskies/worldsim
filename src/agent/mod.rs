@@ -94,6 +94,11 @@ impl Plugin for AgentPlugin {
                     // pass observes the transformed entity.
                     crate::world::becomes::becomes_system
                         .after(crate::world::becomes::labor_accumulation_system),
+                    // EmitsEffect substrate: apply radial effects (campfires, hostile
+                    // zones, etc.) to nearby agents after action and transformation
+                    // effects are resolved.
+                    crate::world::emits_effect::emits_effect_system
+                        .after(crate::world::becomes::becomes_system),
                 )
                     .run_if(not_paused),
             )

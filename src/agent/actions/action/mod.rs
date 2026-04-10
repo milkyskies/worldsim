@@ -1,6 +1,7 @@
 //! Action implementations - each action in its own file.
 
 pub mod attack;
+pub mod bite;
 pub mod build;
 pub mod construct;
 pub mod converse;
@@ -19,6 +20,7 @@ pub mod walk;
 pub mod wander;
 
 pub use attack::AttackAction;
+pub use bite::BiteAction;
 pub use build::BuildAction;
 pub use construct::ConstructAction;
 pub use converse::ConverseAction;

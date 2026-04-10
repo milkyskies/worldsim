@@ -1,7 +1,7 @@
 //! Eat action - consume food from inventory.
 
 use crate::agent::actions::ActionType;
-use crate::agent::actions::channel::{BodyChannel, ChannelUsage};
+use crate::agent::actions::channel::{Channel, ChannelUsage};
 use crate::agent::actions::registry::{Action, ActionContext, ActionKind, CompletionContext};
 use crate::agent::brains::thinking::TriplePattern;
 use crate::agent::events::FailureReason;
@@ -26,10 +26,9 @@ impl Action for EatAction {
     }
 
     fn body_channels(&self) -> &'static [ChannelUsage] {
-        const CHANNELS: &[ChannelUsage] = &[
-            ChannelUsage::new(BodyChannel::Hands, 0.5),
-            ChannelUsage::new(BodyChannel::Mouth, 0.7),
-        ];
+        // Consumption only — animals eat mouth-first. Humans may nominally
+        // use a hand to bring food to their face but the gate is the mouth.
+        const CHANNELS: &[ChannelUsage] = &[ChannelUsage::new(Channel::Consumption, 0.8)];
         CHANNELS
     }
 

@@ -16,7 +16,7 @@
 //! action is just a body-channel marker; the plugin owns the lifecycle.
 
 use crate::agent::actions::ActionType;
-use crate::agent::actions::channel::{BodyChannel, ChannelUsage};
+use crate::agent::actions::channel::{Channel, ChannelUsage};
 use crate::agent::actions::registry::{Action, ActionContext, ActionKind, TargetSource};
 use crate::agent::events::FailureReason;
 
@@ -50,11 +50,11 @@ impl Action for InitiateConversationAction {
     }
 
     fn body_channels(&self) -> &'static [ChannelUsage] {
-        // Full Legs commitment — walking toward a specific person is a
-        // directed locomotion task that should hard-conflict with any other
-        // Movement action (Explore, Wander, Walk) so the agent doesn't
+        // Full Locomotion commitment — walking toward a specific person is
+        // a directed locomotion task that should hard-conflict with any
+        // other Movement action (Explore, Wander, Walk) so the agent doesn't
         // simultaneously try to wander somewhere else and lose its target.
-        const CHANNELS: &[ChannelUsage] = &[ChannelUsage::new(BodyChannel::Legs, 1.0)];
+        const CHANNELS: &[ChannelUsage] = &[ChannelUsage::new(Channel::Locomotion, 1.0)];
         CHANNELS
     }
 
