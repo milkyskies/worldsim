@@ -1201,6 +1201,7 @@ mod tests {
                 informant: None,
                 evidence: Vec::new(),
                 salience,
+                source_sense: None,
             },
         )
     }

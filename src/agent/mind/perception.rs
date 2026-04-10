@@ -1,16 +1,19 @@
-//! Perception: detects nearby entities via vision range and writes observations into MindGraph as triples.
+//! Perception: multi-sense detection of nearby entities and environmental signals.
 //!
-//! Reads: Transform, Vision, LightLevel, Physical entities, body state components, TickCount, SpatialIndex
-//! Writes: VisibleObjects (entity list), MindGraph (location and trait triples for observed entities), SimEvent::EntityPerceived
-//! Upstream: world::map (tile/chunk data), world::environment (LightLevel), agent body state
+//! Reads: Transform, Vision, LightLevel, Physical entities, body state components, TickCount, SpatialIndex, HeatSource, SoundSource
+//! Writes: VisibleObjects (entity list), MindGraph (triples tagged with source_sense), SimEvent::{EntityPerceived, WarmthPerceived, SoundPerceived}
+//! Upstream: world::map (tile/chunk data), world::environment (LightLevel), world::sense_sources, agent body state
 //! Downstream: brain_system (reads VisibleObjects), knowledge (MindGraph updated with percepts), SimEvent consumers
 
 use crate::agent::Agent;
-use crate::agent::mind::knowledge::{Concept, Metadata, MindGraph, Node, Predicate, Triple, Value};
+use crate::agent::mind::knowledge::{
+    CardinalDirection, Concept, Metadata, MindGraph, Node, Predicate, Sense, Triple, Value,
+};
 use crate::core::GameLog;
 use crate::core::tick::TickCount;
 use crate::world::environment::LightLevel;
 use crate::world::map::{CHUNK_SIZE, TILE_SIZE};
+use crate::world::sense_sources::{HeatSource, SoundSource};
 use crate::world::spatial_index::SpatialIndex;
 use bevy::prelude::*;
 
@@ -477,6 +480,188 @@ pub fn react_to_danger(
             let additional_fear = (fear_intensity - current_fear).max(0.1);
             emotions.add_emotion(Emotion::new(EmotionType::Fear, additional_fear));
         }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// TEMPERATURE PERCEPTION — Detect heat sources without line-of-sight
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Base range for temperature perception (world pixels).
+/// HeatSource.range is the source's emission radius; this is the agent's
+/// maximum detection distance (whichever is smaller wins).
+const TEMPERATURE_SENSE_RANGE: f32 = 64.0;
+
+/// Heat sources are stable (campfires don't move), so scan every 10 ticks per agent.
+const TEMPERATURE_SCAN_INTERVAL: u64 = 10;
+
+pub fn perceive_temperature(
+    mut agents: Query<(Entity, &Transform, &mut MindGraph), With<Agent>>,
+    heat_sources: Query<(Entity, &Transform, &HeatSource)>,
+    spatial_index: Res<SpatialIndex>,
+    tick: Res<TickCount>,
+    mut sim_events: MessageWriter<crate::agent::events::SimEvent>,
+) {
+    let current_time = tick.current;
+
+    for (agent_entity, agent_transform, mut mind) in agents.iter_mut() {
+        if !tick.should_run(agent_entity, TEMPERATURE_SCAN_INTERVAL) {
+            continue;
+        }
+
+        let agent_pos = agent_transform.translation.truncate();
+
+        for candidate in spatial_index.entities_near(agent_pos, TEMPERATURE_SENSE_RANGE) {
+            if candidate == agent_entity {
+                continue;
+            }
+
+            let Ok((source_entity, source_transform, heat)) = heat_sources.get(candidate) else {
+                continue;
+            };
+
+            let source_pos = source_transform.translation.truncate();
+            let distance = agent_pos.distance(source_pos);
+            let effective_range = heat.range.min(TEMPERATURE_SENSE_RANGE);
+
+            if distance > effective_range {
+                continue;
+            }
+
+            // Confidence scales with proximity and intensity: close + hot = high confidence
+            let distance_factor = 1.0 - (distance / effective_range).clamp(0.0, 1.0);
+            let confidence = (distance_factor * heat.intensity * 0.6).clamp(0.1, 0.6);
+
+            // Write warmth perception as a tile-level trait (no entity identification)
+            let tile_x = (source_pos.x / TILE_SIZE).floor() as i32;
+            let tile_y = (source_pos.y / TILE_SIZE).floor() as i32;
+
+            mind.perceive_via_sense(
+                Node::Tile((tile_x, tile_y)),
+                Predicate::HasTrait,
+                Value::Concept(Concept::Warmth),
+                current_time,
+                confidence,
+                Sense::Temperature,
+            );
+
+            // Also write directional warmth
+            let dir = source_pos - agent_pos;
+            if dir.length_squared() > 0.01 {
+                let cardinal = CardinalDirection::from_vec2(dir);
+                mind.perceive_via_sense(
+                    Node::Direction(cardinal),
+                    Predicate::HasTrait,
+                    Value::Concept(Concept::Warmth),
+                    current_time,
+                    confidence * 0.7,
+                    Sense::Temperature,
+                );
+            }
+
+            sim_events.write(crate::agent::events::SimEvent::WarmthPerceived {
+                agent: agent_entity,
+                tick: current_time,
+                source: source_entity,
+            });
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// HEARING PERCEPTION — Detect sounds without line-of-sight
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Base range for hearing perception (world pixels).
+const HEARING_SENSE_RANGE: f32 = 512.0;
+
+/// Map SoundKind to the Concept used in MindGraph triples.
+fn sound_kind_to_concept(kind: crate::world::sense_sources::SoundKind) -> Concept {
+    use crate::world::sense_sources::SoundKind;
+    match kind {
+        SoundKind::Howl => Concept::Howl,
+        SoundKind::AlarmCall => Concept::AlarmCall,
+        SoundKind::Scream => Concept::Scream,
+        SoundKind::Combat => Concept::CombatSound,
+    }
+}
+
+pub fn perceive_hearing(
+    mut agents: Query<(Entity, &Transform, &mut MindGraph), With<Agent>>,
+    sound_sources: Query<(Entity, &Transform, &SoundSource)>,
+    tick: Res<TickCount>,
+    mut sim_events: MessageWriter<crate::agent::events::SimEvent>,
+) {
+    let current_time = tick.current;
+
+    // SoundSource is transient (1-tick lifetime) and typically rare. Iterate
+    // the query directly instead of via spatial index — avoids the 1-tick lag
+    // from PostUpdate spatial index updates.
+    for (agent_entity, agent_transform, mut mind) in agents.iter_mut() {
+        let agent_pos = agent_transform.translation.truncate();
+
+        for (source_entity, source_transform, sound) in sound_sources.iter() {
+            if source_entity == agent_entity {
+                continue;
+            }
+
+            let source_pos = source_transform.translation.truncate();
+            let distance = agent_pos.distance(source_pos);
+            let effective_range = HEARING_SENSE_RANGE * sound.intensity;
+
+            if distance > effective_range {
+                continue;
+            }
+
+            // Hearing confidence is low — direction only, no entity identification
+            let distance_factor = 1.0 - (distance / effective_range).clamp(0.0, 1.0);
+            let confidence = (distance_factor * 0.5).clamp(0.1, 0.5);
+
+            let dir = source_pos - agent_pos;
+            if dir.length_squared() < 0.01 {
+                continue;
+            }
+
+            let cardinal = CardinalDirection::from_vec2(dir);
+            let sound_concept = sound_kind_to_concept(sound.kind);
+
+            mind.perceive_via_sense(
+                Node::Direction(cardinal),
+                Predicate::ProducedSound,
+                Value::Concept(sound_concept),
+                current_time,
+                confidence,
+                Sense::Hearing,
+            );
+
+            if sound.kind.is_threatening() {
+                mind.perceive_via_sense(
+                    Node::Direction(cardinal),
+                    Predicate::HasTrait,
+                    Value::Concept(Concept::Dangerous),
+                    current_time,
+                    confidence * 0.6,
+                    Sense::Hearing,
+                );
+            }
+
+            sim_events.write(crate::agent::events::SimEvent::SoundPerceived {
+                agent: agent_entity,
+                tick: current_time,
+                source: source_entity,
+                kind: sound.kind,
+            });
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// SOUND SOURCE CLEANUP — Remove transient SoundSource after one perception tick
+// ═══════════════════════════════════════════════════════════════════════════
+
+pub fn cleanup_sound_sources(mut commands: Commands, sources: Query<Entity, With<SoundSource>>) {
+    for entity in sources.iter() {
+        commands.entity(entity).remove::<SoundSource>();
     }
 }
 
