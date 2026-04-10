@@ -21,6 +21,9 @@ pub struct SettlementSearch {
     pub min_cluster_space: u32,
     /// Square radius (tiles) used when counting cluster space.
     pub cluster_radius: u32,
+    /// Optional x-tile range `[min, max)` to constrain the search to one
+    /// side of a river. If `None`, the entire map width is searched.
+    pub x_range: Option<(u32, u32)>,
 }
 
 impl Default for SettlementSearch {
@@ -29,6 +32,7 @@ impl Default for SettlementSearch {
             max_water_distance: 8,
             min_cluster_space: 12,
             cluster_radius: 3,
+            x_range: None,
         }
     }
 }
@@ -40,9 +44,10 @@ impl Default for SettlementSearch {
 /// Returns `None` if no candidate clears the minimum thresholds.
 pub fn find_settlement_center(map: &WorldMap, search: &SettlementSearch) -> Option<UVec2> {
     let mut best: Option<(UVec2, f32)> = None;
+    let (x_min, x_max) = search.x_range.unwrap_or((0, map.width));
 
     for y in 0..map.height {
-        for x in 0..map.width {
+        for x in x_min..x_max {
             let Some(tile) = map.get_tile(x, y) else {
                 continue;
             };

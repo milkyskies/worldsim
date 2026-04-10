@@ -552,6 +552,9 @@ impl TestWorld {
         for &pos in &layout.human_positions {
             self.spawn_agent(AgentConfig::at(pos));
         }
+        for &pos in &layout.second_human_positions {
+            self.spawn_agent(AgentConfig::at(pos));
+        }
         for &pos in &layout.deer_positions {
             self.spawn_deer(pos);
         }

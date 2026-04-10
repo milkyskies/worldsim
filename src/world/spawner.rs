@@ -93,10 +93,35 @@ pub fn apply_layout(commands: &mut Commands, ontology: &Ontology, layout: &Spawn
         cultural_knowledge_map.insert(culture, Arc::new(triples));
     }
 
+    // First group: farmers/nomads (settled, river-adjacent).
+    let first_group_cultures = [
+        crate::agent::culture::Culture::Nomad,
+        crate::agent::culture::Culture::Farmer,
+    ];
     for (i, &pos) in layout.human_positions.iter().enumerate() {
-        let culture = all_cultures[rng.random_range(0..all_cultures.len())];
+        let culture = first_group_cultures[rng.random_range(0..first_group_cultures.len())];
         let knowledge = cultural_knowledge_map.get(&culture).unwrap().clone();
         spawn_person(commands, ontology.clone(), pos, i, culture, knowledge);
+    }
+
+    // Second group (across the river): hunters/gatherers. Indices continue
+    // from the first group so Name tags remain unique.
+    let second_group_cultures = [
+        crate::agent::culture::Culture::Hunter,
+        crate::agent::culture::Culture::Gatherer,
+    ];
+    let second_offset = layout.human_positions.len();
+    for (i, &pos) in layout.second_human_positions.iter().enumerate() {
+        let culture = second_group_cultures[rng.random_range(0..second_group_cultures.len())];
+        let knowledge = cultural_knowledge_map.get(&culture).unwrap().clone();
+        spawn_person(
+            commands,
+            ontology.clone(),
+            pos,
+            second_offset + i,
+            culture,
+            knowledge,
+        );
     }
 
     for (i, &pos) in layout.deer_positions.iter().enumerate() {
