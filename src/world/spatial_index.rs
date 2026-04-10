@@ -217,7 +217,10 @@ mod tests {
         let chunk_world_size = CHUNK_SIZE as f32 * TILE_SIZE;
         let center = Vec2::new(2.5 * chunk_world_size, 2.5 * chunk_world_size);
         let results = index.entities_near(center, 1.0);
-        assert!(results.contains(&e), "entity should be found even with tiny radius");
+        assert!(
+            results.contains(&e),
+            "entity should be found even with tiny radius"
+        );
     }
 
     #[test]

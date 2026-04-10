@@ -51,16 +51,12 @@ fn bench_entities_near(c: &mut Criterion) {
     for &n in &[100usize, 1000] {
         let index = populated_index(n);
         group.throughput(Throughput::Elements(n as u64));
-        group.bench_with_input(
-            BenchmarkId::new("spatial_index", n),
-            &n,
-            |b, _| {
-                b.iter(|| {
-                    let results = index.entities_near(black_box(center), black_box(radius));
-                    black_box(results);
-                });
-            },
-        );
+        group.bench_with_input(BenchmarkId::new("spatial_index", n), &n, |b, _| {
+            b.iter(|| {
+                let results = index.entities_near(black_box(center), black_box(radius));
+                black_box(results);
+            });
+        });
     }
 
     group.finish();
@@ -91,27 +87,20 @@ fn bench_linear_scan_vs_spatial(c: &mut Criterion) {
 
         group.throughput(Throughput::Elements(n as u64));
 
-        group.bench_with_input(
-            BenchmarkId::new("linear_scan", n),
-            &n,
-            |b, _| {
-                b.iter(|| {
-                    let results = linear_scan(black_box(&positions), black_box(center), black_box(radius));
-                    black_box(results);
-                });
-            },
-        );
+        group.bench_with_input(BenchmarkId::new("linear_scan", n), &n, |b, _| {
+            b.iter(|| {
+                let results =
+                    linear_scan(black_box(&positions), black_box(center), black_box(radius));
+                black_box(results);
+            });
+        });
 
-        group.bench_with_input(
-            BenchmarkId::new("spatial_index", n),
-            &n,
-            |b, _| {
-                b.iter(|| {
-                    let results = index.entities_near(black_box(center), black_box(radius));
-                    black_box(results);
-                });
-            },
-        );
+        group.bench_with_input(BenchmarkId::new("spatial_index", n), &n, |b, _| {
+            b.iter(|| {
+                let results = index.entities_near(black_box(center), black_box(radius));
+                black_box(results);
+            });
+        });
     }
 
     group.finish();
