@@ -76,10 +76,12 @@ fn spawn_initial_population(
 /// Spawns all entities described by `layout` into the Bevy world using full
 /// visual spawners. Used by the windowed game path.
 pub fn apply_layout(commands: &mut Commands, ontology: &Ontology, layout: &SpawnLayout) {
-    use crate::agent::culture::Culture;
-    use rand::Rng;
     use std::collections::HashMap;
     use std::sync::Arc;
+
+    use rand::Rng;
+
+    use crate::agent::culture::Culture;
     let mut rng = rand::rng();
 
     // First group stays on the original settlement side; second group spawns
