@@ -23,6 +23,13 @@ impl GameTime {
     pub const MINUTES_PER_HOUR: u64 = 60;
     pub const HOURS_PER_DAY: u64 = 24;
 
+    /// 60 ticks per game minute.
+    pub const TICKS_PER_MINUTE: u64 = Self::TICKS_PER_SECOND * Self::SECONDS_PER_MINUTE;
+    /// 3,600 ticks per game hour.
+    pub const TICKS_PER_HOUR: u64 = Self::TICKS_PER_MINUTE * Self::MINUTES_PER_HOUR;
+    /// 86,400 ticks per game day. At the default 60 real ticks/sec, 1 game day = 24 real minutes.
+    pub const TICKS_PER_DAY: u64 = Self::TICKS_PER_HOUR * Self::HOURS_PER_DAY;
+
     pub const START_HOUR: u64 = 12;
     // 12 hours * 60 mins/hr * 60 ticks/min = 43200 ticks
     pub const INITIAL_TICK_OFFSET: u64 = Self::START_HOUR

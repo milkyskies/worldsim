@@ -14,6 +14,7 @@ use crate::agent::mind::knowledge::{Metadata, MindGraph, Node, Predicate, Triple
 use crate::agent::mind::recognition::initialize_relationship;
 use crate::agent::psyche::personality::Personality;
 use crate::core::tick::TickCount;
+use crate::core::time::GameTime;
 use bevy::prelude::*;
 
 /// Configuration for relationship dynamics
@@ -22,7 +23,7 @@ use bevy::prelude::*;
 pub struct RelationshipConfig {
     /// Trust gain per positive interaction
     pub positive_trust_gain: f32,
-    /// Affection gain per positive interaction  
+    /// Affection gain per positive interaction
     pub positive_affection_gain: f32,
     /// Trust loss per negative interaction (larger = more impactful)
     pub negative_trust_loss: f32,
@@ -30,8 +31,17 @@ pub struct RelationshipConfig {
     pub negative_affection_loss: f32,
     /// Respect gain when witnessing competence
     pub competence_respect_gain: f32,
-    /// How much relationships decay per day without contact
-    pub decay_rate_per_day: f32,
+    /// Half-life (in game days) for the weakest bonds — acquaintances.
+    /// Short half-life → casual ties fade within a week.
+    pub weak_bond_half_life_days: f32,
+    /// Half-life (in game days) for the strongest bonds — close friends, sworn enemies.
+    /// Long half-life → lifelong bonds barely erode within a game year.
+    pub strong_bond_half_life_days: f32,
+    /// Multiplier on half-life when `current < neutral` (grudges / distrust).
+    /// Values > 1.0 make negative feelings linger longer than positive ones (negativity bias).
+    pub negativity_bias: f32,
+    /// Grace period in game days. Any relationship updated within this window is skipped.
+    pub decay_grace_days: u64,
 }
 
 impl Default for RelationshipConfig {
@@ -42,7 +52,13 @@ impl Default for RelationshipConfig {
             negative_trust_loss: 0.15, // 3x larger than positive - negativity bias!
             negative_affection_loss: 0.10,
             competence_respect_gain: 0.02,
-            decay_rate_per_day: 0.01,
+            // Decay timescales chosen so that, at the default 60-day game year:
+            //   acquaintance (strength=0.1): ~4 day half-life → gone in a week
+            //   close friend  (strength=1.0): ~60 day half-life → lasts a full year
+            weak_bond_half_life_days: 3.0,
+            strong_bond_half_life_days: 60.0,
+            negativity_bias: 1.5,
+            decay_grace_days: 1,
         }
     }
 }
@@ -200,80 +216,110 @@ pub fn update_relationships(
     }
 }
 
-/// System: Decay relationships over time without contact
-/// Runs periodically (every game day)
+/// Neutral value for trust/affection. Decay pulls values toward this.
+const NEUTRAL: f32 = 0.5;
+
+/// Compute the fraction of the distance to neutral that a relationship should
+/// decay over one step, given the step size and the current value.
+///
+/// Uses an exponential half-life model: `frac = 1 - 0.5^(step/half_life)`.
+/// The half-life scales with bond strength (how far from neutral), so strong
+/// bonds resist decay and weak ties fade quickly. Negative feelings (below
+/// neutral) decay with a longer half-life — grudges linger.
+fn decay_fraction(current: f32, step_days: f32, config: &RelationshipConfig) -> f32 {
+    // Bond strength: 0.0 at neutral, 1.0 at the extremes.
+    let strength = ((current - NEUTRAL).abs() * 2.0).clamp(0.0, 1.0);
+
+    // Interpolate half-life between the weak and strong bounds.
+    let base_half_life = config.weak_bond_half_life_days
+        + (config.strong_bond_half_life_days - config.weak_bond_half_life_days) * strength;
+
+    // Apply negativity bias: below-neutral feelings decay slower.
+    let half_life = if current < NEUTRAL {
+        base_half_life * config.negativity_bias
+    } else {
+        base_half_life
+    };
+
+    1.0 - 0.5_f32.powf(step_days / half_life)
+}
+
+/// System: Decay relationships toward neutral over time without contact.
+///
+/// Fires once per game day. Uses an exponential half-life that scales with
+/// bond strength, so close friends take a full in-game year to fade while
+/// acquaintances fade within a week. A grace period skips any relationship
+/// refreshed by a recent interaction.
 pub fn decay_relationships(
     mut agents: Query<&mut MindGraph, With<Agent>>,
     tick: Res<TickCount>,
     config: Res<RelationshipConfig>,
 ) {
-    // Only run once per game day (1440 ticks at 60 ticks/second = 24 minutes real time)
-    // For now, run every ~5 minutes real time (300 ticks)
-    if !tick.current.is_multiple_of(300) {
+    if !tick.current.is_multiple_of(GameTime::TICKS_PER_DAY) {
         return;
     }
 
-    let decay = config.decay_rate_per_day;
     let current_time = tick.current;
+    let grace_ticks = config.decay_grace_days * GameTime::TICKS_PER_DAY;
+    // Each fire represents one game day of elapsed time.
+    let step_days = 1.0;
 
     for mut mind in agents.iter_mut() {
-        // Find all relationship entries
-        let trust_entries: Vec<_> = mind
-            .query(None, Some(Predicate::Trust), None)
-            .into_iter()
-            .filter_map(|t| {
-                if let Node::Entity(e) = &t.subject
-                    && let Value::Float(f) = &t.object
-                {
-                    return Some((*e, *f, t.meta.timestamp));
-                }
-                None
-            })
-            .collect();
+        decay_predicate(
+            &mut mind,
+            Predicate::Trust,
+            current_time,
+            grace_ticks,
+            step_days,
+            &config,
+        );
+        decay_predicate(
+            &mut mind,
+            Predicate::Affection,
+            current_time,
+            grace_ticks,
+            step_days,
+            &config,
+        );
+    }
+}
 
-        // Skip if the agent interacted recently — frequent contact maintains closeness.
-        for (entity, current, last_updated) in trust_entries {
-            if current_time.saturating_sub(last_updated) < 300 {
-                continue;
+/// Apply decay to every `(entity, predicate)` edge in a single MindGraph.
+fn decay_predicate(
+    mind: &mut MindGraph,
+    predicate: Predicate,
+    current_time: u64,
+    grace_ticks: u64,
+    step_days: f32,
+    config: &RelationshipConfig,
+) {
+    let entries: Vec<(Entity, f32, u64)> = mind
+        .query(None, Some(predicate), None)
+        .into_iter()
+        .filter_map(|t| {
+            if let Node::Entity(e) = &t.subject
+                && let Value::Float(f) = &t.object
+            {
+                return Some((*e, *f, t.meta.timestamp));
             }
-            let target = 0.5;
-            let new_value = current + (target - current) * decay;
+            None
+        })
+        .collect();
 
-            mind.assert(Triple::with_meta(
-                Node::Entity(entity),
-                Predicate::Trust,
-                Value::Float(new_value.clamp(0.0, 1.0)),
-                Metadata::semantic(current_time),
-            ));
+    for (entity, current, last_updated) in entries {
+        // Grace period: skip recently refreshed relationships.
+        if current_time.saturating_sub(last_updated) < grace_ticks {
+            continue;
         }
 
-        // Same guard for affection.
-        let affection_entries: Vec<_> = mind
-            .query(None, Some(Predicate::Affection), None)
-            .into_iter()
-            .filter_map(|t| {
-                if let Node::Entity(e) = &t.subject
-                    && let Value::Float(f) = &t.object
-                {
-                    return Some((*e, *f, t.meta.timestamp));
-                }
-                None
-            })
-            .collect();
+        let fraction = decay_fraction(current, step_days, config);
+        let new_value = (current + (NEUTRAL - current) * fraction).clamp(0.0, 1.0);
 
-        for (entity, current, last_updated) in affection_entries {
-            if current_time.saturating_sub(last_updated) < 300 {
-                continue;
-            }
-            let target = 0.5;
-            let new_value = current + (target - current) * decay;
-
-            mind.assert(Triple::with_meta(
-                Node::Entity(entity),
-                Predicate::Affection,
-                Value::Float(new_value.clamp(0.0, 1.0)),
-                Metadata::semantic(current_time),
-            ));
-        }
+        mind.assert(Triple::with_meta(
+            Node::Entity(entity),
+            predicate,
+            Value::Float(new_value),
+            Metadata::semantic(current_time),
+        ));
     }
 }
