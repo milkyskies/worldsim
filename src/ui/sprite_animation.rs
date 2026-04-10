@@ -55,14 +55,21 @@ fn bounce_frame(cycle: f32, height: f32) -> (f32, f32, f32) {
     (y, x_scale, y_scale)
 }
 
+/// Per-entity movement tracking.
+#[derive(Default)]
+struct MoveTracker {
+    prev_pos: Option<Vec2>,
+    /// Last wall-clock time the root position changed.
+    last_moved_at: f32,
+}
+
 fn animate_sprite_bodies(
     time: Res<Time>,
     body_query: Query<(Entity, &SpriteBody)>,
     mut transforms: Query<&mut Transform>,
-    mut prev_positions: Local<HashMap<Entity, Vec2>>,
+    mut trackers: Local<HashMap<Entity, MoveTracker>>,
 ) {
     let t = time.elapsed_secs();
-    let dt = time.delta_secs();
 
     let mut alive = Vec::new();
 
@@ -74,20 +81,19 @@ fn animate_sprite_bodies(
             .map(|tr| tr.translation.truncate())
             .unwrap_or(Vec2::ZERO);
 
-        let speed = if dt > 0.0 {
-            prev_positions
-                .get(&body.root)
-                .map(|prev| root_pos.distance(*prev) / dt)
-                .unwrap_or(0.0)
-        } else {
-            0.0
-        };
-        prev_positions.insert(body.root, root_pos);
+        let tracker = trackers.entry(body.root).or_default();
+        let prev = tracker.prev_pos.unwrap_or(root_pos);
 
-        let is_moving = speed > 2.0;
+        if root_pos.distance(prev) > 0.01 {
+            tracker.last_moved_at = t;
+        }
+        tracker.prev_pos = Some(root_pos);
+
+        // Consider "moving" if position changed within the last 0.2 seconds
+        let is_moving = (t - tracker.last_moved_at) < 0.2;
 
         let (y_offset, x_scale, y_scale) = if is_moving {
-            let bounces_per_sec = 0.5; // 1 bounce per 2 seconds (testing)
+            let bounces_per_sec = 2.5;
             let cycle = ((t * bounces_per_sec + body.phase) % 1.0).clamp(0.0, 1.0);
             bounce_frame(cycle, 3.0)
         } else {
@@ -100,8 +106,8 @@ fn animate_sprite_bodies(
         }
     }
 
-    if prev_positions.len() > alive.len() {
-        prev_positions.retain(|e, _| alive.contains(e));
+    if trackers.len() > alive.len() {
+        trackers.retain(|e, _| alive.contains(e));
     }
 }
 
