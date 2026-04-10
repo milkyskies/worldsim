@@ -130,7 +130,6 @@ fn add_person_knowledge(mind: &mut MindGraph) {
 /// `world::human::spawn_person` (real game) and
 /// `testing::spawn::spawn_test_person` (TestWorld) call this — drift here
 /// causes brain divergence between the two paths.
-
 pub fn build_person_logic(
     init: PersonInit,
     ontology: Ontology,
