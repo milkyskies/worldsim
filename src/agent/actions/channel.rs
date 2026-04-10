@@ -492,13 +492,22 @@ mod tests {
             .part_mut("right arm")
             .expect("human body has right arm");
         injure(arm, 1.0);
-        // The best arm wins, so the intact left arm still delivers 1.0.
-        assert_eq!(Channel::Manipulation.max_capacity(Some(&body), None), 1.0);
+        // With additive capability, losing one arm halves Manipulation to
+        // 0.5 — enough to eat or wave but below Harvest's 0.9 threshold, so
+        // a one-armed human can't reliably pluck a berry.
+        let one_arm = Channel::Manipulation.max_capacity(Some(&body), None);
+        assert!(
+            (one_arm - 0.5).abs() < 1e-4,
+            "expected 0.5 after one broken arm, got {one_arm}"
+        );
 
         let arm = body.part_mut("left arm").expect("human body has left arm");
         injure(arm, 1.0);
         let cap_both = Channel::Manipulation.max_capacity(Some(&body), None);
-        assert!(cap_both < 1.0);
+        assert!(
+            cap_both < 1e-4,
+            "both arms broken should zero Manipulation, got {cap_both}"
+        );
     }
 
     #[test]

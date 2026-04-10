@@ -186,7 +186,7 @@ fn wolf_broken_jaws_loses_manipulation_consumption_vocalization_and_bite() {
 }
 
 #[test]
-fn human_one_broken_arm_keeps_manipulation_via_other_arm() {
+fn human_one_broken_arm_halves_manipulation() {
     let mut body = Body::human();
     let right = body.part_mut("right arm").expect("human has right arm");
     right.add_injury(Injury {
@@ -195,13 +195,14 @@ fn human_one_broken_arm_keeps_manipulation_via_other_arm() {
         pain: 5.0,
         healed_amount: 0.0,
     });
-    // Best-arm-wins means the intact left arm still delivers full
-    // Manipulation — a single broken arm isn't a capability-ending injury.
-    assert_eq!(
-        body.channel_capacity(Channel::Manipulation),
-        1.0,
-        "intact left arm should still provide full Manipulation"
+    // Additive capability means one broken arm drops Manipulation from
+    // 1.0 to 0.5 — not enough for Harvest's 0.9 threshold. The agent
+    // loses the "reliably pluck a berry" capability but can still grab
+    // things at a lower precision.
+    let manip = body.channel_capacity(Channel::Manipulation);
+    assert!(
+        (manip - 0.5).abs() < 1e-4,
+        "expected 0.5 Manipulation after one broken arm, got {manip}"
     );
-    // Locomotion is untouched.
     assert!(body.channel_capacity(Channel::Locomotion) > 0.0);
 }

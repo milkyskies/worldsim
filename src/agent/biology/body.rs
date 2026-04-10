@@ -38,27 +38,28 @@ impl Default for Body {
 }
 
 impl Body {
-    /// Human anatomy: two arms (Manipulation + Carry), two legs
-    /// (Locomotion), a mouth (Consumption + Vocalization), a head (Cognition)
-    /// and a torso (no channels, but a vital injury target).
+    /// Human anatomy: two arms, two legs, mouth, head, torso. Per-part
+    /// intensities add up to the legacy "fully functional human" baseline
+    /// of 1.0 per core channel: each arm provides Manipulation 0.5 and
+    /// Carry 0.25, each leg provides Locomotion 0.5, the mouth provides
+    /// Consumption + Vocalization at 1.0, and head/torso are FullBody
+    /// gates. Losing one arm halves Manipulation to 0.5 (still above the
+    /// 0.4 wolf-jaw ceiling but below Harvest's 0.9 requirement — a
+    /// one-armed human can't reliably pick berries).
     pub fn human() -> Self {
         Self {
             parts: vec![
-                BodyPart::vital(
-                    "head",
-                    50.0,
-                    vec![(Channel::Cognition, 1.0), (Channel::FullBody, 1.0)],
-                ),
+                BodyPart::vital("head", 50.0, vec![(Channel::Cognition, 1.0)]),
                 BodyPart::vital("torso", 100.0, vec![(Channel::FullBody, 1.0)]),
                 BodyPart::new(
                     "left arm",
                     60.0,
-                    vec![(Channel::Manipulation, 1.0), (Channel::Carry, 0.5)],
+                    vec![(Channel::Manipulation, 0.5), (Channel::Carry, 0.25)],
                 ),
                 BodyPart::new(
                     "right arm",
                     60.0,
-                    vec![(Channel::Manipulation, 1.0), (Channel::Carry, 0.5)],
+                    vec![(Channel::Manipulation, 0.5), (Channel::Carry, 0.25)],
                 ),
                 BodyPart::new("left leg", 70.0, vec![(Channel::Locomotion, 0.5)]),
                 BodyPart::new("right leg", 70.0, vec![(Channel::Locomotion, 0.5)]),
@@ -78,11 +79,7 @@ impl Body {
     pub fn wolf() -> Self {
         Self {
             parts: vec![
-                BodyPart::vital(
-                    "head",
-                    50.0,
-                    vec![(Channel::Cognition, 0.6), (Channel::FullBody, 1.0)],
-                ),
+                BodyPart::vital("head", 50.0, vec![(Channel::Cognition, 0.6)]),
                 BodyPart::vital("torso", 100.0, vec![(Channel::FullBody, 1.0)]),
                 BodyPart::new("front left leg", 55.0, vec![(Channel::Locomotion, 0.3)]),
                 BodyPart::new("front right leg", 55.0, vec![(Channel::Locomotion, 0.3)]),
@@ -108,11 +105,7 @@ impl Body {
     pub fn deer() -> Self {
         Self {
             parts: vec![
-                BodyPart::vital(
-                    "head",
-                    40.0,
-                    vec![(Channel::Cognition, 0.4), (Channel::FullBody, 1.0)],
-                ),
+                BodyPart::vital("head", 40.0, vec![(Channel::Cognition, 0.4)]),
                 BodyPart::vital("torso", 80.0, vec![(Channel::FullBody, 1.0)]),
                 BodyPart::new("front left leg", 50.0, vec![(Channel::Locomotion, 0.3)]),
                 BodyPart::new("front right leg", 50.0, vec![(Channel::Locomotion, 0.3)]),
@@ -167,15 +160,18 @@ impl Body {
             .any(|p| p.function_rate < 0.2)
     }
 
-    /// Maximum intensity this body can deliver on `channel`, taking injury
-    /// into account. Picks the single best-equipped part rather than summing
-    /// (two arms don't give you 2.0 Manipulation — your strongest arm wins
-    /// the sub-task).
+    /// Total intensity this body can deliver on `channel`, taking injury
+    /// into account. Sums across every part that provides the channel, so
+    /// losing a leg drops Locomotion proportionally and a quadruped (four
+    /// 0.3 legs) outpaces a biped (two 0.5 legs). Intensities are declared
+    /// per part with this additive semantic in mind — each human arm
+    /// provides Manipulation 0.5, for example, so both arms together equal
+    /// the legacy "one fully functional agent" baseline of 1.0.
     pub fn channel_capacity(&self, channel: Channel) -> f32 {
         self.parts
             .iter()
             .filter_map(|p| p.channel_intensity(channel))
-            .fold(0.0_f32, f32::max)
+            .sum()
     }
 }
 
