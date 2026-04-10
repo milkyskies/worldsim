@@ -1,7 +1,7 @@
 //! Harvest action - gather resources from targets.
 
 use crate::agent::actions::ActionType;
-use crate::agent::actions::channel::{BodyChannel, ChannelUsage};
+use crate::agent::actions::channel::{Channel, ChannelUsage};
 use crate::agent::actions::registry::{
     Action, ActionContext, ActionKind, CompletionContext, RuntimeEffects, TargetCandidate,
     TargetSource,
@@ -72,8 +72,8 @@ impl Action for HarvestAction {
 
     fn body_channels(&self) -> &'static [ChannelUsage] {
         const CHANNELS: &[ChannelUsage] = &[
-            ChannelUsage::new(BodyChannel::Hands, 0.9),
-            ChannelUsage::new(BodyChannel::Legs, 0.2),
+            ChannelUsage::new(Channel::Manipulation, 0.9),
+            ChannelUsage::new(Channel::Locomotion, 0.2),
         ];
         CHANNELS
     }

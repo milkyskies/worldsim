@@ -81,6 +81,19 @@ pub fn start_actions(
                 continue;
             }
 
+            // Sleep locks the whole agent — short-circuit everything except
+            // WakeUp while it's active. We can't enforce this through the
+            // channel system alone: capability-per-species means a "1.0 on
+            // every active channel" Sleep declaration would refuse to start
+            // on bodies whose per-channel capacity doesn't match the human
+            // default (a wolf's 0.4 Manipulation can never satisfy
+            // Manipulation 1.0 through the admission math). Sleep declares
+            // FullBody 1.0 to gate vs. other whole-body actions, and this
+            // branch gates it vs. the rest of the catalog.
+            if active.contains(ActionType::Sleep) && wanted_action != ActionType::WakeUp {
+                continue;
+            }
+
             let Some(action_def) = registry.get(wanted_action) else {
                 warn!(
                     "Agent {:?} ({}) wanted action {:?} which is not in the registry",

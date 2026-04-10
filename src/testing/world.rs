@@ -958,14 +958,7 @@ impl TestWorld {
         // Body
         if let Some(body) = world.get::<Body>(agent) {
             eprintln!("  Body:");
-            for (label, part) in [
-                ("head     ", &body.head),
-                ("torso    ", &body.torso),
-                ("left_arm ", &body.left_arm),
-                ("right_arm", &body.right_arm),
-                ("left_leg ", &body.left_leg),
-                ("right_leg", &body.right_leg),
-            ] {
+            for part in body.parts() {
                 let injury_str = if part.injuries.is_empty() {
                     String::new()
                 } else {
@@ -979,8 +972,8 @@ impl TestWorld {
                     )
                 };
                 eprintln!(
-                    "    {label}  hp={:.0}/{:.0}  fn={:.2}{}",
-                    part.current_hp, part.max_hp, part.function_rate, injury_str
+                    "    {:<10}  hp={:.0}/{:.0}  fn={:.2}{}",
+                    part.name, part.current_hp, part.max_hp, part.function_rate, injury_str
                 );
             }
         }

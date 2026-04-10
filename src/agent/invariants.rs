@@ -218,7 +218,10 @@ mod tests {
     fn out_of_range_body_function_rate_is_caught() {
         let mut world = TestWorld::new();
         let agent = world.spawn_agent(AgentConfig::default());
-        world.get_mut::<Body>(agent).head.function_rate = 1.5;
+        let mut body = world.get_mut::<Body>(agent);
+        body.part_mut("head")
+            .expect("human body has head")
+            .function_rate = 1.5;
         assert_invariants(world.app_mut().world_mut());
     }
 

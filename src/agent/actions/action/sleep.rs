@@ -1,7 +1,7 @@
 //! Sleep actions - sleeping and waking up.
 
 use crate::agent::actions::ActionType;
-use crate::agent::actions::channel::{BodyChannel, ChannelUsage};
+use crate::agent::actions::channel::{Channel, ChannelUsage};
 use crate::agent::actions::registry::{Action, ActionKind, RuntimeEffects};
 use crate::agent::mind::knowledge::{Node, Predicate, Triple, Value};
 use crate::constants::actions::sleep::{
@@ -35,17 +35,19 @@ impl Action for SleepAction {
     }
 
     fn body_channels(&self) -> &'static [ChannelUsage] {
-        // Sleep occupies the entire body - declares all four active channels
-        // at full intensity so it hard-conflicts with any other action and
-        // preempts them when started. The brain re-asserts Sleep each think
-        // tick so it stays in place until WakeUp specifically displaces it.
-        const CHANNELS: &[ChannelUsage] = &[
-            ChannelUsage::new(BodyChannel::Legs, 1.0),
-            ChannelUsage::new(BodyChannel::Hands, 1.0),
-            ChannelUsage::new(BodyChannel::Mouth, 1.0),
-            ChannelUsage::new(BodyChannel::FullBody, 1.0),
-        ];
+        // Sleep declares only FullBody. Blocking every other action while
+        // asleep is enforced by an explicit short-circuit in `start_actions`
+        // — spreading 1.0 across every active channel would refuse Sleep on
+        // any species whose per-channel capacity doesn't happen to match the
+        // human default (a wolf's 0.4 Manipulation can never "satisfy"
+        // Manipulation 1.0 through the admission math, so it couldn't even
+        // start sleeping).
+        const CHANNELS: &[ChannelUsage] = &[ChannelUsage::new(Channel::FullBody, 1.0)];
         CHANNELS
+    }
+
+    fn interruptible(&self) -> bool {
+        false
     }
 
     fn runtime_effects(&self) -> RuntimeEffects {

@@ -1343,6 +1343,7 @@ pub fn setup_ontology() -> Ontology {
     add(act(ActionType::Wave), IsA, val_act(SocialAction));
     add(act(ActionType::Converse), IsA, val_act(SocialAction));
     add(act(ActionType::Attack), IsA, val_act(ViolentAction));
+    add(act(ActionType::Bite), IsA, val_act(ViolentAction));
     add(act(ActionType::Flee), IsA, val_act(ViolentAction));
     add(act(ActionType::Eat), IsA, val_act(SurvivalAction));
     add(act(ActionType::Sleep), IsA, val_act(SurvivalAction));
