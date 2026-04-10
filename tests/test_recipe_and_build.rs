@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 use worldsim::agent::actions::{ActionRegistry, ActionType, TargetCandidate};
-use worldsim::agent::brains::planner::regressive_plan;
+use worldsim::agent::brains::planner::{PlanCostContext, regressive_plan};
 use worldsim::agent::brains::thinking::{Goal, TriplePattern};
 use worldsim::agent::culture::{Culture, create_cultural_knowledge};
 use worldsim::agent::mind::knowledge::{
@@ -150,7 +150,7 @@ fn goap_plans_harvest_then_build() {
         priority: 50.0,
     };
 
-    let plan = regressive_plan(&mind, &goal, &available);
+    let plan = regressive_plan(&mind, &goal, &available, &PlanCostContext::neutral());
     assert!(plan.is_some(), "Planner must find a plan");
 
     let plan = plan.unwrap();
