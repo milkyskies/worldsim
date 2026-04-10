@@ -73,7 +73,11 @@ impl Action for TakeAction {
                 if let Value::Item(_, qty) = triple.object
                     && qty > 0
                 {
-                    Some(Triple::new(Node::Self_, Predicate::Contains, triple.object))
+                    Some(Triple::new(
+                        Node::Self_,
+                        Predicate::Contains,
+                        triple.object.clone(),
+                    ))
                 } else {
                     None
                 }
