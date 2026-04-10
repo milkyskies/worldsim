@@ -319,7 +319,6 @@ pub fn river_center_x(y: u32, width: u32, seed: u32) -> u32 {
 /// crossings. Tiles immediately outside the banks become sand shores.
 fn carve_river(tiles: &mut Vec<TileType>, width: u32, height: u32, seed: u32) {
     let width_noise = Simplex::new(seed.wrapping_add(98));
-    let shallow_noise = Simplex::new(seed.wrapping_add(99));
     let bank_l_noise = Simplex::new(seed.wrapping_add(100));
     let bank_r_noise = Simplex::new(seed.wrapping_add(101));
 
@@ -339,19 +338,12 @@ fn carve_river(tiles: &mut Vec<TileType>, width: u32, height: u32, seed: u32) {
         let bank_l = ((1.5 + bank_l_noise.get([ty * 0.06, 0.0]) * 0.6).round() as i32).clamp(1, 2);
         let bank_r = ((1.5 + bank_r_noise.get([ty * 0.06, 50.0]) * 0.6).round() as i32).clamp(1, 2);
 
-        // Shallow (ford) detection: noise + bias near target ford rows. Using
-        // a triangular bump kernel (width ~4 rows) around each ford row means
-        // the crossings blend organically into the rest of the river rather
-        // than appearing as abrupt single-row gaps.
-        let ford_proximity = ford_centers
+        // Ford zones: within 2 rows of each target ford center, the entire
+        // core is forced shallow so agents can cross. Outside ford zones the
+        // core is always deep water — no noise-driven shallow slabs.
+        let in_ford_zone = ford_centers
             .iter()
-            .map(|&fy| {
-                let d = (y as i32 - fy as i32).abs() as f64;
-                (1.0 - d / 4.0).max(0.0)
-            })
-            .fold(0.0_f64, f64::max);
-        let shallow_score = shallow_noise.get([ty * 0.05, 0.0]) + ford_proximity * 1.6;
-        let is_shallow_section = shallow_score > 0.5;
+            .any(|&fy| (y as i32 - fy as i32).abs() <= 2);
 
         let left_edge = cx - core_half - bank_l;
         let right_edge = cx + core_half + bank_r;
@@ -363,7 +355,8 @@ fn carve_river(tiles: &mut Vec<TileType>, width: u32, height: u32, seed: u32) {
             }
             let idx = (y * width + x as u32) as usize;
             let dx = x - cx;
-            tiles[idx] = if dx.abs() <= core_half && !is_shallow_section {
+            let is_core = dx.abs() <= core_half;
+            tiles[idx] = if is_core && !in_ford_zone {
                 TileType::Water
             } else {
                 TileType::ShallowWater
