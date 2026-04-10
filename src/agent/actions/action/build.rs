@@ -70,6 +70,25 @@ impl Action for BuildAction {
         5.0
     }
 
+    /// Build is uninterruptible: a half-built campfire is not something we want
+    /// to drop because a smaller urgency edged in. The channel-level preempt
+    /// pass in `nervous_system::execution::preempt_to_make_room` skips this
+    /// action when looking for a victim, so any action whose channel
+    /// requirements would otherwise displace Build is itself rejected.
+    ///
+    /// **Exit transition.** Build is `ActionKind::Timed { duration_ticks:
+    /// CAMPFIRE_DURATION_TICKS }`. The standard tick countdown in
+    /// `tick_actions` decrements `ticks_remaining` each tick and fires
+    /// `on_complete` when it reaches zero. There is no special force-clear
+    /// path — the action's natural completion is its only exit. This is safe
+    /// because Build's body channels (Hands 0.9, Legs 0.2) leave room for
+    /// the timed-action machinery to keep ticking it down without conflict
+    /// with itself.
+    ///
+    /// Trade-off: an agent being chased by a wolf will keep building rather
+    /// than flee. We accept this for now; tier-aware preemption (where Flee
+    /// can override an uninterruptible Build because the urgency is high
+    /// enough) is a future extension of this hook.
     fn interruptible(&self) -> bool {
         false
     }

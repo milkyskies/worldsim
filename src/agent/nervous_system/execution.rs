@@ -562,6 +562,15 @@ fn preempt_to_make_room(
     capacities: &ChannelCapacities,
     target: &mut TargetPosition,
 ) -> bool {
+    // Transactional: snapshot the active set and target before mutating, so
+    // a failed search (e.g. an uninterruptible action blocking the path)
+    // does not leave half-removed victims behind. Without this, an incoming
+    // action that ultimately gets rejected can still drop unrelated
+    // interruptible neighbours as collateral while searching for a
+    // (non-existent) victim path.
+    let active_snapshot = active.clone();
+    let target_snapshot = target.0;
+
     let mut load = active.channel_load(registry);
 
     while load.would_hard_conflict(requirements, capacities) {
@@ -596,6 +605,11 @@ fn preempt_to_make_room(
             .min_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
 
         let Some((victim_type, _intensity, victim_channels)) = preempt_target else {
+            // No further victims available — roll back any preemptions we
+            // made during this search so callers don't observe collateral
+            // damage from a rejected preempt.
+            *active = active_snapshot;
+            target.0 = target_snapshot;
             return false;
         };
 
@@ -785,5 +799,127 @@ mod tests {
         assert!(admitted);
         assert!(!active.contains(ActionType::Walk));
         assert!(active.contains(ActionType::Converse));
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // #109: Action::interruptible() — Build refuses casual preemption
+    // ─────────────────────────────────────────────────────────────────────
+    //
+    // Build overrides `interruptible() -> false` so a half-built campfire
+    // is not dropped when a new urgency edges in. These tests cover the
+    // uninterruptible-victim filter inside `preempt_to_make_room` and the
+    // documented exit transition (timed countdown → on_complete).
+
+    #[test]
+    fn build_blocks_preemption_attempt_from_harvest() {
+        // Build is running. Harvest tries to start; both want Hands at 0.9
+        // (combined 1.8, well over the 1.4 hard threshold). Because Build
+        // is uninterruptible, no victim can be selected and Harvest is
+        // rejected. Build keeps going.
+        let registry = build_registry();
+        let mut active = ActiveActions::empty();
+        active.insert(ActionState::new(ActionType::Build, 0));
+
+        let harvest_def = registry.get(ActionType::Harvest).unwrap();
+        let mut target = TargetPosition::default();
+        let admitted = preempt_to_make_room(
+            &mut active,
+            &registry,
+            harvest_def.body_channels(),
+            &ChannelCapacities::full(),
+            &mut target,
+        );
+
+        assert!(!admitted, "Harvest must NOT be allowed to preempt Build");
+        assert!(
+            active.contains(ActionType::Build),
+            "Build must remain running after a rejected preempt"
+        );
+    }
+
+    #[test]
+    fn build_blocks_preemption_attempt_from_sleep() {
+        // Sleep declares all channels at 1.0 to dominate the body and
+        // would normally clear every interruptible slot. Build's
+        // uninterruptible flag must hold the line — Sleep cannot find a
+        // victim and is rejected.
+        let registry = build_registry();
+        let mut active = ActiveActions::empty();
+        active.insert(ActionState::new(ActionType::Build, 0));
+
+        let sleep_def = registry.get(ActionType::Sleep).unwrap();
+        let mut target = TargetPosition::default();
+        let admitted = preempt_to_make_room(
+            &mut active,
+            &registry,
+            sleep_def.body_channels(),
+            &ChannelCapacities::full(),
+            &mut target,
+        );
+
+        assert!(!admitted, "Sleep must NOT be allowed to preempt Build");
+        assert!(active.contains(ActionType::Build));
+    }
+
+    #[test]
+    fn rejected_preempt_rolls_back_collateral_damage() {
+        // Build (Hands 0.9, Legs 0.2) and Walk (Legs 0.4) are both running.
+        // Sleep (all channels 1.0) tries to start. The search:
+        //   - drops Walk first (smallest interruptible touching saturated Legs)
+        //   - then can't find another victim because Build is uninterruptible
+        //     and still saturates Hands
+        //   - returns false → rolls back all mutations
+        //
+        // Without the rollback, Walk would be destroyed for nothing. With it,
+        // the active set is exactly what it was before the failed attempt.
+        let registry = build_registry();
+        let mut active = ActiveActions::empty();
+        active.insert(ActionState::new(ActionType::Build, 0));
+        active.insert(ActionState::new(ActionType::Walk, 0));
+
+        let sleep_def = registry.get(ActionType::Sleep).unwrap();
+        let mut target = TargetPosition(Some(Vec2::new(99.0, 99.0)));
+        let target_before = target.0;
+
+        let admitted = preempt_to_make_room(
+            &mut active,
+            &registry,
+            sleep_def.body_channels(),
+            &ChannelCapacities::full(),
+            &mut target,
+        );
+
+        assert!(!admitted, "Sleep must be rejected because of Build");
+        assert!(
+            active.contains(ActionType::Build),
+            "Build must remain after a rejected preempt"
+        );
+        assert!(
+            active.contains(ActionType::Walk),
+            "Walk must NOT be collateral damage from a rejected preempt"
+        );
+        assert_eq!(
+            target.0, target_before,
+            "TargetPosition must be untouched on rejected preempt"
+        );
+    }
+
+    #[test]
+    fn build_exit_transition_is_timed_completion() {
+        // Document the documented exit transition for the uninterruptible
+        // Build action: it is `ActionKind::Timed` with a finite duration,
+        // so the standard `tick_actions` countdown drives it to completion.
+        // No force-clear path is needed.
+        let registry = build_registry();
+        let build_def = registry.get(ActionType::Build).unwrap();
+        match build_def.kind() {
+            ActionKind::Timed { duration_ticks } => {
+                assert!(
+                    duration_ticks > 0 && duration_ticks < u32::MAX,
+                    "Build duration must be finite so the timed countdown is the exit path"
+                );
+            }
+            other => panic!("Build must be ActionKind::Timed, got {other:?}"),
+        }
     }
 }
