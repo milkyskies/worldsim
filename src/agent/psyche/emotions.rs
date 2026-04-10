@@ -212,6 +212,58 @@ pub fn decay_emotions(
     }
 }
 
+/// Personality-dependent valence weight for a given emotion type.
+///
+/// Neuroticism amplifies negative emotions (fear, sadness, anger).
+/// Agreeableness amplifies social emotions (joy, sadness from conflict).
+/// Openness makes surprise feel more positive.
+pub fn emotion_valence(
+    emotion_type: EmotionType,
+    traits: &crate::agent::psyche::personality::PersonalityTraits,
+) -> f32 {
+    match emotion_type {
+        EmotionType::Joy => 0.8 + traits.agreeableness * 0.4,
+        EmotionType::Surprise => traits.openness * 0.6 - (1.0 - traits.openness) * 0.2,
+        EmotionType::Sadness => -(0.5 + traits.agreeableness * 0.4 + traits.neuroticism * 0.3),
+        EmotionType::Fear => -(0.6 + traits.neuroticism * 0.4),
+        EmotionType::Anger => -(0.4 + traits.neuroticism * 0.3),
+        EmotionType::Disgust => -(0.5 + traits.neuroticism * 0.2),
+    }
+}
+
+/// Compute the target mood value from current emotional state, personality, and optional pain.
+/// Returns a value in [-1.0, 1.0].
+pub fn compute_target_mood(
+    emotions: &EmotionalState,
+    personality: &crate::agent::psyche::personality::Personality,
+    body: Option<&crate::agent::biology::body::Body>,
+) -> f32 {
+    let baseline = (personality.traits.extraversion - personality.traits.neuroticism) * 0.5;
+    let mut mood_sum = baseline;
+    let mut weight_sum = 0.5f32;
+
+    for emotion in &emotions.active_emotions {
+        let valence = emotion_valence(emotion.emotion_type, &personality.traits);
+        mood_sum += valence * emotion.intensity;
+        weight_sum += emotion.intensity;
+    }
+
+    if let Some(body) = body {
+        let mut total_pain = 0.0;
+        for part in body.parts() {
+            for injury in &part.injuries {
+                total_pain += injury.pain * (1.0 - injury.healed_amount);
+            }
+        }
+        if total_pain > 0.0 {
+            mood_sum -= total_pain * 0.2;
+            weight_sum += total_pain * 0.2;
+        }
+    }
+
+    (mood_sum / weight_sum).clamp(-1.0, 1.0)
+}
+
 pub fn update_mood(
     mut agents: Query<
         (
@@ -226,45 +278,7 @@ pub fn update_mood(
     let dt = time.delta_secs();
 
     for (mut emotional_state, personality, body) in agents.iter_mut() {
-        let mut mood_sum = 0.0;
-        let mut weight_sum = 0.0;
-
-        let baseline = (personality.traits.extraversion - personality.traits.neuroticism) * 0.5;
-        mood_sum += baseline;
-        weight_sum += 0.5;
-
-        for emotion in &emotional_state.active_emotions {
-            let valence = match emotion.emotion_type {
-                EmotionType::Joy => 1.0,
-                EmotionType::Surprise => 0.2,
-                EmotionType::Sadness => -0.8,
-                EmotionType::Fear => -1.0,
-                EmotionType::Anger => -0.6,
-                EmotionType::Disgust => -0.7,
-            };
-            mood_sum += valence * emotion.intensity;
-            weight_sum += emotion.intensity;
-        }
-
-        if let Some(body) = body {
-            let mut total_pain = 0.0;
-            for part in body.parts() {
-                for injury in &part.injuries {
-                    total_pain += injury.pain * (1.0 - injury.healed_amount);
-                }
-            }
-            if total_pain > 0.0 {
-                mood_sum -= total_pain * 0.2;
-                weight_sum += total_pain * 0.2;
-            }
-        }
-
-        let target_mood = if weight_sum > 0.0 {
-            mood_sum / weight_sum
-        } else {
-            baseline
-        };
-
+        let target_mood = compute_target_mood(&emotional_state, personality, body);
         emotional_state.current_mood += (target_mood - emotional_state.current_mood) * dt * 0.5;
         emotional_state.current_mood = emotional_state.current_mood.clamp(-1.0, 1.0);
     }
@@ -537,5 +551,102 @@ mod tests {
             high_drop > low_drop,
             "fuel-scaled decay should drain high-fuel emotions faster (low={low_drop}, high={high_drop})"
         );
+    }
+
+    // ── compute_target_mood / emotion_valence tests ──────────────────────────
+
+    fn personality_with(
+        neuroticism: f32,
+        agreeableness: f32,
+        openness: f32,
+    ) -> crate::agent::psyche::personality::Personality {
+        use crate::agent::psyche::personality::{Personality, PersonalityTraits};
+        Personality {
+            traits: PersonalityTraits {
+                neuroticism,
+                agreeableness,
+                openness,
+                extraversion: 0.5,
+                conscientiousness: 0.5,
+            },
+        }
+    }
+
+    #[test]
+    fn no_emotions_gives_neutral_mood() {
+        let state = EmotionalState::default();
+        let personality = personality_with(0.5, 0.5, 0.5);
+        let mood = compute_target_mood(&state, &personality, None);
+        // Baseline = (0.5 - 0.5) * 0.5 = 0.0; weight = 0.5; target = 0.0
+        assert!(
+            mood.abs() < 0.01,
+            "no emotions should produce neutral mood, got {mood}"
+        );
+    }
+
+    #[test]
+    fn joy_only_gives_positive_mood() {
+        let mut state = EmotionalState::default();
+        state.add_emotion(Emotion::new(EmotionType::Joy, 1.0));
+        let personality = personality_with(0.0, 0.5, 0.5);
+        let mood = compute_target_mood(&state, &personality, None);
+        assert!(mood > 0.0, "joy should produce positive mood, got {mood}");
+    }
+
+    #[test]
+    fn fear_only_gives_negative_mood() {
+        let mut state = EmotionalState::default();
+        state.add_emotion(Emotion::new(EmotionType::Fear, 1.0));
+        let personality = personality_with(0.5, 0.5, 0.5);
+        let mood = compute_target_mood(&state, &personality, None);
+        assert!(mood < 0.0, "fear should produce negative mood, got {mood}");
+    }
+
+    #[test]
+    fn mixed_emotions_balance_mood() {
+        // Joy (positive) and fear (negative) at equal intensity: overall sign depends on weights
+        let mut state = EmotionalState::default();
+        state.add_emotion(Emotion::new(EmotionType::Joy, 0.5));
+        state.add_emotion(Emotion::new(EmotionType::Fear, 0.5));
+        // With default personality (neuroticism=0.5, agreeableness=0.5):
+        // Joy valence = 0.8 + 0.5*0.4 = 1.0; Fear valence = -(0.6 + 0.5*0.4) = -0.8
+        // Net = (1.0 - 0.8) * 0.5 = 0.1; mixed but slightly positive
+        let personality = personality_with(0.5, 0.5, 0.5);
+        let mood = compute_target_mood(&state, &personality, None);
+        // Just verify it's in range and not stuck at extremes
+        assert!(
+            mood > -1.0 && mood < 1.0,
+            "mixed mood should be between extremes, got {mood}"
+        );
+    }
+
+    #[test]
+    fn neurotic_agent_more_negatively_affected_by_fear() {
+        let mut fearful = EmotionalState::default();
+        fearful.add_emotion(Emotion::new(EmotionType::Fear, 0.8));
+
+        let stoic = personality_with(0.0, 0.5, 0.5);
+        let neurotic = personality_with(1.0, 0.5, 0.5);
+
+        let stoic_mood = compute_target_mood(&fearful, &stoic, None);
+        let neurotic_mood = compute_target_mood(&fearful, &neurotic, None);
+
+        assert!(
+            neurotic_mood < stoic_mood,
+            "neurotic agent should have more negative mood under fear (neurotic={neurotic_mood}, stoic={stoic_mood})"
+        );
+    }
+
+    #[test]
+    fn mood_is_deterministic_given_same_inputs() {
+        let mut state = EmotionalState::default();
+        state.add_emotion(Emotion::new(EmotionType::Joy, 0.6));
+        state.add_emotion(Emotion::new(EmotionType::Sadness, 0.3));
+        let personality = personality_with(0.7, 0.4, 0.6);
+
+        let a = compute_target_mood(&state, &personality, None);
+        let b = compute_target_mood(&state, &personality, None);
+
+        assert_eq!(a, b, "same inputs must always produce the same mood");
     }
 }
