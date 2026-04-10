@@ -589,23 +589,21 @@ fn sound_kind_to_concept(kind: crate::world::sense_sources::SoundKind) -> Concep
 pub fn perceive_hearing(
     mut agents: Query<(Entity, &Transform, &mut MindGraph), With<Agent>>,
     sound_sources: Query<(Entity, &Transform, &SoundSource)>,
-    spatial_index: Res<SpatialIndex>,
     tick: Res<TickCount>,
     mut sim_events: MessageWriter<crate::agent::events::SimEvent>,
 ) {
     let current_time = tick.current;
 
+    // SoundSource is transient (1-tick lifetime) and typically rare. Iterate
+    // the query directly instead of via spatial index — avoids the 1-tick lag
+    // from PostUpdate spatial index updates.
     for (agent_entity, agent_transform, mut mind) in agents.iter_mut() {
         let agent_pos = agent_transform.translation.truncate();
 
-        for candidate in spatial_index.entities_near(agent_pos, HEARING_SENSE_RANGE) {
-            if candidate == agent_entity {
+        for (source_entity, source_transform, sound) in sound_sources.iter() {
+            if source_entity == agent_entity {
                 continue;
             }
-
-            let Ok((source_entity, source_transform, sound)) = sound_sources.get(candidate) else {
-                continue;
-            };
 
             let source_pos = source_transform.translation.truncate();
             let distance = agent_pos.distance(source_pos);
