@@ -18,6 +18,7 @@ use crate::agent::events::{ActionOutcome, ActionOutcomeEvent, NeedSatisfaction};
 use crate::agent::item_slots::ItemSlots;
 use crate::agent::mind::knowledge::{MindGraph, Node, Predicate, Value};
 use crate::agent::movement::{ARRIVAL_THRESHOLD, MoveResult, calculate_speed, move_toward};
+use crate::core::SimRng;
 use crate::core::tick::TickCount;
 use crate::ui::hud::GameLog;
 use crate::world::map::{CHUNK_SIZE, TILE_SIZE, WorldMap};
@@ -39,6 +40,7 @@ pub fn start_actions(
     registry: Res<ActionRegistry>,
     tick: Res<TickCount>,
     world_map: Res<WorldMap>,
+    mut sim_rng: ResMut<SimRng>,
     mut game_log: ResMut<GameLog>,
     mut agents: Query<(
         Entity,
@@ -189,14 +191,20 @@ pub fn start_actions(
 
             if matches!(action_def.kind(), ActionKind::Movement) {
                 let pos = transform.translation.truncate();
+                let rng = sim_rng.inner_mut();
                 let new_target = match wanted_action {
-                    ActionType::Explore => find_explore_target(pos, mind, &world_map, tick.current),
-                    ActionType::Wander => pick_random_walkable_target(pos, &world_map, 10.0..30.0),
+                    ActionType::Explore => {
+                        find_explore_target(pos, mind, &world_map, tick.current, rng)
+                    }
+                    ActionType::Wander => {
+                        pick_random_walkable_target(pos, &world_map, 10.0..30.0, rng)
+                    }
                     ActionType::Graze => pick_random_grass_target(
                         pos,
                         &world_map,
                         crate::constants::actions::graze::DRIFT_RANGE_MIN
                             ..crate::constants::actions::graze::DRIFT_RANGE_MAX,
+                        rng,
                     )
                     .or(action_template.target_position),
                     ActionType::Flee => {
@@ -206,10 +214,10 @@ pub fn start_actions(
                                 let away = (pos - threat_pos).normalize_or_zero();
                                 Some(pos + away * 50.0)
                             } else {
-                                pick_random_walkable_target(pos, &world_map, 30.0..60.0)
+                                pick_random_walkable_target(pos, &world_map, 30.0..60.0, rng)
                             }
                         } else {
-                            pick_random_walkable_target(pos, &world_map, 30.0..60.0)
+                            pick_random_walkable_target(pos, &world_map, 30.0..60.0, rng)
                         }
                     }
                     ActionType::Walk => action_template.target_position.or_else(|| {
@@ -741,10 +749,10 @@ fn find_explore_target(
     mind: &MindGraph,
     world_map: &WorldMap,
     current_tick: u64,
+    rng: &mut impl Rng,
 ) -> Option<Vec2> {
     let mut best_target: Option<Vec2> = None;
     let mut best_score = f32::MAX;
-    let mut rng = rand::rng();
     let (map_w, map_h) = world_map.pixel_bounds();
 
     for _ in 0..10 {
@@ -783,8 +791,8 @@ fn pick_random_walkable_target(
     pos: Vec2,
     world_map: &WorldMap,
     dist_range: std::ops::Range<f32>,
+    rng: &mut impl Rng,
 ) -> Option<Vec2> {
-    let mut rng = rand::rng();
     let base_angle: f32 = rng.random_range(0.0..std::f32::consts::TAU);
     let dist: f32 = rng.random_range(dist_range);
 
@@ -805,10 +813,10 @@ fn pick_random_grass_target(
     pos: Vec2,
     world_map: &WorldMap,
     dist_range: std::ops::Range<f32>,
+    rng: &mut impl Rng,
 ) -> Option<Vec2> {
     use crate::world::map::TileType;
 
-    let mut rng = rand::rng();
     let base_angle: f32 = rng.random_range(0.0..std::f32::consts::TAU);
     let dist: f32 = rng.random_range(dist_range);
 

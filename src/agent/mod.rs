@@ -68,6 +68,7 @@ impl Plugin for AgentPlugin {
             .register_type::<mind::knowledge::MindGraph>()
             .register_type::<actions::ActiveActions>()
             .insert_resource(actions::ActionRegistry::new())
+            .init_resource::<crate::core::SimRng>()
             .add_message::<events::GameEvent>()
             .add_message::<events::ActionOutcomeEvent>()
             .add_message::<events::SimEvent>()
