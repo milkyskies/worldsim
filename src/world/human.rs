@@ -3,6 +3,7 @@
 use crate::agent::affordance;
 use crate::agent::body::species::SpeciesProfile;
 use crate::agent::mind::knowledge::{Concept, MindGraph, Ontology};
+use crate::agent::mind::theory_of_mind::TheoryOfMind;
 use crate::agent::{Agent, Person, inventory::EntityType, item_slots::ItemSlots};
 use bevy::prelude::*;
 
@@ -80,58 +81,66 @@ pub fn spawn_person(
             crate::agent::brains::history::BrainHistory::default(),
             crate::agent::brains::active_plan::ActivePlans::default(),
             crate::agent::psyche::relationships::RelationshipHistory::default(),
+            TheoryOfMind::default(),
         ))
         .id();
 
-    // Add body parts as children
     commands.entity(entity).with_children(|parent| {
-        // 1. BODY (Torso) - Sitting slightly lower
-        parent.spawn((
-            Sprite {
-                color: skin_color,
-                custom_size: Some(Vec2::new(10.0, 12.0)), // Tall rectangle
-                ..default()
-            },
-            Transform::from_translation(Vec3::new(0.0, -2.0, 0.0)),
-        ));
-
-        // 2. HEAD - Sitting on top
+        // SpriteBody wrapper — animated (hops), contains all visual sprite parts
         parent
             .spawn((
-                Sprite {
-                    color: skin_color,
-                    custom_size: Some(Vec2::new(10.0, 10.0)), // Boxy head (Rimworld style)
-                    ..default()
-                },
-                Transform::from_translation(Vec3::new(0.0, 9.0, 0.1)),
+                crate::ui::sprite_animation::SpriteBody::new(entity, index as f32 * 1.618),
+                Transform::default(),
+                GlobalTransform::default(),
+                Visibility::default(),
+                InheritedVisibility::default(),
+                ViewVisibility::default(),
             ))
-            .with_children(|head| {
-                // EYES (Child of Head)
-                let eye_color = Color::BLACK;
-                let eye_size = Vec2::new(2.0, 2.0);
-
-                // Left Eye
-                head.spawn((
+            .with_children(|body| {
+                // BODY (Torso)
+                body.spawn((
                     Sprite {
-                        color: eye_color,
-                        custom_size: Some(eye_size),
+                        color: skin_color,
+                        custom_size: Some(Vec2::new(10.0, 12.0)),
                         ..default()
                     },
-                    Transform::from_translation(Vec3::new(-2.5, 1.0, 0.1)),
+                    Transform::from_translation(Vec3::new(0.0, -2.0, 0.0)),
                 ));
 
-                // Right Eye
-                head.spawn((
+                // HEAD
+                body.spawn((
                     Sprite {
-                        color: eye_color,
-                        custom_size: Some(eye_size),
+                        color: skin_color,
+                        custom_size: Some(Vec2::new(10.0, 10.0)),
                         ..default()
                     },
-                    Transform::from_translation(Vec3::new(2.5, 1.0, 0.1)),
-                ));
+                    Transform::from_translation(Vec3::new(0.0, 9.0, 0.1)),
+                ))
+                .with_children(|head| {
+                    let eye_color = Color::BLACK;
+                    let eye_size = Vec2::new(2.0, 2.0);
+
+                    head.spawn((
+                        Sprite {
+                            color: eye_color,
+                            custom_size: Some(eye_size),
+                            ..default()
+                        },
+                        Transform::from_translation(Vec3::new(-2.5, 1.0, 0.1)),
+                    ));
+
+                    head.spawn((
+                        Sprite {
+                            color: eye_color,
+                            custom_size: Some(eye_size),
+                            ..default()
+                        },
+                        Transform::from_translation(Vec3::new(2.5, 1.0, 0.1)),
+                    ));
+                });
             });
 
-        // NAME TAG
+        // NAME TAG — direct child of root, stays still
         parent.spawn((
             Text2d::new(format!("Person {} ({:?})", index, entity)),
             TextFont {

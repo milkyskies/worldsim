@@ -90,6 +90,7 @@ pub(super) fn spawn_test_person(
             BrainHistory::default(),
             ActivePlans::default(),
             crate::agent::psyche::relationships::RelationshipHistory::default(),
+            crate::agent::mind::theory_of_mind::TheoryOfMind::default(),
             // Body is normally added by `setup_biology` on the next Update;
             // pre-insert it so brain queries that read `Option<&Body>` see it
             // immediately and tests can inspect injuries without an extra tick.
