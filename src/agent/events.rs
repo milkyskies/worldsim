@@ -120,6 +120,9 @@ pub enum FailureReason {
     NoWaterNearby,
     /// Agent lacks required crafting or building materials
     MissingMaterials,
+    /// The partner's conversation group is already full (capacity reached)
+    /// or the partner is otherwise unavailable to join/add to a conversation.
+    ConversationFull,
 }
 
 /// Event for communicating action outcomes to belief update system

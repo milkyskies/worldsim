@@ -208,6 +208,30 @@ impl ActivePlans {
     pub fn complete(&mut self, intent: Intent) {
         self.plans.retain(|p| p.intent != intent);
     }
+
+    /// Explicitly abandon the plan for `intent`: remove it and register a
+    /// cooldown so the same action doesn't get a commitment bonus for the
+    /// next `ABANDONMENT_COOLDOWN_TICKS` ticks.
+    ///
+    /// Call this from systems that forcibly terminate an action outside the
+    /// normal stall-decay path (e.g. `process_initiate_conversation` when the
+    /// partner is no longer reachable). The decay path is the right fit for
+    /// contested plans that get outbid; this is for plans killed externally.
+    ///
+    /// Expired cooldown sweeping happens once per thinking cycle inside
+    /// `decay_stalled_plans`, not here — leaving the cleanup out of this
+    /// hot path keeps it an O(1) append.
+    ///
+    /// Returns `Some((intent, action))` if a plan was found and abandoned.
+    pub fn abandon(&mut self, intent: Intent, current_tick: u64) -> Option<(Intent, ActionType)> {
+        let plan_pos = self.plans.iter().position(|p| p.intent == intent)?;
+        let plan = self.plans.remove(plan_pos);
+
+        self.cooldowns
+            .push((plan.action, current_tick + ABANDONMENT_COOLDOWN_TICKS));
+
+        Some((plan.intent, plan.action))
+    }
 }
 
 #[cfg(test)]
@@ -277,6 +301,70 @@ mod tests {
         assert!(
             plans.plans[0].commitment_strength < initial_strength,
             "commitment should decay when stalled"
+        );
+    }
+
+    #[test]
+    fn abandon_removes_plan_and_registers_cooldown() {
+        let mut plans = ActivePlans::default();
+        plans.activate(
+            PlanOwner::Brain(BrainType::Emotional),
+            Intent::SatisfySocial,
+            ActionType::InitiateConversation,
+            10,
+        );
+
+        let result = plans.abandon(Intent::SatisfySocial, 10);
+
+        assert_eq!(
+            result,
+            Some((Intent::SatisfySocial, ActionType::InitiateConversation))
+        );
+        assert!(plans.plans.is_empty(), "abandoned plan should be removed");
+        let on_cooldown = plans
+            .cooldowns
+            .iter()
+            .any(|(action, _)| *action == ActionType::InitiateConversation);
+        assert!(on_cooldown, "abandoned action should be on cooldown");
+    }
+
+    #[test]
+    fn abandon_returns_none_when_no_plan_exists_for_intent() {
+        let mut plans = ActivePlans::default();
+        let result = plans.abandon(Intent::SatisfySocial, 0);
+        assert_eq!(result, None);
+        assert!(plans.cooldowns.is_empty(), "no cooldown on a missing plan");
+    }
+
+    #[test]
+    fn abandon_suppresses_commitment_bonus_during_cooldown() {
+        let mut plans = ActivePlans::default();
+        plans.activate(
+            PlanOwner::Brain(BrainType::Emotional),
+            Intent::SatisfySocial,
+            ActionType::InitiateConversation,
+            0,
+        );
+        plans.abandon(Intent::SatisfySocial, 0);
+
+        // Re-activate the same plan immediately.
+        plans.activate(
+            PlanOwner::Brain(BrainType::Emotional),
+            Intent::SatisfySocial,
+            ActionType::InitiateConversation,
+            0,
+        );
+
+        let bonus = plans.commitment_bonus(
+            Intent::SatisfySocial,
+            ActionType::InitiateConversation,
+            &PlanOwner::Brain(BrainType::Emotional),
+            1.0,
+            0,
+        );
+        assert_eq!(
+            bonus, 0.0,
+            "commitment bonus should be zero while cooldown is active"
         );
     }
 
