@@ -110,7 +110,7 @@ pub fn emits_effect_system(
     emitters: Query<(Entity, &EmitsEffect, &Transform)>,
     mut agents: Query<(Entity, &Transform, &mut PhysicalNeeds, &mut EmotionalState), With<Agent>>,
     tick: Res<TickCount>,
-    mut sim_events: MessageWriter<SimEvent>,
+    mut sim_events: Option<MessageWriter<SimEvent>>,
 ) {
     let dt = tick.dt();
 
@@ -121,11 +121,13 @@ pub fn emits_effect_system(
             let agent_pos = agent_transform.translation.truncate();
             if emitter_pos.distance(agent_pos) <= emits.radius {
                 apply_effect(&emits.effect, dt, &mut physical, &mut emotional);
-                sim_events.write(SimEvent::EffectApplied {
-                    agent: agent_entity,
-                    tick: tick.current,
-                    source: emitter_entity,
-                });
+                if let Some(ref mut events) = sim_events {
+                    events.write(SimEvent::EffectApplied {
+                        agent: agent_entity,
+                        tick: tick.current,
+                        source: emitter_entity,
+                    });
+                }
             }
         }
     }
