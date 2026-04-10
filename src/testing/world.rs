@@ -32,7 +32,7 @@ use crate::world::map::{
     CHUNK_SIZE, Chunk, DEFAULT_TERRAIN_SEED, MAP_CHUNKS_X, MAP_CHUNKS_Y, WORLD_HEIGHT, WORLD_WIDTH,
     WorldMap, generate_terrain,
 };
-use crate::world::spatial_index::SpatialIndex;
+use crate::world::spatial_index::SpatialIndexPlugin;
 use crate::world::spawn_config::{SpawnLayout, WorldSpawnConfig};
 
 /// Default test world dimensions in tiles. Large enough for typical scenarios but
@@ -389,7 +389,7 @@ impl TestWorld {
         app.insert_resource(TickCount::new(60.0));
         app.insert_resource(GameLog::new(100));
         app.init_resource::<GameTime>();
-        app.init_resource::<SpatialIndex>();
+        app.add_plugins(SpatialIndexPlugin);
 
         // SimEvent history — collected automatically each tick.
         app.init_resource::<SimEventLog>();
