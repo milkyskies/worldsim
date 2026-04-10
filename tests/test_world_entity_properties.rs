@@ -219,22 +219,24 @@ fn shelter_provider_improves_sleep_energy_recovery() {
         ..AgentConfig::default()
     });
 
-    // Force both agents into Sleeping activity
+    // Insert Sleeping activity — agents aren't spawned with CurrentActivity,
+    // so we use entity_mut().insert() rather than get_mut().
     world
         .app_mut()
         .world_mut()
-        .get_mut::<CurrentActivity>(sheltered)
-        .map(|mut a| *a = CurrentActivity::Sleeping);
+        .entity_mut(sheltered)
+        .insert(CurrentActivity::Sleeping);
     world
         .app_mut()
         .world_mut()
-        .get_mut::<CurrentActivity>(unsheltered)
-        .map(|mut a| *a = CurrentActivity::Sleeping);
+        .entity_mut(unsheltered)
+        .insert(CurrentActivity::Sleeping);
 
     let energy_before_sheltered = world.get::<PhysicalNeeds>(sheltered).energy;
     let energy_before_unsheltered = world.get::<PhysicalNeeds>(unsheltered).energy;
 
-    world.tick(20);
+    // Tick once — the shelter_system runs exactly once before the brain can override.
+    world.tick(1);
 
     let energy_after_sheltered = world.get::<PhysicalNeeds>(sheltered).energy;
     let energy_after_unsheltered = world.get::<PhysicalNeeds>(unsheltered).energy;
