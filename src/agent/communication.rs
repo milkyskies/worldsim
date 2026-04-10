@@ -1077,6 +1077,58 @@ mod tests {
         }
     }
 
+    // ── speak_desire tests ──────────────────────────────────────────────────
+
+    fn personality_with(extraversion: f32, agreeableness: f32) -> Personality {
+        let mut p = Personality::default();
+        p.traits.extraversion = extraversion;
+        p.traits.agreeableness = agreeableness;
+        p
+    }
+
+    #[test]
+    fn speak_desire_extravert_scores_above_introvert() {
+        let extravert = personality_with(1.0, 0.5);
+        let introvert = personality_with(0.0, 0.5);
+        assert!(
+            speak_desire(Some(&extravert), false) > speak_desire(Some(&introvert), false),
+            "extravert should have higher speak desire than introvert"
+        );
+    }
+
+    #[test]
+    fn speak_desire_agreeable_yields_compared_to_disagreeable() {
+        let agreeable = personality_with(0.5, 1.0);
+        let stubborn = personality_with(0.5, 0.0);
+        assert!(
+            speak_desire(Some(&stubborn), false) > speak_desire(Some(&agreeable), false),
+            "disagreeable agent should take the floor over an agreeable one at matched extraversion"
+        );
+    }
+
+    #[test]
+    fn speak_desire_wants_to_speak_flag_boosts_score() {
+        let neutral = personality_with(0.5, 0.5);
+        let idle = speak_desire(Some(&neutral), false);
+        let queued = speak_desire(Some(&neutral), true);
+        assert!(queued > idle, "wants_to_speak should raise the score");
+        assert!(
+            queued - idle >= 2.0,
+            "the queued-response bonus should dominate small personality differences"
+        );
+    }
+
+    #[test]
+    fn speak_desire_missing_personality_uses_neutral_baseline() {
+        let neutral = personality_with(0.5, 0.5);
+        let with_personality = speak_desire(Some(&neutral), false);
+        let without = speak_desire(None, false);
+        assert!(
+            (with_personality - without).abs() < 1e-6,
+            "a missing Personality component should fall back to the neutral 0.5/0.5 baseline"
+        );
+    }
+
     #[test]
     fn high_affection_raises_valence_compared_to_neutral() {
         let base = valence_base(Intent::Share);
