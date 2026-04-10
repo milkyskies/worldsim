@@ -315,33 +315,28 @@ impl TerrainNoise {
         let bx = x as f64 * BASE;
         let by = y as f64 * BASE;
 
-        // Domain warping — twist the coordinates for organic shapes.
-        const WARP_STRENGTH: f64 = 0.6;
-        let wx = bx + self.warp_x.get([bx * 0.8, by * 0.8]) * WARP_STRENGTH;
-        let wy = by + self.warp_y.get([bx * 0.8 + 50.0, by * 0.8 + 50.0]) * WARP_STRENGTH;
+        // Gentle domain warping — just enough to break grid alignment.
+        const WARP_STRENGTH: f64 = 0.25;
+        let wx = bx + self.warp_x.get([bx * 0.5, by * 0.5]) * WARP_STRENGTH;
+        let wy = by + self.warp_y.get([bx * 0.5 + 50.0, by * 0.5 + 50.0]) * WARP_STRENGTH;
 
         // Rolling hills: fBm with 3 octaves.
         let hills = self.elevation.get([wx, wy]) * 0.65
             + self.elevation.get([wx * 2.1, wy * 2.1]) * 0.25
             + self.detail.get([wx * 4.3, wy * 4.3]) * 0.10;
 
-        // Mountain mask: very low frequency, thresholded so ~5 % of the map
-        // qualifies as a mountain zone. Values above the threshold ramp smoothly
-        // from 0.0 to 1.0 so mountain edges blend into the surrounding hills.
+        // Mountain mask: very low frequency, thresholded so only a small area
+        // of the map becomes mountainous. Ramps smoothly at edges.
         const MASK_FREQ: f64 = 0.012;
         const MASK_THRESHOLD: f64 = 0.35;
         let raw_mask = self.mountain_mask.get([bx * MASK_FREQ, by * MASK_FREQ]);
         let mask = ((raw_mask - MASK_THRESHOLD) / (1.0 - MASK_THRESHOLD)).clamp(0.0, 1.0);
 
-        // Ridged multifractal: 1 - |noise| creates sharp ridge lines.
-        // Two octaves for detail.
-        let ridge1 = 1.0 - self.ridge.get([wx * 1.5, wy * 1.5]).abs();
-        let ridge2 = 1.0 - self.ridge.get([wx * 3.0, wy * 3.0]).abs();
-        let ridged = ridge1 * 0.7 + ridge2 * 0.3;
+        // In mountain zones, boost elevation with a single smooth ridge octave.
+        // No sharp abs() ridges — just amplified noise for taller, rounder peaks.
+        let peak = self.ridge.get([wx * 1.2, wy * 1.2]).max(0.0);
+        let mountain_boost = mask * peak * 0.5;
 
-        // Blend: hills everywhere, ridged peaks only where the mask is active.
-        // The power curve steepens the ridges so peaks are sharper.
-        let mountain_boost = mask * ridged.powf(1.5) * 0.6;
         (hills + mountain_boost).clamp(-1.0, 1.0)
     }
 }
