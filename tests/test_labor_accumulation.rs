@@ -25,7 +25,7 @@ fn labor_test_app() -> App {
     let mut tick = TickCount::new(1.0);
     tick.current = 0;
     app.insert_resource(tick);
-    app.add_event::<SimEvent>();
+    app.add_message::<SimEvent>();
     // Labor must run before becomes so a threshold crossing fires in the same tick.
     app.add_systems(
         Update,
