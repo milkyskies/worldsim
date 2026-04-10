@@ -1,7 +1,7 @@
 //! Three-brains orchestration: runs all brain systems and arbitrates between their proposals each tick.
 //!
-//! Reads: PhysicalNeeds, Consciousness, PsychologicalDrives, EmotionalState, Body, Personality, ItemSlots, VisibleObjects, MindGraph, ActiveActions, WorldMap, BrainHistory
-//! Writes: BrainState (chosen action, winner, proposals, powers), BrainHistory (active attributions), SimEvent::Decision
+//! Reads: PhysicalNeeds, Consciousness, PsychologicalDrives, EmotionalState, Body, Personality, ItemSlots, VisibleObjects, MindGraph, ActiveActions, WorldMap, BrainHistory, ActivePlans
+//! Writes: BrainState (chosen action, winner, proposals, powers), BrainHistory (active attributions), ActivePlans (commitment tracking), SimEvent::Decision, SimEvent::PlanAbandoned
 //! Upstream: survival/emotional/rational brain modules, arbitration, perception, knowledge
 //! Downstream: nervous_system::cns (executes the chosen action), SimEvent consumers
 
@@ -190,7 +190,7 @@ pub fn three_brains_system(
             }
         }
 
-        // 5. Store for debugging/UI and execution
+        // 6. Store for debugging/UI and execution
         brain_state.proposals = proposals.into_iter().flatten().collect();
         brain_state.powers = powers;
 

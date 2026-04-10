@@ -5,6 +5,12 @@
 //! and other brains have to clearly beat them to displace. Commitment strength decays when
 //! the plan stalls and grows when making progress.
 //!
+//! Note: the nervous system's urgency momentum (`apply_momentum_and_gating`) also provides
+//! inertia at the drive level. This module operates at the plan/action level — the two
+//! stack multiplicatively (momentum inflates urgency, which feeds into proposal urgency,
+//! which then gets the commitment bonus). Both are needed: momentum prevents drive-level
+//! oscillation, commitment prevents plan-level flip-flopping.
+//!
 //! Reads: BrainState (chosen actions), ActionType, Personality (conscientiousness)
 //! Writes: ActivePlan component
 //! Upstream: arbitration (applies commitment bonus), brain_system (updates active plans)
@@ -38,8 +44,6 @@ pub enum PlanProgress {
     Executing,
     /// No progress for some ticks.
     Stalled { since: u64 },
-    /// Successfully completed.
-    Completed,
 }
 
 /// An active plan that the agent is currently committed to.
@@ -58,9 +62,6 @@ pub struct ActivePlanEntry {
     /// Commitment strength: 0.0..1.0. Decays when stalled, stays high when progressing.
     pub commitment_strength: f32,
 }
-
-/// Number of ticks without the action being re-admitted before a plan is considered stalled.
-pub const STALL_THRESHOLD_TICKS: u64 = 3;
 
 /// Per-tick decay rate for commitment strength when stalled.
 pub const STALL_DECAY_RATE: f32 = 0.15;
@@ -87,11 +88,6 @@ pub struct ActivePlans {
 }
 
 impl ActivePlans {
-    /// Find the active plan for a given intent, if any.
-    pub fn get_for_intent(&self, intent: Intent) -> Option<&ActivePlanEntry> {
-        self.plans.iter().find(|p| p.intent == intent)
-    }
-
     /// Calculate the commitment bonus for a proposal that matches an active plan.
     ///
     /// Returns 0.0 if there's no matching active plan or if the action is on cooldown.
@@ -182,16 +178,13 @@ impl ActivePlans {
                     PlanProgress::Stalled { .. } => {
                         plan.commitment_strength -= STALL_DECAY_RATE;
                     }
-                    PlanProgress::Completed => {}
                 }
             }
         }
 
         // Abandon plans that fell below threshold
         self.plans.retain(|plan| {
-            if plan.commitment_strength < ABANDON_THRESHOLD
-                && !matches!(plan.progress, PlanProgress::Completed)
-            {
+            if plan.commitment_strength < ABANDON_THRESHOLD {
                 abandoned.push((plan.intent, plan.action));
                 false
             } else {
