@@ -252,6 +252,21 @@ pub enum SimEvent {
         tick: u64,
         triple_count: usize,
     },
+
+    /// An agent felt warmth from a heat source (temperature sense).
+    WarmthPerceived {
+        agent: Entity,
+        tick: u64,
+        source: Entity,
+    },
+
+    /// An agent heard a sound (hearing sense).
+    SoundPerceived {
+        agent: Entity,
+        tick: u64,
+        source: Entity,
+        kind: crate::world::sense_sources::SoundKind,
+    },
 }
 
 /// Which relationship dimension changed.

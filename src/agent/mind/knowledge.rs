@@ -34,6 +34,38 @@ impl std::fmt::Display for AgentName {
     }
 }
 
+/// Cardinal/ordinal direction for imprecise perception (hearing, smell).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect)]
+pub enum CardinalDirection {
+    North,
+    NorthEast,
+    East,
+    SouthEast,
+    South,
+    SouthWest,
+    West,
+    NorthWest,
+}
+
+impl CardinalDirection {
+    /// Convert a 2D offset vector into the nearest cardinal/ordinal direction.
+    pub fn from_vec2(dir: Vec2) -> Self {
+        let angle = dir.y.atan2(dir.x).to_degrees();
+        // Normalize to [0, 360)
+        let angle = if angle < 0.0 { angle + 360.0 } else { angle };
+        match angle as u32 {
+            0..=22 | 338..=360 => CardinalDirection::East,
+            23..=67 => CardinalDirection::NorthEast,
+            68..=112 => CardinalDirection::North,
+            113..=157 => CardinalDirection::NorthWest,
+            158..=202 => CardinalDirection::West,
+            203..=247 => CardinalDirection::SouthWest,
+            248..=292 => CardinalDirection::South,
+            _ => CardinalDirection::SouthEast,
+        }
+    }
+}
+
 /// A node in the knowledge graph — can be a subject or object
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Reflect)]
 pub enum Node {
@@ -53,6 +85,8 @@ pub enum Node {
     Self_,
     /// An action type (e.g. Wave, Eat)
     Action(crate::agent::actions::ActionType),
+    /// A cardinal/ordinal direction (for non-precise perception like hearing)
+    Direction(CardinalDirection),
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -108,6 +142,12 @@ pub enum Concept {
     // ─── Animal types ───
     Deer,
     Wolf,
+
+    // ─── Sound kinds (perceived via hearing) ───
+    Howl,
+    AlarmCall,
+    Scream,
+    CombatSound,
 
     // ─── Traits/Properties (adjectives) ───
     Edible,    // Items that can be eaten (Apple, Berry, Meat)
@@ -212,6 +252,10 @@ pub enum Predicate {
 
     // ─── Emotional ───
     TriggersEmotion, // (Wolf, TriggersEmotion, Fear(0.6))
+
+    // ─── Sensory ───
+    ProducedSound, // (Direction::North, ProducedSound, Concept(Howl)) — heard a sound
+    EmitsHeat,     // (Tile(x,y), EmitsHeat, Float(intensity)) — felt warmth
 }
 
 impl Predicate {
@@ -328,6 +372,22 @@ pub enum Source {
     Perception,   // I see it right now
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// SENSE — Which perceptual channel produced a triple
+// ═══════════════════════════════════════════════════════════════════════════
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect)]
+pub enum Sense {
+    /// Requires line-of-sight, high precision, medium range (~256px)
+    Sight,
+    /// No line-of-sight needed, short range (~64px), detects warmth zones
+    Temperature,
+    /// No line-of-sight needed, long range (~512px), direction only
+    Hearing,
+    /// Future: wind-dependent, medium range, no direction
+    Smell,
+}
+
 #[derive(Debug, Clone, Reflect)]
 pub struct Metadata {
     /// How did I learn this?
@@ -350,6 +410,9 @@ pub struct Metadata {
 
     /// How emotionally significant? (affects decay)
     pub salience: f32,
+
+    /// Which sense produced this triple (None for non-perceptual knowledge)
+    pub source_sense: Option<Sense>,
 }
 
 impl Default for Metadata {
@@ -362,6 +425,7 @@ impl Default for Metadata {
             informant: None,
             evidence: Vec::new(),
             salience: 0.0,
+            source_sense: None,
         }
     }
 }
@@ -376,6 +440,33 @@ impl Metadata {
             informant: None,
             evidence: Vec::new(),
             salience: 0.0,
+            source_sense: None,
+        }
+    }
+
+    pub fn perception_for_sense(timestamp: u64, sense: Sense) -> Self {
+        Self {
+            source: Source::Perception,
+            memory_type: MemoryType::Perception,
+            timestamp,
+            confidence: 1.0,
+            informant: None,
+            evidence: Vec::new(),
+            salience: 0.0,
+            source_sense: Some(sense),
+        }
+    }
+
+    pub fn perception_sense_conf(timestamp: u64, confidence: f32, sense: Sense) -> Self {
+        Self {
+            source: Source::Perception,
+            memory_type: MemoryType::Perception,
+            timestamp,
+            confidence,
+            informant: None,
+            evidence: Vec::new(),
+            salience: 0.0,
+            source_sense: Some(sense),
         }
     }
 
@@ -388,6 +479,7 @@ impl Metadata {
             informant: None,
             evidence: Vec::new(),
             salience: 0.0,
+            source_sense: None,
         }
     }
 
@@ -400,18 +492,20 @@ impl Metadata {
             informant: None,
             evidence: Vec::new(),
             salience: 0.0,
+            source_sense: None,
         }
     }
 
     pub fn experience(timestamp: u64) -> Self {
         Self {
             source: Source::Experienced,
-            memory_type: MemoryType::Semantic, // Learned from direct interaction
+            memory_type: MemoryType::Semantic,
             timestamp,
             confidence: 1.0,
             informant: None,
             evidence: Vec::new(),
             salience: 0.0,
+            source_sense: None,
         }
     }
 
@@ -424,6 +518,7 @@ impl Metadata {
             informant: None,
             evidence: Vec::new(),
             salience: 0.0,
+            source_sense: None,
         }
     }
 
@@ -439,6 +534,7 @@ impl Metadata {
             informant: Some(informant),
             evidence: Vec::new(),
             salience: 0.0,
+            source_sense: None,
         }
     }
 }
@@ -1017,6 +1113,24 @@ impl MindGraph {
             predicate,
             object,
             Metadata::perception_with_conf(timestamp, confidence),
+        ));
+    }
+
+    /// Like `perceive_entity` but tags the triple with the originating sense.
+    pub fn perceive_via_sense(
+        &mut self,
+        subject: Node,
+        predicate: Predicate,
+        object: Value,
+        timestamp: u64,
+        confidence: f32,
+        sense: Sense,
+    ) {
+        self.assert(Triple::with_meta(
+            subject,
+            predicate,
+            object,
+            Metadata::perception_sense_conf(timestamp, confidence, sense),
         ));
     }
 }

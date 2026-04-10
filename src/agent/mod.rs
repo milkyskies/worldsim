@@ -104,6 +104,13 @@ impl Plugin for AgentPlugin {
                     mind::perception::update_body_perception,
                     // Perceive water tiles in vision range
                     mind::perception::perceive_water_tiles,
+                    // Temperature sense: detect heat sources without line-of-sight
+                    mind::perception::perceive_temperature,
+                    // Hearing sense: detect sounds without line-of-sight
+                    mind::perception::perceive_hearing,
+                    // Clean up transient SoundSource components after perception
+                    mind::perception::cleanup_sound_sources
+                        .after(mind::perception::perceive_hearing),
                     // React to perceived dangers (triggers fear based on knowledge)
                     mind::perception::react_to_danger
                         .after(mind::perception::write_perceptions_to_mind),
