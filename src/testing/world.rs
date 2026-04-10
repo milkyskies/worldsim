@@ -447,6 +447,9 @@ impl TestWorld {
         // conversation manager, relationship config, etc.
         app.add_plugins(AgentPlugin);
 
+        // Ontology derivation + world entity property systems (fuel, durability, shelter).
+        app.add_plugins(crate::world::property::OntologyDerivationPlugin);
+
         Self { app, seed }
     }
 
