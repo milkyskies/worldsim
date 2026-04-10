@@ -83,6 +83,24 @@ pub mod actions {
         pub const HUNGER_PER_SEC: f32 = 2.0;
     }
 
+    pub mod deposit {
+        /// Ticks to transfer items into a target entity's slots.
+        pub const DURATION_TICKS: u32 = 15;
+        /// Energy drained per second while depositing.
+        pub const ENERGY_PER_SEC: f32 = -0.1;
+        /// Hunger cost per second while depositing.
+        pub const HUNGER_PER_SEC: f32 = 0.5;
+    }
+
+    pub mod take {
+        /// Ticks to extract items from a target entity's slots.
+        pub const DURATION_TICKS: u32 = 15;
+        /// Energy drained per second while taking.
+        pub const ENERGY_PER_SEC: f32 = -0.1;
+        /// Hunger cost per second while taking.
+        pub const HUNGER_PER_SEC: f32 = 0.5;
+    }
+
     pub mod build {
         /// Ticks to build a campfire (matches design doc: ~120 ticks).
         pub const CAMPFIRE_DURATION_TICKS: u32 = 120;
