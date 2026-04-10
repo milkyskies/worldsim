@@ -20,8 +20,15 @@ use egui::Color32;
 use egui_dock::{DockArea, DockState, NodeIndex, Style};
 use hud::GameLog;
 
+pub mod character_sheet;
 pub mod debug_knowledge;
 pub mod sprite_animation;
+
+/// Toggle for the developer debug dock (Hierarchy, Inspector, AgentViewer,
+/// MindInspector, Social, Log, Settings, Time, Resources). Disabled by default
+/// so players see only the clean character sheet UI. Press F12 to toggle.
+#[derive(Resource, Default)]
+pub struct DebugUiEnabled(pub bool);
 
 pub struct UiPlugin;
 
@@ -32,11 +39,45 @@ impl Plugin for UiPlugin {
             .add_plugins(overlays::OverlayPlugin)
             .add_plugins(sprite_animation::SpriteAnimationPlugin)
             .add_plugins(status_icons::StatusIconPlugin)
+            .add_plugins(character_sheet::CharacterSheetPlugin)
             .init_resource::<UiState>()
+            .init_resource::<DebugUiEnabled>()
             .init_resource::<debug_knowledge::KnowledgeInspectorState>()
-            .add_systems(EguiPrimaryContextPass, ui_system)
-            .add_systems(PostUpdate, set_camera_viewport.after(ui_system))
-            .add_systems(Update, (handle_game_click, draw_selection_gizmos));
+            .add_systems(EguiPrimaryContextPass, ui_system.run_if(debug_ui_enabled))
+            .add_systems(
+                PostUpdate,
+                set_camera_viewport
+                    .after(ui_system)
+                    .run_if(debug_ui_enabled),
+            )
+            .add_systems(
+                Update,
+                (toggle_debug_ui, handle_game_click, draw_selection_gizmos),
+            );
+    }
+}
+
+fn debug_ui_enabled(debug: Res<DebugUiEnabled>) -> bool {
+    debug.0
+}
+
+fn toggle_debug_ui(
+    keyboard: Res<ButtonInput<KeyCode>>,
+    mut debug: ResMut<DebugUiEnabled>,
+    mut ui_state: ResMut<UiState>,
+    mut cameras: Query<&mut Camera, Without<PrimaryEguiContext>>,
+) {
+    if !keyboard.just_pressed(KeyCode::F12) {
+        return;
+    }
+    debug.0 = !debug.0;
+    if !debug.0 {
+        // Reset the dock viewport rect so click-picking uses the full window,
+        // and release the camera viewport so the game fills the screen.
+        ui_state.viewport_rect = egui::Rect::NOTHING;
+        for mut camera in cameras.iter_mut() {
+            camera.viewport = None;
+        }
     }
 }
 
@@ -181,21 +222,32 @@ fn handle_game_click(
     keyboard: Res<ButtonInput<KeyCode>>,
     windows: Query<&Window, With<PrimaryWindow>>,
     cameras: Query<(&Camera, &GlobalTransform)>,
+    mut egui_contexts: Query<&mut EguiContext, With<PrimaryEguiContext>>,
     mut ui_state: ResMut<UiState>,
     entities: Query<(Entity, &Transform, Option<&Sprite>)>,
 ) {
     if buttons.just_pressed(MouseButton::Left) {
+        // Let egui consume clicks over its panels (bottom bar, floating sheet)
+        if let Ok(mut egui_ctx) = egui_contexts.single_mut()
+            && egui_ctx.get_mut().is_pointer_over_area()
+        {
+            return;
+        }
+
         let Ok(window) = windows.single() else { return };
         let Some(cursor_position) = window.cursor_position() else {
             return;
         };
 
-        // Check if click is inside game viewport
+        // When the debug dock is enabled, only clicks inside the dock's game
+        // viewport rect should pick entities. When disabled, the whole window
+        // is the game view.
         let viewport = ui_state.viewport_rect;
-        let cursor_egui = egui::pos2(cursor_position.x, cursor_position.y);
-
-        if !viewport.contains(cursor_egui) {
-            return;
+        if viewport.width() > 0.0 && viewport.height() > 0.0 {
+            let cursor_egui = egui::pos2(cursor_position.x, cursor_position.y);
+            if !viewport.contains(cursor_egui) {
+                return;
+            }
         }
 
         let Some((camera, camera_transform)) = cameras.iter().next() else {

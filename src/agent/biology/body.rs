@@ -1,3 +1,10 @@
+//! Anatomy: the Body component, per-part health/injuries, and healing/death systems.
+//!
+//! Reads: PhysicalNeeds, Body, Time
+//! Writes: Body (HP, injuries, function_rate), PhysicalNeeds (starvation damage), SimEvent (death)
+//! Upstream: action execution (damage), nervous_system (pain signals)
+//! Downstream: brains (pain-driven urgency), ui::character_sheet (Health tab)
+
 use crate::agent::body::needs::PhysicalNeeds;
 use crate::core::GameLog;
 use bevy::prelude::*;
@@ -29,13 +36,19 @@ impl Default for Body {
 impl Body {
     /// Returns an iterator over all body parts
     pub fn parts(&self) -> impl Iterator<Item = &BodyPart> {
+        self.labeled_parts().map(|(_, part)| part)
+    }
+
+    /// Returns body parts paired with short display labels, in anatomical
+    /// order. Use this from UI code that needs to render a per-part table.
+    pub fn labeled_parts(&self) -> impl Iterator<Item = (&'static str, &BodyPart)> {
         [
-            &self.head,
-            &self.torso,
-            &self.left_arm,
-            &self.right_arm,
-            &self.left_leg,
-            &self.right_leg,
+            ("Head", &self.head),
+            ("Torso", &self.torso),
+            ("L.Arm", &self.left_arm),
+            ("R.Arm", &self.right_arm),
+            ("L.Leg", &self.left_leg),
+            ("R.Leg", &self.right_leg),
         ]
         .into_iter()
     }
