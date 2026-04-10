@@ -199,6 +199,14 @@ pub(crate) fn add_deer_knowledge(mind: &mut MindGraph) {
         Node::Concept(Concept::Person),
         Predicate::HasTrait,
         Value::Concept(Concept::Dangerous),
+        meta.clone(),
+    ));
+
+    // Wolves are predators — deer are born knowing to flee them.
+    mind.assert(Triple::with_meta(
+        Node::Concept(Concept::Wolf),
+        Predicate::HasTrait,
+        Value::Concept(Concept::Dangerous),
         meta,
     ));
 

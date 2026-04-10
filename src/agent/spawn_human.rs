@@ -109,11 +109,46 @@ pub struct PersonInit {
 /// `world::human::spawn_person` (real game) and
 /// `testing::spawn::spawn_test_person` (TestWorld) call this — drift here
 /// causes brain divergence between the two paths.
+/// Adds innate biological knowledge all humans have regardless of culture.
+///
+/// This is hardwired survival knowledge — not learned, not cultural.
+/// Think of it as the human equivalent of wolf/deer instincts.
+fn add_person_knowledge(mind: &mut MindGraph) {
+    use crate::agent::mind::knowledge::{
+        MemoryType, Metadata, Node, Predicate, Source, Triple, Value,
+    };
+
+    let meta = Metadata {
+        source: Source::Intrinsic,
+        memory_type: MemoryType::Intrinsic,
+        timestamp: 0,
+        confidence: 1.0,
+        ..Default::default()
+    };
+
+    // Eating satisfies the food drive — biological hunger instinct.
+    mind.assert(Triple::with_meta(
+        Node::Action(crate::agent::actions::ActionType::Eat),
+        Predicate::Satisfies,
+        Value::Concept(Concept::Thing),
+        meta.clone(),
+    ));
+
+    // Wolves are predators — humans are born knowing to fear them.
+    mind.assert(Triple::with_meta(
+        Node::Concept(Concept::Wolf),
+        Predicate::HasTrait,
+        Value::Concept(Concept::Dangerous),
+        meta,
+    ));
+}
+
 pub fn build_person_logic(
     init: PersonInit,
     ontology: Ontology,
 ) -> (PersonCoreBundle, PersonPerceptionBundle, PersonBrainBundle) {
     let mut mind = MindGraph::new(ontology);
+    add_person_knowledge(&mut mind);
     mind.add_shared_knowledge(init.cultural_knowledge);
     for triple in init.extra_knowledge {
         mind.assert(triple);

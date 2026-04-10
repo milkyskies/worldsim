@@ -1333,7 +1333,6 @@ pub fn setup_ontology() -> Ontology {
     add(c(Deer), IsA, v(Animal));
 
     add(c(Wolf), IsA, v(Animal));
-    add(c(Wolf), HasTrait, v(Dangerous)); // All agents with ontology know wolves are dangerous
 
     add(c(Wood), IsA, v(Resource));
     add(c(Water), IsA, v(Resource));
