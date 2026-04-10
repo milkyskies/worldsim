@@ -4,6 +4,7 @@ pub mod berry_bush;
 pub mod campfire;
 pub mod construction_site;
 pub mod deer;
+pub mod emits_effect;
 pub mod environment;
 pub mod human;
 pub mod map;
@@ -26,8 +27,8 @@ impl Plugin for WorldPlugin {
     fn build(&self, app: &mut App) {
         app.register_type::<Physical>()
             .register_type::<becomes::Becomes>()
+            .register_type::<emits_effect::EmitsEffect>()
             .register_type::<construction_site::ConstructionSiteMarker>()
-            .register_type::<sense_sources::HeatSource>()
             .register_type::<sense_sources::SoundSource>()
             .add_plugins(map::MapPlugin)
             .add_plugins(environment::EnvironmentPlugin)

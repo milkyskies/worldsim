@@ -199,6 +199,23 @@ pub enum SimEvent {
         conversation_id: u64,
     },
 
+    /// A new agent joined an existing conversation as an additional
+    /// participant (group grew from N to N+1).
+    ConversationJoined {
+        joiner: Entity,
+        tick: u64,
+        conversation_id: u64,
+    },
+
+    /// A single agent left a multi-agent conversation gracefully while
+    /// the rest kept talking. Distinct from `ConversationEnded` (whole
+    /// group broke up) and `ConversationAbandoned` (leaver ditched rudely).
+    ConversationLeft {
+        leaver: Entity,
+        tick: u64,
+        conversation_id: u64,
+    },
+
     /// A conversation was abandoned rudely (no farewell).
     ConversationAbandoned {
         abandoner: Entity,
@@ -278,6 +295,15 @@ pub enum SimEvent {
         source: TheoryOfMindSource,
         /// Number of beliefs updated in this batch
         belief_count: usize,
+    },
+
+    /// An environmental effect (aura, zone, emitter) was applied to an agent.
+    /// Emitted once per agent per emitter per tick when the agent is in range.
+    EffectApplied {
+        agent: Entity,
+        tick: u64,
+        /// The entity that emitted the effect (campfire, hostile zone, etc.)
+        source: Entity,
     },
 }
 

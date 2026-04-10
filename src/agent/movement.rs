@@ -114,11 +114,17 @@ pub fn calculate_speed(energy: f32, body: Option<&crate::agent::biology::body::B
     // INJURY PENALTY
     let mut injury_modifier = 1.0;
     if let Some(body) = body {
-        // Legs determine movement speed.
-        // Average function of both legs.
-        let legs_function = (body.left_leg.function_rate + body.right_leg.function_rate) / 2.0;
-        // Map 0.0-1.0 to MIN_INJURY_MOBILITY..1.0 (Can always crawl a bit)
-        injury_modifier = MIN_INJURY_MOBILITY + (legs_function * INJURY_MOBILITY_RANGE);
+        // Capability-level locomotion is the species-agnostic equivalent of
+        // "how well the legs work" — works for quadrupeds, bipeds, and
+        // whatever wing / tentacle anatomy shows up later.
+        use crate::agent::actions::channel::Channel;
+        let locomotion = body.channel_capacity(Channel::Locomotion);
+        // Map 0.0-1.0 to MIN_INJURY_MOBILITY..1.0 (can always crawl a bit).
+        // Wolves and deer have total Locomotion ~1.2 from four legs; clamp
+        // to 1.0 so quadrupeds don't get a silent speed bonus from this
+        // injury multiplier (they already get it from base_speed).
+        let clamped = locomotion.min(1.0);
+        injury_modifier = MIN_INJURY_MOBILITY + (clamped * INJURY_MOBILITY_RANGE);
     }
 
     BASE_SPEED_PER_TICK * speed_modifier * injury_modifier

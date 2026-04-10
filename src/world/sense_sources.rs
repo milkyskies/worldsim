@@ -1,22 +1,14 @@
 //! World components for entities that emit perceivable signals through non-visual senses.
 //!
 //! Reads: nothing (pure data components)
-//! Writes: HeatSource, SoundSource, SoundKind (attached to world entities)
-//! Upstream: campfire spawning, action execution (adds transient SoundSource)
-//! Downstream: perception systems (perceive_temperature, perceive_hearing)
+//! Writes: SoundSource, SoundKind (attached to world entities)
+//! Upstream: action execution (adds transient SoundSource)
+//! Downstream: perception systems (perceive_hearing)
+//!
+//! Note: HeatSource lives in world::property — it is a registered property component
+//! that auto-derives ontology traits. Import it from there.
 
 use bevy::prelude::*;
-
-/// An entity that emits heat, perceivable through the temperature sense.
-/// Does not require line-of-sight — warmth passes through walls and around corners.
-#[derive(Component, Reflect, Clone)]
-#[reflect(Component)]
-pub struct HeatSource {
-    /// How far the heat can be felt (in world pixels).
-    pub range: f32,
-    /// Heat intensity (0.0 = barely warm, 1.0 = blazing).
-    pub intensity: f32,
-}
 
 /// What kind of sound an entity is producing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect)]

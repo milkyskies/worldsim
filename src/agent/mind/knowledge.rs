@@ -171,6 +171,8 @@ pub enum Concept {
     ShelterProviding, // Entity provides shelter from weather (e.g. lean-to, cave)
     Flammable,        // Entity can catch fire and burn
     FuelConsuming,    // Entity consumes fuel to function (e.g. campfire)
+    Degradable,       // Entity degrades over time and despawns at zero durability
+    ManMade,          // Entity was built by an agent (vs spawned by world generation)
 
     // ─── Action categories ───
     SocialAction,
@@ -1344,6 +1346,7 @@ pub fn setup_ontology() -> Ontology {
     add(act(ActionType::Wave), IsA, val_act(SocialAction));
     add(act(ActionType::Converse), IsA, val_act(SocialAction));
     add(act(ActionType::Attack), IsA, val_act(ViolentAction));
+    add(act(ActionType::Bite), IsA, val_act(ViolentAction));
     add(act(ActionType::Flee), IsA, val_act(ViolentAction));
     add(act(ActionType::Eat), IsA, val_act(SurvivalAction));
     add(act(ActionType::Sleep), IsA, val_act(SurvivalAction));

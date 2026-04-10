@@ -1,5 +1,5 @@
 use crate::agent::actions::ActionType;
-use crate::agent::actions::channel::{BodyChannel, ChannelUsage};
+use crate::agent::actions::channel::{Channel, ChannelUsage};
 use crate::agent::actions::registry::{Action, ActionKind, RuntimeEffects};
 use crate::agent::mind::knowledge::{Concept, Node, Predicate, Triple, Value};
 
@@ -27,7 +27,7 @@ impl Action for WakeUpAction {
     }
 
     fn body_channels(&self) -> &'static [ChannelUsage] {
-        const CHANNELS: &[ChannelUsage] = &[ChannelUsage::new(BodyChannel::FullBody, 0.4)];
+        const CHANNELS: &[ChannelUsage] = &[ChannelUsage::new(Channel::FullBody, 0.4)];
         CHANNELS
     }
 

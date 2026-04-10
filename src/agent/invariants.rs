@@ -218,7 +218,10 @@ mod tests {
     fn out_of_range_body_function_rate_is_caught() {
         let mut world = TestWorld::new();
         let agent = world.spawn_agent(AgentConfig::default());
-        world.get_mut::<Body>(agent).head.function_rate = 1.5;
+        let mut body = world.get_mut::<Body>(agent);
+        body.part_mut("head")
+            .expect("human body has head")
+            .function_rate = 1.5;
         assert_invariants(world.app_mut().world_mut());
     }
 
@@ -227,14 +230,13 @@ mod tests {
     fn dangling_conversation_reference_is_caught() {
         let mut world = TestWorld::new();
         let a = world.spawn_agent(AgentConfig::default());
-        let b = world.spawn_agent(AgentConfig::at(Vec2::new(5.0, 0.0)));
+        let _b = world.spawn_agent(AgentConfig::at(Vec2::new(5.0, 0.0)));
         world
             .app_mut()
             .world_mut()
             .entity_mut(a)
             .insert(InConversation {
                 conversation_id: 9_999,
-                partner: b,
             });
         assert_invariants(world.app_mut().world_mut());
     }

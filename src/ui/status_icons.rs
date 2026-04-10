@@ -106,9 +106,9 @@ const ICON_SCARED: &str = "!";
 const ICON_TALKING: &str = "...";
 const ICON_EATING: &str = "nom";
 const ICON_DRINKING: &str = "sip";
-const ICON_HARVESTING: &str = "axe";
-const ICON_BUILDING: &str = "bld";
-const ICON_HUNGRY: &str = "!!";
+const ICON_HARVESTING: &str = "get";
+const ICON_BUILDING: &str = "build";
+const ICON_HUNGRY: &str = "hungry";
 const ICON_HAPPY: &str = ":)";
 const ICON_IDLE: &str = ".";
 
@@ -281,11 +281,7 @@ mod tests {
     #[test]
     fn talking_agent_shows_ellipsis() {
         use crate::agent::mind::conversation::InConversation;
-        use bevy::prelude::Entity;
-        let dummy = InConversation {
-            conversation_id: 0,
-            partner: Entity::PLACEHOLDER,
-        };
+        let dummy = InConversation { conversation_id: 0 };
         assert_eq!(
             status_icon(
                 &idle_actions(),

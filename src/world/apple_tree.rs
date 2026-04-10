@@ -69,6 +69,16 @@ pub fn spawn_apple_tree(commands: &mut Commands, position: Vec2, apples: u32) ->
             },
         ))
         .with_children(|parent| {
+            // 0. SHADOW — dark ellipse at the base of the trunk.
+            parent.spawn((
+                Sprite {
+                    color: Color::srgba(0.0, 0.0, 0.0, 0.35),
+                    custom_size: Some(Vec2::new(TILE_SIZE * 1.4, TILE_SIZE * 0.35)),
+                    ..default()
+                },
+                Transform::from_translation(Vec3::new(0.0, -trunk_size.y * 0.5, -0.05)),
+            ));
+
             // 1. TRUNK
             parent.spawn((
                 Sprite {

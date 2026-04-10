@@ -59,6 +59,16 @@ pub fn spawn_berry_bush(commands: &mut Commands, position: Vec2, berries: u32) -
             },
         ))
         .with_children(|parent| {
+            // Shadow — dark ellipse underneath the bush.
+            parent.spawn((
+                Sprite {
+                    color: Color::srgba(0.0, 0.0, 0.0, 0.35),
+                    custom_size: Some(Vec2::new(bush_size.x * 1.1, bush_size.y * 0.35)),
+                    ..default()
+                },
+                Transform::from_translation(Vec3::new(0.0, -bush_size.y * 0.5, -0.05)),
+            ));
+
             // Bush body
             parent
                 .spawn((
