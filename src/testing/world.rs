@@ -99,7 +99,9 @@ fn sim_event_tick(event: &SimEvent) -> u64 {
         | SimEvent::Death { tick, .. }
         | SimEvent::EntityPerceived { tick, .. }
         | SimEvent::StrangerDetected { tick, .. }
-        | SimEvent::KnowledgeShared { tick, .. } => *tick,
+        | SimEvent::KnowledgeShared { tick, .. }
+        | SimEvent::WarmthPerceived { tick, .. }
+        | SimEvent::SoundPerceived { tick, .. } => *tick,
     }
 }
 
@@ -133,6 +135,10 @@ fn sim_event_involves(event: &SimEvent, agent: Entity) -> bool {
             abandoned,
             ..
         } => *abandoner == agent || *abandoned == agent,
+
+        SimEvent::WarmthPerceived { agent: a, .. } | SimEvent::SoundPerceived { agent: a, .. } => {
+            *a == agent
+        }
     }
 }
 
@@ -285,6 +291,23 @@ fn format_sim_event(event: &SimEvent) -> String {
                 "[t{tick}] KnowledgeShared   speaker={speaker:?} listener={listener:?} \
                  triples={triple_count}"
             )
+        }
+
+        SimEvent::WarmthPerceived {
+            agent,
+            tick,
+            source,
+        } => {
+            format!("[t{tick}] WarmthPerceived  agent={agent:?} source={source:?}")
+        }
+
+        SimEvent::SoundPerceived {
+            agent,
+            tick,
+            source,
+            kind,
+        } => {
+            format!("[t{tick}] SoundPerceived   agent={agent:?} source={source:?} kind={kind:?}")
         }
     }
 }
@@ -560,6 +583,45 @@ impl TestWorld {
     /// Spawns a wood log at the given position with the specified wood count.
     pub fn spawn_wood_log(&mut self, pos: Vec2, wood: u32) -> Entity {
         spawn_test_wood_log(self.app.world_mut(), pos, wood)
+    }
+
+    /// Spawns a campfire (logic-only) at the given position. Includes HeatSource.
+    pub fn spawn_campfire(&mut self, pos: Vec2) -> Entity {
+        use crate::agent::inventory::EntityType;
+        self.app
+            .world_mut()
+            .spawn((
+                Name::new("Campfire"),
+                EntityType(Concept::Campfire),
+                crate::world::campfire::CampfireMarker,
+                crate::world::sense_sources::HeatSource {
+                    range: 64.0,
+                    intensity: 0.8,
+                },
+                crate::world::Physical,
+                Transform::from_translation(pos.extend(1.0)),
+                GlobalTransform::default(),
+            ))
+            .id()
+    }
+
+    /// Spawns a bare entity with a SoundSource at the given position.
+    /// The SoundSource is transient and will be cleaned up after one perception tick.
+    pub fn spawn_sound_source(
+        &mut self,
+        pos: Vec2,
+        kind: crate::world::sense_sources::SoundKind,
+        intensity: f32,
+    ) -> Entity {
+        self.app
+            .world_mut()
+            .spawn((
+                crate::world::Physical,
+                crate::world::sense_sources::SoundSource { kind, intensity },
+                Transform::from_translation(pos.extend(0.0)),
+                GlobalTransform::default(),
+            ))
+            .id()
     }
 
     /// Spawns all entities from a layout using the test-compatible (logic-only,
