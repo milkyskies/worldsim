@@ -104,7 +104,8 @@ fn sim_event_tick(event: &SimEvent) -> u64 {
         | SimEvent::KnowledgeShared { tick, .. }
         | SimEvent::WarmthPerceived { tick, .. }
         | SimEvent::SoundPerceived { tick, .. }
-        | SimEvent::TheoryOfMindUpdated { tick, .. } => *tick,
+        | SimEvent::TheoryOfMindUpdated { tick, .. }
+        | SimEvent::EffectApplied { tick, .. } => *tick,
     }
 }
 
@@ -149,6 +150,8 @@ fn sim_event_involves(event: &SimEvent, agent: Entity) -> bool {
         SimEvent::TheoryOfMindUpdated {
             agent: a, about, ..
         } => *a == agent || *about == agent,
+
+        SimEvent::EffectApplied { agent: a, .. } => *a == agent,
     }
 }
 
@@ -347,6 +350,14 @@ fn format_sim_event(event: &SimEvent) -> String {
                 "[t{tick}] TheoryOfMindUpdated agent={agent:?} about={about:?} \
                  source={source:?} beliefs={belief_count}"
             )
+        }
+
+        SimEvent::EffectApplied {
+            agent,
+            tick,
+            source,
+        } => {
+            format!("[t{tick}] EffectApplied     agent={agent:?} source={source:?}")
         }
     }
 }

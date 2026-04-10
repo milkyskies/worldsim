@@ -50,8 +50,9 @@ impl EmitsEffect {
 /// - `StressPerSec(2.0)` → hostile zone, stress rises 2/sec
 /// - `EnergyPerSec(2.0)` → campfire-style, energy recovers 2/sec
 /// - `FearPerSec(-1.0)` → lantern, fear drops 1 intensity/sec
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub enum EffectKind {
+    #[default]
     /// Per-second change to `stress_level`. Negative decreases stress (comfort
     /// zones); positive increases stress (hostile zones, cursed ground).
     StressPerSec(f32),
