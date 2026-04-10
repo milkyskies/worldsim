@@ -6,7 +6,50 @@
 //! Downstream: arbitration (selects winner), brain_system (reads BrainState result)
 
 use super::thinking::ActionTemplate;
+use crate::agent::nervous_system::urgency::UrgencySource;
 use bevy::prelude::*;
+
+/// The drive a brain proposal is trying to satisfy.
+///
+/// Arbitration uses this to deduplicate proposals: if two brains both
+/// propose actions targeting the same drive (e.g. Walk-to-apple-tree and
+/// Explore-for-food both satisfy Hunger), only the highest-scoring one
+/// survives. This prevents parallel conflicting strategies for the same need.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect, Default)]
+pub enum Intent {
+    SatisfyHunger,
+    SatisfyThirst,
+    SatisfyEnergy,
+    SatisfySocial,
+    /// Flee, hide, defend against threats.
+    SatisfySafety,
+    /// Pain relief: injury-driven behavior (e.g. can't move while hurt).
+    SatisfyPainRelief,
+    SatisfyTerritoriality,
+    /// Explore for its own sake, not to serve another drive.
+    SatisfyCuriosity,
+    /// Reserved for future reproduction drive.
+    SatisfyReproduction,
+    /// Idle, ambient, or "nothing specific" behavior.
+    #[default]
+    None,
+}
+
+impl Intent {
+    /// Map a nervous-system urgency source to the intent that satisfies it.
+    pub fn from_urgency_source(source: UrgencySource) -> Self {
+        match source {
+            UrgencySource::Hunger => Intent::SatisfyHunger,
+            UrgencySource::Thirst => Intent::SatisfyThirst,
+            UrgencySource::Energy => Intent::SatisfyEnergy,
+            UrgencySource::Social => Intent::SatisfySocial,
+            UrgencySource::Fear => Intent::SatisfySafety,
+            UrgencySource::Pain => Intent::SatisfyPainRelief,
+            UrgencySource::Territoriality => Intent::SatisfyTerritoriality,
+            UrgencySource::Fun | UrgencySource::Boredom => Intent::SatisfyCuriosity,
+        }
+    }
+}
 
 /// Which brain is making a proposal
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect)]
@@ -45,6 +88,9 @@ pub struct BrainProposal {
     pub action: ActionTemplate,
     /// How urgently this brain wants to do this (0-100+)
     pub urgency: f32,
+    /// Which drive this proposal is trying to satisfy. Arbitration
+    /// deduplicates proposals with the same intent, keeping the highest-scoring.
+    pub intent: Intent,
     /// Debug string explaining why this brain wants this
     pub reasoning: String,
 }
