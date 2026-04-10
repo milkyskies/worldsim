@@ -75,7 +75,8 @@ impl Plugin for AgentPlugin {
             .add_systems(
                 Update,
                 (
-                    nervous_system::execution::start_actions,
+                    nervous_system::execution::start_actions
+                        .after(brains::brain_system::three_brains_system),
                     nervous_system::execution::tick_actions
                         .after(nervous_system::execution::start_actions),
                     nervous_system::execution::apply_action_effects

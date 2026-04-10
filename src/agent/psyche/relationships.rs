@@ -225,15 +225,18 @@ pub fn decay_relationships(
                 if let Node::Entity(e) = &t.subject
                     && let Value::Float(f) = &t.object
                 {
-                    return Some((*e, *f));
+                    return Some((*e, *f, t.meta.timestamp));
                 }
                 None
             })
             .collect();
 
-        // Decay toward neutral (0.5)
-        for (entity, current) in trust_entries {
-            let target = 0.5; // Neutral
+        // Skip if the agent interacted recently — frequent contact maintains closeness.
+        for (entity, current, last_updated) in trust_entries {
+            if current_time.saturating_sub(last_updated) < 300 {
+                continue;
+            }
+            let target = 0.5;
             let new_value = current + (target - current) * decay;
 
             mind.assert(Triple::with_meta(
@@ -244,7 +247,7 @@ pub fn decay_relationships(
             ));
         }
 
-        // Same for affection
+        // Same guard for affection.
         let affection_entries: Vec<_> = mind
             .query(None, Some(Predicate::Affection), None)
             .into_iter()
@@ -252,13 +255,16 @@ pub fn decay_relationships(
                 if let Node::Entity(e) = &t.subject
                     && let Value::Float(f) = &t.object
                 {
-                    return Some((*e, *f));
+                    return Some((*e, *f, t.meta.timestamp));
                 }
                 None
             })
             .collect();
 
-        for (entity, current) in affection_entries {
+        for (entity, current, last_updated) in affection_entries {
+            if current_time.saturating_sub(last_updated) < 300 {
+                continue;
+            }
             let target = 0.5;
             let new_value = current + (target - current) * decay;
 
