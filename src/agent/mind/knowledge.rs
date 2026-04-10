@@ -397,6 +397,24 @@ pub enum Source {
     Perception,   // I see it right now
 }
 
+impl Source {
+    /// Epistemic rank: higher means the source is more authoritative.
+    /// Used by `MindGraph::assert` to decide whether to upgrade an existing
+    /// triple's metadata when a stronger-sourced version of the same fact arrives.
+    pub fn priority(self) -> u8 {
+        match self {
+            Source::Intrinsic => 0,
+            Source::Cultural => 1,
+            Source::Hearsay => 2,
+            Source::Communicated => 3,
+            Source::Observed => 4,
+            Source::Inferred => 5,
+            Source::Experienced => 6,
+            Source::Perception => 7,
+        }
+    }
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // SENSE — Which perceptual channel produced a triple
 // ═══════════════════════════════════════════════════════════════════════════
@@ -856,10 +874,17 @@ impl MindGraph {
 
         // Non-functional: exact-match dedupe against the (subject, predicate)
         // bucket; update metadata in place when we find a hit.
+        // When the incoming source is stronger (e.g. Experienced > Intrinsic),
+        // upgrade all metadata so a personal observation always beats an innate
+        // belief about the same fact.
         if let Some(idx) = self.find_existing_id(&key, |t| t.object == triple.object) {
             let existing = self.triples[idx].as_mut().expect("live slot");
-            existing.meta.timestamp = triple.meta.timestamp;
-            existing.meta.confidence = triple.meta.confidence;
+            if triple.meta.source.priority() > existing.meta.source.priority() {
+                *existing = triple;
+            } else {
+                existing.meta.timestamp = triple.meta.timestamp;
+                existing.meta.confidence = triple.meta.confidence;
+            }
             return;
         }
 
