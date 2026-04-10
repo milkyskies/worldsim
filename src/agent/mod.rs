@@ -109,6 +109,8 @@ impl Plugin for AgentPlugin {
                     mind::perception::update_body_perception,
                     // Perceive water tiles in vision range
                     mind::perception::perceive_water_tiles,
+                    // Perceive grass tiles in vision range (herbivores only)
+                    mind::perception::perceive_grass_tiles,
                     // Temperature sense: detect heat sources without line-of-sight
                     mind::perception::perceive_temperature,
                     // Hearing sense: detect sounds without line-of-sight

@@ -152,6 +152,7 @@ pub enum Concept {
     // ─── Traits/Properties (adjectives) ───
     Edible,    // Items that can be eaten (Apple, Berry, Meat)
     Drinkable, // Tiles/items that can provide water (ShallowWater, Water)
+    Grazable,  // Tiles that can be grazed on (Grass) — drifting herbivore forage
     Prey,      // Creatures that can be hunted (Deer, Rabbit) → yields Meat
     Territory, // A tile the agent claims as its own (marked intrinsically at spawn)
     Dangerous,
@@ -1356,6 +1357,7 @@ pub fn setup_ontology() -> Ontology {
     add(act(ActionType::Wander), IsA, val_act(MovementAction));
     add(act(ActionType::Harvest), IsA, val_act(SurvivalAction));
     add(act(ActionType::Drink), IsA, val_act(SurvivalAction));
+    add(act(ActionType::Graze), IsA, val_act(SurvivalAction));
 
     let mut ontology = Ontology {
         triples: Arc::new(triples),
