@@ -46,6 +46,12 @@ fn test_universal_knowledge() {
         })
     };
 
-    assert!(check(&farmer_knowledge), "Farmer should have universal cultural knowledge");
-    assert!(check(&nomad_knowledge), "Nomad should have universal cultural knowledge");
+    assert!(
+        check(&farmer_knowledge),
+        "Farmer should have universal cultural knowledge"
+    );
+    assert!(
+        check(&nomad_knowledge),
+        "Nomad should have universal cultural knowledge"
+    );
 }
