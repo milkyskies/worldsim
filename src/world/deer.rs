@@ -67,6 +67,7 @@ pub fn spawn_deer(
             Visibility::default(),
             InheritedVisibility::default(),
             ViewVisibility::default(),
+            crate::ui::sprite_animation::VisualOffset::default(),
         ))
         .insert((
             // Brains / Systems

@@ -3,6 +3,7 @@ use bevy::prelude::*;
 pub mod diagnostics;
 pub mod event_log;
 pub mod log;
+pub mod sim_rng;
 pub mod tick;
 pub mod time;
 
@@ -12,6 +13,7 @@ pub use event_log::{
     dump_event_log, parse_log_filter,
 };
 pub use log::GameLog;
+pub use sim_rng::SimRng;
 pub use tick::{TickCount, every_n_ticks, not_paused};
 pub use time::GameTime;
 
@@ -25,6 +27,7 @@ impl Plugin for CorePlugin {
             .insert_resource(TickCount::new(60.0)) // 60 ticks per second
             .insert_resource(GameLog::new(100))
             .init_resource::<GameTime>()
+            .init_resource::<SimRng>()
             .add_systems(Update, (time_controls, tick::tick_system).chain());
     }
 }

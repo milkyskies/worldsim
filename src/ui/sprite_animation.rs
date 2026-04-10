@@ -1,12 +1,9 @@
-//! Procedural sprite animation: bouncy arc movement with squash-and-stretch.
+//! Procedural sprite animation: bouncy arcs + squash-and-stretch.
 //!
-//! Moving sprites trace little arcs ⌒⌒⌒⌒ instead of sliding flat.
-//! Idle sprites are completely still.
-//!
-//! Reads: Transform (root position for velocity), Time
-//! Writes: Transform on SpriteBody entities (visual Y offset + scale only)
-//! Upstream: movement systems (root Transform changes)
-//! Downstream: purely visual — no simulation systems read these offsets
+//! Reads: Transform, Time, WorldMap
+//! Writes: Transform (SpriteBody, y + scale), VisualOffset (root)
+//! Upstream: movement systems
+//! Downstream: UI click hit-testing and selection gizmos (read VisualOffset)
 
 use bevy::prelude::*;
 use bevy::transform::TransformSystems;
@@ -22,6 +19,23 @@ impl Plugin for SpriteAnimationPlugin {
             PostUpdate,
             animate_sprite_bodies.before(TransformSystems::Propagate),
         );
+    }
+}
+
+/// Additive visual-only offset from an entity's logical position (root
+/// `Transform`) to where it is drawn on screen. Captures terrain elevation
+/// lift, bounce arcs, and any other view-layer effects in a single vector.
+///
+/// Game logic reads `Transform`; the view layer reads `Transform + VisualOffset`.
+#[derive(Component, Debug, Clone, Copy, Default, PartialEq, Reflect)]
+#[reflect(Component)]
+pub struct VisualOffset(pub Vec2);
+
+impl VisualOffset {
+    /// Apply an optional `VisualOffset` to a logical position, returning
+    /// the drawn position. `None` is treated as the zero offset.
+    pub fn apply(offset: Option<&Self>, logical: Vec2) -> Vec2 {
+        logical + offset.map_or(Vec2::ZERO, |v| v.0)
     }
 }
 
@@ -88,6 +102,7 @@ fn animate_sprite_bodies(
     body_query: Query<(Entity, &SpriteBody)>,
     shadow_query: Query<(Entity, &GroundShadow)>,
     mut transforms: Query<&mut Transform>,
+    mut visual_offsets: Query<&mut VisualOffset>,
     mut trackers: Local<HashMap<Entity, MoveTracker>>,
 ) {
     let t = time.elapsed_secs();
@@ -125,10 +140,15 @@ fn animate_sprite_bodies(
         // agent sits on top of the visual terrain relief instead of at the
         // flat grid position.
         let elevation_lift = elevation_lift_at(world_map.as_deref(), root_pos);
+        let total_y_offset = bounce_y + elevation_lift;
 
         if let Ok(mut bt) = transforms.get_mut(body_entity) {
-            bt.translation.y = bounce_y + elevation_lift;
+            bt.translation.y = total_y_offset;
             bt.scale = Vec3::new(x_scale, y_scale, 1.0);
+        }
+
+        if let Ok(mut offset) = visual_offsets.get_mut(body.root) {
+            offset.set_if_neq(VisualOffset(Vec2::new(0.0, total_y_offset)));
         }
     }
 
@@ -203,5 +223,30 @@ mod tests {
         let (y1, _, _) = bounce_frame(0.3, 3.0);
         let (y2, _, _) = bounce_frame(0.7, 3.0);
         assert!((y1 - y2).abs() < 0.01, "should be symmetric: {y1} vs {y2}");
+    }
+
+    #[test]
+    fn visual_offset_apply_lifts_logical_position() {
+        let offset = VisualOffset(Vec2::new(0.0, 10.0));
+        let logical = Vec2::new(50.0, 20.0);
+        assert_eq!(
+            VisualOffset::apply(Some(&offset), logical),
+            Vec2::new(50.0, 30.0)
+        );
+    }
+
+    #[test]
+    fn visual_offset_apply_none_is_identity() {
+        let logical = Vec2::new(5.0, 7.0);
+        assert_eq!(VisualOffset::apply(None, logical), logical);
+    }
+
+    #[test]
+    fn visual_offset_apply_none_matches_zero_offset() {
+        let logical = Vec2::new(3.0, 4.0);
+        assert_eq!(
+            VisualOffset::apply(None, logical),
+            VisualOffset::apply(Some(&VisualOffset(Vec2::ZERO)), logical)
+        );
     }
 }

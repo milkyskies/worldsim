@@ -66,6 +66,7 @@ pub fn spawn_wolf(
             Visibility::default(),
             InheritedVisibility::default(),
             ViewVisibility::default(),
+            crate::ui::sprite_animation::VisualOffset::default(),
         ))
         .insert((
             crate::agent::mind::memory::WorkingMemory::default(),

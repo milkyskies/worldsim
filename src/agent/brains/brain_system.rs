@@ -9,7 +9,7 @@ use super::active_plan::{ActivePlans, PlanOwner};
 use super::arbitration::{
     CommitmentContext, arbitrate_parallel_with_commitment, calculate_brain_powers,
 };
-use super::emotional::emotional_brain_propose;
+use super::emotional::{emotional_brain_propose, find_most_feared_visible_entity};
 use super::history::BrainHistory;
 use super::proposal::{BrainPowers, BrainState, BrainType};
 use super::rational::rational_brain_propose;
@@ -99,7 +99,11 @@ pub fn three_brains_system(
 
         // 1. Gather proposals from all three brains
 
-        let survival_context = SurvivalBrainContext { physical, cns };
+        let survival_context = SurvivalBrainContext {
+            physical,
+            cns,
+            most_feared_entity: find_most_feared_visible_entity(visible, mind),
+        };
 
         let survival_proposal = survival_brain_propose(
             survival_context,
