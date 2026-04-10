@@ -7,8 +7,8 @@
 
 use bevy::prelude::*;
 
-use crate::agent::mind::knowledge::{Concept, Ontology};
 use crate::agent::inventory::EntityType;
+use crate::agent::mind::knowledge::{Concept, Ontology};
 
 // ─── Marker traits ──────────────────────────────────────────────────────────
 
@@ -219,7 +219,11 @@ mod tests {
         ontology.ensure_trait(Concept::Campfire, Concept::LightEmitting); // duplicate
         let count_after_second = ontology.triples.len();
         assert_eq!(count_before + 1, count_after_first);
-        assert_eq!(count_after_first, count_after_second, "duplicate call must not add a second triple");
+        assert_eq!(
+            count_after_first,
+            count_after_second,
+            "duplicate call must not add a second triple"
+        );
     }
 
     // ── ensure_production ───────────────────────────────────────────────────
@@ -233,7 +237,10 @@ mod tests {
                 && t.predicate == crate::agent::mind::knowledge::Predicate::Produces
                 && t.object == crate::agent::mind::knowledge::Value::Concept(Concept::Berry)
         });
-        assert!(exists, "Produces triple should exist after ensure_production");
+        assert!(
+            exists,
+            "Produces triple should exist after ensure_production"
+        );
     }
 
     #[test]
@@ -242,7 +249,11 @@ mod tests {
         ontology.ensure_production(Concept::BerryBush, Concept::Berry);
         let count = ontology.triples.len();
         ontology.ensure_production(Concept::BerryBush, Concept::Berry); // duplicate
-        assert_eq!(count, ontology.triples.len(), "duplicate call must not add a second triple");
+        assert_eq!(
+            count,
+            ontology.triples.len(),
+            "duplicate call must not add a second triple"
+        );
     }
 
     // ── Trait impls ─────────────────────────────────────────────────────────

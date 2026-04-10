@@ -1,13 +1,13 @@
 pub mod apple_tree;
 pub mod becomes;
 pub mod berry_bush;
-pub mod property;
 pub mod campfire;
 pub mod construction_site;
 pub mod deer;
 pub mod environment;
 pub mod human;
 pub mod map;
+pub mod property;
 pub mod spatial_index;
 pub mod spawn;
 pub mod spawn_config;

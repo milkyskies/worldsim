@@ -1082,7 +1082,11 @@ impl Ontology {
         if self.has_trait(concept, trait_) {
             return;
         }
-        let triple = Triple::new(Node::Concept(concept), Predicate::HasTrait, Value::Concept(trait_));
+        let triple = Triple::new(
+            Node::Concept(concept),
+            Predicate::HasTrait,
+            Value::Concept(trait_),
+        );
         let mut triples = (*self.triples).clone();
         triples.push(triple);
         self.triples = Arc::new(triples);
@@ -1101,7 +1105,11 @@ impl Ontology {
         if already_exists {
             return;
         }
-        let triple = Triple::new(Node::Concept(producer), Predicate::Produces, Value::Concept(product));
+        let triple = Triple::new(
+            Node::Concept(producer),
+            Predicate::Produces,
+            Value::Concept(product),
+        );
         let mut triples = (*self.triples).clone();
         triples.push(triple);
         self.triples = Arc::new(triples);
