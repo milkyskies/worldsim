@@ -314,14 +314,12 @@ pub fn river_center_x(y: u32, width: u32, seed: u32) -> u32 {
 ///
 /// The river's center line follows multi-octave simplex noise (not a sine
 /// wave) for natural meanders. Width and bank thickness vary along its length.
-/// Shoals inside the deep-water core are placed with per-tile 2D noise so
-/// they appear as small scattered patches instead of row-wide slabs. Ford
-/// crossings near y = height/4 and y = 3*height/4 force the whole core
-/// shallow so there are always crossings. Tiles immediately outside the
-/// banks become sand shores.
+/// Natural shallow "ford" sections emerge from a shallow-bias noise field,
+/// with extra bias near y = height/4 and y = 3*height/4 so there are always
+/// crossings. Tiles immediately outside the banks become sand shores.
 fn carve_river(tiles: &mut Vec<TileType>, width: u32, height: u32, seed: u32) {
     let width_noise = Simplex::new(seed.wrapping_add(98));
-    let shoal_noise = Simplex::new(seed.wrapping_add(99));
+    let shallow_noise = Simplex::new(seed.wrapping_add(99));
     let bank_l_noise = Simplex::new(seed.wrapping_add(100));
     let bank_r_noise = Simplex::new(seed.wrapping_add(101));
 
@@ -341,17 +339,19 @@ fn carve_river(tiles: &mut Vec<TileType>, width: u32, height: u32, seed: u32) {
         let bank_l = ((1.5 + bank_l_noise.get([ty * 0.06, 0.0]) * 0.6).round() as i32).clamp(1, 2);
         let bank_r = ((1.5 + bank_r_noise.get([ty * 0.06, 50.0]) * 0.6).round() as i32).clamp(1, 2);
 
-        // Ford zones: a triangular bump kernel around each target ford row.
-        // Inside the zone the entire core is forced shallow so agents can
-        // cross. Zones span ~5 rows each.
+        // Shallow (ford) detection: noise + bias near target ford rows. Using
+        // a triangular bump kernel (width ~4 rows) around each ford row means
+        // the crossings blend organically into the rest of the river rather
+        // than appearing as abrupt single-row gaps.
         let ford_proximity = ford_centers
             .iter()
             .map(|&fy| {
                 let d = (y as i32 - fy as i32).abs() as f64;
-                (1.0 - d / 3.0).max(0.0)
+                (1.0 - d / 4.0).max(0.0)
             })
             .fold(0.0_f64, f64::max);
-        let in_ford_zone = ford_proximity > 0.0;
+        let shallow_score = shallow_noise.get([ty * 0.05, 0.0]) + ford_proximity * 1.6;
+        let is_shallow_section = shallow_score > 0.5;
 
         let left_edge = cx - core_half - bank_l;
         let right_edge = cx + core_half + bank_r;
@@ -363,26 +363,10 @@ fn carve_river(tiles: &mut Vec<TileType>, width: u32, height: u32, seed: u32) {
             }
             let idx = (y * width + x as u32) as usize;
             let dx = x - cx;
-            let is_core = dx.abs() <= core_half;
-
-            if !is_core {
-                tiles[idx] = TileType::ShallowWater;
-                continue;
-            }
-
-            if in_ford_zone {
-                tiles[idx] = TileType::ShallowWater;
-                continue;
-            }
-
-            // Per-tile 2D shoal noise: small scattered shallow patches inside
-            // the deep water. High frequency + high threshold → rare, tiny,
-            // organic clumps rather than horizontal slabs.
-            let shoal = shoal_noise.get([x as f64 * 0.30, ty * 0.30]);
-            tiles[idx] = if shoal > 0.55 {
-                TileType::ShallowWater
-            } else {
+            tiles[idx] = if dx.abs() <= core_half && !is_shallow_section {
                 TileType::Water
+            } else {
+                TileType::ShallowWater
             };
         }
 
