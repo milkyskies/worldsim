@@ -81,6 +81,17 @@ pub fn spawn_wolf(
         .id();
 
     commands.entity(entity).with_children(|parent| {
+        // Ground shadow — sits on the terrain, no bounce.
+        parent.spawn((
+            crate::ui::sprite_animation::GroundShadow::new(entity, Vec2::new(0.0, -6.0)),
+            Sprite {
+                color: Color::srgba(0.0, 0.0, 0.0, 0.35),
+                custom_size: Some(Vec2::new(14.0, 5.0)),
+                ..default()
+            },
+            Transform::from_translation(Vec3::new(0.0, -6.0, -0.05)),
+        ));
+
         // SpriteBody wrapper — animated (hops)
         parent
             .spawn((
