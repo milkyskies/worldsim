@@ -319,8 +319,6 @@ pub fn river_center_x(y: u32, width: u32, seed: u32) -> u32 {
 /// crossings. Tiles immediately outside the banks become sand shores.
 fn carve_river(tiles: &mut Vec<TileType>, width: u32, height: u32, seed: u32) {
     let width_noise = Simplex::new(seed.wrapping_add(98));
-    let bank_l_noise = Simplex::new(seed.wrapping_add(100));
-    let bank_r_noise = Simplex::new(seed.wrapping_add(101));
 
     let ford_centers = [height / 4, height * 3 / 4];
 
@@ -333,10 +331,11 @@ fn carve_river(tiles: &mut Vec<TileType>, width: u32, height: u32, seed: u32) {
         let core_half =
             ((1.8 + width_noise.get([ty * 0.035, 0.0]) * 0.9).round() as i32).clamp(1, 3);
 
-        // Asymmetric shallow banks: 1..2 tiles per side. Slow frequency so
-        // banks widen and narrow smoothly.
-        let bank_l = ((1.5 + bank_l_noise.get([ty * 0.06, 0.0]) * 0.6).round() as i32).clamp(1, 2);
-        let bank_r = ((1.5 + bank_r_noise.get([ty * 0.06, 50.0]) * 0.6).round() as i32).clamp(1, 2);
+        // Shallow banks are a fixed 1 tile wide on each side. Previously they
+        // varied 1..2 tiles via noise, which produced visible rectangular
+        // clumps where the bank stayed at 2 tiles for several consecutive
+        // rows. A uniform 1-tile transition is cleaner visually.
+        const BANK: i32 = 1;
 
         // Ford zones: within 2 rows of each target ford center, the entire
         // core is forced shallow so agents can cross. Outside ford zones the
@@ -345,8 +344,8 @@ fn carve_river(tiles: &mut Vec<TileType>, width: u32, height: u32, seed: u32) {
             .iter()
             .any(|&fy| (y as i32 - fy as i32).abs() <= 2);
 
-        let left_edge = cx - core_half - bank_l;
-        let right_edge = cx + core_half + bank_r;
+        let left_edge = cx - core_half - BANK;
+        let right_edge = cx + core_half + BANK;
 
         // Carve water core + shallow banks.
         for x in left_edge..=right_edge {
