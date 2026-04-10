@@ -811,7 +811,7 @@ mod tests {
             needs.hunger = h as f32;
             let r = compute_stress_recovery_rate(&needs, &traits, &config);
             if let Some(p) = prev {
-                let step: f32 = (r - p as f32).abs();
+                let step: f32 = (r - p).abs();
                 if step > max_step {
                     max_step = step;
                 }
