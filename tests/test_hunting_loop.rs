@@ -10,12 +10,18 @@
 //! (Deer, Produces, Item(Meat, 1))   -- yields meat when killed
 //! (Meat, IsA, Food)                 -- meat is edible (lives in ontology)
 //! ```
+//!
+//! After a kill the deer entity transforms in-place into a Corpse
+//! (`Becomes` substrate, `InPlace` mode) so the entity ID survives — future
+//! episodic memory and relationship triples keep pointing at a meaningful
+//! entity even after death.
 
 use bevy::prelude::*;
 use worldsim::agent::actions::ActionType;
 use worldsim::agent::body::needs::PhysicalNeeds;
 use worldsim::agent::culture::{Culture, create_cultural_knowledge};
 use worldsim::agent::events::SimEvent;
+use worldsim::agent::inventory::EntityType;
 use worldsim::agent::item_slots::ItemSlots;
 use worldsim::agent::mind::knowledge::Concept;
 use worldsim::agent::mind::perception::Vision;
@@ -55,20 +61,14 @@ fn agent_started_action(world: &TestWorld, agent: Entity, action_type: ActionTyp
 }
 
 /// A hungry agent with hunter cultural knowledge and a nearby deer should
-/// plan and execute the full Walk → Attack → Take → Eat chain with hunger
-/// satisfied at the end. The plan emerges from the existing GOAP planner
-/// the moment Hunter culture knowledge is in the agent's mind.
-///
-/// Hunter and deer share roughly the same locomotion budget so we spawn
-/// them on the same tile and blind the deer. That keeps the test focused
-/// on the hunting loop instead of the predator-evasion loop.
+/// plan and execute the full chain with hunger satisfied at the end. After
+/// the kill, the deer entity is transformed in-place into a Corpse holding
+/// meat for scavengers — the entity ID survives the transition.
 #[test]
 fn hungry_hunter_kills_and_eats_nearby_deer() {
     let mut world = TestWorld::with_seed(42);
 
     // Spawn the deer first and tick once so the spatial index registers it.
-    // Without this, the hunter's first brain pass sees an empty world and
-    // wanders to a random tile, potentially never returning.
     let deer = world.spawn_deer(Vec2::new(50.0, 50.0));
     pin_deer(&mut world, deer);
     world.tick(2);
@@ -80,10 +80,6 @@ fn hungry_hunter_kills_and_eats_nearby_deer() {
         ..Default::default()
     });
 
-    // Generous tick budget: brain thinking_interval gaps + Walk + Attack
-    // (DURATION_TICKS) + Take + Eat (DURATION_TICKS). 1200 ticks at 60Hz
-    // is 20 in-game seconds — comfortably more than the chain needs even
-    // with the worst-case `tick.should_run` entity-id offset.
     world.tick(1200);
 
     let final_hunger = world.agent_hunger(hunter);
@@ -104,19 +100,29 @@ fn hungry_hunter_kills_and_eats_nearby_deer() {
         final_hunger < 95.0,
         "hunter hunger should drop after eating meat (got {final_hunger})"
     );
+
+    // The deer entity must still exist — in-place transformation preserves
+    // identity. It is now a Corpse holding meat for scavengers.
     assert!(
-        !world.entity_exists(deer),
-        "deer should be despawned after the hunt completes (Becomes substrate)"
+        world.entity_exists(deer),
+        "deer entity should survive the kill (in-place Corpse transformation)"
+    );
+    let entity_type = world.get::<EntityType>(deer);
+    assert_eq!(
+        entity_type.0,
+        Concept::Corpse,
+        "the slain deer should now be classified as a Corpse"
+    );
+    let corpse_inventory = world.get::<ItemSlots>(deer);
+    assert!(
+        corpse_inventory.count(Concept::Meat) > 0,
+        "the corpse should hold meat for harvesting"
     );
 }
 
 /// A hungry wolf with no cultural knowledge should plan and execute the
 /// same chain via Bite, since wolf-intrinsic knowledge already mirrors
 /// the hunter culture's prey/produces triples.
-///
-/// Wolf and deer share the same Locomotion capacity (4 × 0.3) so we spawn
-/// them on the same tile and blind the deer to keep the test focused on
-/// the hunting loop instead of the predator-evasion loop.
 ///
 /// Ignored: `pick_random_walkable_target` uses unseeded `rand::rng()`, so
 /// the wolf's first Wander target is non-deterministic. When it wanders
@@ -130,20 +136,13 @@ fn hungry_hunter_kills_and_eats_nearby_deer() {
 fn hungry_wolf_kills_and_eats_nearby_deer() {
     let mut world = TestWorld::with_seed(42);
 
-    // Spawn the deer first and tick to let the spatial index register it.
-    // The wolf's first thinking pass (staggered by entity ID) must find the
-    // deer already visible, otherwise it wanders to a random tile.
     let deer = world.spawn_deer(Vec2::new(50.0, 50.0));
     pin_deer(&mut world, deer);
     world.tick(5);
 
     let wolf = world.spawn_wolf(Vec2::new(50.0, 50.0));
-    // One more tick so the wolf's visual perception writes the deer into
-    // its mind before the first thinking_interval fires.
     world.tick(1);
 
-    // Bring the wolf to starving so the survival/rational stack actually
-    // forms a hunting plan. Spawn defaults leave hunger at 0.
     {
         let mut needs = world
             .app_mut()
@@ -153,9 +152,6 @@ fn hungry_wolf_kills_and_eats_nearby_deer() {
         needs.hunger = 95.0;
     }
 
-    // thinking_interval = 60 ticks, and entity stagger means the wolf's
-    // first brain pass can land anywhere in [0, 59]. 3000 ticks gives ~50
-    // brain cycles — far more than enough for Walk → Bite → Eat.
     world.tick(3000);
 
     let final_hunger = world
@@ -182,9 +178,11 @@ fn hungry_wolf_kills_and_eats_nearby_deer() {
         "wolf hunger should drop after eating meat (got {final_hunger})"
     );
     assert!(
-        !world.entity_exists(deer),
-        "deer should be despawned after the hunt completes (Becomes substrate)"
+        world.entity_exists(deer),
+        "deer entity should survive the kill (in-place Corpse transformation)"
     );
+    let entity_type = world.get::<EntityType>(deer);
+    assert_eq!(entity_type.0, Concept::Corpse);
 }
 
 /// Sanity check on the planner's symbol layer: a fresh hunter mind has
@@ -251,32 +249,44 @@ fn hunter_culture_grants_full_hunting_chain() {
     );
 }
 
-/// A meat drop spawned via the headless meat module — the same factory
-/// `spawn_concept_entity(Meat, ...)` calls when the Becomes substrate
-/// transforms a slain deer — should be a takeable inventory entity holding
-/// one unit of Meat.
+/// `spawn_concept_entity(Corpse, ...)` should produce a harvestable corpse
+/// holding meat — used by the Becomes substrate's `Replace` mode for the
+/// rare case where a corpse is summoned standalone.
 #[test]
-fn meat_drop_factory_creates_takeable_meat_entity() {
+fn spawn_concept_entity_corpse_creates_harvestable_meat_entity() {
+    use worldsim::agent::affordance::Affordance;
+
     let mut world = TestWorld::with_seed(0);
 
-    let drop = {
+    let corpse = {
         let world_mut = world.app_mut().world_mut();
-        let mut commands_queue = bevy::ecs::world::CommandQueue::default();
+        let mut queue = bevy::ecs::world::CommandQueue::default();
         let entity = {
-            let mut commands = Commands::new(&mut commands_queue, world_mut);
-            worldsim::world::meat::spawn_meat_drop_headless(&mut commands, Vec2::new(40.0, 40.0))
+            let mut commands = Commands::new(&mut queue, world_mut);
+            worldsim::world::spawn::spawn_concept_entity(
+                &mut commands,
+                Concept::Corpse,
+                Vec2::new(40.0, 40.0),
+            )
+            .expect("Corpse should be spawnable")
         };
-        commands_queue.apply(world_mut);
+        queue.apply(world_mut);
         entity
     };
 
-    let entity_type = world.get::<worldsim::agent::inventory::EntityType>(drop);
-    assert_eq!(entity_type.0, Concept::Meat);
+    let entity_type = world.get::<EntityType>(corpse);
+    assert_eq!(entity_type.0, Concept::Corpse);
 
-    let inventory = world.get::<ItemSlots>(drop);
+    let inventory = world.get::<ItemSlots>(corpse);
+    assert!(
+        inventory.count(Concept::Meat) > 0,
+        "corpse should hold meat"
+    );
+
+    let affordance = world.get::<Affordance>(corpse);
     assert_eq!(
-        inventory.count(Concept::Meat),
-        1,
-        "meat drop should hold exactly one Meat"
+        affordance.action_type,
+        ActionType::Harvest,
+        "corpse should expose a Harvest affordance for scavengers"
     );
 }

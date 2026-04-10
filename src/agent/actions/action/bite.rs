@@ -1,16 +1,6 @@
-//! Bite action - jaws-as-weapon attack for species with Bite capability.
-//!
-//! Distinct from [`AttackAction`](super::attack::AttackAction) because the
-//! two actions require different capability channels: Attack needs
-//! Manipulation (humans holding weapons or striking with hands) while Bite
-//! needs the dedicated `Channel::Bite` that only jaws / beaks / pincers
-//! provide. A wolf can `Bite` but not `Attack`; a human can `Attack` but
-//! not `Bite`.
-//!
-//! Both actions share the same hunting semantics: enumerated against any
-//! entity the agent's mind tags as `HasTrait Prey`, and on completion they
-//! drop the prey's yield into the hunter's inventory and queue a `Becomes`
-//! transformation so the slain prey turns into a meat-drop entity.
+//! Bite action — jaws-as-weapon variant of Attack for species with `Channel::Bite`.
+//! Hunting semantics (Prey enumeration, Produces yield, Becomes transformation)
+//! are shared with Attack via the helpers in `attack.rs`.
 
 use crate::agent::actions::ActionType;
 use crate::agent::actions::action::attack::{

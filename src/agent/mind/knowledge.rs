@@ -121,6 +121,7 @@ pub enum Concept {
     StoneNode,
     Stick,
     Meat,
+    Corpse,
 
     // ─── Buildable entity types ───
     Campfire,

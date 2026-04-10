@@ -453,14 +453,20 @@ pub fn tick_actions(
                             current_tick,
                         );
                     }
-                    SpawnRequest::BecomesAttach { entity, target } => {
-                        commands
-                            .entity(entity)
-                            .insert(crate::world::becomes::Becomes::new(
-                                target,
-                                crate::world::becomes::BecomesTrigger::AfterTicks(0),
-                                current_tick,
-                            ));
+                    SpawnRequest::BecomesAttach {
+                        entity,
+                        target,
+                        mode,
+                    } => {
+                        let mut becomes = crate::world::becomes::Becomes::new(
+                            target,
+                            crate::world::becomes::BecomesTrigger::AfterTicks(0),
+                            current_tick,
+                        );
+                        if matches!(mode, crate::world::becomes::BecomesMode::InPlace) {
+                            becomes = becomes.in_place();
+                        }
+                        commands.entity(entity).insert(becomes);
                     }
                 }
             }

@@ -29,10 +29,6 @@ impl Action for AttackAction {
     }
 
     fn target_source(&self) -> TargetSource {
-        // Attack-as-hunt: enumerate every entity the agent believes is Prey.
-        // The emotional brain bypasses enumeration entirely when proposing
-        // Attack on a perceived threat, so this trait gate only governs the
-        // rational planner's hunting chain.
         TargetSource::EntityWithTrait(Concept::Prey)
     }
 
@@ -55,11 +51,6 @@ impl Action for AttackAction {
         Ok(())
     }
 
-    /// Plan-time view: attacking prey yields whatever that prey produces.
-    /// Mirrors `HarvestAction::plan_effects_for_target`: walks the entity's
-    /// `Produces` triples (direct first, then indirect via `IsA`) and turns
-    /// each into a `Self_, Contains, Item(...)` projection so the regressive
-    /// planner can chain "I want meat → Attack(deer)".
     fn plan_effects_for_target(&self, target: &TargetCandidate, mind: &MindGraph) -> Vec<Triple> {
         let Some(entity) = target.as_entity() else {
             return self.plan_effects();
@@ -67,10 +58,6 @@ impl Action for AttackAction {
         prey_yield_effects(entity, mind)
     }
 
-    /// Only valid when the target produces something IsA Food or Resource.
-    /// The trait-based target enumeration finds every Prey entity, so this
-    /// gate keeps the planner from forming hunts against prey it doesn't
-    /// know how to butcher (no `Produces` knowledge).
     fn is_plan_valid(&self, target: &TargetCandidate, mind: &MindGraph) -> bool {
         let Some(entity) = target.as_entity() else {
             return false;
@@ -90,9 +77,8 @@ impl Action for AttackAction {
     }
 }
 
-/// Compute `(Self_, Contains, Item(X, n))` projections for any item the
-/// `entity` is known to produce, walking the same direct/indirect path as
-/// `HarvestAction::plan_effects_for_target`.
+/// `(Self_, Contains, Item(X, n))` projections for everything the entity
+/// produces — direct `Produces` first, then indirect via `IsA` type chain.
 pub(crate) fn prey_yield_effects(entity: bevy::prelude::Entity, mind: &MindGraph) -> Vec<Triple> {
     let direct = mind.query(Some(&Node::Entity(entity)), Some(Predicate::Produces), None);
     if !direct.is_empty() {
@@ -120,46 +106,27 @@ pub(crate) fn prey_yield_effects(entity: bevy::prelude::Entity, mind: &MindGraph
         .collect()
 }
 
-/// True when the entity produces at least one item that the agent's mind
-/// classifies as Food or Resource. Walks the same direct/indirect path as
-/// `prey_yield_effects` and asks the ontology to classify each yield.
+/// True when the entity produces at least one item classified as Food or Resource.
 pub(crate) fn prey_produces_useful_item(entity: bevy::prelude::Entity, mind: &MindGraph) -> bool {
-    let mut produced = mind.query(Some(&Node::Entity(entity)), Some(Predicate::Produces), None);
-
-    if produced.is_empty() {
-        let type_triples = mind.query(Some(&Node::Entity(entity)), Some(Predicate::IsA), None);
-        for type_triple in type_triples {
-            if let Value::Concept(concept) = type_triple.object {
-                produced.extend(mind.query(
-                    Some(&Node::Concept(concept)),
-                    Some(Predicate::Produces),
-                    None,
-                ));
-            }
+    prey_yield_effects(entity, mind).iter().any(|triple| {
+        if let Value::Item(concept, _) = &triple.object {
+            mind.is_a(&Node::Concept(*concept), Concept::Food)
+                || mind.is_a(&Node::Concept(*concept), Concept::Resource)
+        } else {
+            false
         }
-    }
-
-    for triple in produced {
-        if let Value::Item(concept, _) = triple.object
-            && (mind.is_a(&Node::Concept(concept), Concept::Food)
-                || mind.is_a(&Node::Concept(concept), Concept::Resource))
-        {
-            return true;
-        }
-    }
-    false
+    })
 }
 
-/// Apply the hunting kill: if the agent's beliefs say the target is Prey
-/// that produces edible items, drop one of each yield into the hunter's
-/// inventory and queue a `Becomes` transformation so the substrate replaces
-/// the slain prey with a meat-drop entity on the next tick.
+/// Hunting kill: deposit the killer's "first cut" into their inventory and
+/// queue an in-place Becomes transformation that morphs the prey into a
+/// Corpse holding extra meat for scavengers. The killer's direct deposit
+/// keeps the planner's `Walk → Attack → Eat` chain working as a single plan;
+/// the corpse exists as the world artifact future agents can Harvest.
 ///
-/// Skipped entirely for non-prey targets so the emotional brain's "I'm
-/// angry, punch the wolf" attacks don't accidentally generate meat.
-///
-/// Shared between `AttackAction` (humans) and `BiteAction` (wolves) so a
-/// rational hunter and a hungry wolf converge on identical post-kill state.
+/// Skipped for non-prey targets so the emotional brain's reactive
+/// "I'm angry, hit the wolf" attacks don't generate meat or corpses.
+/// Shared between Attack and Bite.
 pub(crate) fn apply_hunt_kill(ctx: &mut CompletionContext) {
     let Some(target) = ctx.target_entity else {
         return;
@@ -169,24 +136,20 @@ pub(crate) fn apply_hunt_kill(ctx: &mut CompletionContext) {
         return;
     }
 
-    // Yield each item the agent's mind knows the target produces. The same
-    // direct/indirect query the planner used to project plan effects.
     let yields = prey_yield_effects(target, ctx.mind);
     if yields.is_empty() {
         return;
     }
 
-    let mut yield_concept = None;
     for triple in &yields {
         if let Value::Item(concept, qty) = &triple.object {
             ctx.inventory.add(*concept, *qty);
-            yield_concept.get_or_insert(*concept);
         }
     }
 
-    let drop_concept = yield_concept.unwrap_or(Concept::Meat);
     ctx.spawn_requests.push(SpawnRequest::BecomesAttach {
         entity: target,
-        target: drop_concept,
+        target: Concept::Corpse,
+        mode: crate::world::becomes::BecomesMode::InPlace,
     });
 }

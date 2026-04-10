@@ -169,12 +169,15 @@ pub enum SpawnRequest {
     },
     /// Attach a `Becomes` transformation to an existing world entity. The
     /// transformation fires immediately (`AfterTicks(0)`), so on the next
-    /// `becomes_system` tick the entity is despawned and replaced by a
-    /// fresh entity of `target`. Used by Attack/Bite to turn slain prey
-    /// into meat drops via the Becomes substrate.
+    /// `becomes_system` tick the substrate executes the requested mode.
+    /// `mode` controls whether the substrate despawns and respawns
+    /// (`Replace`) or morphs the existing entity in place (`InPlace`).
+    /// Used by Attack/Bite to turn slain prey into corpses via in-place
+    /// transformation.
     BecomesAttach {
         entity: bevy::prelude::Entity,
         target: crate::agent::mind::knowledge::Concept,
+        mode: crate::world::becomes::BecomesMode,
     },
 }
 

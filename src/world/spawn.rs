@@ -28,9 +28,30 @@ pub fn spawn_concept_entity(
         Concept::Campfire => Some(crate::world::campfire::spawn_campfire_headless(
             commands, position,
         )),
-        Concept::Meat => Some(crate::world::meat::spawn_meat_drop_headless(
+        Concept::Corpse => Some(crate::world::corpse::spawn_corpse_headless(
             commands, position,
         )),
         _ => None,
+    }
+}
+
+/// In-place transformation dispatcher: morphs an existing entity into the
+/// target concept, preserving its entity ID. Used by the Becomes substrate's
+/// `InPlace` mode (e.g. slain prey -> Corpse).
+pub fn transform_concept_in_place(
+    commands: &mut Commands,
+    entity: Entity,
+    concept: Concept,
+) -> bool {
+    match concept {
+        Concept::Corpse => {
+            crate::world::corpse::kill_into_corpse(
+                commands,
+                entity,
+                crate::world::corpse::DEFAULT_CORPSE_MEAT,
+            );
+            true
+        }
+        _ => false,
     }
 }
