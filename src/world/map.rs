@@ -450,20 +450,32 @@ fn hillshade(elevations: &[f32], width: u32, height: u32, x: u32, y: u32) -> f32
     const LIGHT_X: f32 = -0.707;
     const LIGHT_Y: f32 = -0.707;
     let dot = gradient_x * LIGHT_X + gradient_y * LIGHT_Y;
-    // Scale factor keeps subtle shading — elevation differences are in [0, 255].
-    (1.0 - dot * 0.008).clamp(0.6, 1.2)
+    (1.0 - dot * 0.04).clamp(0.5, 1.3)
 }
 
-/// Mix a biome base color with a slight elevation tint (higher = lighter).
+/// Mix a biome base color with elevation: high = lighter, low = darker.
 fn tile_base_color(tile_type: TileType, elevation: f32) -> Color {
     let srgba = tile_type.color().to_srgba();
-    let tint = (elevation / 255.0).clamp(0.0, 1.0) * 0.3;
-    Color::srgba(
-        (srgba.red + (1.0 - srgba.red) * tint).clamp(0.0, 1.0),
-        (srgba.green + (1.0 - srgba.green) * tint).clamp(0.0, 1.0),
-        (srgba.blue + (1.0 - srgba.blue) * tint).clamp(0.0, 1.0),
-        srgba.alpha,
-    )
+    // -0.3 (valley) to +0.3 (peak), centered at mid-elevation (128).
+    let factor = ((elevation - 128.0) / 128.0).clamp(-1.0, 1.0) * 0.3;
+    if factor >= 0.0 {
+        // Lighten toward white.
+        Color::srgba(
+            (srgba.red + (1.0 - srgba.red) * factor).clamp(0.0, 1.0),
+            (srgba.green + (1.0 - srgba.green) * factor).clamp(0.0, 1.0),
+            (srgba.blue + (1.0 - srgba.blue) * factor).clamp(0.0, 1.0),
+            srgba.alpha,
+        )
+    } else {
+        // Darken toward black.
+        let darken = 1.0 + factor; // 0.7..1.0
+        Color::srgba(
+            (srgba.red * darken).clamp(0.0, 1.0),
+            (srgba.green * darken).clamp(0.0, 1.0),
+            (srgba.blue * darken).clamp(0.0, 1.0),
+            srgba.alpha,
+        )
+    }
 }
 
 /// Multiply an sRGB color by a scalar brightness factor.
@@ -671,7 +683,7 @@ mod tests {
         let elevations =
             generate_elevations(&terrain, WORLD_WIDTH, WORLD_HEIGHT, DEFAULT_TERRAIN_SEED);
         for &e in &elevations {
-            assert!(e >= 0.0 && e <= 255.0, "elevation {e} out of range");
+            assert!((0.0..=255.0).contains(&e), "elevation {e} out of range");
         }
     }
 
@@ -792,8 +804,8 @@ mod tests {
         extreme[7] = 255.0;
         let shade = hillshade(&extreme, 3, 3, 1, 1);
         assert!(
-            shade >= 0.6 && shade <= 1.2,
-            "shade {shade} out of [0.6, 1.2]"
+            (0.5..=1.3).contains(&shade),
+            "shade {shade} out of [0.5, 1.3]"
         );
     }
 
