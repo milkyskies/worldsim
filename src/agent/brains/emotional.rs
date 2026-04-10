@@ -51,33 +51,34 @@ pub fn emotional_brain_propose(
         best = Some(proposal);
     }
 
-    // Social seeking. Two parallel branches share the same `social` drive
-    // gate (#260): Persons get the conversation path; non-Person
-    // conspecifics (deer in herds, wolves in packs) get a flock-walk
-    // toward the highest-affection visible kin.
+    // Social seeking — conversation path (humans). Identical to the
+    // pre-#260 code so the if-let chain is unchanged.
     if in_conversation.is_none()
         && let Some(d) = drives
-    {
-        if let Some(proposal) =
+        && let Some(proposal) =
             seek_social_initiation(d.social, visible, mind, action_registry, best_urgency)
-        {
-            best_urgency = proposal.urgency;
-            best = Some(proposal);
-        }
+    {
+        best_urgency = proposal.urgency;
+        best = Some(proposal);
+    }
 
-        if let Some(self_concept) = self_concept
-            && self_concept != Concept::Person
-            && let Some(proposal) = seek_flock_proximity(
-                d.social,
-                self_concept,
-                visible,
-                mind,
-                action_registry,
-                best_urgency,
-            )
-        {
-            best = Some(proposal);
-        }
+    // Flock seeking — walk-toward-kin path (deer, wolves). Only fires for
+    // non-Person species; the drive gate and urgency gate are inside the
+    // function so this branch is effectively dormant for humans.
+    if in_conversation.is_none()
+        && let Some(d) = drives
+        && let Some(self_concept) = self_concept
+        && self_concept != Concept::Person
+        && let Some(proposal) = seek_flock_proximity(
+            d.social,
+            self_concept,
+            visible,
+            mind,
+            action_registry,
+            best_urgency,
+        )
+    {
+        best = Some(proposal);
     }
 
     best
