@@ -121,6 +121,10 @@ pub enum Concept {
     StoneNode,
     Stick,
 
+    // ─── Rotten / spoiled variants ───
+    RottenApple,
+    RottenBerry,
+
     // ─── Buildable entity types ───
     Campfire,
     LeanTo,

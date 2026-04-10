@@ -306,6 +306,19 @@ pub enum SimEvent {
         belief_count: usize,
     },
 
+    /// A perishable item's freshness hit zero and its concept transitioned
+    /// to its rotten variant (e.g. Apple → RottenApple). Fires once per item
+    /// per spoilage — not every tick while rotten.
+    ///
+    /// `agent` is the entity holding the item (agent inventory, chest, etc.);
+    /// not necessarily a thinking agent.
+    ItemSpoiled {
+        agent: Entity,
+        tick: u64,
+        from: Concept,
+        to: Concept,
+    },
+
     /// An environmental effect (aura, zone, emitter) was applied to an agent.
     /// Emitted once per agent per emitter per tick when the agent is in range.
     EffectApplied {
