@@ -20,6 +20,7 @@ use egui_dock::{DockArea, DockState, NodeIndex, Style};
 use hud::GameLog;
 
 pub mod debug_knowledge;
+pub mod sprite_animation;
 
 pub struct UiPlugin;
 
@@ -28,6 +29,7 @@ impl Plugin for UiPlugin {
         app.add_plugins(EguiPlugin::default())
             .add_plugins(DefaultInspectorConfigPlugin)
             .add_plugins(overlays::OverlayPlugin)
+            .add_plugins(sprite_animation::SpriteAnimationPlugin)
             .init_resource::<UiState>()
             .init_resource::<debug_knowledge::KnowledgeInspectorState>()
             .add_systems(EguiPrimaryContextPass, ui_system)

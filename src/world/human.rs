@@ -79,6 +79,7 @@ pub fn spawn_person(
             crate::agent::psyche::emotions::EmotionalState::default(),
             crate::agent::brains::history::BrainHistory::default(),
             crate::agent::psyche::relationships::RelationshipHistory::default(),
+            crate::ui::sprite_animation::SpriteAnimation::with_phase(index as f32 * 1.618),
         ))
         .id();
 

@@ -78,6 +78,7 @@ pub fn spawn_deer(
             crate::agent::body::needs::Consciousness::default(),
             crate::agent::actions::ActiveActions::default(),
             crate::agent::psyche::emotions::EmotionalState::default(),
+            crate::ui::sprite_animation::SpriteAnimation::with_phase(index as f32 * 1.618),
         ))
         .id();
 
