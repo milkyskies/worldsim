@@ -4,6 +4,7 @@ pub mod affordance;
 pub mod biology;
 pub mod body;
 pub mod brains;
+pub mod commitment;
 pub mod communication;
 pub mod culture;
 pub mod events;
@@ -57,6 +58,7 @@ impl Plugin for AgentPlugin {
             .register_type::<body::needs::Consciousness>()
             .register_type::<body::needs::PsychologicalDrives>()
             .register_type::<activity::CurrentActivity>()
+            .register_type::<commitment::Commitments>()
             .register_type::<mind::memory::WorkingMemory>()
             .register_type::<psyche::emotions::EmotionalState>()
             .register_type::<mind::knowledge::MindGraph>()
@@ -102,6 +104,11 @@ impl Plugin for AgentPlugin {
                     // effects are resolved.
                     crate::world::emits_effect::emits_effect_system
                         .after(crate::world::becomes::becomes_system),
+                    // Commitment decay: reduce strength of active commitments each
+                    // tick. Runs late so this tick's decision-making sees the
+                    // full-strength commitment; the decay kicks in next tick.
+                    commitment::decay_commitments_system
+                        .after(crate::world::emits_effect::emits_effect_system),
                 )
                     .run_if(not_paused),
             )

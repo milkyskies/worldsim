@@ -1,14 +1,16 @@
 //! Central nervous system: formulates goals from the highest-urgency drive and tracks the current goal.
 //!
-//! Reads: Urgency list (from urgency module), Personality, MindGraph, PlannerConfig
+//! Reads: Urgency list (from urgency module), Personality, MindGraph, Commitments, PlannerConfig
 //! Writes: CentralNervousSystem (urgencies, current_goal)
-//! Upstream: nervous_system::urgency (produces Urgency values), mind::knowledge (MindGraph)
+//! Upstream: nervous_system::urgency (produces Urgency values), mind::knowledge (MindGraph), commitment (Commitments)
 //! Downstream: brain_system (reads current_goal for rational planning)
 
 use super::urgency::{Urgency, UrgencySource};
 use crate::agent::brains::planner::PlannerConfig;
 use crate::agent::brains::thinking::{Goal, TriplePattern};
+use crate::agent::commitment::Commitments;
 use crate::agent::mind::knowledge::{Predicate, Value};
+use crate::agent::psyche::personality::Personality;
 use bevy::prelude::*;
 
 #[derive(Component, Debug, Clone, Reflect, Default)]
@@ -23,12 +25,13 @@ pub struct CentralNervousSystem {
 pub fn formulate_goals(
     mut query: Query<(
         &mut CentralNervousSystem,
-        &crate::agent::psyche::personality::Personality,
+        &Personality,
         &crate::agent::mind::knowledge::MindGraph,
+        Option<&Commitments>,
     )>,
     config: Res<PlannerConfig>,
 ) {
-    for (mut cns, _personality, _mind) in query.iter_mut() {
+    for (mut cns, personality, _mind, commitments) in query.iter_mut() {
         // Find highest urgency
         cns.urgencies.sort_by(|a, b| {
             b.value
@@ -36,15 +39,12 @@ pub fn formulate_goals(
                 .unwrap_or(std::cmp::Ordering::Equal)
         });
 
-        if let Some(top_urgency) = cns.urgencies.first() {
-            // Threshold to care
-            if top_urgency.value < config.goal_formulation_threshold {
-                cns.current_goal = None;
-                continue;
+        let urgency_goal = cns.urgencies.first().and_then(|top| {
+            if top.value < config.goal_formulation_threshold {
+                return None;
             }
 
-            // Map urgency to a Goal Fact (Desired State)
-            let conditions = match top_urgency.source {
+            let conditions = match top.source {
                 UrgencySource::Hunger => {
                     vec![TriplePattern::self_has(Predicate::Hunger, Value::Int(0))]
                 }
@@ -61,19 +61,38 @@ pub fn formulate_goals(
                 UrgencySource::Thirst => {
                     vec![TriplePattern::self_has(Predicate::Thirst, Value::Int(0))]
                 }
-                // Placeholder for logic not yet fully implemented
-                // For now, map others to empty conditions which implicitly means "do nothing specific" or "satisfied"
                 UrgencySource::Fun
                 | UrgencySource::Boredom
                 | UrgencySource::Fear
                 | UrgencySource::Territoriality => vec![],
             };
 
-            // Set the new goal
-            cns.current_goal = Some(Goal {
+            Some(Goal {
                 conditions,
-                priority: top_urgency.value,
+                priority: top.value,
+            })
+        });
+
+        // Commitment goal: if the agent has committed to a concept, build a goal
+        // from the strongest commitment. The priority is scaled by strength and
+        // conscientiousness — reliable agents hold commitments tighter.
+        let commitment_goal = commitments
+            .and_then(|c| c.strongest())
+            .map(|commitment| Goal {
+                conditions: vec![TriplePattern::self_has(
+                    Predicate::Contains,
+                    Value::Item(commitment.goal, 1),
+                )],
+                priority: commitment.priority(personality.traits.conscientiousness),
             });
-        }
+
+        // Pick whichever goal has higher priority. Committed goals beat ambient
+        // drives they outweigh, but cannot override life-threatening urgencies.
+        cns.current_goal = match (urgency_goal, commitment_goal) {
+            (Some(u), Some(c)) => Some(if c.priority > u.priority { c } else { u }),
+            (Some(u), None) => Some(u),
+            (None, Some(c)) => Some(c),
+            (None, None) => None,
+        };
     }
 }
