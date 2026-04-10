@@ -1834,6 +1834,7 @@ mod tests {
             ],
             consumes: vec![TriplePattern::entity_contains(target)],
             base_cost: 10.0,
+            locomotion_intensity: ActionType::Harvest.default_locomotion_intensity(),
         }
     }
 
@@ -2018,6 +2019,7 @@ mod tests {
             effects: Vec::new(),
             consumes: Vec::new(),
             base_cost: 8.0,
+            locomotion_intensity: ActionType::Converse.default_locomotion_intensity(),
         };
 
         let alert = PlanCostContext {
@@ -2056,6 +2058,7 @@ mod tests {
             effects: Vec::new(),
             consumes: Vec::new(),
             base_cost: 4.0,
+            locomotion_intensity: ActionType::Harvest.default_locomotion_intensity(),
         };
         let ctx = PlanCostContext::neutral();
         let cache = PlanCostCache::new(&ctx, &mind);
