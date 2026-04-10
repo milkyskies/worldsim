@@ -435,18 +435,18 @@ pub fn select_turn_intent(
         // The broadcast triple's subject is `Entity(speaker)` (not `Self_`)
         // because listeners store it in their own MindGraph, where `Self_`
         // would incorrectly resolve to the listener.
-        if matches!(intent, Intent::Share | Intent::Ask | Intent::Answer) {
-            if let Some(goal_concept) = goal.and_then(goal_target_concept) {
-                if let Ok(mut commitments) = commitments_query.get_mut(speaker) {
-                    commitments.add(goal_concept, now);
-                }
-                content.push(Triple::with_meta(
-                    Node::Entity(speaker),
-                    Predicate::Committed,
-                    Value::Concept(goal_concept),
-                    Metadata::default(),
-                ));
+        if matches!(intent, Intent::Share | Intent::Ask | Intent::Answer)
+            && let Some(goal_concept) = goal.and_then(goal_target_concept)
+        {
+            if let Ok(mut commitments) = commitments_query.get_mut(speaker) {
+                commitments.add(goal_concept, now);
             }
+            content.push(Triple::with_meta(
+                Node::Entity(speaker),
+                Predicate::Committed,
+                Value::Concept(goal_concept),
+                Metadata::default(),
+            ));
         }
 
         let expects_response = matches!(intent, Intent::Greet | Intent::Ask);
