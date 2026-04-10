@@ -152,10 +152,12 @@ impl Plugin for AgentPlugin {
                         .after(psyche::emotions::react_to_events),
                     psyche::relationships::decay_relationships,
                     // Herd cohesion: visible conspecifics decay social drive,
-                    // weighted by remembered affection. Runs after perception
-                    // (VisibleObjects) is up to date but doesn't depend on
-                    // relationship updates from this same tick.
-                    psyche::flocking::decay_social_from_proximity,
+                    // weighted by remembered affection. Ordered AFTER the brain
+                    // chain so the decay never precedes the brain's social-urgency
+                    // read in the same tick — prevents system-ordering drift from
+                    // changing when conversations start.
+                    psyche::flocking::decay_social_from_proximity
+                        .after(brains::brain_system::three_brains_system),
                 )
                     .run_if(not_paused),
             )
