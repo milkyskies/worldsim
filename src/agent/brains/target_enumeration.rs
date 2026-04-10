@@ -25,6 +25,8 @@ use crate::world::map::TILE_SIZE;
 /// - `TargetSource::Implicit` → empty (the planner injects these directly)
 /// - `TargetSource::EntityAffordance` → every known entity whose `Affordance`
 ///   declares `action_type`
+/// - `TargetSource::EntityWithTrait(c)` → every perceived entity whose
+///   inherited traits include `c` (e.g. Attack/Bite finding `HasTrait Prey`)
 /// - `TargetSource::TileWithTrait(c)` → every known tile matching
 ///   `Tile(?) HasTrait c` in the MindGraph
 ///
@@ -42,6 +44,9 @@ pub fn enumerate_targets(
         TargetSource::Implicit => Vec::new(),
         TargetSource::EntityAffordance => {
             enumerate_entities_with_affordance(action_type, mind, affordances)
+        }
+        TargetSource::EntityWithTrait(concept) => {
+            enumerate_entities_with_trait(*concept, mind, affordances)
         }
         TargetSource::TileWithTrait(concept) => enumerate_tiles_with_trait(*concept, mind),
     }
@@ -76,6 +81,45 @@ fn enumerate_entities_with_affordance(
             continue;
         }
 
+        candidates.push(TargetCandidate::Entity {
+            entity,
+            pos: transform.translation().truncate(),
+        });
+    }
+
+    candidates
+}
+
+/// Iterate every perceived entity (anything the mind has an `IsA` belief
+/// about) and keep the ones whose ontology trait inheritance includes
+/// `trait_concept`.
+///
+/// Used by Attack and Bite to enumerate prey: perception writes
+/// `(deer_42, IsA, Concept::Deer)` for every visible deer, and
+/// `mind.has_trait` walks the IsA chain to discover that
+/// `(Deer, HasTrait, Prey)` lives in cultural/intrinsic knowledge.
+fn enumerate_entities_with_trait(
+    trait_concept: Concept,
+    mind: &MindGraph,
+    affordances: &Query<(&GlobalTransform, Option<&Affordance>)>,
+) -> Vec<TargetCandidate> {
+    let mut candidates = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+
+    for triple in mind.query(None, Some(Predicate::IsA), None) {
+        let Node::Entity(entity) = triple.subject else {
+            continue;
+        };
+        if !seen.insert(entity) {
+            continue;
+        }
+        if !mind.has_trait(&Node::Entity(entity), trait_concept) {
+            continue;
+        }
+
+        let Ok((transform, _)) = affordances.get(entity) else {
+            continue;
+        };
         candidates.push(TargetCandidate::Entity {
             entity,
             pos: transform.translation().truncate(),

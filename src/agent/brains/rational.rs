@@ -6,7 +6,9 @@
 //! Downstream: brains::proposal (winner selection)
 
 use crate::agent::actions::ActionType;
-use crate::agent::body::needs::Consciousness;
+use crate::agent::actions::channel::ChannelCapacities;
+use crate::agent::biology::body::Body;
+use crate::agent::body::needs::{Consciousness, PhysicalNeeds};
 use crate::agent::brains::proposal::{BrainProposal, BrainType, Intent};
 use crate::agent::brains::target_enumeration::enumerate_targets;
 use crate::agent::brains::thinking::{ActionTemplate, Goal, TriplePattern};
@@ -88,6 +90,8 @@ pub fn update_rational_brain(
         &VisibleObjects,
         &crate::agent::nervous_system::cns::CentralNervousSystem,
         &MindGraph,
+        Option<&Body>,
+        &PhysicalNeeds,
     )>,
     tick: Res<crate::core::tick::TickCount>,
     ns_config: Res<crate::agent::nervous_system::config::NervousSystemConfig>,
@@ -117,8 +121,11 @@ pub fn update_rational_brain(
         _visible,
         cns,
         mind,
+        body,
+        physical,
     ) in query.iter_mut()
     {
+        let capacities = ChannelCapacities::compute(body, Some(physical));
         // 1. Plan Verification
         let mut plan_finished = false;
         let mut plan_invalid = false;
@@ -225,6 +232,7 @@ pub fn update_rational_brain(
                 mind,
                 &affordances,
                 PlanningMode::Replan,
+                &capacities,
             );
 
             plan_attempts += 1;
@@ -277,6 +285,7 @@ pub fn rational_brain_propose(
         &GlobalTransform,
         Option<&crate::agent::affordance::Affordance>,
     )>,
+    capacities: &ChannelCapacities,
 ) -> Option<BrainProposal> {
     // The intent for any goal-directed rational proposal is derived from the
     // top urgency source that drove goal formulation. If no urgency, this is
@@ -314,8 +323,13 @@ pub fn rational_brain_propose(
 
     if let Some(goal) = &cns.current_goal {
         let agent_pos = transform.translation.truncate();
-        let mut actions =
-            collect_planning_actions(action_registry, mind, affordances, PlanningMode::Propose);
+        let mut actions = collect_planning_actions(
+            action_registry,
+            mind,
+            affordances,
+            PlanningMode::Propose,
+            capacities,
+        );
 
         // Proposal path: bias selection toward closer targets so the agent
         // doesn't grab a far-away tree when a near one will do.
@@ -419,11 +433,25 @@ fn collect_planning_actions(
         Option<&crate::agent::affordance::Affordance>,
     )>,
     mode: PlanningMode,
+    capacities: &ChannelCapacities,
 ) -> Vec<ActionTemplate> {
     let mut actions = Vec::new();
     let belief_state = crate::agent::mind::belief_state::BeliefState::new(mind);
 
     for action in action_registry.all() {
+        // Skip actions whose body channels exceed the agent's anatomical
+        // capacity. A wolf can't Attack (no Manipulation) and a human
+        // can't Bite (no Bite channel). Without this gate the planner
+        // would propose infeasible actions that arbitration then rejects,
+        // leaving the agent stuck with no plan.
+        let feasible = action
+            .body_channels()
+            .iter()
+            .all(|cu| cu.intensity <= 0.0 || capacities.get(cu.channel) > 0.0);
+        if !feasible {
+            continue;
+        }
+
         let source = action.target_source();
         for candidate in enumerate_targets(&source, action.action_type(), mind, affordances) {
             let keep = match mode {
@@ -507,6 +535,7 @@ mod tests {
         let visible = crate::agent::mind::perception::VisibleObjects::default();
         let world_map = WorldMap::new(64, 64);
 
+        let capacities = ChannelCapacities::full();
         rational_brain_propose(
             brain,
             cns,
@@ -517,6 +546,7 @@ mod tests {
             &world_map,
             &registry,
             &affordances,
+            &capacities,
         )
         .expect("rational brain should always produce a proposal")
     }
@@ -668,6 +698,7 @@ mod tests {
         let visible = crate::agent::mind::perception::VisibleObjects::default();
         let world_map = WorldMap::new(64, 64);
 
+        let capacities = ChannelCapacities::full();
         let proposal = rational_brain_propose(
             &brain,
             &cns,
@@ -678,6 +709,7 @@ mod tests {
             &world_map,
             &registry,
             &affordances,
+            &capacities,
         );
 
         assert!(

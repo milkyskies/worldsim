@@ -3,6 +3,7 @@ pub mod becomes;
 pub mod berry_bush;
 pub mod campfire;
 pub mod construction_site;
+pub mod corpse;
 pub mod deer;
 pub mod emits_effect;
 pub mod environment;

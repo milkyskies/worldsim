@@ -107,8 +107,7 @@ pub fn three_brains_system(
             &action_registry,
         );
 
-        // Pass None for state since RationalBrain doesn't use it anymore
-        // or update rational_brain_propose to strictly take only what it needs
+        let capacities = crate::agent::actions::ChannelCapacities::compute(body, Some(physical));
         let rational_proposal = rational_brain_propose(
             rational_brain,
             cns,
@@ -119,6 +118,7 @@ pub fn three_brains_system(
             &world_map,
             &action_registry,
             &affordances,
+            &capacities,
         );
 
         // 2. Calculate brain powers, then apply history-based multiplier

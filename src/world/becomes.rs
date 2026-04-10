@@ -28,7 +28,7 @@ use crate::agent::item_slots::{ItemSlots, SlotRole};
 use crate::agent::mind::knowledge::{Concept, Metadata, MindGraph, Node, Predicate, Triple, Value};
 use crate::core::tick::TickCount;
 use crate::world::property::BuiltBy;
-use crate::world::spawn::spawn_concept_entity;
+use crate::world::spawn::{spawn_concept_entity, transform_concept_in_place};
 
 /// World-truth component declaring "this entity will transform into `target`
 /// when `trigger` fires". Lives on the world entity, NOT in any agent's mind.
@@ -43,6 +43,9 @@ pub struct Becomes {
     /// Tick at which this component was attached. Used by `AfterTicks` triggers
     /// to compute elapsed time. Set by the spawner; the system never mutates it.
     pub started_tick: u64,
+    /// How the transformation manifests in the world.
+    #[reflect(ignore)]
+    pub mode: BecomesMode,
 }
 
 impl Default for Becomes {
@@ -51,6 +54,7 @@ impl Default for Becomes {
             target: Concept::Thing,
             trigger: BecomesTrigger::SlotsFilled,
             started_tick: 0,
+            mode: BecomesMode::Replace,
         }
     }
 }
@@ -61,8 +65,33 @@ impl Becomes {
             target,
             trigger,
             started_tick,
+            mode: BecomesMode::Replace,
         }
     }
+
+    /// Builder: switch this transformation to in-place mode. The substrate
+    /// will morph the existing entity instead of despawning + respawning.
+    pub fn in_place(mut self) -> Self {
+        self.mode = BecomesMode::InPlace;
+        self
+    }
+}
+
+/// How a `Becomes` transformation manifests when its trigger fires.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum BecomesMode {
+    /// Despawn the source entity and spawn a fresh entity of `target` at the
+    /// same position. This is the right mode for things that genuinely have
+    /// no prior identity worth preserving (construction sites filling into
+    /// campfires).
+    #[default]
+    Replace,
+    /// Morph the source entity into `target` in place, preserving its
+    /// entity ID, Transform, Name, MindGraph, Body, etc. The right mode for
+    /// transformations that need to keep referential identity — slain prey
+    /// becoming corpses (so future episodic memory and relationship triples
+    /// keep pointing at a meaningful entity).
+    InPlace,
 }
 
 /// Condition that drives a `Becomes` transformation.
@@ -163,8 +192,8 @@ pub fn slots_filled(slots: &ItemSlots) -> bool {
 }
 
 /// Process all entities with a `Becomes` component. For any whose trigger has
-/// fired this tick: read the entity's position, despawn it, and spawn the
-/// target concept entity at the same position.
+/// fired this tick, dispatch on `mode`: `Replace` despawns the source and
+/// spawns a fresh target entity; `InPlace` morphs the existing entity.
 ///
 /// If the source carried a `BuiltBy` component, the world-truth record is
 /// copied onto the new entity AND the builder's MindGraph receives a
@@ -195,29 +224,42 @@ pub fn becomes_system(
             continue;
         }
 
-        let position = transform.translation.truncate();
-        commands.entity(entity).despawn();
-        let Some(new_entity) =
-            spawn_concept_entity(&mut commands, becomes.target, position, tick.current)
-        else {
-            continue;
-        };
+        match becomes.mode {
+            BecomesMode::Replace => {
+                let position = transform.translation.truncate();
+                commands.entity(entity).despawn();
+                let Some(new_entity) =
+                    spawn_concept_entity(&mut commands, becomes.target, position, tick.current)
+                else {
+                    continue;
+                };
 
-        // Carry BuiltBy forward and record ownership in the builder's mind.
-        let Some(built_by) = built_by else {
-            continue;
-        };
-        commands.entity(new_entity).insert(BuiltBy {
-            builder: built_by.builder,
-            built_at: built_by.built_at,
-        });
-        if let Ok(mut mind) = agent_minds.get_mut(built_by.builder) {
-            mind.assert(Triple::with_meta(
-                Node::Self_,
-                Predicate::Owns,
-                Value::Entity(new_entity),
-                Metadata::default(),
-            ));
+                // Carry BuiltBy forward and record ownership in the builder's mind.
+                let Some(built_by) = built_by else {
+                    continue;
+                };
+                commands.entity(new_entity).insert(BuiltBy {
+                    builder: built_by.builder,
+                    built_at: built_by.built_at,
+                });
+                if let Ok(mut mind) = agent_minds.get_mut(built_by.builder) {
+                    mind.assert(Triple::with_meta(
+                        Node::Self_,
+                        Predicate::Owns,
+                        Value::Entity(new_entity),
+                        Metadata::default(),
+                    ));
+                }
+            }
+            BecomesMode::InPlace => {
+                transform_concept_in_place(&mut commands, entity, becomes.target);
+                // Drop the trigger so the next tick doesn't fire it again.
+                // BuiltBy is intentionally preserved by in-place transforms,
+                // since the entity ID is the same — ownership of a corpse
+                // would still trace back to the killer if BuiltBy were
+                // attached, though prey aren't BuiltBy in current code.
+                commands.entity(entity).remove::<Becomes>();
+            }
         }
     }
 }

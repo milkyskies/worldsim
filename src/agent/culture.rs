@@ -118,8 +118,10 @@ pub fn create_cultural_knowledge(culture: Culture) -> Vec<Triple> {
             add(c(AppleTree), RegenerationRate, Value::Float(10.0));
         }
         Culture::Hunter => {
-            add(c(Animal), IsA, v(Food));
-            add(c(Animal), HasTrait, v(Harvestable));
+            // Hunters know deer are huntable prey that yield meat.
+            // (Meat IsA Food is universal in the ontology.)
+            add(c(Deer), HasTrait, v(Prey));
+            add(c(Deer), Produces, Value::Item(Meat, 1));
         }
         Culture::Gatherer => {
             add(c(Apple), IsA, v(Food));

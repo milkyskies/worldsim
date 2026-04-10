@@ -1814,14 +1814,33 @@ mod tests {
         let wolf = world.spawn_wolf(Vec2::new(40.0, 40.0));
 
         let mind = world.get::<MindGraph>(wolf);
-        let triples = mind.query(
+
+        // Wolves know deer are prey and yield meat. The "meat is food" link
+        // lives in the shared ontology, so the wolf doesn't need to assert
+        // it directly — the planner walks the IsA chain through Meat → Food.
+        let prey = mind.query(
             Some(&MindNode::Concept(Concept::Deer)),
-            Some(Predicate::IsA),
-            Some(&Value::Concept(Concept::Food)),
+            Some(Predicate::HasTrait),
+            Some(&Value::Concept(Concept::Prey)),
         );
         assert!(
-            !triples.is_empty(),
-            "wolf should have intrinsic knowledge that Deer IsA Food"
+            !prey.is_empty(),
+            "wolf should know Deer HasTrait Prey intrinsically"
+        );
+
+        let produces = mind.query(
+            Some(&MindNode::Concept(Concept::Deer)),
+            Some(Predicate::Produces),
+            Some(&Value::Item(Concept::Meat, 1)),
+        );
+        assert!(
+            !produces.is_empty(),
+            "wolf should know Deer Produces Meat intrinsically"
+        );
+
+        assert!(
+            mind.is_a(&MindNode::Concept(Concept::Meat), Concept::Food),
+            "shared ontology should classify Meat IsA Food"
         );
     }
 

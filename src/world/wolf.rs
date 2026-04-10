@@ -197,11 +197,12 @@ pub(crate) fn add_wolf_knowledge(mind: &mut MindGraph, spawn_tile: (i32, i32)) {
 
     let meta = Metadata::default(); // Source::Intrinsic, confidence 1.0
 
-    // Prey recognition: wolves are born knowing deer is food.
+    // Prey recognition: wolves are born knowing deer yield meat when killed.
+    // (Meat IsA Food lives in the shared ontology — wolves don't need to assert it.)
     mind.assert(Triple::with_meta(
         Node::Concept(Concept::Deer),
-        Predicate::IsA,
-        Value::Concept(Concept::Food),
+        Predicate::Produces,
+        Value::Item(Concept::Meat, 1),
         meta.clone(),
     ));
 

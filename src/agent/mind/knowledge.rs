@@ -120,6 +120,8 @@ pub enum Concept {
     Stone,
     StoneNode,
     Stick,
+    Meat,
+    Corpse,
 
     // ─── Rotten / spoiled variants ───
     RottenApple,
@@ -1318,6 +1320,9 @@ pub fn setup_ontology() -> Ontology {
     add(c(Berry), IsA, v(Food));
     add(c(Berry), IsA, v(Resource));
     add(c(Berry), IsA, v(Plant));
+
+    add(c(Meat), IsA, v(Food));
+    add(c(Meat), IsA, v(Resource));
 
     add(c(AppleTree), IsA, v(Plant));
     add(c(BerryBush), IsA, v(Plant));
