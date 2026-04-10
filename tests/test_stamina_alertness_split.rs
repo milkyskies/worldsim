@@ -231,8 +231,7 @@ fn low_alertness_cripples_rational_power() {
     use worldsim::agent::psyche::emotions::EmotionalState;
 
     let cns = CentralNervousSystem::default();
-    let mut low = Consciousness::default();
-    low.alertness = 0.2;
+    let low = Consciousness { alertness: 0.2 };
     let high = Consciousness::default(); // 1.0 by default
     let emotions = EmotionalState::default();
     let personality = Personality::default();
