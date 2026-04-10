@@ -3,15 +3,23 @@ use bevy::input::gestures::PinchGesture;
 use bevy::input::mouse::{MouseMotion, MouseWheel};
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
-use bevy_egui::egui;
+use bevy_egui::{EguiContext, PrimaryEguiContext, egui};
 
 /// Should the camera respond to a gesture at this cursor position?
 ///
-/// When the debug dock is enabled, `UiState::viewport_rect` carries the inner
-/// game-view rect and gestures outside it are ignored so the UI panels can
-/// handle their own input. When the dock is disabled, `viewport_rect` is
-/// empty and the whole window counts as the game view.
-fn cursor_in_game_viewport(cursor: Vec2, ui_state: Option<&UiState>) -> bool {
+/// Two layers of gating:
+/// 1. If egui already wants to handle this pointer (cursor over a panel like
+///    the character sheet), the camera stays out of the way.
+/// 2. If the debug dock is enabled, only the inner game-view rect counts as
+///    the game viewport. Without the dock, the whole window does.
+fn cursor_in_game_viewport(
+    cursor: Vec2,
+    ui_state: Option<&UiState>,
+    ctx: &mut egui::Context,
+) -> bool {
+    if ctx.is_pointer_over_area() {
+        return false;
+    }
     let Some(ui_state) = ui_state else {
         return true;
     };
@@ -39,18 +47,21 @@ fn camera_zoom(
     mut cameras: Query<&mut Projection, With<Camera>>,
     ui_state: Option<Res<UiState>>,
     windows: Query<&Window, With<PrimaryWindow>>,
+    mut egui_ctxs: Query<&mut EguiContext, With<PrimaryEguiContext>>,
 ) {
     use bevy::input::mouse::MouseScrollUnit;
 
-    // Only zoom if cursor is inside game viewport
     let Ok(window) = windows.single() else { return };
     let Some(cursor_pos) = window.cursor_position() else {
-        // Consume events but don't apply
+        for _ in events.read() {}
+        return;
+    };
+    let Ok(mut egui_ctx) = egui_ctxs.single_mut() else {
         for _ in events.read() {}
         return;
     };
 
-    if !cursor_in_game_viewport(cursor_pos, ui_state.as_deref()) {
+    if !cursor_in_game_viewport(cursor_pos, ui_state.as_deref(), egui_ctx.get_mut()) {
         for _ in events.read() {}
         return;
     }
@@ -83,14 +94,17 @@ fn camera_drag(
     mut cameras: Query<(&mut Transform, &Projection), With<Camera>>,
     ui_state: Option<Res<UiState>>,
     windows: Query<&Window, With<PrimaryWindow>>,
+    mut egui_ctxs: Query<&mut EguiContext, With<PrimaryEguiContext>>,
 ) {
-    // Only drag if cursor is inside game viewport
     let Ok(window) = windows.single() else { return };
     let Some(cursor_pos) = window.cursor_position() else {
         return;
     };
+    let Ok(mut egui_ctx) = egui_ctxs.single_mut() else {
+        return;
+    };
 
-    if !cursor_in_game_viewport(cursor_pos, ui_state.as_deref()) {
+    if !cursor_in_game_viewport(cursor_pos, ui_state.as_deref(), egui_ctx.get_mut()) {
         return;
     }
 
@@ -112,14 +126,19 @@ fn touchpad_pinch_zoom(
     mut cameras: Query<&mut Projection, With<Camera>>,
     ui_state: Option<Res<UiState>>,
     windows: Query<&Window, With<PrimaryWindow>>,
+    mut egui_ctxs: Query<&mut EguiContext, With<PrimaryEguiContext>>,
 ) {
     let Ok(window) = windows.single() else { return };
     let Some(cursor_pos) = window.cursor_position() else {
         for _ in events.read() {}
         return;
     };
+    let Ok(mut egui_ctx) = egui_ctxs.single_mut() else {
+        for _ in events.read() {}
+        return;
+    };
 
-    if !cursor_in_game_viewport(cursor_pos, ui_state.as_deref()) {
+    if !cursor_in_game_viewport(cursor_pos, ui_state.as_deref(), egui_ctx.get_mut()) {
         for _ in events.read() {}
         return;
     }
@@ -142,6 +161,7 @@ fn touchpad_pan(
     mut cameras: Query<(&mut Transform, &Projection), With<Camera>>,
     ui_state: Option<Res<UiState>>,
     windows: Query<&Window, With<PrimaryWindow>>,
+    mut egui_ctxs: Query<&mut EguiContext, With<PrimaryEguiContext>>,
 ) {
     use bevy::input::mouse::MouseScrollUnit;
 
@@ -150,8 +170,12 @@ fn touchpad_pan(
         for _ in events.read() {}
         return;
     };
+    let Ok(mut egui_ctx) = egui_ctxs.single_mut() else {
+        for _ in events.read() {}
+        return;
+    };
 
-    if !cursor_in_game_viewport(cursor_pos, ui_state.as_deref()) {
+    if !cursor_in_game_viewport(cursor_pos, ui_state.as_deref(), egui_ctx.get_mut()) {
         for _ in events.read() {}
         return;
     }

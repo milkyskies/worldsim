@@ -21,6 +21,7 @@ use crate::agent::item_slots::ItemSlots;
 use crate::agent::mind::knowledge::{Concept, MindGraph, Node, Predicate, Value};
 use crate::agent::mind::memory::WorkingMemory;
 use crate::agent::nervous_system::cns::CentralNervousSystem;
+use crate::agent::nervous_system::urgency::UrgencySource;
 use crate::agent::psyche::emotions::{EmotionType, EmotionalState};
 use crate::agent::psyche::personality::{Personality, PersonalityTrait};
 use crate::agent::psyche::relationships::RelationshipHistory;
@@ -67,10 +68,11 @@ impl Plugin for CharacterSheetPlugin {
 
 #[derive(Resource, Default)]
 pub struct CharacterSheetState {
-    /// Which tab's detail window is currently open, or None if closed.
-    /// RimWorld pattern: each tab button on the bottom pane is a toggle for
-    /// its own floating window.
-    pub open_tab: Option<CharSheetTab>,
+    /// Currently displayed tab in the right-side character panel.
+    pub active_tab: CharSheetTab,
+    /// User dismissed the panel for this specific entity. Cleared when the
+    /// player selects a different agent so the next click reopens it.
+    dismissed_for: Option<Entity>,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
@@ -124,46 +126,38 @@ fn character_sheet_system(world: &mut World) {
         .first()
         .copied();
 
+    // Reset the per-entity dismissal whenever the selected agent changes so
+    // the next click on a fresh agent reopens the panel.
+    {
+        let mut cs = world.resource_mut::<CharacterSheetState>();
+        if cs.dismissed_for != selected {
+            cs.dismissed_for = None;
+        }
+    }
+
     let Some(entity) = selected else {
         return;
     };
-
-    // A selected entity may have been despawned this frame.
     if world.get_entity(entity).is_err() {
+        return;
+    }
+    if world.resource::<CharacterSheetState>().dismissed_for == Some(entity) {
         return;
     }
 
     let debug_enabled = world.resource::<DebugUiEnabled>().0;
     let visible_tabs = visible_tabs_for_entity(world, entity, debug_enabled);
-    let open_tab = world.resource::<CharacterSheetState>().open_tab;
-
-    let summary = build_bottom_summary(world, entity);
-    let clicked_tab = render_bottom_bar(ctx, &summary, &visible_tabs, open_tab);
-
-    // Clicking a tab button toggles its window; clicking the currently-open
-    // tab closes it. Mirrors RimWorld's inspect-pane tab buttons.
-    if let Some(clicked) = clicked_tab {
-        let mut cs = world.resource_mut::<CharacterSheetState>();
-        cs.open_tab = if cs.open_tab == Some(clicked) {
-            None
-        } else {
-            Some(clicked)
-        };
-    }
-
-    // Close the window if the current open tab is no longer visible for the
-    // selected agent (e.g. player switched from a human to a deer).
-    {
-        let mut cs = world.resource_mut::<CharacterSheetState>();
-        if let Some(open) = cs.open_tab
-            && !visible_tabs.contains(&open)
-        {
-            cs.open_tab = None;
-        }
-    }
-
-    let Some(open_tab) = world.resource::<CharacterSheetState>().open_tab else {
+    if visible_tabs.is_empty() {
         return;
+    }
+
+    let active_tab = {
+        let cs = world.resource::<CharacterSheetState>();
+        if visible_tabs.contains(&cs.active_tab) {
+            cs.active_tab
+        } else {
+            visible_tabs[0]
+        }
     };
 
     let agent_name = world
@@ -174,46 +168,91 @@ fn character_sheet_system(world: &mut World) {
         .get::<SpeciesProfile>(entity)
         .map(|s| format!("{:?}", s.species))
         .unwrap_or_else(|| "Unknown".to_string());
+    let summary = build_header_summary(world, entity);
 
-    let mut window_open = true;
-    egui::Window::new(format!(
-        "{} - {}  ({})",
-        open_tab.label(),
-        agent_name,
-        species_label
-    ))
-    .id(egui::Id::new(("character_sheet_tab_window", open_tab)))
-    .resizable(true)
-    .default_width(420.0)
-    .default_height(500.0)
-    .open(&mut window_open)
-    .show(ctx, |ui| {
-        egui::ScrollArea::vertical()
-            .auto_shrink([false, false])
-            .show(ui, |ui| match open_tab {
-                CharSheetTab::Overview => render_overview(ui, world, entity),
-                CharSheetTab::Needs => render_needs(ui, world, entity),
-                CharSheetTab::Personality => render_personality(ui, world, entity),
-                CharSheetTab::Social => render_social(ui, world, entity),
-                CharSheetTab::Health => render_health(ui, world, entity),
-                CharSheetTab::Knowledge => render_knowledge(ui, world, entity),
-                CharSheetTab::Inventory => render_inventory(ui, world, entity),
-                CharSheetTab::Brain => render_brain(ui, world, entity),
+    let mut new_tab = active_tab;
+    let mut dismiss = false;
+
+    egui::SidePanel::right("character_sheet_panel")
+        .resizable(true)
+        .default_width(360.0)
+        .min_width(280.0)
+        .show(ctx, |ui| {
+            // Header
+            ui.add_space(6.0);
+            ui.horizontal(|ui| {
+                ui.heading(&agent_name);
+                ui.label(
+                    egui::RichText::new(format!("({})", species_label)).color(Color32::LIGHT_GRAY),
+                );
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui.small_button("✕").on_hover_text("Close panel").clicked() {
+                        dismiss = true;
+                    }
+                });
             });
-    });
 
-    // The egui window's close button flipped `window_open` to false.
-    if !window_open {
-        world.resource_mut::<CharacterSheetState>().open_tab = None;
+            ui.horizontal(|ui| {
+                ui.colored_label(summary.mood_color, &summary.mood_label);
+                ui.separator();
+                ui.label(egui::RichText::new(&summary.action_text).italics());
+            });
+
+            ui.horizontal(|ui| {
+                ui.label("❤");
+                ui.add(
+                    egui::ProgressBar::new(summary.hp_pct)
+                        .desired_width(110.0)
+                        .text(format!("{:.0}", summary.hp_pct * 100.0)),
+                );
+                ui.label("⚡");
+                ui.add(
+                    egui::ProgressBar::new(summary.energy_pct)
+                        .desired_width(110.0)
+                        .text(format!("{:.0}", summary.energy_pct * 100.0)),
+                );
+            });
+
+            ui.add_space(4.0);
+            ui.separator();
+
+            // Tab strip
+            ui.horizontal_wrapped(|ui| {
+                for tab in &visible_tabs {
+                    if ui.selectable_label(*tab == new_tab, tab.label()).clicked() {
+                        new_tab = *tab;
+                    }
+                }
+            });
+            ui.separator();
+
+            // Tab content
+            egui::ScrollArea::vertical()
+                .auto_shrink([false, false])
+                .show(ui, |ui| match new_tab {
+                    CharSheetTab::Overview => render_overview(ui, world, entity),
+                    CharSheetTab::Needs => render_needs(ui, world, entity),
+                    CharSheetTab::Personality => render_personality(ui, world, entity),
+                    CharSheetTab::Social => render_social(ui, world, entity),
+                    CharSheetTab::Health => render_health(ui, world, entity),
+                    CharSheetTab::Knowledge => render_knowledge(ui, world, entity),
+                    CharSheetTab::Inventory => render_inventory(ui, world, entity),
+                    CharSheetTab::Brain => render_brain(ui, world, entity),
+                });
+        });
+
+    let mut cs = world.resource_mut::<CharacterSheetState>();
+    cs.active_tab = new_tab;
+    if dismiss {
+        cs.dismissed_for = Some(entity);
     }
 }
 
 // ============================================================================
-// BOTTOM BAR
+// HEADER SUMMARY
 // ============================================================================
 
-struct BottomSummary {
-    name: String,
+struct HeaderSummary {
     mood_label: String,
     mood_color: Color32,
     action_text: String,
@@ -221,15 +260,10 @@ struct BottomSummary {
     energy_pct: f32,
 }
 
-fn build_bottom_summary(world: &World, entity: Entity) -> BottomSummary {
-    let name = world
-        .get::<Name>(entity)
-        .map(|n| n.to_string())
-        .unwrap_or_else(|| format!("{:?}", entity));
-
+fn build_header_summary(world: &World, entity: Entity) -> HeaderSummary {
     let (mood_label, mood_color) = world
         .get::<EmotionalState>(entity)
-        .map(|e| mood_descriptor(e))
+        .map(mood_descriptor)
         .unwrap_or_else(|| ("Unknown".into(), Color32::GRAY));
 
     let action_text = current_action_summary(world, entity);
@@ -239,71 +273,13 @@ fn build_bottom_summary(world: &World, entity: Entity) -> BottomSummary {
         .map(|n| (n.health / 100.0, n.energy / 100.0))
         .unwrap_or((0.0, 0.0));
 
-    BottomSummary {
-        name,
+    HeaderSummary {
         mood_label,
         mood_color,
         action_text,
         hp_pct,
         energy_pct,
     }
-}
-
-/// Renders the bottom pane: a summary row (name, mood, action, HP, energy)
-/// followed by a row of tab toggle buttons. Returns the tab the user clicked
-/// this frame, if any — the caller is responsible for turning that into an
-/// open/close transition.
-fn render_bottom_bar(
-    ctx: &mut egui::Context,
-    summary: &BottomSummary,
-    visible_tabs: &[CharSheetTab],
-    open_tab: Option<CharSheetTab>,
-) -> Option<CharSheetTab> {
-    let mut clicked = None;
-    egui::TopBottomPanel::bottom("character_sheet_bottom_bar")
-        .resizable(false)
-        .show(ctx, |ui| {
-            ui.add_space(4.0);
-            ui.horizontal(|ui| {
-                ui.spacing_mut().item_spacing.x = 12.0;
-
-                ui.label(egui::RichText::new(&summary.name).strong().size(16.0));
-
-                ui.separator();
-                ui.colored_label(summary.mood_color, &summary.mood_label);
-
-                ui.separator();
-                ui.label(egui::RichText::new(&summary.action_text).italics());
-
-                ui.separator();
-                ui.label("❤");
-                ui.add(
-                    egui::ProgressBar::new(summary.hp_pct)
-                        .desired_width(80.0)
-                        .text(format!("{:.0}", summary.hp_pct * 100.0)),
-                );
-
-                ui.label("⚡");
-                ui.add(
-                    egui::ProgressBar::new(summary.energy_pct)
-                        .desired_width(80.0)
-                        .text(format!("{:.0}", summary.energy_pct * 100.0)),
-                );
-            });
-
-            ui.separator();
-
-            ui.horizontal_wrapped(|ui| {
-                for tab in visible_tabs {
-                    let is_open = open_tab == Some(*tab);
-                    if ui.selectable_label(is_open, tab.label()).clicked() {
-                        clicked = Some(*tab);
-                    }
-                }
-            });
-            ui.add_space(4.0);
-        });
-    clicked
 }
 
 // ============================================================================
@@ -478,12 +454,41 @@ fn render_overview(ui: &mut egui::Ui, world: &World, entity: Entity) {
 // ============================================================================
 
 fn render_needs(ui: &mut egui::Ui, world: &World, entity: Entity) {
+    let urgencies = world
+        .get::<CentralNervousSystem>(entity)
+        .map(|cns| cns.urgencies.as_slice())
+        .unwrap_or(&[]);
+    let urgency_for = |source: UrgencySource| -> Option<f32> {
+        urgencies
+            .iter()
+            .find(|u| u.source == source)
+            .map(|u| u.value)
+    };
+
     ui.heading("Physical Needs");
     if let Some(needs) = world.get::<PhysicalNeeds>(entity) {
-        need_bar(ui, "Hunger", needs.hunger, 100.0, 60.0, true);
-        need_bar(ui, "Thirst", needs.thirst, 100.0, 60.0, true);
-        need_bar(ui, "Energy", needs.energy, 100.0, 30.0, false);
-        need_bar(ui, "Health", needs.health, 100.0, 30.0, false);
+        need_bar(
+            ui,
+            "Hunger",
+            needs.hunger,
+            100.0,
+            urgency_for(UrgencySource::Hunger),
+        );
+        need_bar(
+            ui,
+            "Thirst",
+            needs.thirst,
+            100.0,
+            urgency_for(UrgencySource::Thirst),
+        );
+        need_bar(
+            ui,
+            "Energy",
+            needs.energy,
+            100.0,
+            urgency_for(UrgencySource::Energy),
+        );
+        need_bar(ui, "Health", needs.health, 100.0, None);
     }
 
     if let Some(consc) = world.get::<Consciousness>(entity) {
@@ -501,84 +506,77 @@ fn render_needs(ui: &mut egui::Ui, world: &World, entity: Entity) {
     if let Some(drives) = world.get::<PsychologicalDrives>(entity) {
         ui.separator();
         ui.heading("Psychological Drives");
-        drive_bar(ui, "Social", drives.social);
-        drive_bar(ui, "Fun", drives.fun);
-        drive_bar(ui, "Curiosity", drives.curiosity);
-        drive_bar(ui, "Status", drives.status);
-        drive_bar(ui, "Security", drives.security);
-        drive_bar(ui, "Autonomy", drives.autonomy);
-        drive_bar(ui, "Territoriality", drives.territoriality);
-    }
-
-    if let Some(cns) = world.get::<CentralNervousSystem>(entity) {
-        ui.separator();
-        ui.heading("Active Urgencies");
-        if cns.urgencies.is_empty() {
-            ui.label(egui::RichText::new("No urgent drives").italics());
-        } else {
-            for u in &cns.urgencies {
-                ui.horizontal(|ui| {
-                    ui.label(format!("{:?}", u.source));
-                    ui.add(
-                        egui::ProgressBar::new(u.value)
-                            .desired_width(160.0)
-                            .text(format!("{:.2}", u.value)),
-                    );
-                });
-            }
-        }
+        drive_bar(
+            ui,
+            "Social",
+            drives.social,
+            urgency_for(UrgencySource::Social),
+        );
+        drive_bar(ui, "Fun", drives.fun, urgency_for(UrgencySource::Fun));
+        drive_bar(ui, "Curiosity", drives.curiosity, None);
+        drive_bar(ui, "Status", drives.status, None);
+        drive_bar(ui, "Security", drives.security, None);
+        drive_bar(ui, "Autonomy", drives.autonomy, None);
+        drive_bar(
+            ui,
+            "Territoriality",
+            drives.territoriality,
+            urgency_for(UrgencySource::Territoriality),
+        );
     }
 }
 
-/// Draws a need bar with a threshold marker. `threshold_urgent` is the value
-/// where the brain starts caring; the color shifts from green to red past it.
-/// `high_is_bad` = true for hunger/thirst (high = urgent).
-fn need_bar(
-    ui: &mut egui::Ui,
-    label: &str,
-    value: f32,
-    max: f32,
-    threshold: f32,
-    high_is_bad: bool,
-) {
+/// Draws a need bar with the raw need value (e.g. hunger 0..100). When the
+/// nervous system has emitted an urgency for this drive, the score is shown
+/// as a thin secondary bar underneath — that's the brain's actual opinion of
+/// how much it cares right now, not a hand-picked threshold.
+fn need_bar(ui: &mut egui::Ui, label: &str, value: f32, max: f32, urgency: Option<f32>) {
     let pct = (value / max).clamp(0.0, 1.0);
-    let urgent = if high_is_bad {
-        value >= threshold
-    } else {
-        value <= threshold
-    };
-    let color = if urgent {
-        Color32::from_rgb(220, 80, 60)
-    } else if (high_is_bad && value >= threshold * 0.7)
-        || (!high_is_bad && value <= threshold * 1.5)
-    {
-        Color32::from_rgb(220, 190, 60)
-    } else {
-        Color32::from_rgb(80, 200, 100)
-    };
     ui.horizontal(|ui| {
-        ui.label(label);
+        ui.label(egui::RichText::new(label).strong());
         ui.add(
             egui::ProgressBar::new(pct)
-                .desired_width(200.0)
-                .fill(color)
+                .desired_width(180.0)
                 .text(format!("{:.0}/{:.0}", value, max)),
         );
-        ui.label(
-            egui::RichText::new(format!("⚠ {}", threshold as i32))
-                .color(Color32::GRAY)
-                .small(),
-        );
     });
+    if let Some(u) = urgency {
+        urgency_subbar(ui, u);
+    }
 }
 
-fn drive_bar(ui: &mut egui::Ui, label: &str, value: f32) {
+fn drive_bar(ui: &mut egui::Ui, label: &str, value: f32, urgency: Option<f32>) {
     ui.horizontal(|ui| {
-        ui.label(label);
+        ui.label(egui::RichText::new(label).strong());
         ui.add(
             egui::ProgressBar::new(value.clamp(0.0, 1.0))
-                .desired_width(200.0)
+                .desired_width(180.0)
                 .text(format!("{:.2}", value)),
+        );
+    });
+    if let Some(u) = urgency {
+        urgency_subbar(ui, u);
+    }
+}
+
+/// Secondary thin bar showing the live urgency score from the CNS for the
+/// drive above. This is what the brain actually thinks about the need right
+/// now, after curves, sensitivities, modifiers and gating.
+fn urgency_subbar(ui: &mut egui::Ui, urgency: f32) {
+    let normalized = urgency.clamp(0.0, 1.0);
+    let color = severity_color(1.0 - normalized, 0.3, 0.6);
+    ui.horizontal(|ui| {
+        ui.add_space(28.0);
+        ui.label(
+            egui::RichText::new("urgency")
+                .small()
+                .color(Color32::LIGHT_GRAY),
+        );
+        ui.add(
+            egui::ProgressBar::new(normalized)
+                .desired_width(150.0)
+                .fill(color)
+                .text(egui::RichText::new(format!("{:.2}", urgency)).small()),
         );
     });
 }
