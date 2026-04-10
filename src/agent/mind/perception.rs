@@ -11,6 +11,7 @@ use crate::core::GameLog;
 use crate::core::tick::TickCount;
 use crate::world::environment::LightLevel;
 use crate::world::map::{CHUNK_SIZE, TILE_SIZE};
+use crate::world::spatial_index::SpatialIndex;
 use bevy::prelude::*;
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -35,7 +36,8 @@ pub struct VisibleObjects {
 
 pub fn update_visual_perception(
     mut agents: Query<(Entity, &Transform, &Vision, &mut VisibleObjects), With<Agent>>,
-    physical_entities: Query<(Entity, &Transform), With<crate::world::Physical>>,
+    transforms: Query<&Transform, With<crate::world::Physical>>,
+    spatial_index: Res<SpatialIndex>,
     light_level: Res<LightLevel>,
     mut _game_log: ResMut<GameLog>,
     tick: Res<TickCount>,
@@ -50,14 +52,18 @@ pub fn update_visual_perception(
         let agent_pos = agent_transform.translation.truncate();
         let view_range = vision.range * light_level.0;
 
-        for (entity, target_transform) in physical_entities.iter() {
+        // Spatial index gives us only nearby candidates (O(k) instead of O(n)).
+        // We still do a precise distance check since chunk buckets are coarser than view range.
+        for entity in spatial_index.entities_near(agent_pos, view_range) {
             if entity == agent_entity {
                 continue;
             }
 
-            let target_pos = target_transform.translation.truncate();
-            if agent_pos.distance(target_pos) <= view_range {
-                visible_objects.entities.push(entity);
+            if let Ok(target_transform) = transforms.get(entity) {
+                let target_pos = target_transform.translation.truncate();
+                if agent_pos.distance(target_pos) <= view_range {
+                    visible_objects.entities.push(entity);
+                }
             }
         }
 
