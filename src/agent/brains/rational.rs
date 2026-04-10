@@ -6,7 +6,7 @@
 //! Downstream: brains::proposal (winner selection)
 
 use crate::agent::actions::ActionType;
-use crate::agent::actions::channel::ChannelCapacities;
+use crate::agent::actions::channel::{ChannelCapacities, ChannelLoad};
 use crate::agent::biology::body::Body;
 use crate::agent::body::needs::{Consciousness, PhysicalNeeds};
 use crate::agent::brains::proposal::{BrainProposal, BrainType, Intent};
@@ -31,6 +31,23 @@ pub struct RationalBrain {
     pub current_goal: Option<Goal>,
     #[reflect(ignore)]
     pub plan_index: usize,
+}
+
+/// True when the agent's anatomy can perform an action — every required
+/// channel fits under the hard-conflict threshold against an empty load.
+///
+/// This must match the math `ChannelLoad::would_hard_conflict` uses at
+/// arbitration time. If it drifts, the planner will propose infeasible
+/// actions that arbitration silently drops, leaving the rational brain
+/// stuck with a winning proposal that never starts — see #345, where a
+/// wolf's jaw Manipulation (0.4) passed a naive `> 0.0` check and Attack
+/// (Manipulation 0.9) got proposed instead of Bite.
+fn action_is_anatomically_feasible(
+    body_channels: &[crate::agent::actions::channel::ChannelUsage],
+    capacities: &ChannelCapacities,
+) -> bool {
+    let empty = ChannelLoad::new();
+    !empty.would_hard_conflict(body_channels, capacities)
 }
 
 /// Check if an action's effects are all satisfied in the MindGraph.
@@ -439,16 +456,7 @@ fn collect_planning_actions(
     let belief_state = crate::agent::mind::belief_state::BeliefState::new(mind);
 
     for action in action_registry.all() {
-        // Skip actions whose body channels exceed the agent's anatomical
-        // capacity. A wolf can't Attack (no Manipulation) and a human
-        // can't Bite (no Bite channel). Without this gate the planner
-        // would propose infeasible actions that arbitration then rejects,
-        // leaving the agent stuck with no plan.
-        let feasible = action
-            .body_channels()
-            .iter()
-            .all(|cu| cu.intensity <= 0.0 || capacities.get(cu.channel) > 0.0);
-        if !feasible {
+        if !action_is_anatomically_feasible(action.body_channels(), capacities) {
             continue;
         }
 
@@ -731,6 +739,47 @@ mod tests {
         assert!(
             (proposal.urgency - IDLE_WANDER_URGENCY).abs() < 0.01,
             "idle wander urgency should equal IDLE_WANDER_URGENCY"
+        );
+    }
+
+    /// Regression for #345: the planner's feasibility gate must reject
+    /// actions whose channel intensity would hard-conflict against an empty
+    /// load, not just "the channel exists at all." A wolf has Manipulation
+    /// 0.4 from its jaws; Attack requires Manipulation 0.9. The old gate
+    /// passed Attack because 0.4 > 0.0, then arbitration rejected it at
+    /// runtime, leaving the wolf's rational brain stuck proposing Attack
+    /// while Bite was never considered — agent ended up idle.
+    #[test]
+    fn anatomical_feasibility_rejects_attack_for_wolf() {
+        use crate::agent::actions::action::{AttackAction, BiteAction};
+        use crate::agent::actions::registry::Action;
+        use crate::agent::biology::body::Body;
+
+        let wolf_caps = ChannelCapacities::compute(Some(&Body::wolf()), None);
+        assert!(
+            !action_is_anatomically_feasible(AttackAction.body_channels(), &wolf_caps),
+            "wolf's Manipulation 0.4 should hard-conflict with Attack's 0.9"
+        );
+        assert!(
+            action_is_anatomically_feasible(BiteAction.body_channels(), &wolf_caps),
+            "wolf's jaws (Bite 1.0) should comfortably run Bite"
+        );
+    }
+
+    #[test]
+    fn anatomical_feasibility_rejects_bite_for_human() {
+        use crate::agent::actions::action::{AttackAction, BiteAction};
+        use crate::agent::actions::registry::Action;
+        use crate::agent::biology::body::Body;
+
+        let human_caps = ChannelCapacities::compute(Some(&Body::human()), None);
+        assert!(
+            action_is_anatomically_feasible(AttackAction.body_channels(), &human_caps),
+            "human's two arms (Manipulation 1.0) should fit Attack's 0.9"
+        );
+        assert!(
+            !action_is_anatomically_feasible(BiteAction.body_channels(), &human_caps),
+            "human has no Bite channel; Bite must be rejected"
         );
     }
 }
