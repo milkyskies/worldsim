@@ -1,6 +1,6 @@
 //! Communication: parallel Bevy plugin that runs conversations as a continuous channel.
 //!
-//! Reads: PsychologicalDrives, Transform, ActiveActions, MindGraph, EmotionalState, Personality
+//! Reads: PsychologicalDrives, Transform, ActiveActions, MindGraph, EmotionalState, Personality, RationalBrain
 //! Writes: ConversationManager, InConversation, ActiveActions (Converse marker), MindGraph (Hearsay), GameEvent, SimEvent
 //! Upstream: agent::mind::conversation (data types), agent::actions (channel marker)
 //! Downstream: psyche::relationships (consumes SocialInteraction), psyche::emotions (ConversationAbandoned)
@@ -35,12 +35,13 @@ use crate::agent::Agent;
 use crate::agent::actions::registry::{ActionState, ActiveActions};
 use crate::agent::actions::types::ActionType;
 use crate::agent::brains::rational::RationalBrain;
+use crate::agent::brains::thinking::Goal;
 use crate::agent::events::{ConversationTopic, GameEvent, SimEvent};
 use crate::agent::mind::conversation::{
     Conversation, ConversationAbandoned, ConversationManager, ConversationState, InConversation,
     Intent, Topic, Turn,
 };
-use crate::agent::mind::knowledge::{Metadata, MindGraph, Node, Predicate, Value};
+use crate::agent::mind::knowledge::{Concept, Metadata, MindGraph, Node, Predicate, Value};
 use crate::agent::mind::social_perception::CONVERSATION_RANGE;
 use crate::agent::psyche::emotions::EmotionalState;
 use crate::agent::psyche::personality::Personality;
@@ -55,9 +56,14 @@ use crate::core::tick::TickCount;
 /// considered abandoned and ended.
 pub const STALE_CONVERSATION_TICKS: u64 = 300;
 
-/// Ticks between two turns from the same conversation. Keeps the dialogue
-/// readable rather than every tick producing a new turn.
-pub const TURN_INTERVAL_TICKS: u64 = 30;
+/// Ticks between casual chitchat turns (Share / Acknowledge). Relaxed cadence.
+pub const CHITCHAT_INTERVAL_TICKS: u64 = 60;
+
+/// Ticks between urgent turns (Ask / Answer). Faster cadence for information exchange.
+pub const URGENT_INTERVAL_TICKS: u64 = 30;
+
+/// Ticks before a Farewell fires. Short — the conversation is already wrapping.
+pub const FAREWELL_INTERVAL_TICKS: u64 = 20;
 
 /// Conversations end gracefully after this many turns when neither side
 /// has a competing urgency.
@@ -66,10 +72,14 @@ pub const NATURAL_END_TURN_COUNT: usize = 6;
 /// Reduction in `social` drive each successful turn satisfies.
 pub const SOCIAL_DRIVE_PER_TURN: f32 = 0.1;
 
-/// Maximum number of small-talk triples picked from the speaker's MindGraph
-/// per `Share` turn. Keeps each turn focused rather than dumping the agent's
-/// entire memory.
+/// Maximum number of triples shared per `Share` turn.
 pub const SMALL_TALK_TRIPLES_PER_TURN: usize = 2;
+
+/// Base salience threshold for danger warnings. Neurotic agents warn at lower salience.
+pub const DANGER_WARN_SALIENCE: f32 = 0.7;
+
+/// Danger observations older than this many ticks are not worth warning about.
+pub const DANGER_RECENCY_TICKS: u64 = 600;
 
 // ============================================================================
 // Plugin
@@ -242,54 +252,107 @@ impl EntityCommand for RemoveConverseMarker {
 }
 
 // ============================================================================
-// 2. Select turn intent (basic version — #46 replaces with smart selection)
+// 2. Select turn intent
 // ============================================================================
 
 /// For each active conversation whose turn cadence is up, append a new turn
-/// from the current speaker. Intent selection is intentionally simple in this
-/// PR — issue #46 will read agent state, goals, and relationship to pick
-/// nuanced intents.
+/// from the current speaker.
 ///
-/// **Content selection** uses [`deliberate_talk::pick_deliberate_content`] (#42) — for `Share`
-/// intents the speaker offers up to `SMALL_TALK_TRIPLES_PER_TURN` triples
-/// selected by goal relevance, novelty, salience, and recency. The topic is
-/// inferred from the selected content (danger warning → Help, location knowledge
-/// → Location, otherwise General).
+/// Intent is selected by [`select_intent`] based on the speaker's knowledge,
+/// active goal, and personality. The cadence between turns varies by intent:
+/// urgent intents (Ask/Answer) fire every [`URGENT_INTERVAL_TICKS`] ticks;
+/// casual sharing fires every [`CHITCHAT_INTERVAL_TICKS`] ticks.
+///
+/// **Content selection**: `Share` and `Answer` turns try deliberate content
+/// first ([`deliberate_talk::pick_deliberate_content`]) and fall back to small
+/// talk if nothing qualifies. Other intents carry no content.
 pub fn select_turn_intent(
     mut manager: ResMut<ConversationManager>,
     tick: Res<TickCount>,
     minds: Query<&MindGraph>,
     rational_brains: Query<&RationalBrain>,
+    personalities: Query<&Personality>,
 ) {
     let now = tick.current;
     for conv in manager.conversations.values_mut() {
         if conv.state == ConversationState::Ended {
             continue;
         }
-        // Greeting turn fires immediately on tick 0; subsequent turns wait.
-        if !conv.turns.is_empty() && now.saturating_sub(conv.last_turn_at) < TURN_INTERVAL_TICKS {
-            continue;
-        }
 
         let speaker = conv.current_speaker();
         let listener = conv.other_participant(speaker);
-        let intent = next_intent_for(conv);
 
-        // Only Share intents carry content; Greet/Farewell/Acknowledge are pure speech acts.
-        let (content, topic) = if matches!(intent, Intent::Share)
-            && let (Ok(speaker_mind), Ok(listener_mind)) = (minds.get(speaker), minds.get(listener))
+        let Ok(speaker_mind) = minds.get(speaker) else {
+            continue;
+        };
+        let Ok(listener_mind) = minds.get(listener) else {
+            continue;
+        };
+        let goal = rational_brains
+            .get(speaker)
+            .ok()
+            .and_then(|b| b.current_goal.as_ref());
+        let personality = personalities.get(speaker).ok();
+
+        // Pre-compute content availability once so select_intent doesn't need
+        // to re-scan the triple store.
+        let has_deliberate = !crate::agent::mind::deliberate_talk::pick_deliberate_content(
+            speaker_mind,
+            goal,
+            listener_mind,
+            now,
+            1,
+        )
+        .0
+        .is_empty();
+        let has_casual = !crate::agent::mind::small_talk::pick_small_talk_triples(
+            speaker_mind,
+            listener_mind,
+            now,
+            1,
+        )
+        .is_empty();
+
+        let intent = select_intent(
+            conv,
+            speaker_mind,
+            listener_mind,
+            goal,
+            personality,
+            now,
+            has_deliberate,
+            has_casual,
+        );
+
+        // Greet fires immediately; subsequent turns wait for the per-intent cadence.
+        let min_interval = intent_interval(intent);
+        if min_interval > 0
+            && !conv.turns.is_empty()
+            && now.saturating_sub(conv.last_turn_at) < min_interval
         {
-            let goal = rational_brains
-                .get(speaker)
-                .ok()
-                .and_then(|b| b.current_goal.as_ref());
-            crate::agent::mind::deliberate_talk::pick_deliberate_content(
+            continue;
+        }
+
+        // Share and Answer carry knowledge content; other intents are pure speech.
+        let (content, topic) = if matches!(intent, Intent::Share | Intent::Answer) {
+            let deliberate = crate::agent::mind::deliberate_talk::pick_deliberate_content(
                 speaker_mind,
                 goal,
                 listener_mind,
                 now,
                 SMALL_TALK_TRIPLES_PER_TURN,
-            )
+            );
+            if !deliberate.0.is_empty() {
+                deliberate
+            } else {
+                let casual = crate::agent::mind::small_talk::pick_small_talk_triples(
+                    speaker_mind,
+                    listener_mind,
+                    now,
+                    SMALL_TALK_TRIPLES_PER_TURN,
+                );
+                (casual, Topic::General)
+            }
         } else {
             (Vec::new(), Topic::General)
         };
@@ -324,23 +387,141 @@ pub fn select_turn_intent(
     }
 }
 
-/// Pick the next intent for the current speaker.
+/// Select the intent for the speaker's next turn based on their knowledge,
+/// active goal, and personality traits.
 ///
-/// Trivial state machine for now: greet, then share, then wrap with farewell.
-/// Issue #46 replaces this with goal-aware selection.
-fn next_intent_for(conv: &Conversation) -> Intent {
-    match conv.state {
-        ConversationState::Greeting if conv.turns.is_empty() => Intent::Greet,
-        ConversationState::Wrapping => Intent::Farewell,
-        ConversationState::Ended => Intent::Farewell,
-        _ => {
-            if conv.last_turn_expects_response() {
-                Intent::Acknowledge
-            } else {
-                Intent::Share
-            }
+/// `has_deliberate` and `has_casual` are pre-computed by the caller to avoid
+/// redundant triple scans — content availability is checked once outside and
+/// the result passed in.
+///
+/// Priority order:
+/// 1. **Greet** — first turn in a new conversation
+/// 2. **Farewell** — conversation is wrapping up
+/// 3. **Share (Warn)** — recent high-salience danger the listener doesn't know.
+///    Neuroticism lowers the salience threshold (anxious agents warn more readily).
+/// 4. **Ask** — active goal needs location information the listener might have
+/// 5. **Answer** — listener asked something last turn
+/// 6. **Share** — has salient, novel world knowledge to pass on
+/// 7. **Share (ChitChat)** — extraverted agents keep talking via small talk
+/// 8. **Acknowledge** — default; nothing compelling to say
+pub(crate) fn select_intent(
+    conv: &Conversation,
+    speaker_mind: &MindGraph,
+    listener_mind: &MindGraph,
+    goal: Option<&Goal>,
+    personality: Option<&Personality>,
+    now: u64,
+    has_deliberate: bool,
+    has_casual: bool,
+) -> Intent {
+    let neuroticism = personality.map(|p| p.traits.neuroticism).unwrap_or(0.5);
+    let extraversion = personality.map(|p| p.traits.extraversion).unwrap_or(0.5);
+
+    // 1. Greet on first turn.
+    if conv.state == ConversationState::Greeting && conv.turns.is_empty() {
+        return Intent::Greet;
+    }
+
+    // 2. Farewell when wrapping.
+    if matches!(
+        conv.state,
+        ConversationState::Wrapping | ConversationState::Ended
+    ) {
+        return Intent::Farewell;
+    }
+
+    // 3. Warn: recent high-salience danger the listener doesn't know yet.
+    //    Neuroticism lowers the threshold — anxious agents warn more readily.
+    let warn_threshold = (DANGER_WARN_SALIENCE - (neuroticism - 0.5) * 0.2).clamp(0.3, 1.0);
+    if has_danger_to_warn(speaker_mind, listener_mind, warn_threshold, now) {
+        return Intent::Share;
+    }
+
+    // 4. Ask: active goal that requires finding something (location/containment).
+    if let Some(g) = goal {
+        if goal_needs_location(g) {
+            return Intent::Ask;
         }
     }
+
+    // 5. Answer: listener asked something last turn.
+    if conv.last_turn_expects_response() {
+        return Intent::Answer;
+    }
+
+    // 6. Share: has deliberate world knowledge scoring above the minimum threshold.
+    if has_deliberate {
+        return Intent::Share;
+    }
+
+    // 7. ChitChat: extraverted agents share casual observations even when nothing
+    //    urgent is on their mind.
+    if extraversion > 0.55 && has_casual {
+        return Intent::Share;
+    }
+
+    // 8. Default: pure social acknowledgement.
+    Intent::Acknowledge
+}
+
+/// Returns the minimum ticks to wait before the next turn of this intent type.
+///
+/// Greet fires immediately (no wait); urgent intents (Ask/Answer) use the
+/// shorter [`URGENT_INTERVAL_TICKS`]; casual sharing uses [`CHITCHAT_INTERVAL_TICKS`].
+fn intent_interval(intent: Intent) -> u64 {
+    match intent {
+        Intent::Greet => 0,
+        Intent::Farewell => FAREWELL_INTERVAL_TICKS,
+        Intent::Ask | Intent::Answer => URGENT_INTERVAL_TICKS,
+        _ => CHITCHAT_INTERVAL_TICKS,
+    }
+}
+
+/// True if the speaker has recent high-salience danger knowledge the listener
+/// likely doesn't know. Uses the [`DANGER_RECENCY_TICKS`] window to exclude
+/// stale observations.
+fn has_danger_to_warn(
+    speaker_mind: &MindGraph,
+    listener_mind: &MindGraph,
+    salience_threshold: f32,
+    now: u64,
+) -> bool {
+    // Build listener's danger confidence map once to avoid a nested query per
+    // speaker triple.
+    let listener_danger: Vec<(&Node, f32)> = listener_mind
+        .triples
+        .iter()
+        .filter(|t| {
+            t.predicate == Predicate::HasTrait && t.object == Value::Concept(Concept::Dangerous)
+        })
+        .map(|t| (&t.subject, t.meta.confidence))
+        .collect();
+
+    let listener_confidence = |subject: &Node| -> f32 {
+        listener_danger
+            .iter()
+            .filter(|(s, _)| *s == subject)
+            .map(|(_, c)| *c)
+            .fold(0.0_f32, f32::max)
+    };
+
+    speaker_mind.triples.iter().any(|t| {
+        t.predicate == Predicate::HasTrait
+            && t.object == Value::Concept(Concept::Dangerous)
+            && t.meta.salience >= salience_threshold
+            && now.saturating_sub(t.meta.timestamp) <= DANGER_RECENCY_TICKS
+            && listener_confidence(&t.subject) < 0.5
+    })
+}
+
+/// True if the goal has at least one condition that requires location information
+/// (i.e. the agent needs to find *where* something is).
+fn goal_needs_location(goal: &Goal) -> bool {
+    goal.conditions.iter().any(|cond| {
+        cond.predicate
+            .map(|p| matches!(p, Predicate::LocatedAt | Predicate::Contains))
+            .unwrap_or(false)
+    })
 }
 
 // ============================================================================
@@ -710,16 +891,196 @@ mod tests {
         assert_eq!(map_topic(Topic::Help), ConversationTopic::Request);
     }
 
-    #[test]
-    fn next_intent_starts_with_greet() {
-        let conv = Conversation::new(0, [Entity::from_bits(1), Entity::from_bits(2)], 0);
-        assert_eq!(next_intent_for(&conv), Intent::Greet);
+    // ── select_intent tests ─────────────────────────────────────────────────
+
+    use crate::agent::mind::knowledge::{MemoryType, Metadata, Source, Triple};
+
+    fn empty_mind() -> MindGraph {
+        MindGraph::default()
+    }
+
+    fn danger_triple(subject: Node, salience: f32, timestamp: u64) -> Triple {
+        Triple::with_meta(
+            subject,
+            Predicate::HasTrait,
+            Value::Concept(Concept::Dangerous),
+            Metadata {
+                source: Source::Experienced,
+                memory_type: MemoryType::Episodic,
+                timestamp,
+                confidence: 1.0,
+                informant: None,
+                evidence: Vec::new(),
+                salience,
+            },
+        )
     }
 
     #[test]
-    fn next_intent_wraps_with_farewell() {
+    fn select_intent_greets_on_first_turn() {
+        let conv = Conversation::new(0, [Entity::from_bits(1), Entity::from_bits(2)], 0);
+        let mind = empty_mind();
+        assert_eq!(
+            select_intent(&conv, &mind, &mind, None, None, 0, false, false),
+            Intent::Greet
+        );
+    }
+
+    #[test]
+    fn select_intent_farewell_when_wrapping() {
         let mut conv = Conversation::new(0, [Entity::from_bits(1), Entity::from_bits(2)], 0);
         conv.state = ConversationState::Wrapping;
-        assert_eq!(next_intent_for(&conv), Intent::Farewell);
+        let mind = empty_mind();
+        assert_eq!(
+            select_intent(&conv, &mind, &mind, None, None, 0, false, false),
+            Intent::Farewell
+        );
+    }
+
+    #[test]
+    fn select_intent_warns_when_danger_known_and_partner_unaware() {
+        let mut conv = Conversation::new(0, [Entity::from_bits(1), Entity::from_bits(2)], 0);
+        conv.state = ConversationState::Active;
+        // Inject a dummy turn so we're not in first-turn state.
+        conv.add_turn(Turn {
+            speaker: Entity::from_bits(1),
+            intent: Intent::Greet,
+            topic: crate::agent::mind::conversation::Topic::General,
+            emotion: None,
+            content: Vec::new(),
+            timestamp: 0,
+            expects_response: false,
+        });
+
+        let mut speaker = empty_mind();
+        speaker.assert(danger_triple(
+            Node::Concept(Concept::Wolf),
+            0.9, // high salience
+            0,   // at tick 0, queried at tick 100 → within DANGER_RECENCY_TICKS
+        ));
+        let listener = empty_mind(); // partner unaware
+
+        assert_eq!(
+            select_intent(&conv, &speaker, &listener, None, None, 100, false, false),
+            Intent::Share,
+            "should warn about danger the listener doesn't know"
+        );
+    }
+
+    #[test]
+    fn select_intent_does_not_warn_if_listener_already_knows() {
+        let mut conv = Conversation::new(0, [Entity::from_bits(1), Entity::from_bits(2)], 0);
+        conv.state = ConversationState::Active;
+        conv.add_turn(Turn {
+            speaker: Entity::from_bits(1),
+            intent: Intent::Greet,
+            topic: crate::agent::mind::conversation::Topic::General,
+            emotion: None,
+            content: Vec::new(),
+            timestamp: 0,
+            expects_response: false,
+        });
+
+        let mut speaker = empty_mind();
+        speaker.assert(danger_triple(Node::Concept(Concept::Wolf), 0.9, 0));
+
+        // Listener also knows — high confidence.
+        let mut listener = empty_mind();
+        listener.assert(Triple::with_meta(
+            Node::Concept(Concept::Wolf),
+            Predicate::HasTrait,
+            Value::Concept(Concept::Dangerous),
+            Metadata {
+                source: Source::Experienced,
+                memory_type: MemoryType::Episodic,
+                timestamp: 0,
+                confidence: 1.0,
+                informant: None,
+                evidence: Vec::new(),
+                salience: 0.9,
+            },
+        ));
+
+        // With nothing else to share and no content available, falls through to Acknowledge.
+        assert_eq!(
+            select_intent(&conv, &speaker, &listener, None, None, 100, false, false),
+            Intent::Acknowledge,
+            "should not warn about danger the listener already knows"
+        );
+    }
+
+    #[test]
+    fn select_intent_asks_when_goal_needs_location() {
+        use crate::agent::brains::thinking::{Goal, TriplePattern};
+
+        let mut conv = Conversation::new(0, [Entity::from_bits(1), Entity::from_bits(2)], 0);
+        conv.state = ConversationState::Active;
+        conv.add_turn(Turn {
+            speaker: Entity::from_bits(1),
+            intent: Intent::Greet,
+            topic: crate::agent::mind::conversation::Topic::General,
+            emotion: None,
+            content: Vec::new(),
+            timestamp: 0,
+            expects_response: false,
+        });
+
+        let mind = empty_mind();
+        let goal = Goal {
+            conditions: vec![TriplePattern::new(None, Some(Predicate::LocatedAt), None)],
+            priority: 1.0,
+        };
+
+        assert_eq!(
+            select_intent(&conv, &mind, &mind, Some(&goal), None, 0, false, false),
+            Intent::Ask,
+            "agent with location-seeking goal should Ask"
+        );
+    }
+
+    #[test]
+    fn select_intent_answers_when_partner_asked() {
+        let mut conv = Conversation::new(0, [Entity::from_bits(1), Entity::from_bits(2)], 0);
+        conv.state = ConversationState::Active;
+        // Add a turn that expects a response.
+        conv.add_turn(Turn {
+            speaker: Entity::from_bits(2),
+            intent: Intent::Ask,
+            topic: crate::agent::mind::conversation::Topic::General,
+            emotion: None,
+            content: Vec::new(),
+            timestamp: 0,
+            expects_response: true, // partner asked
+        });
+
+        let mind = empty_mind();
+        assert_eq!(
+            select_intent(&conv, &mind, &mind, None, None, 0, false, false),
+            Intent::Answer,
+            "should Answer when partner asked last turn"
+        );
+    }
+
+    #[test]
+    fn select_intent_defaults_to_acknowledge() {
+        let mut conv = Conversation::new(0, [Entity::from_bits(1), Entity::from_bits(2)], 0);
+        conv.state = ConversationState::Active;
+        conv.add_turn(Turn {
+            speaker: Entity::from_bits(1),
+            intent: Intent::Greet,
+            topic: crate::agent::mind::conversation::Topic::General,
+            emotion: None,
+            content: Vec::new(),
+            timestamp: 0,
+            expects_response: false,
+        });
+
+        // Empty minds, no goal, low extraversion, no content → Acknowledge.
+        let mind = empty_mind();
+        assert_eq!(
+            select_intent(&conv, &mind, &mind, None, None, 0, false, false),
+            Intent::Acknowledge,
+            "nothing to say → Acknowledge"
+        );
     }
 }
