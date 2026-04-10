@@ -4,7 +4,7 @@
 //! ONE definition serves the planner AND the executor.
 
 use crate::agent::actions::ActionType;
-use crate::agent::actions::action::AttackAction;
+use crate::agent::actions::action::{AttackAction, BiteAction};
 use crate::agent::actions::channel::ChannelUsage;
 use crate::agent::brains::thinking::{ActionTemplate, TriplePattern};
 use crate::agent::events::FailureReason;
@@ -627,6 +627,7 @@ impl ActionRegistry {
         registry.register(FleeAction);
         registry.register(ExploreAction);
         registry.register(AttackAction);
+        registry.register(BiteAction);
         registry.register(HarvestAction);
         registry.register(BuildAction);
         registry.register(DepositAction);

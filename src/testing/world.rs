@@ -104,7 +104,8 @@ fn sim_event_tick(event: &SimEvent) -> u64 {
         | SimEvent::KnowledgeShared { tick, .. }
         | SimEvent::WarmthPerceived { tick, .. }
         | SimEvent::SoundPerceived { tick, .. }
-        | SimEvent::TheoryOfMindUpdated { tick, .. } => *tick,
+        | SimEvent::TheoryOfMindUpdated { tick, .. }
+        | SimEvent::EffectApplied { tick, .. } => *tick,
     }
 }
 
@@ -149,6 +150,8 @@ fn sim_event_involves(event: &SimEvent, agent: Entity) -> bool {
         SimEvent::TheoryOfMindUpdated {
             agent: a, about, ..
         } => *a == agent || *about == agent,
+
+        SimEvent::EffectApplied { agent: a, .. } => *a == agent,
     }
 }
 
@@ -347,6 +350,14 @@ fn format_sim_event(event: &SimEvent) -> String {
                 "[t{tick}] TheoryOfMindUpdated agent={agent:?} about={about:?} \
                  source={source:?} beliefs={belief_count}"
             )
+        }
+
+        SimEvent::EffectApplied {
+            agent,
+            tick,
+            source,
+        } => {
+            format!("[t{tick}] EffectApplied     agent={agent:?} source={source:?}")
         }
     }
 }
@@ -970,14 +981,7 @@ impl TestWorld {
         // Body
         if let Some(body) = world.get::<Body>(agent) {
             eprintln!("  Body:");
-            for (label, part) in [
-                ("head     ", &body.head),
-                ("torso    ", &body.torso),
-                ("left_arm ", &body.left_arm),
-                ("right_arm", &body.right_arm),
-                ("left_leg ", &body.left_leg),
-                ("right_leg", &body.right_leg),
-            ] {
+            for part in body.parts() {
                 let injury_str = if part.injuries.is_empty() {
                     String::new()
                 } else {
@@ -991,8 +995,8 @@ impl TestWorld {
                     )
                 };
                 eprintln!(
-                    "    {label}  hp={:.0}/{:.0}  fn={:.2}{}",
-                    part.current_hp, part.max_hp, part.function_rate, injury_str
+                    "    {:<10}  hp={:.0}/{:.0}  fn={:.2}{}",
+                    part.name, part.current_hp, part.max_hp, part.function_rate, injury_str
                 );
             }
         }

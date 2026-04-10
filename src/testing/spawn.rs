@@ -94,7 +94,7 @@ pub(super) fn spawn_test_person(
             // Body is normally added by `setup_biology` on the next Update;
             // pre-insert it so brain queries that read `Option<&Body>` see it
             // immediately and tests can inspect injuries without an extra tick.
-            Body::default(),
+            Body::human(),
         ))
         .id()
 }
@@ -136,6 +136,11 @@ pub(super) fn spawn_test_deer(world: &mut World, ontology: Ontology, pos: Vec2) 
             Consciousness::default(),
             ActiveActions::default(),
             EmotionalState::default(),
+            // Species-specific anatomy so channel queries against the deer
+            // see real capacity numbers (no Manipulation, no Bite, four-leg
+            // Locomotion). Pre-inserted for the same reason as humans —
+            // tests shouldn't need to tick once before poking at the body.
+            Body::deer(),
         ))
         .id()
 }
@@ -180,6 +185,10 @@ pub(super) fn spawn_test_wolf(world: &mut World, ontology: Ontology, pos: Vec2) 
             PsychologicalDrives::default(),
             ActiveActions::default(),
             EmotionalState::default(),
+            // Wolf anatomy: four legs for fast Locomotion, jaws providing
+            // Bite 1.0 + limited Manipulation 0.4. Pre-inserted so channel
+            // lookups see it immediately.
+            Body::wolf(),
         ))
         .id()
 }

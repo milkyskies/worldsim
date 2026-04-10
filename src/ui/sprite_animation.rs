@@ -12,6 +12,8 @@ use bevy::prelude::*;
 use bevy::transform::TransformSystems;
 use std::collections::HashMap;
 
+use crate::world::map::{ELEVATION_LIFT, SEA_LEVEL, WorldMap};
+
 pub struct SpriteAnimationPlugin;
 
 impl Plugin for SpriteAnimationPlugin {
@@ -35,6 +37,23 @@ pub struct SpriteBody {
 impl SpriteBody {
     pub fn new(root: Entity, phase: f32) -> Self {
         Self { root, phase }
+    }
+}
+
+/// Marker on a shadow sprite entity. Follows the root's terrain elevation
+/// so the shadow always sits on the ground — no bounce, unlike SpriteBody.
+/// `base_offset` is the local position of the shadow at sea level
+/// (typically negative y for feet, positive x to push away from a NW sun).
+#[derive(Component, Debug, Clone, Reflect)]
+#[reflect(Component)]
+pub struct GroundShadow {
+    pub root: Entity,
+    pub base_offset: Vec2,
+}
+
+impl GroundShadow {
+    pub fn new(root: Entity, base_offset: Vec2) -> Self {
+        Self { root, base_offset }
     }
 }
 
@@ -65,7 +84,9 @@ struct MoveTracker {
 
 fn animate_sprite_bodies(
     time: Res<Time>,
+    world_map: Option<Res<WorldMap>>,
     body_query: Query<(Entity, &SpriteBody)>,
+    shadow_query: Query<(Entity, &GroundShadow)>,
     mut transforms: Query<&mut Transform>,
     mut trackers: Local<HashMap<Entity, MoveTracker>>,
 ) {
@@ -92,7 +113,7 @@ fn animate_sprite_bodies(
         // Consider "moving" if position changed within the last 0.2 seconds
         let is_moving = (t - tracker.last_moved_at) < 0.2;
 
-        let (y_offset, x_scale, y_scale) = if is_moving {
+        let (bounce_y, x_scale, y_scale) = if is_moving {
             let bounces_per_sec = 2.5;
             let cycle = ((t * bounces_per_sec + body.phase) % 1.0).clamp(0.0, 1.0);
             bounce_frame(cycle, 3.0)
@@ -100,15 +121,46 @@ fn animate_sprite_bodies(
             (0.0, 1.0, 1.0)
         };
 
+        // Lift the sprite body by the underlying tile's elevation so the
+        // agent sits on top of the visual terrain relief instead of at the
+        // flat grid position.
+        let elevation_lift = elevation_lift_at(world_map.as_deref(), root_pos);
+
         if let Ok(mut bt) = transforms.get_mut(body_entity) {
-            bt.translation.y = y_offset;
+            bt.translation.y = bounce_y + elevation_lift;
             bt.scale = Vec3::new(x_scale, y_scale, 1.0);
+        }
+    }
+
+    // Shadows track the terrain surface — elevation lift only, no bounce —
+    // so sprites visibly hop above their shadow.
+    for (shadow_entity, shadow) in shadow_query.iter() {
+        let root_pos = transforms
+            .get(shadow.root)
+            .map(|tr| tr.translation.truncate())
+            .unwrap_or(Vec2::ZERO);
+        let elevation_lift = elevation_lift_at(world_map.as_deref(), root_pos);
+        if let Ok(mut st) = transforms.get_mut(shadow_entity) {
+            st.translation.x = shadow.base_offset.x;
+            st.translation.y = shadow.base_offset.y + elevation_lift;
         }
     }
 
     if trackers.len() > alive.len() {
         trackers.retain(|e, _| alive.contains(e));
     }
+}
+
+/// Convert a world position to a vertical lift in screen pixels, matching
+/// how terrain tiles are lifted in `setup_map`.
+fn elevation_lift_at(world_map: Option<&WorldMap>, pos: Vec2) -> f32 {
+    world_map
+        .and_then(|m| {
+            let (tx, ty) = m.world_to_tile(pos);
+            m.elevation_at(tx, ty)
+        })
+        .map(|e| (e - SEA_LEVEL) * ELEVATION_LIFT)
+        .unwrap_or(0.0)
 }
 
 #[cfg(test)]

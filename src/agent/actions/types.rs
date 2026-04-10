@@ -48,6 +48,11 @@ pub enum ActionType {
     /// by the CommunicationPlugin — never proposed by brains directly.
     Converse,
     Attack,
+    /// Jaws-as-weapon attack. Requires `Channel::Bite`, so only species
+    /// whose anatomy provides it (wolves, future crocodiles, snakes) can
+    /// perform it. Distinct from `Attack`, which needs `Manipulation` and
+    /// covers hands / weapons / grapples.
+    Bite,
     Flee,
 }
 

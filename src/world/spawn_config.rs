@@ -155,26 +155,21 @@ fn compute_realistic_layout(config: &WorldSpawnConfig, map: &WorldMap) -> SpawnL
         );
     }
 
-    // Apple trees prefer forest biomes.
+    // Apple trees spawn on grass.
     for _ in 0..config.apple_trees {
-        if let Some(pos) = find_biome_tile(map, &mut rng, &[TileType::Forest], MAX_SPAWN_ATTEMPTS) {
+        if let Some(pos) = find_biome_tile(map, &mut rng, &[TileType::Grass], MAX_SPAWN_ATTEMPTS) {
             layout.apple_tree_positions.push((pos, 5));
         }
     }
 
-    // Remaining berry bushes scatter across grass and forest.
+    // Remaining berry bushes scatter across grass.
     let scattered = config.berry_bushes.saturating_sub(if settlement.is_some() {
         SETTLEMENT_BERRY_BUSH_COUNT
     } else {
         0
     });
     for _ in 0..scattered {
-        if let Some(pos) = find_biome_tile(
-            map,
-            &mut rng,
-            &[TileType::Grass, TileType::Forest],
-            MAX_SPAWN_ATTEMPTS,
-        ) {
+        if let Some(pos) = find_biome_tile(map, &mut rng, &[TileType::Grass], MAX_SPAWN_ATTEMPTS) {
             layout.berry_bush_positions.push((pos, 4));
         }
     }
@@ -186,9 +181,9 @@ fn compute_realistic_layout(config: &WorldSpawnConfig, map: &WorldMap) -> SpawnL
         }
     }
 
-    // Wood logs scatter across forest biomes.
+    // Wood logs scatter across grass.
     for _ in 0..config.wood_logs {
-        if let Some(pos) = find_biome_tile(map, &mut rng, &[TileType::Forest], MAX_SPAWN_ATTEMPTS) {
+        if let Some(pos) = find_biome_tile(map, &mut rng, &[TileType::Grass], MAX_SPAWN_ATTEMPTS) {
             layout.wood_log_positions.push((pos, 4));
         }
     }
@@ -233,7 +228,7 @@ fn compute_deer_herd_positions(
     total: usize,
     rng: &mut impl rand::Rng,
 ) -> Vec<Vec2> {
-    let allowed = [TileType::Grass, TileType::Forest];
+    let allowed = [TileType::Grass];
     let mut positions = Vec::new();
     let mut attempts = 0usize;
 
@@ -297,7 +292,7 @@ fn compute_wolf_pack_positions(
     total: usize,
     rng: &mut impl rand::Rng,
 ) -> Vec<Vec2> {
-    let allowed = [TileType::Forest];
+    let allowed = [TileType::Grass];
     let mut positions = Vec::new();
     let mut attempts = 0usize;
 
@@ -319,7 +314,7 @@ fn compute_wolf_pack_positions(
 
         let Some(anchor_pos) = anchor else {
             bevy::log::warn!(
-                "wolf spawn: no qualifying forest tile found ({} wolves unplaced)",
+                "wolf spawn: no qualifying tile found ({} wolves unplaced)",
                 remaining
             );
             break;
