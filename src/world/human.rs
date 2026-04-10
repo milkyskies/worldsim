@@ -53,6 +53,7 @@ pub fn spawn_person(
             Visibility::default(),
             InheritedVisibility::default(),
             ViewVisibility::default(),
+            crate::ui::sprite_animation::VisualOffset::default(),
         ))
         .insert(brain)
         .id();

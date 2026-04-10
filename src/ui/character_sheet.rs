@@ -367,6 +367,16 @@ fn visible_tabs_for_entity(
 // ============================================================================
 
 fn render_overview(ui: &mut egui::Ui, world: &World, entity: Entity) {
+    // Position
+    if let Some(transform) = world.get::<Transform>(entity) {
+        let pos = transform.translation.truncate();
+        ui.label(
+            egui::RichText::new(format!("({:.0}, {:.0})", pos.x, pos.y))
+                .color(egui::Color32::GRAY)
+                .small(),
+        );
+    }
+
     // Current action + target
     ui.heading("Current Action");
     ui.label(current_action_summary(world, entity));
@@ -1350,7 +1360,9 @@ fn current_action_summary(world: &World, entity: Entity) -> String {
             .map(|n| n.to_string())
             .unwrap_or_else(|| format!("{:?}", target));
         format!("{} {}", base, target_name)
-    } else if let Some(pos) = a.target_position {
+    } else if let Some(pos) = a.target_position
+        && !matches!(a.action_type, ActionType::Flee)
+    {
         format!("{} ({:.0}, {:.0})", base, pos.x, pos.y)
     } else {
         base.to_string()
