@@ -218,6 +218,7 @@ fn spawn_helper_creates_one_slot_per_requirement() {
             &[],
             None,
             42,
+            None,
         );
         commands_queue.apply(app.world_mut());
         id
@@ -254,6 +255,7 @@ fn spawn_helper_deposits_initial_items() {
             &[(Concept::Wood, 2)],
             None,
             0,
+            None,
         );
         commands_queue.apply(app.world_mut());
         id
@@ -286,6 +288,7 @@ fn full_initial_items_cause_immediate_transform_on_next_tick() {
             &[(Concept::Wood, 3)], // exactly enough
             None,
             7,
+            None,
         );
         commands_queue.apply(app.world_mut());
         id
