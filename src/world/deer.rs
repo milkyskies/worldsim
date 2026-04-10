@@ -143,7 +143,7 @@ pub fn spawn_deer(
 /// Deer know:
 /// - Berries are food (but NOT apples)
 /// - Persons are dangerous (triggers fear → flee)
-fn add_deer_knowledge(mind: &mut MindGraph) {
+pub(crate) fn add_deer_knowledge(mind: &mut MindGraph) {
     use crate::agent::mind::knowledge::{
         MemoryType, Metadata, Node, Predicate, Source, Triple, Value,
     };
@@ -156,9 +156,6 @@ fn add_deer_knowledge(mind: &mut MindGraph) {
         ..Default::default()
     };
 
-    // === FOOD KNOWLEDGE ===
-
-    // "I know berries are food"
     mind.assert(Triple::with_meta(
         Node::Concept(Concept::Berry),
         Predicate::IsA,
@@ -166,7 +163,6 @@ fn add_deer_knowledge(mind: &mut MindGraph) {
         meta.clone(),
     ));
 
-    // "I know berry bushes produce berries"
     mind.assert(Triple::with_meta(
         Node::Concept(Concept::BerryBush),
         Predicate::Produces,
@@ -174,17 +170,11 @@ fn add_deer_knowledge(mind: &mut MindGraph) {
         meta.clone(),
     ));
 
-    // === DANGER KNOWLEDGE ===
-    // This is the key! Deer know Person is Dangerous.
-    // When they perceive a Person, the emotional brain will trigger Fear,
-    // and the survival brain will propose fleeing.
-
-    // "I know persons are dangerous"
     mind.assert(Triple::with_meta(
         Node::Concept(Concept::Person),
         Predicate::HasTrait,
         Value::Concept(Concept::Dangerous),
-        meta.clone(),
+        meta,
     ));
 
     // Deer do NOT know apples are food - they won't try to eat them!

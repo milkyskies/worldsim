@@ -9,6 +9,7 @@ pub mod world {
     pub const APPLE_TREE_SPAWN_COUNT: usize = 24;
     pub const BERRY_BUSH_SPAWN_COUNT: usize = 32;
     pub const DEER_SPAWN_COUNT: usize = 8;
+    pub const WOLF_SPAWN_COUNT: usize = 6;
     pub const STONE_NODE_SPAWN_COUNT: usize = 20;
     pub const WOOD_LOG_SPAWN_COUNT: usize = 20;
     /// Maximum attempts to find a walkable spawn position before giving up
@@ -37,6 +38,15 @@ pub mod world {
     /// Minimum tile distance between a deer herd anchor and the human
     /// settlement center.
     pub const DEER_MIN_DISTANCE_FROM_SETTLEMENT: u32 = 12;
+
+    /// Number of wolves per pack.
+    pub const WOLF_PACK_SIZE: usize = 3;
+
+    /// Tile radius for wolf-pack cluster spawning.
+    pub const WOLF_PACK_RADIUS_TILES: u32 = 4;
+
+    /// Minimum tile distance between a wolf pack anchor and the human settlement.
+    pub const WOLF_MIN_DISTANCE_FROM_SETTLEMENT: u32 = 18;
 }
 
 /// Agent movement parameters

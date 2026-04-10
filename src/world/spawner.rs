@@ -2,7 +2,7 @@
 //! Ensures consistent ECS components + Knowledge Graph assertions.
 //!
 //! Reads: WorldMap, Ontology, WorldSpawnConfig (layout computation)
-//! Writes: Person, Deer, BerryBush, AppleTree entities (initial population)
+//! Writes: Person, Deer, Wolf, BerryBush, AppleTree entities (initial population)
 //! Upstream: world::map (terrain), world::spawn_config (placement layout)
 //! Downstream: agent systems consume the resulting entities
 //!
@@ -11,6 +11,7 @@
 //! - `apple_tree.rs` - Apple Tree spawning
 //! - `berry_bush.rs` - Berry Bush spawning
 //! - `deer.rs` - Deer spawning
+//! - `wolf.rs` - Wolf spawning
 //! - `stone_node.rs` - Stone Node spawning
 //! - `wood_log.rs` - Wood Log spawning
 
@@ -29,6 +30,7 @@ pub use super::human::spawn_person;
 pub use super::stone_node::{
     StoneNodeMarker, VisualStoneChunk, spawn_stone_node, sync_stone_visuals,
 };
+pub use super::wolf::{Wolf, spawn_wolf};
 pub use super::wood_log::{VisualWoodPiece, WoodLogMarker, spawn_wood_log, sync_wood_visuals};
 
 pub struct SpawnerPlugin;
@@ -40,9 +42,13 @@ impl Plugin for SpawnerPlugin {
 
         app.register_type::<ResourceRegeneration>()
             .register_type::<Deer>()
+            .register_type::<Wolf>()
             .add_systems(
                 Startup,
-                spawn_initial_population.after(crate::world::map::setup_map),
+                (
+                    spawn_initial_population.after(crate::world::map::setup_map),
+                    setup_wolf_pack_bonds.after(spawn_initial_population),
+                ),
             )
             .add_systems(
                 Update,
@@ -97,6 +103,10 @@ pub fn apply_layout(commands: &mut Commands, ontology: &Ontology, layout: &Spawn
         spawn_deer(commands, ontology.clone(), pos, i);
     }
 
+    for (i, &pos) in layout.wolf_positions.iter().enumerate() {
+        spawn_wolf(commands, ontology.clone(), pos, i);
+    }
+
     for &(pos, berries) in &layout.berry_bush_positions {
         spawn_berry_bush(commands, pos, berries);
     }
@@ -111,5 +121,46 @@ pub fn apply_layout(commands: &mut Commands, ontology: &Ontology, layout: &Spawn
 
     for &(pos, wood) in &layout.wood_log_positions {
         spawn_wood_log(commands, pos, wood);
+    }
+}
+
+/// Establishes mutual pack bonds between all spawned wolves.
+///
+/// Runs once at Startup after `spawn_initial_population`. Each wolf learns every
+/// other wolf as a high-trust friend — the same relationship mechanism humans use
+/// for family or close community members.
+fn setup_wolf_pack_bonds(
+    mut wolf_query: Query<(Entity, &mut crate::agent::mind::knowledge::MindGraph), With<Wolf>>,
+) {
+    use crate::agent::mind::knowledge::{Concept, Metadata, Node, Predicate, Triple, Value};
+
+    let wolves: Vec<Entity> = wolf_query.iter().map(|(e, _)| e).collect();
+    if wolves.len() < 2 {
+        return;
+    }
+
+    let meta = Metadata::default(); // Source::Intrinsic
+
+    for (entity, mut mind) in wolf_query.iter_mut() {
+        for &packmate in wolves.iter().filter(|&&e| e != entity) {
+            mind.assert(Triple::with_meta(
+                Node::Entity(packmate),
+                Predicate::IsA,
+                Value::Concept(Concept::Friend),
+                meta.clone(),
+            ));
+            mind.assert(Triple::with_meta(
+                Node::Entity(packmate),
+                Predicate::Trust,
+                Value::Float(0.9),
+                meta.clone(),
+            ));
+            mind.assert(Triple::with_meta(
+                Node::Entity(packmate),
+                Predicate::Affection,
+                Value::Float(0.8),
+                meta.clone(),
+            ));
+        }
     }
 }

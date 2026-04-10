@@ -66,9 +66,11 @@ pub struct HeadlessConfig {
     pub apple_trees: usize,
     /// Number of deer to scatter across the map.
     pub deer: usize,
+    /// Number of wolf predators to scatter across the map.
+    pub wolves: usize,
     /// When true, use the same 128×128 map and Realistic placement algorithm as
-    /// the normal game. The `humans`, `deer`, `berry_bushes`, and `apple_trees`
-    /// fields still apply and override the game defaults for each entity type.
+    /// the normal game. The `humans`, `deer`, `berry_bushes`, `apple_trees`, and
+    /// `wolves` fields still apply and override the game defaults for each entity type.
     pub game_defaults: bool,
     /// Decision trace configuration. Disabled by default (no overhead when
     /// `trace.agent_filter` is `AgentFilter::Disabled`).
@@ -88,6 +90,7 @@ impl Default for HeadlessConfig {
             berry_bushes: 8,
             apple_trees: 4,
             deer: 3,
+            wolves: 0,
             game_defaults: false,
             trace: TraceConfig::default(),
             event_log: None,
@@ -255,12 +258,13 @@ fn run_inspection(world: &mut TestWorld, inspect: &InspectConfig) {
 }
 
 /// Spawns the configured population into the TestWorld using `WorldSpawnConfig`.
-/// Returns the number of agents spawned (humans + deer).
+/// Returns the number of agents spawned (humans + deer + wolves).
 fn populate(world: &mut TestWorld, config: &HeadlessConfig) -> u64 {
     let spawn_config = if config.game_defaults {
         WorldSpawnConfig {
             humans: config.humans,
             deer: config.deer,
+            wolves: config.wolves,
             berry_bushes: config.berry_bushes,
             apple_trees: config.apple_trees,
             seed: config.seed,
@@ -270,6 +274,7 @@ fn populate(world: &mut TestWorld, config: &HeadlessConfig) -> u64 {
         WorldSpawnConfig {
             humans: config.humans,
             deer: config.deer,
+            wolves: config.wolves,
             berry_bushes: config.berry_bushes,
             apple_trees: config.apple_trees,
             seed: config.seed,
@@ -284,7 +289,7 @@ fn populate(world: &mut TestWorld, config: &HeadlessConfig) -> u64 {
     };
     world.apply_spawn_layout(&layout);
 
-    (config.humans + config.deer) as u64
+    (config.humans + config.deer + config.wolves) as u64
 }
 
 fn collect_report(
@@ -494,19 +499,23 @@ mod tests {
     }
 
     #[test]
-    fn game_defaults_spawns_correct_human_count() {
+    fn game_defaults_spawns_correct_agent_count() {
         let game = crate::world::spawn_config::WorldSpawnConfig::game_defaults();
         let config = HeadlessConfig {
             ticks: 0,
             game_defaults: true,
             humans: game.humans,
             deer: game.deer,
+            wolves: game.wolves,
             berry_bushes: game.berry_bushes,
             apple_trees: game.apple_trees,
             ..Default::default()
         };
         let report = run_headless(config);
-        assert_eq!(report.agents.spawned, (game.humans + game.deer) as u64);
+        assert_eq!(
+            report.agents.spawned,
+            (game.humans + game.deer + game.wolves) as u64
+        );
     }
 
     #[test]

@@ -11,7 +11,7 @@
 //! (`ActionType::InitiateConversation`); once registered, the plugin owns the
 //! lifecycle.
 
-use super::proposal::{BrainProposal, BrainType};
+use super::proposal::{BrainProposal, BrainType, Intent};
 use crate::agent::actions::ActionType;
 use crate::agent::body::needs::PsychologicalDrives;
 use crate::agent::mind::conversation::InConversation;
@@ -99,6 +99,7 @@ fn seek_social_initiation(
             brain: BrainType::Emotional,
             action: action.to_template(Some(entity), None),
             urgency,
+            intent: Intent::SatisfySocial,
             reasoning: format!("I want to chat with {entity:?} (social: {social_drive:.2})"),
         });
     }
@@ -159,6 +160,7 @@ fn evaluate_entity_emotions(
                 brain: BrainType::Emotional,
                 action: action.to_template(Some(entity), None),
                 urgency: fear * FEAR_ENTITY_URGENCY_MULTIPLIER,
+                intent: Intent::SatisfySafety,
                 reasoning: format!("I'm scared of {:?} (fear: {:.2})", entity, fear),
             },
             fear,
@@ -175,6 +177,7 @@ fn evaluate_entity_emotions(
                 brain: BrainType::Emotional,
                 action: action.to_template(Some(entity), None),
                 urgency: joy * JOY_ENTITY_URGENCY_MULTIPLIER,
+                intent: Intent::SatisfySocial,
                 reasoning: format!("I like {:?} (joy: {:.2})", entity, joy),
             },
             joy,
@@ -191,6 +194,7 @@ fn evaluate_entity_emotions(
                 brain: BrainType::Emotional,
                 action: action.to_template(Some(entity), None),
                 urgency: anger * ANGER_ENTITY_URGENCY_MULTIPLIER,
+                intent: Intent::SatisfySafety,
                 reasoning: format!("I hate {:?}! (anger: {:.2})", entity, anger),
             },
             anger,
@@ -225,6 +229,7 @@ fn check_general_fear(
             brain: BrainType::Emotional,
             action: action.to_template(None, None),
             urgency: fear_urgency,
+            intent: Intent::SatisfySafety,
             reasoning: format!("I'm terrified! (fear: {:.2})", fear_level),
         });
     }

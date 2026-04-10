@@ -13,7 +13,8 @@ use crate::constants::world::{
     APPLE_TREE_SPAWN_COUNT, BERRY_BUSH_SPAWN_COUNT, DEER_HERD_RADIUS_TILES, DEER_HERD_SIZE,
     DEER_MIN_DISTANCE_FROM_SETTLEMENT, DEER_SPAWN_COUNT, HUMAN_CLUSTER_RADIUS_TILES,
     HUMAN_SPAWN_COUNT, MAX_SPAWN_ATTEMPTS, SETTLEMENT_BERRY_BUSH_COUNT,
-    SETTLEMENT_FOOD_RADIUS_TILES, STONE_NODE_SPAWN_COUNT, WOOD_LOG_SPAWN_COUNT,
+    SETTLEMENT_FOOD_RADIUS_TILES, STONE_NODE_SPAWN_COUNT, WOLF_MIN_DISTANCE_FROM_SETTLEMENT,
+    WOLF_PACK_RADIUS_TILES, WOLF_PACK_SIZE, WOLF_SPAWN_COUNT, WOOD_LOG_SPAWN_COUNT,
 };
 use crate::world::map::{TileType, WORLD_HEIGHT, WORLD_WIDTH, WorldMap};
 use crate::world::spawn_placement::{
@@ -39,6 +40,7 @@ pub struct WorldSpawnConfig {
     pub map_size: (u32, u32),
     pub humans: usize,
     pub deer: usize,
+    pub wolves: usize,
     pub berry_bushes: usize,
     pub apple_trees: usize,
     pub stone_nodes: usize,
@@ -56,6 +58,7 @@ impl WorldSpawnConfig {
             map_size: (WORLD_WIDTH, WORLD_HEIGHT),
             humans: HUMAN_SPAWN_COUNT,
             deer: DEER_SPAWN_COUNT,
+            wolves: WOLF_SPAWN_COUNT,
             berry_bushes: BERRY_BUSH_SPAWN_COUNT,
             apple_trees: APPLE_TREE_SPAWN_COUNT,
             stone_nodes: STONE_NODE_SPAWN_COUNT,
@@ -81,6 +84,7 @@ impl WorldSpawnConfig {
 pub struct SpawnLayout {
     pub human_positions: Vec<Vec2>,
     pub deer_positions: Vec<Vec2>,
+    pub wolf_positions: Vec<Vec2>,
     /// Each entry is (world position, initial berry count).
     pub berry_bush_positions: Vec<(Vec2, u32)>,
     /// Each entry is (world position, initial apple count).
@@ -167,6 +171,9 @@ fn compute_realistic_layout(config: &WorldSpawnConfig, map: &WorldMap) -> SpawnL
     // Deer in small herds kept away from the settlement.
     layout.deer_positions = compute_deer_herd_positions(map, settlement, config.deer, &mut rng);
 
+    // Wolves in packs in deep forest, well away from the settlement.
+    layout.wolf_positions = compute_wolf_pack_positions(map, settlement, config.wolves, &mut rng);
+
     layout
 }
 
@@ -234,6 +241,73 @@ fn compute_deer_herd_positions(
     positions
 }
 
+fn compute_wolf_pack_positions(
+    map: &WorldMap,
+    settlement: Option<UVec2>,
+    total: usize,
+    rng: &mut impl rand::Rng,
+) -> Vec<Vec2> {
+    let allowed = [TileType::Forest];
+    let mut positions = Vec::new();
+    let mut attempts = 0usize;
+
+    while positions.len() < total {
+        let remaining = total - positions.len();
+        let pack_size = remaining.min(WOLF_PACK_SIZE);
+
+        let anchor = match settlement {
+            Some(center) => find_tile_away_from(
+                map,
+                rng,
+                &allowed,
+                center,
+                WOLF_MIN_DISTANCE_FROM_SETTLEMENT,
+                MAX_SPAWN_ATTEMPTS,
+            ),
+            None => find_biome_tile(map, rng, &allowed, MAX_SPAWN_ATTEMPTS),
+        };
+
+        let Some(anchor_pos) = anchor else {
+            bevy::log::warn!(
+                "wolf spawn: no qualifying forest tile found ({} wolves unplaced)",
+                remaining
+            );
+            break;
+        };
+
+        let (anchor_tx, anchor_ty) = map.world_to_tile(anchor_pos);
+        let pack_positions = cluster_positions(
+            map,
+            UVec2::new(anchor_tx, anchor_ty),
+            pack_size,
+            WOLF_PACK_RADIUS_TILES,
+            rng,
+        );
+
+        if pack_positions.is_empty() {
+            positions.push(anchor_pos);
+        } else {
+            for pos in pack_positions {
+                positions.push(pos);
+                if positions.len() == total {
+                    return positions;
+                }
+            }
+        }
+
+        attempts += 1;
+        if attempts > total * 2 {
+            bevy::log::warn!(
+                "wolf spawn: placement loop exceeded limit ({} wolves unplaced)",
+                total - positions.len()
+            );
+            break;
+        }
+    }
+
+    positions
+}
+
 fn fallback_random_walkable(map: &WorldMap, rng: &mut impl rand::Rng, count: usize) -> Vec<Vec2> {
     let mut positions = Vec::with_capacity(count);
     for _ in 0..count {
@@ -263,6 +337,9 @@ fn compute_uniform_layout(config: &WorldSpawnConfig) -> SpawnLayout {
     }
     for _ in 0..config.deer {
         layout.deer_positions.push(random_uniform_pos(&mut rng));
+    }
+    for _ in 0..config.wolves {
+        layout.wolf_positions.push(random_uniform_pos(&mut rng));
     }
     for _ in 0..config.berry_bushes {
         layout
