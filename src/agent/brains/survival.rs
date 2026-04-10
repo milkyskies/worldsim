@@ -5,7 +5,7 @@
 //! Upstream: nervous_system::urgency (produces urgency scores), item_slots
 //! Downstream: brains::proposal (winner selection)
 
-use super::proposal::{BrainProposal, BrainType};
+use super::proposal::{BrainProposal, BrainType, Intent};
 use crate::agent::actions::{ActionType, ActiveActions};
 use crate::agent::body::needs::PhysicalNeeds;
 use crate::agent::item_slots::ItemSlots;
@@ -52,6 +52,7 @@ pub fn survival_brain_propose(
         .find(|u| survival_sources.contains(&u.source))?;
 
     let urgency_score = top.value * 100.0;
+    let intent = Intent::from_urgency_source(top.source);
 
     match top.source {
         UrgencySource::Hunger => {
@@ -62,6 +63,7 @@ pub fn survival_brain_propose(
                     brain: BrainType::Survival,
                     action: action.to_template(None, None),
                     urgency: urgency_score,
+                    intent,
                     reasoning: format!("Hunger urgency {:.2} — eating!", top.value),
                 });
             }
@@ -71,6 +73,7 @@ pub fn survival_brain_propose(
                     brain: BrainType::Survival,
                     action: action.to_template(None, None),
                     urgency: urgency_score * 0.7,
+                    intent,
                     reasoning: format!("Hunger urgency {:.2} — searching for food!", top.value),
                 });
             }
@@ -81,6 +84,7 @@ pub fn survival_brain_propose(
                     brain: BrainType::Survival,
                     action: action.to_template(None, None),
                     urgency: urgency_score,
+                    intent,
                     reasoning: format!("Thirst urgency {:.2} — drinking!", top.value),
                 });
             }
@@ -91,6 +95,7 @@ pub fn survival_brain_propose(
                     brain: BrainType::Survival,
                     action: action.to_template(None, None),
                     urgency: urgency_score,
+                    intent,
                     reasoning: format!("Fatigue urgency {:.2} — sleeping!", top.value),
                 });
             }
@@ -101,6 +106,7 @@ pub fn survival_brain_propose(
                     brain: BrainType::Survival,
                     action: action.to_template(None, None),
                     urgency: urgency_score,
+                    intent,
                     reasoning: format!("Pain urgency {:.2} — can't move!", top.value),
                 });
             }
@@ -111,6 +117,7 @@ pub fn survival_brain_propose(
                     brain: BrainType::Survival,
                     action: action.to_template(None, None),
                     urgency: urgency_score,
+                    intent,
                     reasoning: format!("Fear urgency {:.2} — fleeing!", top.value),
                 });
             }
@@ -139,6 +146,7 @@ fn check_sleep_wake(
                 brain: BrainType::Survival,
                 action: wake_action,
                 urgency: 50.0,
+                intent: Intent::SatisfyEnergy,
                 reasoning: format!("Rested! Energy {:.0} — waking up", energy),
             });
         } else if let Some(action) = action_registry.get(ActionType::Sleep) {
@@ -146,6 +154,7 @@ fn check_sleep_wake(
                 brain: BrainType::Survival,
                 action: action.to_template(None, None),
                 urgency: 100.0 - energy,
+                intent: Intent::SatisfyEnergy,
                 reasoning: format!("Still tired... {:.0} energy", energy),
             });
         }

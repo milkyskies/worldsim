@@ -7,7 +7,7 @@
 
 use crate::agent::actions::ActionType;
 use crate::agent::body::needs::Consciousness;
-use crate::agent::brains::proposal::{BrainProposal, BrainType};
+use crate::agent::brains::proposal::{BrainProposal, BrainType, Intent};
 use crate::agent::brains::thinking::{ActionTemplate, Goal, TriplePattern};
 use crate::agent::item_slots::ItemSlots;
 use crate::agent::mind::knowledge::{MindGraph, Node, Predicate, Value};
@@ -302,6 +302,15 @@ pub fn rational_brain_propose(
         Option<&crate::agent::affordance::Affordance>,
     )>,
 ) -> Option<BrainProposal> {
+    // The intent for any goal-directed rational proposal is derived from the
+    // top urgency source that drove goal formulation. If no urgency, this is
+    // idle wandering (Intent::None).
+    let goal_intent = cns
+        .urgencies
+        .first()
+        .map(|u| Intent::from_urgency_source(u.source))
+        .unwrap_or(Intent::None);
+
     if let Some(plan) = &brain.current_plan
         && brain.plan_index < plan.len()
     {
@@ -312,6 +321,7 @@ pub fn rational_brain_propose(
                 brain: BrainType::Rational,
                 action: action.clone(),
                 urgency: PLAN_CONTINUATION_URGENCY,
+                intent: goal_intent,
                 reasoning: format!("Continuing plan step {}: {}", brain.plan_index, action.name),
             });
         }
@@ -345,6 +355,7 @@ pub fn rational_brain_propose(
                     brain: BrainType::Rational,
                     action: first_action.clone(),
                     urgency: goal.priority,
+                    intent: goal_intent,
                     reasoning: format!("New plan for goal: {:?}", goal.conditions),
                 });
             } else {
@@ -356,6 +367,7 @@ pub fn rational_brain_propose(
                     brain: BrainType::Rational,
                     action: wander_action,
                     urgency: crate::constants::brains::rational::GOAL_SATISFIED_WANDER_URGENCY,
+                    intent: Intent::None,
                     reasoning: "Goal already satisfied, wandering".to_string(),
                 });
             }
@@ -372,6 +384,7 @@ pub fn rational_brain_propose(
             brain: BrainType::Rational,
             action: explore_action,
             urgency: goal.priority * EXPLORE_FALLBACK_PRIORITY_MULTIPLIER,
+            intent: goal_intent,
             reasoning: "Can't plan - exploring for resources".to_string(),
         });
     }
@@ -384,6 +397,7 @@ pub fn rational_brain_propose(
         brain: BrainType::Rational,
         action: wander_action,
         urgency: IDLE_WANDER_URGENCY,
+        intent: Intent::None,
         reasoning: "Nothing to do, wandering".to_string(),
     })
 }
