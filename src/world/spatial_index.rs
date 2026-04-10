@@ -45,12 +45,12 @@ impl SpatialIndex {
         }
 
         // Remove from old bucket.
-        if let Some(old) = old_chunk {
-            if let Some(bucket) = self.buckets.get_mut(&old) {
-                bucket.retain(|&e| e != entity);
-                if bucket.is_empty() {
-                    self.buckets.remove(&old);
-                }
+        if let Some(old) = old_chunk
+            && let Some(bucket) = self.buckets.get_mut(&old)
+        {
+            bucket.retain(|&e| e != entity);
+            if bucket.is_empty() {
+                self.buckets.remove(&old);
             }
         }
 
@@ -61,12 +61,12 @@ impl SpatialIndex {
 
     /// Remove an entity from the index entirely (e.g. on despawn).
     pub fn remove_entity(&mut self, entity: Entity) {
-        if let Some(chunk) = self.entity_chunks.remove(&entity) {
-            if let Some(bucket) = self.buckets.get_mut(&chunk) {
-                bucket.retain(|&e| e != entity);
-                if bucket.is_empty() {
-                    self.buckets.remove(&chunk);
-                }
+        if let Some(chunk) = self.entity_chunks.remove(&entity)
+            && let Some(bucket) = self.buckets.get_mut(&chunk)
+        {
+            bucket.retain(|&e| e != entity);
+            if bucket.is_empty() {
+                self.buckets.remove(&chunk);
             }
         }
     }
