@@ -3,17 +3,19 @@
 //! Reads: PsychologicalDrives, Transform, ActiveActions, MindGraph, TheoryOfMind, EmotionalState, Personality, RationalBrain
 //! Writes: ConversationManager, InConversation, ActiveActions (Converse marker), MindGraph (Hearsay), TheoryOfMind, GameEvent, SimEvent
 //! Upstream: agent::mind::conversation (data types), agent::actions (channel marker), agent::mind::theory_of_mind
-//! Downstream: psyche::relationships (consumes SocialInteraction), psyche::emotions (ConversationAbandoned)
+//! Downstream: psyche::relationships (consumes SocialInteraction)
 //!
 //! # Architecture
 //!
-//! Conversations live as a separate **channel** from the action system:
+//! Conversations live as a separate **channel** from the action system and
+//! support two or more participants (group conversations — the campfire
+//! scenario from #65):
 //!
 //! ```text
 //! ActionSystem                  CommunicationSystem
 //! ────────────                  ───────────────────
 //! Atomic, finite actions        Continuous, multi-turn channel
-//! Single agent                  Two agents in shared state
+//! Single agent                  2..=MAX_GROUP_SIZE agents in shared state
 //! Owns one action slot          Owns the Conversation, drives turn flow
 //! ```
 //!
@@ -21,12 +23,17 @@
 //! component flag. The previous design's `InConversation::my_turn` was a
 //! recurring source of races; the single-owner model removes them entirely.
 //!
+//! In group conversations the speaker broadcasts each turn's shared
+//! knowledge to every listener simultaneously, and the next speaker is
+//! picked by a personality-weighted selector ([`pick_next_speaker`]) that
+//! favors extraverts and listeners who've queued a response. See
+//! [`speak_desire`] for the scoring formula.
+//!
 //! Body-channel occupation works by inserting a [`ConverseAction`] marker into
-//! [`ActiveActions`] for each participant. This makes Sleep / Flee / Fight
-//! preempt conversations through the same path as any other action conflict —
-//! the [`evaluate_conversation_continuation`] system notices the marker is
-//! gone on the next tick and ends the conversation with an
-//! [`ConversationAbandoned`] event.
+//! [`ActiveActions`] for each participant. Per-participant range + channel
+//! checks let an individual agent leave the group without collapsing the
+//! conversation — Sleep / Flee / Fight on one participant just removes
+//! them, and the rest keep talking until fewer than two remain.
 
 use bevy::ecs::world::EntityWorldMut;
 use bevy::prelude::*;
@@ -124,10 +131,15 @@ impl Plugin for CommunicationPlugin {
 /// 1. Re-syncs the agent's movement target to the partner's *current*
 ///    position so the agent tracks a moving partner instead of walking to a
 ///    stale fixed point.
-/// 2. If the agent has reached `CONVERSATION_RANGE`, registers a new
-///    `Conversation`, swaps `InitiateConversation` for `Converse` in both
-///    agents' `ActiveActions` **in-place** (no command queue), inserts
-///    `InConversation` on both, and emits `SimEvent::ConversationStarted`.
+/// 2. If the agent has reached `CONVERSATION_RANGE`, either:
+///    - **Starts a new conversation** with the partner (if the partner is
+///      not already talking), or
+///    - **Joins the partner's existing conversation** if one is active and
+///      has capacity (supports the campfire scenario — three agents chat
+///      as a group instead of two disjoint pair chats).
+/// 3. Swaps `InitiateConversation` for `Converse` in `ActiveActions`
+///    **in-place** (no command queue), inserts `InConversation`, and emits
+///    `SimEvent::ConversationStarted` (or `ConversationJoined` for a join).
 ///
 /// All `ActiveActions` mutations happen in-place via `Query<&mut>` rather
 /// than queued commands. Otherwise [`evaluate_conversation_continuation`]
@@ -155,6 +167,19 @@ pub fn process_initiate_conversation(
         .collect();
 
     for (initiator, partner) in pairs {
+        // Initiator already in a conversation — drop the stale action.
+        // Check both the component query (for prior-tick state) *and* the
+        // manager (for same-tick state written earlier in this very system
+        // loop — commands to insert `InConversation` haven't flushed yet,
+        // so the query would miss a conversation we just created). Without
+        // this dedupe two symmetric initiators would each spawn a
+        // duplicate conversation the same tick.
+        if in_conversations.get(initiator).is_ok() || manager.find_active_for(initiator).is_some() {
+            if let Ok((_, mut active)) = active_actions.get_mut(initiator) {
+                active.remove(ActionType::InitiateConversation);
+            }
+            continue;
+        }
         // No target → drop the action.
         let Some(partner) = partner else {
             if let Ok((_, mut active)) = active_actions.get_mut(initiator) {
@@ -162,19 +187,12 @@ pub fn process_initiate_conversation(
             }
             continue;
         };
-        // Partner missing or already busy talking → drop the action.
         let Ok(partner_transform) = transforms.get(partner) else {
             if let Ok((_, mut active)) = active_actions.get_mut(initiator) {
                 active.remove(ActionType::InitiateConversation);
             }
             continue;
         };
-        if in_conversations.get(partner).is_ok() {
-            if let Ok((_, mut active)) = active_actions.get_mut(initiator) {
-                active.remove(ActionType::InitiateConversation);
-            }
-            continue;
-        }
         let Ok(initiator_transform) = transforms.get(initiator) else {
             continue;
         };
@@ -197,35 +215,62 @@ pub fn process_initiate_conversation(
             continue;
         }
 
-        // In range! Register the conversation if one doesn't exist yet.
-        if manager.find_active(initiator, partner).is_some() {
-            if let Ok((_, mut active)) = active_actions.get_mut(initiator) {
-                active.remove(ActionType::InitiateConversation);
+        // In range. Two cases: (1) partner is already in a conversation →
+        // join it as a third+ participant, (2) partner is free → start a
+        // new 2-agent conversation. Consult both the query (prior-tick
+        // state) and the manager (same-tick state just written above).
+        let now = tick.current;
+        let join_target: Option<u64> = in_conversations
+            .get(partner)
+            .ok()
+            .map(|ic| ic.conversation_id)
+            .or_else(|| manager.find_active_for(partner).map(|c| c.id));
+
+        let (conversation_id, is_new) = if let Some(existing_id) = join_target {
+            let Some(conv) = manager.conversations.get_mut(&existing_id) else {
+                if let Ok((_, mut active)) = active_actions.get_mut(initiator) {
+                    active.remove(ActionType::InitiateConversation);
+                }
+                continue;
+            };
+            if conv.state == ConversationState::Ended {
+                if let Ok((_, mut active)) = active_actions.get_mut(initiator) {
+                    active.remove(ActionType::InitiateConversation);
+                }
+                continue;
             }
-            continue;
+            if !conv.add_participant(initiator) {
+                // Group full or already in — drop the action either way.
+                if let Ok((_, mut active)) = active_actions.get_mut(initiator) {
+                    active.remove(ActionType::InitiateConversation);
+                }
+                continue;
+            }
+            (existing_id, false)
+        } else {
+            let id = manager.start_conversation(vec![initiator, partner], now);
+            (id, true)
+        };
+
+        commands
+            .entity(initiator)
+            .insert(InConversation { conversation_id });
+        if is_new {
+            commands
+                .entity(partner)
+                .insert(InConversation { conversation_id });
         }
 
-        let id = manager.start_conversation([initiator, partner], tick.current);
-        commands.entity(initiator).insert(InConversation {
-            conversation_id: id,
-            partner,
-        });
-        commands.entity(partner).insert(InConversation {
-            conversation_id: id,
-            partner: initiator,
-        });
-
-        // Swap InitiateConversation -> Converse in-place on the initiator,
-        // and add Converse to the partner. Both happen this tick so
-        // evaluate_conversation_continuation sees the Mouth channel held.
-        let now = tick.current;
+        // Swap InitiateConversation -> Converse in-place on the initiator.
+        // For new 2-agent conversations, also add Converse to the partner.
         if let Ok((_, mut active)) = active_actions.get_mut(initiator) {
             active.remove(ActionType::InitiateConversation);
             if !active.contains(ActionType::Converse) {
                 active.insert(ActionState::new(ActionType::Converse, now));
             }
         }
-        if let Ok((_, mut active)) = active_actions.get_mut(partner)
+        if is_new
+            && let Ok((_, mut active)) = active_actions.get_mut(partner)
             && !active.contains(ActionType::Converse)
         {
             active.insert(ActionState::new(ActionType::Converse, now));
@@ -235,11 +280,19 @@ pub fn process_initiate_conversation(
             tp.0 = None;
         }
 
-        sim_events.write(SimEvent::ConversationStarted {
-            participants: vec![initiator, partner],
-            tick: tick.current,
-            conversation_id: id,
-        });
+        if is_new {
+            sim_events.write(SimEvent::ConversationStarted {
+                participants: vec![initiator, partner],
+                tick: now,
+                conversation_id,
+            });
+        } else {
+            sim_events.write(SimEvent::ConversationJoined {
+                joiner: initiator,
+                tick: now,
+                conversation_id,
+            });
+        }
     }
 }
 
@@ -258,16 +311,16 @@ impl EntityCommand for RemoveConverseMarker {
 // ============================================================================
 
 /// For each active conversation whose turn cadence is up, append a new turn
-/// from the current speaker.
+/// from the current speaker and advance the floor to the next speaker.
 ///
-/// Intent is selected by [`select_intent`] based on the speaker's knowledge,
-/// active goal, and personality. The cadence between turns varies by intent:
-/// urgent intents (Ask/Answer) fire every [`URGENT_INTERVAL_TICKS`] ticks;
-/// casual sharing fires every [`CHITCHAT_INTERVAL_TICKS`] ticks.
+/// In group conversations the speaker talks to *all* listeners at once —
+/// content selection picks a primary listener (the one who most recently
+/// asked a question, or the first listener otherwise) for novelty scoring,
+/// but the resulting triples are broadcast to every listener downstream.
 ///
-/// **Content selection**: `Share` and `Answer` turns try deliberate content
-/// first ([`deliberate_talk::pick_deliberate_content`]) and fall back to small
-/// talk if nothing qualifies. Other intents carry no content.
+/// After the turn is recorded, the next speaker is picked via
+/// [`pick_next_speaker`] using personality traits (extraverts dominate,
+/// agreeable agents yield) and the `wants_to_speak` queue.
 pub fn select_turn_intent(
     mut manager: ResMut<ConversationManager>,
     tick: Res<TickCount>,
@@ -281,9 +334,22 @@ pub fn select_turn_intent(
         if conv.state == ConversationState::Ended {
             continue;
         }
+        if conv.participants.len() < 2 {
+            continue;
+        }
 
         let speaker = conv.current_speaker();
-        let listener = conv.other_participant(speaker);
+        // Primary listener for content-novelty scoring: whoever just asked a
+        // question (if any), else the first non-speaker participant.
+        let primary_listener = conv
+            .turns
+            .last()
+            .filter(|t| t.expects_response && t.speaker != speaker)
+            .map(|t| t.speaker)
+            .or_else(|| conv.listeners().next());
+        let Some(primary_listener) = primary_listener else {
+            continue;
+        };
 
         let Ok(speaker_mind) = minds.get(speaker) else {
             continue;
@@ -295,13 +361,11 @@ pub fn select_turn_intent(
             .and_then(|b| b.current_goal.as_ref());
         let personality = personalities.get(speaker).ok();
 
-        // Pre-compute content availability once so select_intent doesn't need
-        // to re-scan the triple store.
         let has_deliberate = !crate::agent::mind::deliberate_talk::pick_deliberate_content(
             speaker_mind,
             goal,
             speaker_tom,
-            listener,
+            primary_listener,
             now,
             1,
         )
@@ -310,7 +374,7 @@ pub fn select_turn_intent(
         let has_casual = !crate::agent::mind::small_talk::pick_small_talk_triples(
             speaker_mind,
             speaker_tom,
-            listener,
+            primary_listener,
             now,
             1,
         )
@@ -320,7 +384,7 @@ pub fn select_turn_intent(
             conv,
             speaker_mind,
             speaker_tom,
-            listener,
+            primary_listener,
             goal,
             personality,
             now,
@@ -328,7 +392,6 @@ pub fn select_turn_intent(
             has_casual,
         );
 
-        // Greet fires immediately; subsequent turns wait for the per-intent cadence.
         let min_interval = intent_interval(intent);
         if min_interval > 0
             && !conv.turns.is_empty()
@@ -337,13 +400,12 @@ pub fn select_turn_intent(
             continue;
         }
 
-        // Share and Answer carry knowledge content; other intents are pure speech.
         let (content, topic) = if matches!(intent, Intent::Share | Intent::Answer) {
             let deliberate = crate::agent::mind::deliberate_talk::pick_deliberate_content(
                 speaker_mind,
                 goal,
                 speaker_tom,
-                listener,
+                primary_listener,
                 now,
                 SMALL_TALK_TRIPLES_PER_TURN,
             );
@@ -353,7 +415,7 @@ pub fn select_turn_intent(
                 let casual = crate::agent::mind::small_talk::pick_small_talk_triples(
                     speaker_mind,
                     speaker_tom,
-                    listener,
+                    primary_listener,
                     now,
                     SMALL_TALK_TRIPLES_PER_TURN,
                 );
@@ -373,7 +435,8 @@ pub fn select_turn_intent(
             expects_response: matches!(intent, Intent::Greet | Intent::Ask),
         };
         conv.add_turn(turn);
-        conv.advance_turn();
+        // Speaker just spoke — clear their "wants to speak" flag.
+        conv.wants_to_speak.remove(&speaker);
 
         // State machine: Greeting -> Active -> Wrapping -> Ended.
         conv.state = match (conv.state, intent) {
@@ -390,7 +453,77 @@ pub fn select_turn_intent(
             }
             (state, _) => state,
         };
+
+        // Advance the floor: personality-weighted pick among non-speakers.
+        let next = pick_next_speaker(conv, &personalities);
+        conv.set_speaker(next);
     }
+}
+
+/// Score a participant's desire to take the next turn based on personality
+/// and the "queued response" flag. Higher score → more likely to speak.
+///
+/// ```text
+/// score = 1.0
+///       + extraversion * 2.0       // extraverts seize the floor
+///       - agreeableness * 0.6      // agreeable yields
+///       + 2.5 if wants_to_speak    // just had a question asked / emotional spike
+/// ```
+///
+/// Returns `1.0` for participants with no `Personality` component so tests
+/// using bare entities still work.
+pub(crate) fn speak_desire(personality: Option<&Personality>, wants_to_speak: bool) -> f32 {
+    let extraversion = personality.map(|p| p.traits.extraversion).unwrap_or(0.5);
+    let agreeableness = personality.map(|p| p.traits.agreeableness).unwrap_or(0.5);
+    let base = 1.0 + extraversion * 2.0 - agreeableness * 0.6;
+    if wants_to_speak { base + 2.5 } else { base }
+}
+
+/// Pick the next speaker from among the non-speaker participants using a
+/// deterministic weighted pseudo-random selection seeded by the conversation
+/// id and turn count.
+///
+/// The current speaker is excluded from the pool (rotation property). If the
+/// only non-speaker is also missing a `Personality` component, they speak by
+/// default.
+pub(crate) fn pick_next_speaker(
+    conv: &Conversation,
+    personalities: &Query<&Personality>,
+) -> Entity {
+    let speaker = conv.current_speaker();
+    let candidates: Vec<Entity> = conv
+        .participants
+        .iter()
+        .copied()
+        .filter(|e| *e != speaker)
+        .collect();
+    if candidates.is_empty() {
+        return speaker;
+    }
+    if candidates.len() == 1 {
+        return candidates[0];
+    }
+
+    let scores: Vec<f32> = candidates
+        .iter()
+        .map(|e| {
+            let p = personalities.get(*e).ok();
+            let wants = conv.wants_to_speak.contains(e);
+            speak_desire(p, wants).max(0.01)
+        })
+        .collect();
+    let total: f32 = scores.iter().sum();
+    // Deterministic selector: hash conv id + turn count into [0, total).
+    let seed = conv.id.wrapping_mul(2_654_435_761) ^ (conv.turns.len() as u64);
+    let frac = ((seed % 1_000_000) as f32) / 1_000_000.0;
+    let mut target = frac * total;
+    for (i, s) in scores.iter().enumerate() {
+        target -= *s;
+        if target <= 0.0 {
+            return candidates[i];
+        }
+    }
+    *candidates.last().unwrap()
 }
 
 /// Select the intent for the speaker's next turn based on their knowledge,
@@ -521,8 +654,8 @@ fn goal_needs_location(goal: &Goal) -> bool {
 // 2b. Update speaker's theory of mind after sharing content
 // ============================================================================
 
-/// When a speaker shares triples with a listener, update the speaker's
-/// [`TheoryOfMind`] to record that the listener now probably knows those facts.
+/// When a speaker shares triples, update the speaker's [`TheoryOfMind`] to
+/// record that every listener in the group now probably knows those facts.
 ///
 /// This runs after [`select_turn_intent`] so the latest turn's content is
 /// available. Only processes turns emitted this tick.
@@ -539,24 +672,31 @@ pub fn update_speaker_theory_of_mind(
         if turn.timestamp != tick.current || turn.content.is_empty() {
             continue;
         }
-        let listener = conv.other_participant(turn.speaker);
+        let listeners: Vec<Entity> = conv
+            .participants
+            .iter()
+            .copied()
+            .filter(|e| *e != turn.speaker)
+            .collect();
         let Ok(mut speaker_tom) = toms.get_mut(turn.speaker) else {
             continue;
         };
         let count = turn.content.len();
-        speaker_tom.record_shared_triples(
-            listener,
-            &turn.content,
-            theory_of_mind::COMMUNICATED_BELIEF_CONFIDENCE,
-            tick.current,
-        );
-        sim_events.write(SimEvent::TheoryOfMindUpdated {
-            agent: turn.speaker,
-            about: listener,
-            tick: tick.current,
-            source: crate::agent::events::TheoryOfMindSource::Communicated,
-            belief_count: count,
-        });
+        for listener in listeners {
+            speaker_tom.record_shared_triples(
+                listener,
+                &turn.content,
+                theory_of_mind::COMMUNICATED_BELIEF_CONFIDENCE,
+                tick.current,
+            );
+            sim_events.write(SimEvent::TheoryOfMindUpdated {
+                agent: turn.speaker,
+                about: listener,
+                tick: tick.current,
+                source: crate::agent::events::TheoryOfMindSource::Communicated,
+                belief_count: count,
+            });
+        }
     }
 }
 
@@ -564,9 +704,10 @@ pub fn update_speaker_theory_of_mind(
 // 3. Process received communication (write hearsay into listener's mind)
 // ============================================================================
 
-/// Apply the most recent turn's `content` triples to the listener's MindGraph
-/// as Hearsay knowledge. Listeners only learn from turns that have *not yet*
-/// been processed — we use the participant's turn index to detect new turns.
+/// Apply the most recent turn's `content` triples to every listener's
+/// MindGraph as Hearsay knowledge. In group conversations this broadcasts
+/// shared knowledge to all participants simultaneously — the "the whole
+/// group hears it" property required by #65.
 pub fn process_received_communication(
     manager: Res<ConversationManager>,
     mut minds: Query<&mut MindGraph>,
@@ -579,40 +720,43 @@ pub fn process_received_communication(
             continue;
         };
         if turn.timestamp != tick.current {
-            // Only just-emitted turns get processed — anything older was
-            // handled in a prior tick.
             continue;
         }
         if turn.content.is_empty() {
             continue;
         }
-        let listener = conv.other_participant(turn.speaker);
-        let Ok(mut mind) = minds.get_mut(listener) else {
-            continue;
-        };
-        for triple in &turn.content {
-            let mut hearsay = triple.clone();
-            hearsay.meta = Metadata::hearsay(tick.current, turn.speaker);
-            mind.assert(hearsay);
-        }
+        let listeners: Vec<Entity> = conv
+            .participants
+            .iter()
+            .copied()
+            .filter(|e| *e != turn.speaker)
+            .collect();
+        for listener in listeners {
+            let Ok(mut mind) = minds.get_mut(listener) else {
+                continue;
+            };
+            for triple in &turn.content {
+                let mut hearsay = triple.clone();
+                hearsay.meta = Metadata::hearsay(tick.current, turn.speaker);
+                mind.assert(hearsay);
+            }
 
-        // Update listener's theory of mind: the speaker clearly knows what
-        // they just shared (high confidence — they volunteered the info).
-        if let Ok(mut listener_tom) = toms.get_mut(listener) {
-            let count = turn.content.len();
-            listener_tom.record_shared_triples(
-                turn.speaker,
-                &turn.content,
-                theory_of_mind::COMMUNICATED_BELIEF_CONFIDENCE,
-                tick.current,
-            );
-            sim_events.write(SimEvent::TheoryOfMindUpdated {
-                agent: listener,
-                about: turn.speaker,
-                tick: tick.current,
-                source: crate::agent::events::TheoryOfMindSource::Received,
-                belief_count: count,
-            });
+            if let Ok(mut listener_tom) = toms.get_mut(listener) {
+                let count = turn.content.len();
+                listener_tom.record_shared_triples(
+                    turn.speaker,
+                    &turn.content,
+                    theory_of_mind::COMMUNICATED_BELIEF_CONFIDENCE,
+                    tick.current,
+                );
+                sim_events.write(SimEvent::TheoryOfMindUpdated {
+                    agent: listener,
+                    about: turn.speaker,
+                    tick: tick.current,
+                    source: crate::agent::events::TheoryOfMindSource::Received,
+                    belief_count: count,
+                });
+            }
         }
     }
 }
@@ -621,10 +765,12 @@ pub fn process_received_communication(
 // 4. Emit communication events (downstream feeds: relationships, emotions)
 // ============================================================================
 
-/// Re-emit the conversation's freshest turn as a [`GameEvent::SocialInteraction`]
-/// (and optionally [`GameEvent::KnowledgeShared`]) so existing downstream
-/// systems (relationship updater, memory consolidator) keep working without
-/// changes.
+/// Re-emit the conversation's freshest turn as per-listener
+/// [`GameEvent::SocialInteraction`] (and optionally
+/// [`GameEvent::KnowledgeShared`]) so existing downstream systems
+/// (relationship updater, memory consolidator) keep working without
+/// changes. In group conversations this produces one event per listener,
+/// so each pairwise relationship updates independently from the shared turn.
 ///
 /// Valence is computed from intent, affection, mood, and personality rather
 /// than being hardcoded to 0.5.
@@ -642,21 +788,25 @@ pub fn emit_communication_events(
             continue;
         }
         let speaker = turn.speaker;
-        let listener = conv.other_participant(speaker);
-        let valence = compute_interaction_valence(turn, speaker, listener, &agents);
-        events.write(GameEvent::SocialInteraction {
-            actor: speaker,
-            target: listener,
-            action: ActionType::Converse,
-            topic: Some(map_topic(turn.topic)),
-            valence,
-        });
-        if !turn.content.is_empty() {
-            events.write(GameEvent::KnowledgeShared {
-                speaker,
-                listener,
-                content: turn.content.clone(),
+        for listener in conv.participants.iter().copied() {
+            if listener == speaker {
+                continue;
+            }
+            let valence = compute_interaction_valence(turn, speaker, listener, &agents);
+            events.write(GameEvent::SocialInteraction {
+                actor: speaker,
+                target: listener,
+                action: ActionType::Converse,
+                topic: Some(map_topic(turn.topic)),
+                valence,
             });
+            if !turn.content.is_empty() {
+                events.write(GameEvent::KnowledgeShared {
+                    speaker,
+                    listener,
+                    content: turn.content.clone(),
+                });
+            }
         }
     }
 }
@@ -752,10 +902,22 @@ fn map_topic(topic: Topic) -> ConversationTopic {
 // 5. Continuation / cleanup
 // ============================================================================
 
-/// End conversations whose participants moved out of range, lost the Mouth
-/// channel (e.g. Sleep / Flee preempted Converse), reached natural end, or
-/// went stale. Emits [`ConversationAbandoned`] for ungraceful exits and a
-/// [`GameEvent::SocialInteraction`] with valence -0.4 for the abandoned agent.
+/// Per-participant continuation check. Each tick:
+///
+/// - If an individual participant lost their `Converse` marker (preempted
+///   by Sleep / Flee / Fight), moved out of range of the group, or left the
+///   world, they're removed from the conversation. A
+///   [`SimEvent::ConversationLeft`] fires for graceful exits and
+///   [`SimEvent::ConversationAbandoned`] for rude ones (one event per
+///   remaining counterparty, since each pair relationship reacts
+///   independently).
+/// - If fewer than two participants remain, or the group went stale, the
+///   whole conversation is finalized and [`SimEvent::ConversationEnded`]
+///   fires with the final participant list.
+///
+/// "In range" is defined as within [`CONVERSATION_RANGE`] of at least one
+/// other participant — a scatter-and-cluster group (everyone drifts but
+/// stays near someone) keeps talking.
 pub fn evaluate_conversation_continuation(
     mut commands: Commands,
     mut manager: ResMut<ConversationManager>,
@@ -770,64 +932,104 @@ pub fn evaluate_conversation_continuation(
 
     for (id, conv) in manager.conversations.iter_mut() {
         if conv.state == ConversationState::Ended {
-            // Already ended last tick — schedule cleanup.
             to_finalize.push(*id);
             continue;
         }
 
-        let [a, b] = conv.participants;
-
-        // Distance check.
-        let in_range = match (transforms.get(a), transforms.get(b)) {
-            (Ok(ta), Ok(tb)) => {
-                ta.translation
-                    .truncate()
-                    .distance(tb.translation.truncate())
-                    <= CONVERSATION_RANGE
-            }
-            _ => false,
-        };
-
-        // Channel check — Converse marker preempted by Sleep / Flee / Fight
-        // means the body got pulled into something more urgent.
-        let channels_held = matches!(
-            (actives.get(a), actives.get(b)),
-            (Ok(aa), Ok(ab))
-                if aa.contains(ActionType::Converse) && ab.contains(ActionType::Converse)
-        );
-
         let stale = tick.current.saturating_sub(conv.last_turn_at) > STALE_CONVERSATION_TICKS;
+        if stale {
+            conv.state = ConversationState::Ended;
+            to_finalize.push(*id);
+            continue;
+        }
 
-        if !in_range || !channels_held || stale {
-            // Hard interrupt — not graceful unless the last turn was a Farewell.
-            let graceful = conv.turns.last().map(|t| t.intent) == Some(Intent::Farewell);
-            if !graceful {
-                let abandoner = if !channels_held {
-                    // Whichever participant lost the Converse marker first
-                    // is the one whose body went elsewhere.
-                    pick_abandoner(&actives, [a, b]).unwrap_or(conv.current_speaker())
-                } else {
-                    conv.current_speaker()
-                };
-                let abandoned = if abandoner == a { b } else { a };
-                events.write(ConversationAbandoned {
-                    abandoner,
-                    abandoned,
-                    conversation_state: conv.state,
-                });
-                sim_events.write(SimEvent::ConversationAbandoned {
-                    abandoner,
-                    abandoned,
-                    tick: tick.current,
-                });
-                game_events.write(GameEvent::SocialInteraction {
-                    actor: abandoner,
-                    target: abandoned,
-                    action: ActionType::Converse,
-                    topic: None,
-                    valence: -0.4,
-                });
+        // Snapshot positions so we can run per-pair range checks.
+        let positions: Vec<(Entity, Option<Vec2>)> = conv
+            .participants
+            .iter()
+            .map(|e| {
+                (
+                    *e,
+                    transforms.get(*e).ok().map(|t| t.translation.truncate()),
+                )
+            })
+            .collect();
+
+        // Decide who's still part of the conversation and why each leaver left.
+        let graceful_state = conv.turns.last().map(|t| t.intent) == Some(Intent::Farewell);
+        let mut leavers: Vec<(Entity, bool)> = Vec::new(); // (entity, graceful)
+        for (entity, pos) in &positions {
+            let Some(my_pos) = pos else {
+                // Entity has no transform (despawned) — treat as rude leaver.
+                leavers.push((*entity, false));
+                continue;
+            };
+            let channel_ok = actives
+                .get(*entity)
+                .map(|a| a.contains(ActionType::Converse))
+                .unwrap_or(false);
+            if !channel_ok {
+                leavers.push((*entity, graceful_state));
+                continue;
             }
+            // In range of at least one other participant?
+            let near_someone = positions.iter().any(|(other, other_pos)| {
+                if other == entity {
+                    return false;
+                }
+                other_pos
+                    .map(|p| p.distance(*my_pos) <= CONVERSATION_RANGE)
+                    .unwrap_or(false)
+            });
+            if !near_someone {
+                leavers.push((*entity, graceful_state));
+            }
+        }
+
+        for (leaver, graceful) in &leavers {
+            // For every counterparty still in the group, emit the relationship
+            // impact (one event per pair).
+            let counterparties: Vec<Entity> = conv
+                .participants
+                .iter()
+                .copied()
+                .filter(|e| e != leaver && !leavers.iter().any(|(l, _)| l == e))
+                .collect();
+
+            if *graceful {
+                sim_events.write(SimEvent::ConversationLeft {
+                    leaver: *leaver,
+                    tick: tick.current,
+                    conversation_id: *id,
+                });
+            } else {
+                for other in &counterparties {
+                    events.write(ConversationAbandoned {
+                        abandoner: *leaver,
+                        abandoned: *other,
+                        conversation_state: conv.state,
+                    });
+                    sim_events.write(SimEvent::ConversationAbandoned {
+                        abandoner: *leaver,
+                        abandoned: *other,
+                        tick: tick.current,
+                    });
+                    game_events.write(GameEvent::SocialInteraction {
+                        actor: *leaver,
+                        target: *other,
+                        action: ActionType::Converse,
+                        topic: None,
+                        valence: -0.4,
+                    });
+                }
+            }
+
+            commands.entity(*leaver).remove::<InConversation>();
+            commands.entity(*leaver).queue(RemoveConverseMarker);
+            conv.remove_participant(*leaver);
+        }
+
+        if conv.participants.len() < 2 {
             conv.state = ConversationState::Ended;
             to_finalize.push(*id);
         }
@@ -838,30 +1040,17 @@ pub fn evaluate_conversation_continuation(
     for id in to_finalize {
         if let Some(conv) = manager.conversations.get(&id) {
             sim_events.write(SimEvent::ConversationEnded {
-                participants: vec![conv.participants[0], conv.participants[1]],
+                participants: conv.participants.clone(),
                 tick: tick.current,
                 conversation_id: id,
             });
-            for entity in conv.participants {
-                commands.entity(entity).remove::<InConversation>();
-                commands.entity(entity).queue(RemoveConverseMarker);
+            for entity in &conv.participants {
+                commands.entity(*entity).remove::<InConversation>();
+                commands.entity(*entity).queue(RemoveConverseMarker);
             }
         }
         manager.conversations.remove(&id);
     }
-}
-
-fn pick_abandoner(actives: &Query<&ActiveActions>, participants: [Entity; 2]) -> Option<Entity> {
-    for entity in participants {
-        if let Ok(active) = actives.get(entity) {
-            if !active.contains(ActionType::Converse) {
-                return Some(entity);
-            }
-        } else {
-            return Some(entity);
-        }
-    }
-    None
 }
 
 #[cfg(test)]
@@ -976,7 +1165,7 @@ mod tests {
 
     #[test]
     fn select_intent_greets_on_first_turn() {
-        let conv = Conversation::new(0, [Entity::from_bits(1), Entity::from_bits(2)], 0);
+        let conv = Conversation::new(0, vec![Entity::from_bits(1), Entity::from_bits(2)], 0);
         let mind = empty_mind();
         let listener = Entity::from_bits(2);
         assert_eq!(
@@ -987,7 +1176,7 @@ mod tests {
 
     #[test]
     fn select_intent_farewell_when_wrapping() {
-        let mut conv = Conversation::new(0, [Entity::from_bits(1), Entity::from_bits(2)], 0);
+        let mut conv = Conversation::new(0, vec![Entity::from_bits(1), Entity::from_bits(2)], 0);
         conv.state = ConversationState::Wrapping;
         let mind = empty_mind();
         let listener = Entity::from_bits(2);
@@ -999,7 +1188,7 @@ mod tests {
 
     #[test]
     fn select_intent_warns_when_danger_known_and_partner_unaware() {
-        let mut conv = Conversation::new(0, [Entity::from_bits(1), Entity::from_bits(2)], 0);
+        let mut conv = Conversation::new(0, vec![Entity::from_bits(1), Entity::from_bits(2)], 0);
         conv.state = ConversationState::Active;
         // Inject a dummy turn so we're not in first-turn state.
         conv.add_turn(Turn {
@@ -1032,7 +1221,7 @@ mod tests {
 
     #[test]
     fn select_intent_does_not_warn_if_speaker_believes_listener_knows() {
-        let mut conv = Conversation::new(0, [Entity::from_bits(1), Entity::from_bits(2)], 0);
+        let mut conv = Conversation::new(0, vec![Entity::from_bits(1), Entity::from_bits(2)], 0);
         conv.state = ConversationState::Active;
         conv.add_turn(Turn {
             speaker: Entity::from_bits(1),
@@ -1081,7 +1270,7 @@ mod tests {
     fn select_intent_asks_when_goal_needs_location() {
         use crate::agent::brains::thinking::{Goal, TriplePattern};
 
-        let mut conv = Conversation::new(0, [Entity::from_bits(1), Entity::from_bits(2)], 0);
+        let mut conv = Conversation::new(0, vec![Entity::from_bits(1), Entity::from_bits(2)], 0);
         conv.state = ConversationState::Active;
         conv.add_turn(Turn {
             speaker: Entity::from_bits(1),
@@ -1119,7 +1308,7 @@ mod tests {
 
     #[test]
     fn select_intent_answers_when_partner_asked() {
-        let mut conv = Conversation::new(0, [Entity::from_bits(1), Entity::from_bits(2)], 0);
+        let mut conv = Conversation::new(0, vec![Entity::from_bits(1), Entity::from_bits(2)], 0);
         conv.state = ConversationState::Active;
         // Add a turn that expects a response.
         conv.add_turn(Turn {
@@ -1143,7 +1332,7 @@ mod tests {
 
     #[test]
     fn select_intent_defaults_to_acknowledge() {
-        let mut conv = Conversation::new(0, [Entity::from_bits(1), Entity::from_bits(2)], 0);
+        let mut conv = Conversation::new(0, vec![Entity::from_bits(1), Entity::from_bits(2)], 0);
         conv.state = ConversationState::Active;
         conv.add_turn(Turn {
             speaker: Entity::from_bits(1),

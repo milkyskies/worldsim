@@ -199,6 +199,23 @@ pub enum SimEvent {
         conversation_id: u64,
     },
 
+    /// A third+ agent joined an existing conversation, extending it from a
+    /// 1-on-1 (or smaller group) into a group conversation.
+    ConversationJoined {
+        joiner: Entity,
+        tick: u64,
+        conversation_id: u64,
+    },
+
+    /// An agent left a conversation gracefully while the rest kept talking.
+    /// Distinct from `ConversationEnded` (whole group broke up) and
+    /// `ConversationAbandoned` (the leaver ditched rudely).
+    ConversationLeft {
+        leaver: Entity,
+        tick: u64,
+        conversation_id: u64,
+    },
+
     /// A conversation was abandoned rudely (no farewell).
     ConversationAbandoned {
         abandoner: Entity,

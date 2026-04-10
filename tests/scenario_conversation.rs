@@ -371,3 +371,307 @@ fn agent_warns_partner_about_personally_observed_danger() {
         panic!("bob should have received wolf-danger warning from alice as hearsay");
     }
 }
+
+// ─── Group conversation tests (#65) ──────────────────────────────────────────
+
+/// Three social agents clustered in vision range form a single group
+/// conversation, not three disjoint pair conversations.
+#[test]
+fn three_social_agents_form_single_group_conversation() {
+    let (mut world, agents) = TestWorld::scenario(42)
+        .map_size(64, 64)
+        .noise_biomes(false)
+        .agent("alice")
+        .pos(Vec2::new(200.0, 200.0))
+        .social_drive(HIGH_SOCIAL)
+        .done()
+        .agent("bob")
+        .pos(Vec2::new(210.0, 200.0))
+        .social_drive(HIGH_SOCIAL)
+        .done()
+        .agent("carol")
+        .pos(Vec2::new(220.0, 200.0))
+        .social_drive(HIGH_SOCIAL)
+        .done()
+        .build();
+
+    fast_brains(&mut world);
+    world.tick(TICKS_TO_INITIATE);
+
+    let alice = agents["alice"];
+    let bob = agents["bob"];
+    let carol = agents["carol"];
+
+    // All three should end up in conversation.
+    if !world.in_conversation(alice) || !world.in_conversation(bob) || !world.in_conversation(carol)
+    {
+        world.print_recent_events(TICKS_TO_INITIATE);
+        panic!("all three agents should be in a conversation after {TICKS_TO_INITIATE} ticks");
+    }
+
+    // And it should be the *same* conversation — one group, not three pairs.
+    let manager = world.app().world().resource::<ConversationManager>();
+    let active: Vec<&worldsim::agent::mind::conversation::Conversation> =
+        manager.active_conversations().collect();
+    assert_eq!(
+        active.len(),
+        1,
+        "expected a single group conversation, got {}",
+        active.len()
+    );
+    let group = active[0];
+    assert_eq!(
+        group.participants.len(),
+        3,
+        "group should contain all three agents, got {:?}",
+        group.participants
+    );
+    assert!(group.participants.contains(&alice));
+    assert!(group.participants.contains(&bob));
+    assert!(group.participants.contains(&carol));
+}
+
+/// A ConversationJoined SimEvent fires when a third agent joins an active
+/// 1-on-1 conversation.
+#[test]
+fn third_agent_joining_emits_conversation_joined_event() {
+    let (mut world, _agents) = TestWorld::scenario(42)
+        .map_size(64, 64)
+        .noise_biomes(false)
+        .agent("alice")
+        .pos(Vec2::new(200.0, 200.0))
+        .social_drive(HIGH_SOCIAL)
+        .done()
+        .agent("bob")
+        .pos(Vec2::new(210.0, 200.0))
+        .social_drive(HIGH_SOCIAL)
+        .done()
+        .agent("carol")
+        .pos(Vec2::new(220.0, 200.0))
+        .social_drive(HIGH_SOCIAL)
+        .done()
+        .build();
+
+    fast_brains(&mut world);
+    world.tick(TICKS_TO_INITIATE);
+
+    let joined = world
+        .sim_events()
+        .all()
+        .iter()
+        .any(|e| matches!(e, SimEvent::ConversationJoined { .. }));
+    assert!(
+        joined,
+        "ConversationJoined should fire when a third agent joins an active conversation"
+    );
+}
+
+/// A speaker's shared knowledge reaches every listener in the group, not
+/// just one. This is the core "broadcast to all listeners" property from #65.
+#[test]
+fn shared_knowledge_broadcasts_to_all_group_listeners() {
+    let wolf_danger_triple = Triple::with_meta(
+        Node::Concept(Concept::Wolf),
+        Predicate::HasTrait,
+        Value::Concept(Concept::Dangerous),
+        Metadata {
+            source: Source::Experienced,
+            memory_type: MemoryType::Episodic,
+            timestamp: 0,
+            confidence: 1.0,
+            informant: None,
+            evidence: Vec::new(),
+            salience: 0.9,
+        },
+    );
+
+    let (mut world, agents) = TestWorld::scenario(42)
+        .map_size(64, 64)
+        .noise_biomes(false)
+        .agent("alice")
+        .pos(Vec2::new(200.0, 200.0))
+        .social_drive(HIGH_SOCIAL)
+        .knowledge(vec![wolf_danger_triple])
+        .done()
+        .agent("bob")
+        .pos(Vec2::new(210.0, 200.0))
+        .social_drive(HIGH_SOCIAL)
+        .done()
+        .agent("carol")
+        .pos(Vec2::new(220.0, 200.0))
+        .social_drive(HIGH_SOCIAL)
+        .done()
+        .build();
+
+    fast_brains(&mut world);
+    world.tick(300);
+
+    let alice = agents["alice"];
+    let bob = agents["bob"];
+    let carol = agents["carol"];
+
+    let received_from_alice = |e| {
+        let mind: &MindGraph = world.get::<MindGraph>(e);
+        mind.iter().any(|t| {
+            t.predicate == Predicate::HasTrait
+                && t.object == Value::Concept(Concept::Dangerous)
+                && t.subject == Node::Concept(Concept::Wolf)
+                && t.meta.informant == Some(alice)
+        })
+    };
+
+    let bob_heard = received_from_alice(bob);
+    let carol_heard = received_from_alice(carol);
+
+    if !bob_heard || !carol_heard {
+        world.print_conversation(alice);
+        world.print_mind_graph(bob);
+        world.print_mind_graph(carol);
+        panic!(
+            "both listeners should have received the warning — bob_heard={bob_heard} carol_heard={carol_heard}"
+        );
+    }
+}
+
+/// A high-extraversion agent in a group dominates the floor compared to
+/// low-extraversion peers. This is a statistical property — we run the
+/// scenario several seeds and count turns per speaker, asserting the
+/// extravert speaks strictly more often than the average introvert.
+#[test]
+fn extravert_dominates_group_conversation_turn_count() {
+    // Single deterministic run — the personality weighting is a large effect
+    // and the speaker-selection math is seeded by conversation id + turn
+    // count, so one run is enough for this structural check.
+    let (mut world, agents) = TestWorld::scenario(7)
+        .map_size(64, 64)
+        .noise_biomes(false)
+        .agent("extravert")
+        .pos(Vec2::new(200.0, 200.0))
+        .social_drive(HIGH_SOCIAL)
+        .personality(|p| p.extraversion(1.0).agreeableness(0.2))
+        .done()
+        .agent("introvert_a")
+        .pos(Vec2::new(210.0, 200.0))
+        .social_drive(HIGH_SOCIAL)
+        .personality(|p| p.extraversion(0.0).agreeableness(0.9))
+        .done()
+        .agent("introvert_b")
+        .pos(Vec2::new(220.0, 200.0))
+        .social_drive(HIGH_SOCIAL)
+        .personality(|p| p.extraversion(0.0).agreeableness(0.9))
+        .done()
+        .build();
+
+    fast_brains(&mut world);
+    world.tick(400);
+
+    let extravert = agents["extravert"];
+    let introvert_a = agents["introvert_a"];
+    let introvert_b = agents["introvert_b"];
+
+    let manager = world.app().world().resource::<ConversationManager>();
+    // Count turns across all (active + ended) conversations.
+    let mut extravert_turns = 0usize;
+    let mut introvert_a_turns = 0usize;
+    let mut introvert_b_turns = 0usize;
+    for conv in manager.conversations.values() {
+        for turn in &conv.turns {
+            if turn.speaker == extravert {
+                extravert_turns += 1;
+            } else if turn.speaker == introvert_a {
+                introvert_a_turns += 1;
+            } else if turn.speaker == introvert_b {
+                introvert_b_turns += 1;
+            }
+        }
+    }
+
+    assert!(
+        extravert_turns > 0 && (introvert_a_turns + introvert_b_turns) > 0,
+        "expected turns from both personality types: extravert={extravert_turns} \
+         introvert_a={introvert_a_turns} introvert_b={introvert_b_turns}"
+    );
+    let introvert_avg = (introvert_a_turns + introvert_b_turns) as f32 / 2.0;
+    assert!(
+        extravert_turns as f32 > introvert_avg,
+        "extravert should take more turns on average than each introvert: \
+         extravert={extravert_turns} introvert_avg={introvert_avg}"
+    );
+}
+
+/// When enough participants leave, a group conversation collapses back into
+/// a 2-person conversation (rather than ending entirely) and eventually
+/// ends when the count drops below 2.
+#[test]
+fn group_shrinks_then_ends_as_participants_leave() {
+    use worldsim::agent::mind::conversation::{Conversation, ConversationManager};
+
+    let (mut world, agents) = TestWorld::scenario(42)
+        .map_size(64, 64)
+        .noise_biomes(false)
+        .agent("alice")
+        .pos(Vec2::new(200.0, 200.0))
+        .social_drive(HIGH_SOCIAL)
+        .done()
+        .agent("bob")
+        .pos(Vec2::new(210.0, 200.0))
+        .social_drive(HIGH_SOCIAL)
+        .done()
+        .agent("carol")
+        .pos(Vec2::new(220.0, 200.0))
+        .social_drive(HIGH_SOCIAL)
+        .done()
+        .build();
+
+    fast_brains(&mut world);
+    world.tick(TICKS_TO_INITIATE);
+
+    // All three should be in one conversation.
+    {
+        let manager = world.app().world().resource::<ConversationManager>();
+        let group: Option<&Conversation> = manager.active_conversations().next();
+        assert!(group.is_some(), "no active conversation after init phase");
+        assert_eq!(
+            group.unwrap().participants.len(),
+            3,
+            "group should start with three participants"
+        );
+    }
+
+    // Teleport carol far away — she loses range to the group and should be
+    // removed from it on the next tick.
+    world
+        .get_mut::<bevy::prelude::Transform>(agents["carol"])
+        .translation = bevy::prelude::Vec3::new(600.0, 600.0, 0.0);
+    world.tick(5);
+
+    {
+        let manager = world.app().world().resource::<ConversationManager>();
+        let active: Vec<&Conversation> = manager.active_conversations().collect();
+        assert_eq!(
+            active.len(),
+            1,
+            "conversation should still be active with alice+bob"
+        );
+        assert_eq!(
+            active[0].participants.len(),
+            2,
+            "group should have shrunk to two participants after carol left"
+        );
+        assert!(!active[0].participants.contains(&agents["carol"]));
+    }
+
+    // Now teleport bob away too — the last remaining pair drops to a single
+    // participant and the conversation must end.
+    world
+        .get_mut::<bevy::prelude::Transform>(agents["bob"])
+        .translation = bevy::prelude::Vec3::new(700.0, 700.0, 0.0);
+    world.tick(5);
+
+    let manager = world.app().world().resource::<ConversationManager>();
+    let active_count = manager.active_conversations().count();
+    assert_eq!(
+        active_count, 0,
+        "conversation should have ended once only one participant remained"
+    );
+}

@@ -176,6 +176,12 @@ fn event_meta<'a>(
             let names = participants.iter().map(|e| resolve(*e)).collect();
             ("ConversationEnded", *tick, names)
         }
+        SimEvent::ConversationJoined { joiner, tick, .. } => {
+            ("ConversationJoined", *tick, vec![resolve(*joiner)])
+        }
+        SimEvent::ConversationLeft { leaver, tick, .. } => {
+            ("ConversationLeft", *tick, vec![resolve(*leaver)])
+        }
         SimEvent::ConversationAbandoned {
             abandoner,
             abandoned,
@@ -345,6 +351,30 @@ fn event_to_json(
                 "tick": tick,
                 "type": event_type,
                 "participants": participants.iter().map(|e| resolve(*e)).collect::<Vec<_>>(),
+                "conversation_id": conversation_id,
+            })
+        }
+        SimEvent::ConversationJoined {
+            joiner,
+            conversation_id,
+            ..
+        } => {
+            serde_json::json!({
+                "tick": tick,
+                "type": event_type,
+                "joiner": resolve(*joiner),
+                "conversation_id": conversation_id,
+            })
+        }
+        SimEvent::ConversationLeft {
+            leaver,
+            conversation_id,
+            ..
+        } => {
+            serde_json::json!({
+                "tick": tick,
+                "type": event_type,
+                "leaver": resolve(*leaver),
                 "conversation_id": conversation_id,
             })
         }

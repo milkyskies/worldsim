@@ -234,30 +234,17 @@ pub fn update_shared_experience_tom(
         if conv.state == crate::agent::mind::conversation::ConversationState::Ended {
             continue;
         }
-
-        let [agent_a, agent_b] = conv.participants;
-
-        let (Ok(vis_a), Ok(vis_b)) = (visible_query.get(agent_a), visible_query.get(agent_b))
-        else {
-            continue;
-        };
-
-        // Find entities both agents can see (HashSet for O(n+m) intersection)
-        let vis_b_set: HashSet<Entity> = vis_b.entities.iter().copied().collect();
-        let shared_visible: Vec<Entity> = vis_a
-            .entities
-            .iter()
-            .filter(|e| vis_b_set.contains(e))
-            .copied()
-            .collect();
-
-        if shared_visible.is_empty() {
+        if conv.participants.len() < 2 {
             continue;
         }
 
-        // For each agent, check their high-salience triples about shared visible entities
-        // and record that their partner probably also observed them.
-        for (observer, partner) in [(agent_a, agent_b), (agent_b, agent_a)] {
+        // For each observer in the group, look at what they can see, find
+        // the intersection with every other participant, and mark those
+        // shared high-salience facts as beliefs the partner probably also holds.
+        for observer in conv.participants.iter().copied() {
+            let Ok(vis_observer) = visible_query.get(observer) else {
+                continue;
+            };
             let Ok(mind) = minds.get(observer) else {
                 continue;
             };
@@ -265,32 +252,52 @@ pub fn update_shared_experience_tom(
                 continue;
             };
 
-            let mut count = 0usize;
-            for &visible_entity in &shared_visible {
-                let node = Node::Entity(visible_entity);
-                for triple in mind.query(Some(&node), None, None) {
-                    if triple.meta.salience >= SHARED_EXPERIENCE_MIN_SALIENCE {
-                        tom.record_belief(
-                            partner,
-                            triple.subject.clone(),
-                            triple.predicate,
-                            triple.object.clone(),
-                            SHARED_EXPERIENCE_CONFIDENCE,
-                            tick.current,
-                        );
-                        count += 1;
+            for partner in conv.participants.iter().copied() {
+                if partner == observer {
+                    continue;
+                }
+                let Ok(vis_partner) = visible_query.get(partner) else {
+                    continue;
+                };
+                let vis_partner_set: HashSet<Entity> =
+                    vis_partner.entities.iter().copied().collect();
+                let shared_visible: Vec<Entity> = vis_observer
+                    .entities
+                    .iter()
+                    .filter(|e| vis_partner_set.contains(e))
+                    .copied()
+                    .collect();
+                if shared_visible.is_empty() {
+                    continue;
+                }
+
+                let mut count = 0usize;
+                for &visible_entity in &shared_visible {
+                    let node = Node::Entity(visible_entity);
+                    for triple in mind.query(Some(&node), None, None) {
+                        if triple.meta.salience >= SHARED_EXPERIENCE_MIN_SALIENCE {
+                            tom.record_belief(
+                                partner,
+                                triple.subject.clone(),
+                                triple.predicate,
+                                triple.object.clone(),
+                                SHARED_EXPERIENCE_CONFIDENCE,
+                                tick.current,
+                            );
+                            count += 1;
+                        }
                     }
                 }
-            }
 
-            if count > 0 {
-                sim_events.write(crate::agent::events::SimEvent::TheoryOfMindUpdated {
-                    agent: observer,
-                    about: partner,
-                    tick: tick.current,
-                    source: crate::agent::events::TheoryOfMindSource::SharedExperience,
-                    belief_count: count,
-                });
+                if count > 0 {
+                    sim_events.write(crate::agent::events::SimEvent::TheoryOfMindUpdated {
+                        agent: observer,
+                        about: partner,
+                        tick: tick.current,
+                        source: crate::agent::events::TheoryOfMindSource::SharedExperience,
+                        belief_count: count,
+                    });
+                }
             }
         }
     }
