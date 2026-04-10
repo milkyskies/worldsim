@@ -173,15 +173,15 @@ fn novelty_score(triple: &Triple, partner_mind: &MindGraph) -> f32 {
 /// Returns 1.0 if the triple's predicate or subject matches any goal condition, else 0.0.
 fn goal_relevance(triple: &Triple, goal: &Goal) -> f32 {
     for cond in &goal.conditions {
-        if let Some(pred) = cond.predicate {
-            if triple.predicate == pred {
-                return 1.0;
-            }
+        if let Some(pred) = cond.predicate
+            && triple.predicate == pred
+        {
+            return 1.0;
         }
-        if let Some(subj) = &cond.subject {
-            if &triple.subject == subj {
-                return 0.5;
-            }
+        if let Some(subj) = &cond.subject
+            && &triple.subject == subj
+        {
+            return 0.5;
         }
     }
     0.0
@@ -220,10 +220,10 @@ pub fn infer_topic(triples: &[Triple]) -> Topic {
                 .unwrap_or(std::cmp::Ordering::Equal)
         });
 
-    if let Some(triple) = best_location {
-        if let Node::Concept(concept) = triple.subject {
-            return Topic::Location(concept);
-        }
+    if let Some(triple) = best_location
+        && let Node::Concept(concept) = triple.subject
+    {
+        return Topic::Location(concept);
     }
 
     Topic::General
