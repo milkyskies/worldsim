@@ -49,22 +49,27 @@ use bevy::prelude::*;
 
 /// Base affection assumed for an unknown conspecific. Tiny — strangers
 /// barely satisfy social drive on their own. The point of the baseline is
-/// "more eyes watching for wolves" comfort, not loneliness relief; the
-/// real signal is supposed to come from kin (Affection > 0.5) introduced
-/// at spawn. For Person species this is further modulated by extraversion
-/// (introverts get nothing from strangers; extraverts get the full
-/// baseline plus a multiplier).
+/// "more eyes watching for wolves" comfort for animals, and "walking past
+/// other humans on the street is mildly soothing" for humans. The real
+/// signal is supposed to come from kin (Affection > 0.5) introduced at
+/// spawn or known friends accumulated over time.
 pub const STRANGER_CONSPECIFIC_AFFECTION: f32 = 0.05;
 
-/// Extra extravert bonus on top of `STRANGER_CONSPECIFIC_AFFECTION`.
+/// Human floor: even maximally introverted humans get a tiny stranger
+/// comfort, because being completely alone is universally aversive (not
+/// just for extraverts). Smaller than the deer baseline because deer
+/// have herd-safety reasons to value any conspecific; humans don't.
+pub const HUMAN_INTROVERT_STRANGER_BASELINE: f32 = 0.02;
+
+/// Extra extravert bonus on top of `HUMAN_INTROVERT_STRANGER_BASELINE`.
 /// At extraversion 1.0 a Person treats a stranger as if Affection were
-/// `baseline + bonus = 0.05 + 0.05 = 0.10`. Kept intentionally small so
-/// the proximity decay doesn't drain the social drive below the
-/// conversation-initiation threshold (0.55) before agents can walk into
-/// range and actually start talking. The personality signal is real
-/// ("extraverts are more comforted by crowds") but shallow — the big
-/// social satisfier for humans is conversation, not mere proximity.
-pub const EXTRAVERT_STRANGER_BONUS: f32 = 0.05;
+/// `0.02 + 0.06 = 0.08`. Kept intentionally small so the proximity decay
+/// doesn't drain the social drive below the conversation-initiation
+/// threshold (0.55) before agents can walk into range and actually start
+/// talking. The personality signal is real ("extraverts are more
+/// comforted by crowds") but shallow — the big social satisfier for
+/// humans is conversation, not mere proximity.
+pub const EXTRAVERT_STRANGER_BONUS: f32 = 0.06;
 
 /// Affection-weighted decay rate applied to the social drive per second.
 /// At `affection_sum = 1.0` (e.g. two herd-mates at 0.5 each, or one at 1.0)
@@ -80,16 +85,17 @@ pub const SOCIAL_PROXIMITY_DECAY_PER_SEC: f32 = 0.15;
 /// comforted by being in a crowd of strangers, an introvert isn't.
 pub fn stranger_affection_for(
     species: Option<&SpeciesProfile>,
-    _personality: Option<&Personality>,
+    personality: Option<&Personality>,
 ) -> f32 {
     let is_person = matches!(species.map(|s| s.species), Some(Species::Human));
     if is_person {
-        // Humans are not meaningfully comforted by mere proximity to
-        // strangers. Their social satisfier is conversation (handled by
-        // the activity effects system when InConversation is active).
-        // Known friends contribute via their Affection value, not via
-        // this stranger fallback.
-        return 0.0;
+        // Humans get a small extraversion-modulated stranger comfort.
+        // Walking through a crowd is mildly soothing (and more so for
+        // extraverts) but conversation is the real satisfier. Even a
+        // pure introvert gets a tiny floor — being completely alone is
+        // universally aversive, not just an extravert thing.
+        let extraversion = personality.map(|p| p.traits.extraversion).unwrap_or(0.5);
+        return HUMAN_INTROVERT_STRANGER_BASELINE + EXTRAVERT_STRANGER_BONUS * extraversion;
     }
     // Animals: herd safety in numbers is real regardless of personality.
     // Even a random deer standing next to an unfamiliar deer is slightly
@@ -187,12 +193,34 @@ mod tests {
     }
 
     #[test]
-    fn humans_get_zero_stranger_comfort() {
+    fn extravert_humans_get_more_stranger_comfort_than_introverts() {
+        use crate::agent::psyche::personality::{Personality, PersonalityTraits};
         let species = SpeciesProfile::human();
-        let value = stranger_affection_for(Some(&species), None);
+        let extravert = Personality {
+            traits: PersonalityTraits {
+                extraversion: 1.0,
+                ..Default::default()
+            },
+        };
+        let introvert = Personality {
+            traits: PersonalityTraits {
+                extraversion: 0.0,
+                ..Default::default()
+            },
+        };
+
+        let extra = stranger_affection_for(Some(&species), Some(&extravert));
+        let intro = stranger_affection_for(Some(&species), Some(&introvert));
+
+        assert!(intro > 0.0, "introvert floor should still be positive");
+        assert!(
+            extra > intro,
+            "extravert should get more stranger comfort: extra={extra}, intro={intro}"
+        );
+        assert_eq!(intro, HUMAN_INTROVERT_STRANGER_BASELINE);
         assert_eq!(
-            value, 0.0,
-            "humans should get zero comfort from stranger proximity — their satisfier is conversation"
+            extra,
+            HUMAN_INTROVERT_STRANGER_BASELINE + EXTRAVERT_STRANGER_BONUS
         );
     }
 
