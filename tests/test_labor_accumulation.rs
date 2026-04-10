@@ -358,6 +358,7 @@ fn spawn_helper_creates_labor_site_with_correct_trigger() {
             &[],
             Some(5),
             0,
+            None,
         );
         commands_queue.apply(app.world_mut());
         id
@@ -397,6 +398,7 @@ fn spawn_helper_without_labor_uses_slots_filled_trigger() {
             &[],
             None,
             0,
+            None,
         );
         commands_queue.apply(app.world_mut());
         id
@@ -436,6 +438,7 @@ fn fully_stocked_labor_site_needs_labor_before_transforming() {
             &[(Concept::Wood, 3)], // fully stocked
             Some(2),               // requires 2 labor ticks
             0,
+            None,
         );
         commands_queue.apply(app.world_mut());
         id
