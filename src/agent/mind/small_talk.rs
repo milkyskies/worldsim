@@ -141,20 +141,9 @@ fn recency_score(timestamp: u64, now: u64) -> f32 {
     (-age / RECENCY_HALF_LIFE_TICKS).exp()
 }
 
-/// 1.0 if the speaker believes the listener doesn't know this fact, scaling
-/// toward 0.0 as the speaker's belief that the listener knows it grows.
-///
-/// Uses the speaker's [`TheoryOfMind`] to estimate what the listener knows.
-/// If the speaker has no model for the listener (strangers), everything is
-/// maximally novel (returns 1.0).
+/// Delegates to [`theory_of_mind::tom_novelty_score`].
 fn novelty_score(triple: &Triple, speaker_tom: Option<&TheoryOfMind>, listener: Entity) -> f32 {
-    let Some(tom) = speaker_tom else {
-        return 1.0; // No model = assume everything is novel
-    };
-
-    let known =
-        tom.believed_confidence(listener, &triple.subject, triple.predicate, &triple.object);
-    1.0 - known
+    crate::agent::mind::theory_of_mind::tom_novelty_score(triple, speaker_tom, listener)
 }
 
 // ============================================================================

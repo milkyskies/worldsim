@@ -16,7 +16,7 @@
 //! *believe* the listener knows.
 
 use bevy::prelude::*;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use super::knowledge::{Node, Predicate, Triple, Value};
 
@@ -71,7 +71,6 @@ impl TheoryOfMind {
     ) {
         let entries = self.models.entry(target).or_default();
 
-        // Update existing entry if same fact
         if let Some(existing) = entries
             .iter_mut()
             .find(|e| e.subject == subject && e.predicate == predicate && e.object == object)
@@ -81,7 +80,6 @@ impl TheoryOfMind {
             return;
         }
 
-        // Evict oldest if at capacity
         if entries.len() >= MAX_TRIPLES_PER_AGENT {
             if let Some(oldest_idx) = entries
                 .iter()
@@ -142,9 +140,7 @@ impl TheoryOfMind {
                         e.subject == *subject && e.predicate == predicate && e.object == *object
                     })
                     .map(|e| e.confidence)
-                    .fold(None, |acc: Option<f32>, c| {
-                        Some(acc.map_or(c, |a| a.max(c)))
-                    })
+                    .reduce(f32::max)
             })
             .unwrap_or(0.0)
     }
@@ -188,6 +184,31 @@ impl TheoryOfMind {
 }
 
 // ============================================================================
+// Shared novelty scoring
+// ============================================================================
+
+/// Score how novel a triple is to a listener based on the speaker's theory of mind.
+///
+/// Returns 1.0 if the speaker has no model for the listener (stranger model) or
+/// believes the listener doesn't know this fact. Scales toward 0.0 as the
+/// speaker's belief that the listener knows it grows.
+///
+/// Shared by both deliberate_talk and small_talk content selection.
+pub fn tom_novelty_score(
+    triple: &super::knowledge::Triple,
+    speaker_tom: Option<&TheoryOfMind>,
+    listener: Entity,
+) -> f32 {
+    let Some(tom) = speaker_tom else {
+        return 1.0;
+    };
+
+    let known =
+        tom.believed_confidence(listener, &triple.subject, triple.predicate, &triple.object);
+    1.0 - known
+}
+
+// ============================================================================
 // Shared-experience system
 // ============================================================================
 
@@ -222,11 +243,12 @@ pub fn update_shared_experience_tom(
             continue;
         };
 
-        // Find entities both agents can see
+        // Find entities both agents can see (HashSet for O(n+m) intersection)
+        let vis_b_set: HashSet<Entity> = vis_b.entities.iter().copied().collect();
         let shared_visible: Vec<Entity> = vis_a
             .entities
             .iter()
-            .filter(|e| vis_b.entities.contains(e))
+            .filter(|e| vis_b_set.contains(e))
             .copied()
             .collect();
 
