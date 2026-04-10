@@ -42,8 +42,8 @@ use crate::agent::mind::conversation::{
     Intent, Topic, Turn,
 };
 use crate::agent::mind::knowledge::{Concept, Metadata, MindGraph, Node, Predicate, Value};
-use crate::agent::mind::theory_of_mind::{self, TheoryOfMind};
 use crate::agent::mind::social_perception::CONVERSATION_RANGE;
+use crate::agent::mind::theory_of_mind::{self, TheoryOfMind};
 use crate::agent::psyche::emotions::EmotionalState;
 use crate::agent::psyche::personality::Personality;
 use crate::core::not_paused;
@@ -1022,7 +1022,9 @@ mod tests {
         let listener = Entity::from_bits(2);
 
         assert_eq!(
-            select_intent(&conv, &speaker, None, listener, None, None, 100, false, false),
+            select_intent(
+                &conv, &speaker, None, listener, None, None, 100, false, false
+            ),
             Intent::Share,
             "should warn about danger the listener doesn't know"
         );
@@ -1059,7 +1061,17 @@ mod tests {
 
         // With nothing else to share and no content available, falls through to Acknowledge.
         assert_eq!(
-            select_intent(&conv, &speaker, Some(&tom), listener, None, None, 100, false, false),
+            select_intent(
+                &conv,
+                &speaker,
+                Some(&tom),
+                listener,
+                None,
+                None,
+                100,
+                false,
+                false
+            ),
             Intent::Acknowledge,
             "should not warn about danger the speaker believes the listener already knows"
         );
@@ -1089,7 +1101,17 @@ mod tests {
         };
 
         assert_eq!(
-            select_intent(&conv, &mind, None, listener, Some(&goal), None, 0, false, false),
+            select_intent(
+                &conv,
+                &mind,
+                None,
+                listener,
+                Some(&goal),
+                None,
+                0,
+                false,
+                false
+            ),
             Intent::Ask,
             "agent with location-seeking goal should Ask"
         );

@@ -72,9 +72,10 @@ impl TheoryOfMind {
         let entries = self.models.entry(target).or_default();
 
         // Update existing entry if same fact
-        if let Some(existing) = entries.iter_mut().find(|e| {
-            e.subject == subject && e.predicate == predicate && e.object == object
-        }) {
+        if let Some(existing) = entries
+            .iter_mut()
+            .find(|e| e.subject == subject && e.predicate == predicate && e.object == object)
+        {
             existing.confidence = existing.confidence.max(confidence);
             existing.timestamp = existing.timestamp.max(timestamp);
             return;
@@ -141,7 +142,9 @@ impl TheoryOfMind {
                         e.subject == *subject && e.predicate == predicate && e.object == *object
                     })
                     .map(|e| e.confidence)
-                    .fold(None, |acc: Option<f32>, c| Some(acc.map_or(c, |a| a.max(c))))
+                    .fold(None, |acc: Option<f32>, c| {
+                        Some(acc.map_or(c, |a| a.max(c)))
+                    })
             })
             .unwrap_or(0.0)
     }

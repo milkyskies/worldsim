@@ -152,7 +152,8 @@ fn novelty_score(triple: &Triple, speaker_tom: Option<&TheoryOfMind>, listener: 
         return 1.0; // No model = assume everything is novel
     };
 
-    let known = tom.believed_confidence(listener, &triple.subject, triple.predicate, &triple.object);
+    let known =
+        tom.believed_confidence(listener, &triple.subject, triple.predicate, &triple.object);
     1.0 - known
 }
 
