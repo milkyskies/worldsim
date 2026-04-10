@@ -197,7 +197,7 @@ pub fn labor_accumulation_system(
     active_actions: Query<(Entity, &ActiveActions)>,
     mut becomes_query: Query<&mut Becomes>,
     tick: Res<TickCount>,
-    mut events: EventWriter<SimEvent>,
+    mut events: MessageWriter<SimEvent>,
 ) {
     // Collect (agent, site) pairs for all active Construct actions.
     let mut constructor_pairs: Vec<(Entity, Entity)> = Vec::new();
