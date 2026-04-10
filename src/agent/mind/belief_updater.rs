@@ -19,11 +19,10 @@ pub fn process_action_outcomes(
         With<crate::agent::Agent>,
     >,
     mut outcome_events: MessageReader<ActionOutcomeEvent>,
-    time: Res<Time>,
     tick: Res<crate::core::tick::TickCount>,
     mut sim_events: MessageWriter<crate::agent::events::SimEvent>,
 ) {
-    let current_time = time.elapsed().as_millis() as u64;
+    let current_time = tick.current;
 
     for event in outcome_events.read() {
         if let Ok((mut mind, mut emotional_state, physical)) = agents.get_mut(event.actor) {

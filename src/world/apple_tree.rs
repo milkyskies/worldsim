@@ -196,9 +196,9 @@ pub fn sync_apple_visuals(
 /// Regenerates resources (e.g., apples on trees) over time.
 pub fn regenerate_resources(
     mut query: Query<(&mut ItemSlots, &mut ResourceRegeneration)>,
-    time: Res<Time>,
+    tick: Res<crate::core::tick::TickCount>,
 ) {
-    let dt = time.delta_secs();
+    let dt = tick.dt();
 
     for (mut inventory, mut regen) in query.iter_mut() {
         let current = inventory.count(regen.item);
