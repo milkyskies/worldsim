@@ -70,7 +70,6 @@ pub fn pick_small_talk_triples(
     }
 
     let mut scored: Vec<(f32, &Triple)> = speaker_mind
-        .triples
         .iter()
         .filter(|t| is_worth_sharing(t))
         .map(|t| (score_triple(t, partner_mind, now), t))

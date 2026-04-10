@@ -62,7 +62,6 @@ pub fn pick_deliberate_content(
     }
 
     let mut scored: Vec<(f32, &Triple)> = speaker_mind
-        .triples
         .iter()
         .filter(|t| is_deliberate_shareable(t))
         .map(|t| {
@@ -166,7 +165,6 @@ fn recency_score(timestamp: u64, now: u64) -> f32 {
 /// known-dangerous-but-not-yet-personally-observed threats.
 fn novelty_score(triple: &Triple, partner_mind: &MindGraph) -> f32 {
     let known = partner_mind
-        .triples
         .iter()
         .filter(|t| {
             t.subject == triple.subject

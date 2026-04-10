@@ -489,7 +489,6 @@ fn has_danger_to_warn(
     // Build listener's danger confidence map once to avoid a nested query per
     // speaker triple.
     let listener_danger: Vec<(&Node, f32)> = listener_mind
-        .triples
         .iter()
         .filter(|t| {
             t.predicate == Predicate::HasTrait && t.object == Value::Concept(Concept::Dangerous)
@@ -505,7 +504,7 @@ fn has_danger_to_warn(
             .fold(0.0_f32, f32::max)
     };
 
-    speaker_mind.triples.iter().any(|t| {
+    speaker_mind.iter().any(|t| {
         t.predicate == Predicate::HasTrait
             && t.object == Value::Concept(Concept::Dangerous)
             && t.meta.salience >= salience_threshold
