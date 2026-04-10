@@ -89,6 +89,7 @@ fn sim_event_tick(event: &SimEvent) -> u64 {
         | SimEvent::ActionCompleted { tick, .. }
         | SimEvent::ActionPreempted { tick, .. }
         | SimEvent::ActionFailed { tick, .. }
+        | SimEvent::PlanAbandoned { tick, .. }
         | SimEvent::ConversationStarted { tick, .. }
         | SimEvent::ConversationEnded { tick, .. }
         | SimEvent::ConversationAbandoned { tick, .. }
@@ -109,6 +110,7 @@ fn sim_event_involves(event: &SimEvent, agent: Entity) -> bool {
         | SimEvent::ActionCompleted { agent: a, .. }
         | SimEvent::ActionPreempted { agent: a, .. }
         | SimEvent::ActionFailed { agent: a, .. }
+        | SimEvent::PlanAbandoned { agent: a, .. }
         | SimEvent::EmotionTriggered { agent: a, .. }
         | SimEvent::Death { agent: a, .. }
         | SimEvent::EntityPerceived { agent: a, .. }
@@ -185,6 +187,17 @@ fn format_sim_event(event: &SimEvent) -> String {
             reason,
         } => {
             format!("[t{tick}] ActionFailed    agent={agent:?} action={action:?} reason={reason:?}")
+        }
+
+        SimEvent::PlanAbandoned {
+            agent,
+            tick,
+            action,
+            intent,
+        } => {
+            format!(
+                "[t{tick}] PlanAbandoned    agent={agent:?} action={action:?} intent={intent:?}"
+            )
         }
 
         SimEvent::ConversationStarted {

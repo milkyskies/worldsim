@@ -5,7 +5,10 @@
 //! Upstream: survival/emotional/rational brain modules, arbitration, perception, knowledge
 //! Downstream: nervous_system::cns (executes the chosen action), SimEvent consumers
 
-use super::arbitration::{arbitrate_parallel, calculate_brain_powers};
+use super::active_plan::{ActivePlans, PlanOwner};
+use super::arbitration::{
+    CommitmentContext, arbitrate_parallel_with_commitment, calculate_brain_powers,
+};
 use super::emotional::emotional_brain_propose;
 use super::history::BrainHistory;
 use super::proposal::{BrainPowers, BrainState, BrainType};
@@ -64,6 +67,7 @@ pub fn three_brains_system(
     ontology: Res<crate::agent::mind::knowledge::Ontology>,
     mut sim_events: MessageWriter<crate::agent::events::SimEvent>,
     mut brain_histories: Query<&mut BrainHistory>,
+    mut active_plans_query: Query<&mut ActivePlans>,
 ) {
     for (
         entity,
@@ -128,11 +132,55 @@ pub fn three_brains_system(
         };
 
         // 3. Arbitrate - greedy multi-action admission across body channels
+        //    with plan commitment inertia (#166)
         let proposals = [survival_proposal, emotional_proposal, rational_proposal];
         let capacities = crate::agent::actions::ChannelCapacities::compute(body, Some(physical));
-        let admitted = arbitrate_parallel(&proposals, &powers, &capacities, &action_registry);
 
-        // 4. Update attribution map so outcome events can credit the right brain
+        let commitment_ctx = active_plans_query
+            .get(entity)
+            .ok()
+            .map(|plans| CommitmentContext {
+                active_plans: &*plans,
+                conscientiousness: personality.traits.conscientiousness,
+                current_tick: tick.current,
+            });
+        let admitted = arbitrate_parallel_with_commitment(
+            &proposals,
+            &powers,
+            &capacities,
+            &action_registry,
+            commitment_ctx.as_ref(),
+        );
+
+        // 4. Update active plans: activate winning proposals, decay stalled ones
+        if let Ok(mut plans) = active_plans_query.get_mut(entity) {
+            let admitted_actions: Vec<_> = admitted.iter().map(|p| p.action.action_type).collect();
+
+            // Activate newly admitted proposals
+            for proposal in &admitted {
+                if proposal.intent != super::proposal::Intent::None {
+                    plans.activate(
+                        PlanOwner::Brain(proposal.brain),
+                        proposal.intent,
+                        proposal.action.action_type,
+                        tick.current,
+                    );
+                }
+            }
+
+            // Decay stalled plans and emit PlanAbandoned events
+            let abandoned = plans.decay_stalled_plans(&admitted_actions, tick.current);
+            for (intent, action) in abandoned {
+                sim_events.write(crate::agent::events::SimEvent::PlanAbandoned {
+                    agent: entity,
+                    tick: tick.current,
+                    action,
+                    intent,
+                });
+            }
+        }
+
+        // 5. Update attribution map so outcome events can credit the right brain
         if let Ok(mut history) = brain_histories.get_mut(entity) {
             history.active.retain(|at, _| active_actions.contains(*at));
             for proposal in &admitted {

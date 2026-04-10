@@ -1,5 +1,6 @@
 use bevy::prelude::*;
 
+pub mod active_plan;
 pub mod arbitration;
 
 pub mod brain_system;
@@ -27,6 +28,7 @@ impl Plugin for BrainPlugin {
             .register_type::<proposal::BrainType>()
             .register_type::<proposal::BrainPowers>()
             .register_type::<history::BrainHistory>()
+            .register_type::<active_plan::ActivePlans>()
             .init_resource::<trace::TraceConfig>()
             .init_resource::<trace::DecisionTraceBuffer>()
             .add_systems(
