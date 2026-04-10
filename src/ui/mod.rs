@@ -1,6 +1,7 @@
 pub mod camera;
 pub mod hud;
 pub mod overlays;
+pub mod status_icons;
 // pub mod inspector; // Merged for now to simplify migration
 
 use bevy::camera::Viewport;
@@ -30,6 +31,7 @@ impl Plugin for UiPlugin {
             .add_plugins(DefaultInspectorConfigPlugin)
             .add_plugins(overlays::OverlayPlugin)
             .add_plugins(sprite_animation::SpriteAnimationPlugin)
+            .add_plugins(status_icons::StatusIconPlugin)
             .init_resource::<UiState>()
             .init_resource::<debug_knowledge::KnowledgeInspectorState>()
             .add_systems(EguiPrimaryContextPass, ui_system)

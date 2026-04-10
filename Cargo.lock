@@ -6556,6 +6556,7 @@ dependencies = [
  "criterion",
  "egui_dock",
  "noise",
+ "paste",
  "rand 0.9.2",
  "rand_chacha",
  "serde",

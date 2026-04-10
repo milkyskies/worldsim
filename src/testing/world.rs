@@ -32,6 +32,7 @@ use crate::world::map::{
     CHUNK_SIZE, Chunk, DEFAULT_TERRAIN_SEED, MAP_CHUNKS_X, MAP_CHUNKS_Y, WORLD_HEIGHT, WORLD_WIDTH,
     WorldMap, generate_terrain,
 };
+use crate::world::spatial_index::SpatialIndexPlugin;
 use crate::world::spawn_config::{SpawnLayout, WorldSpawnConfig};
 
 /// Default test world dimensions in tiles. Large enough for typical scenarios but
@@ -89,6 +90,7 @@ fn sim_event_tick(event: &SimEvent) -> u64 {
         | SimEvent::ActionCompleted { tick, .. }
         | SimEvent::ActionPreempted { tick, .. }
         | SimEvent::ActionFailed { tick, .. }
+        | SimEvent::PlanAbandoned { tick, .. }
         | SimEvent::ConversationStarted { tick, .. }
         | SimEvent::ConversationEnded { tick, .. }
         | SimEvent::ConversationAbandoned { tick, .. }
@@ -109,6 +111,7 @@ fn sim_event_involves(event: &SimEvent, agent: Entity) -> bool {
         | SimEvent::ActionCompleted { agent: a, .. }
         | SimEvent::ActionPreempted { agent: a, .. }
         | SimEvent::ActionFailed { agent: a, .. }
+        | SimEvent::PlanAbandoned { agent: a, .. }
         | SimEvent::EmotionTriggered { agent: a, .. }
         | SimEvent::Death { agent: a, .. }
         | SimEvent::EntityPerceived { agent: a, .. }
@@ -185,6 +188,17 @@ fn format_sim_event(event: &SimEvent) -> String {
             reason,
         } => {
             format!("[t{tick}] ActionFailed    agent={agent:?} action={action:?} reason={reason:?}")
+        }
+
+        SimEvent::PlanAbandoned {
+            agent,
+            tick,
+            action,
+            intent,
+        } => {
+            format!(
+                "[t{tick}] PlanAbandoned    agent={agent:?} action={action:?} intent={intent:?}"
+            )
         }
 
         SimEvent::ConversationStarted {
@@ -375,6 +389,7 @@ impl TestWorld {
         app.insert_resource(TickCount::new(60.0));
         app.insert_resource(GameLog::new(100));
         app.init_resource::<GameTime>();
+        app.add_plugins(SpatialIndexPlugin);
 
         // SimEvent history — collected automatically each tick.
         app.init_resource::<SimEventLog>();

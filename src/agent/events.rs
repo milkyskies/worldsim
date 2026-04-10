@@ -6,7 +6,7 @@
 //! Downstream: belief_updater (consumes ActionOutcomeEvent), relationship systems (consume SocialInteraction), SimEvent consumers (#84, #123, #124, #125)
 
 use super::actions::ActionType;
-use super::brains::proposal::{BrainPowers, BrainProposal, BrainType};
+use super::brains::proposal::{BrainPowers, BrainProposal, BrainType, Intent};
 use super::psyche::emotions::EmotionType;
 use crate::agent::mind::knowledge::Concept;
 use bevy::prelude::*;
@@ -175,6 +175,14 @@ pub enum SimEvent {
         tick: u64,
         action: ActionType,
         reason: FailureReason,
+    },
+
+    /// An active plan was abandoned (stalled out or replaced by a better proposal).
+    PlanAbandoned {
+        agent: Entity,
+        tick: u64,
+        action: ActionType,
+        intent: Intent,
     },
 
     /// A conversation was started between participants.

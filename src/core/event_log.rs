@@ -161,6 +161,9 @@ fn event_meta<'a>(
         SimEvent::ActionFailed { agent, tick, .. } => {
             ("ActionFailed", *tick, vec![agent_resolve(*agent)])
         }
+        SimEvent::PlanAbandoned { agent, tick, .. } => {
+            ("PlanAbandoned", *tick, vec![agent_resolve(*agent)])
+        }
         SimEvent::ConversationStarted {
             participants, tick, ..
         } => {
@@ -298,6 +301,20 @@ fn event_to_json(
                 "agent": resolve(*agent),
                 "action": format!("{action:?}"),
                 "reason": format!("{reason:?}"),
+            })
+        }
+        SimEvent::PlanAbandoned {
+            agent,
+            action,
+            intent,
+            ..
+        } => {
+            serde_json::json!({
+                "tick": tick,
+                "type": event_type,
+                "agent": resolve(*agent),
+                "action": format!("{action:?}"),
+                "intent": format!("{intent:?}"),
             })
         }
         SimEvent::ConversationStarted {
