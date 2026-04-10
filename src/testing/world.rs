@@ -869,9 +869,16 @@ impl TestWorld {
         self.get::<PhysicalNeeds>(agent).thirst
     }
 
-    /// Returns the agent's energy value (0.0–100.0).
-    pub fn agent_energy(&self, agent: Entity) -> f32 {
-        self.get::<PhysicalNeeds>(agent).energy
+    /// Returns the agent's aerobic stamina value (0.0–aerobic_max).
+    /// This is the primary "how tired" fatigue value; anaerobic is the
+    /// sprint reserve, accessed separately if needed.
+    pub fn agent_aerobic(&self, agent: Entity) -> f32 {
+        self.get::<PhysicalNeeds>(agent).stamina.aerobic
+    }
+
+    /// Returns the agent's anaerobic (sprint) reserve.
+    pub fn agent_anaerobic(&self, agent: Entity) -> f32 {
+        self.get::<PhysicalNeeds>(agent).stamina.anaerobic
     }
 
     /// Returns true if the entity carries any of the given concept in its inventory.
@@ -978,8 +985,12 @@ impl TestWorld {
         // Physical needs
         if let Some(needs) = world.get::<PhysicalNeeds>(agent) {
             eprintln!(
-                "  Needs:     hunger={:.1}  thirst={:.1}  energy={:.1}  health={:.1}",
-                needs.hunger, needs.thirst, needs.energy, needs.health
+                "  Needs:     hunger={:.1}  thirst={:.1}  aerobic={:.1}  anaerobic={:.1}  health={:.1}",
+                needs.hunger,
+                needs.thirst,
+                needs.stamina.aerobic,
+                needs.stamina.anaerobic,
+                needs.health
             );
         }
 
@@ -1437,12 +1448,12 @@ mod tests {
         let agent = world.spawn_agent(AgentConfig {
             pos: Vec2::new(50.0, 75.0),
             hunger: 80.0,
-            energy: 25.0,
+            stamina: 25.0,
             ..Default::default()
         });
 
         assert_eq!(world.agent_hunger(agent), 80.0);
-        assert_eq!(world.agent_energy(agent), 25.0);
+        assert_eq!(world.agent_aerobic(agent), 25.0);
         let transform = world.get::<Transform>(agent);
         assert_eq!(transform.translation.x, 50.0);
         assert_eq!(transform.translation.y, 75.0);
@@ -1614,7 +1625,7 @@ mod tests {
         let mut world = TestWorld::with_seed(42);
         let agent = world.spawn_agent(AgentConfig {
             hunger: 60.0,
-            energy: 40.0,
+            stamina: 40.0,
             ..Default::default()
         });
         world.tick(5);

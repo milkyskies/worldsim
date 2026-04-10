@@ -757,10 +757,17 @@ fn agent_viewer_ui_for_agent(world: &mut World, entity: Entity, ui: &mut egui::U
                 );
                 ui.end_row();
 
-                ui.label("Energy");
+                ui.label("Aerobic");
                 ui.add(
-                    egui::ProgressBar::new(physical.energy / 100.0)
-                        .text(format!("{:.1}", physical.energy)),
+                    egui::ProgressBar::new(physical.stamina.aerobic_fraction())
+                        .text(format!("{:.1}", physical.stamina.aerobic)),
+                );
+                ui.end_row();
+
+                ui.label("Anaerobic");
+                ui.add(
+                    egui::ProgressBar::new(physical.stamina.anaerobic_fraction())
+                        .text(format!("{:.1}", physical.stamina.anaerobic)),
                 );
                 ui.end_row();
 

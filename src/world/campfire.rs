@@ -32,7 +32,7 @@ pub struct CampfireMarker;
 /// - [`LightSource`]: emits light in a radius, perceivable by agents at night
 /// - [`HeatSource`]: emits heat, perceivable by agents via temperature sense
 /// - [`FuelConsumer`]: burns wood; auto-reloads from the fuel slot when depleted
-/// - [`EmitsEffect`]: comfort aura — reduces stress and restores energy for nearby agents
+/// - [`EmitsEffect`]: comfort aura — reduces stress and restores stamina for nearby agents
 /// - [`ItemSlots`]: fuel slot holding wood items; agents refuel via Deposit
 /// - [`Becomes`]: transforms to Ash when fuel is fully exhausted
 pub fn campfire_components(position: Vec2) -> impl Bundle {
@@ -62,7 +62,7 @@ pub fn campfire_components(position: Vec2) -> impl Bundle {
             80.0,
             EffectKind::All(vec![
                 EffectKind::StressPerSec(-0.5),
-                EffectKind::EnergyPerSec(2.0),
+                EffectKind::StaminaPerSec(2.0),
             ]),
         ),
         ItemSlots {

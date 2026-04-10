@@ -268,7 +268,7 @@ pub fn process_healing(mut query: Query<(&mut Body, Option<&PhysicalNeeds>)>, ti
         let mut healing_speed = base_healing_speed;
 
         if let Some(physical) = needs
-            && physical.energy > 80.0
+            && physical.stamina.aerobic > 80.0
         {
             healing_speed *= 2.0;
         }

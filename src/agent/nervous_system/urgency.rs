@@ -12,7 +12,7 @@ pub enum UrgencySource {
     #[default]
     Hunger,
     Thirst,
-    Energy, // Fatigue
+    Stamina, // Fatigue
     Social,
     Fun,
     Fear,
@@ -79,12 +79,12 @@ pub fn generate_urgency(
         cns.urgencies.clear();
 
         // Helper: Get normalized value (0-1) for a specific urgency source
-        // This maps the Source (Hunger, Energy) to the underlying Component Field.
+        // This maps the Source (Hunger, Stamina) to the underlying Component Field.
         let get_source_value = |source: UrgencySource| -> f32 {
             match source {
                 UrgencySource::Hunger => (physical.hunger / 100.0).clamp(0.0, 1.0),
                 UrgencySource::Thirst => (physical.thirst / 100.0).clamp(0.0, 1.0),
-                UrgencySource::Energy => (physical.energy / 100.0).clamp(0.0, 1.0),
+                UrgencySource::Stamina => physical.stamina.aerobic_fraction(),
 
                 // Pain is complex, sum of injuries
                 UrgencySource::Pain => {
@@ -109,18 +109,18 @@ pub fn generate_urgency(
             // 1. Get Base Input (Hardcoded Mapping)
             let base_input = get_source_value(drive_config.source);
 
-            // For Energy, "High Fatigue" means "Low Energy"
-            // We handle inversion here specifically for Energy if needed, or rely on config curve.
+            // For Stamina, "High Fatigue" means "Low Stamina"
+            // We handle inversion here specifically for Stamina if needed, or rely on config curve.
             // Actually, config response curve handles the mapping from Input -> Urgency.
-            // e.g. If Input is Energy (High = 1.0), and we want Urgency when Low,
+            // e.g. If Input is Stamina (High = 1.0), and we want Urgency when Low,
             // we probably need an explicit Invert flag in config or handle it here?
             // The previous code had `invert` in config. Let's rely on standard logic:
             // Urgency = f(Needs). High Need = High Urgency.
             // Hunger: High Value = High Need.
-            // Energy: Low Value = High Need.
+            // Stamina: Low Value = High Need.
 
-            let normalized_input = if drive_config.source == UrgencySource::Energy {
-                1.0 - base_input // 1.0 energy = 0.0 fatigue
+            let normalized_input = if drive_config.source == UrgencySource::Stamina {
+                1.0 - base_input // 1.0 stamina = 0.0 fatigue
             } else {
                 base_input
             };
@@ -177,7 +177,7 @@ pub fn generate_urgency(
             .filter_map(|action| match action.action_type {
                 crate::agent::actions::ActionType::Eat => Some(UrgencySource::Hunger),
                 crate::agent::actions::ActionType::Drink => Some(UrgencySource::Thirst),
-                crate::agent::actions::ActionType::Sleep => Some(UrgencySource::Energy),
+                crate::agent::actions::ActionType::Sleep => Some(UrgencySource::Stamina),
                 crate::agent::actions::ActionType::Wander => Some(UrgencySource::Boredom),
                 _ => None,
             })
@@ -226,7 +226,7 @@ fn apply_momentum_and_gating(
                 } else if ns_config.exteroception.sources.contains(&urgency.source) {
                     alertness // Exteroception (Social/Fear): requires being awake
                 } else if ns_config.proprioception.sources.contains(&urgency.source) {
-                    0.2 + (alertness * 0.8) // Proprioception (Energy): moderate gating
+                    0.2 + (alertness * 0.8) // Proprioception (Stamina): moderate gating
                 } else {
                     0.1 + (alertness * 0.9) // Default
                 };

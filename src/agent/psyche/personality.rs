@@ -35,7 +35,7 @@ pub struct PersonalityTraits {
     pub openness: f32,
     /// Discipline vs Spontaneity (0.0 - 1.0)
     pub conscientiousness: f32,
-    /// Social Energy vs Solitude (0.0 - 1.0)
+    /// Social Stamina vs Solitude (0.0 - 1.0)
     pub extraversion: f32,
     /// Compassion vs Self-Interest (0.0 - 1.0)
     pub agreeableness: f32,

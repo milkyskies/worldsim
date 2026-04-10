@@ -138,8 +138,8 @@ pub fn update_body_perception(
             current_time,
         );
         mind.perceive_self(
-            Predicate::Energy,
-            Value::Int(physical.energy as i32),
+            Predicate::Stamina,
+            Value::Int(physical.stamina.aerobic as i32),
             current_time,
         );
 
@@ -738,7 +738,7 @@ pub fn cleanup_sound_sources(mut commands: Commands, sources: Query<Entity, With
 #[cfg(test)]
 mod threat_tests {
     use super::*;
-    use crate::agent::body::needs::PhysicalNeeds;
+    use crate::agent::body::needs::{PhysicalNeeds, Stamina};
     use crate::agent::item_slots::ItemSlots;
     use crate::agent::psyche::personality::{Personality, PersonalityTraits};
 
@@ -746,7 +746,7 @@ mod threat_tests {
         PhysicalNeeds {
             hunger: 0.0,
             thirst: 0.0,
-            energy: 100.0,
+            stamina: Stamina::default(),
             health: 100.0,
         }
     }
@@ -839,7 +839,7 @@ mod threat_tests {
         let needs = PhysicalNeeds {
             hunger: 0.0,
             thirst: 0.0,
-            energy: 100.0,
+            stamina: Stamina::default(),
             health: 0.0,
         };
         let score = assess_threat(&personality, &needs, None);

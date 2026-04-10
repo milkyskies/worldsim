@@ -43,9 +43,9 @@ pub struct EmotionConfig {
     pub decay_base_rate: f32,
     pub decay_fuel_factor: f32,
     pub stress_hunger_threshold: f32,
-    pub stress_energy_threshold: f32,
+    pub stress_stamina_threshold: f32,
     pub stress_hunger_weight: f32,
-    pub stress_energy_weight: f32,
+    pub stress_stamina_weight: f32,
     pub stress_pain_weight: f32,
     pub stress_emotion_weight: f32,
     pub stress_recovery_bonus: f32,
@@ -58,9 +58,9 @@ impl Default for EmotionConfig {
             decay_base_rate: 0.05,
             decay_fuel_factor: 0.01,
             stress_hunger_threshold: 50.0,
-            stress_energy_threshold: 50.0,
+            stress_stamina_threshold: 50.0,
             stress_hunger_weight: 0.02,
-            stress_energy_weight: 0.02,
+            stress_stamina_weight: 0.02,
             stress_pain_weight: 0.1,
             stress_emotion_weight: 0.15,
             stress_recovery_bonus: 2.0,
@@ -313,8 +313,8 @@ pub fn compute_stress_gain_rate(
 ) -> f32 {
     let hunger_stress =
         (physical.hunger - config.stress_hunger_threshold).max(0.0) * config.stress_hunger_weight;
-    let fatigue_stress =
-        (config.stress_energy_threshold - physical.energy).max(0.0) * config.stress_energy_weight;
+    let fatigue_stress = (config.stress_stamina_threshold - physical.stamina.aerobic).max(0.0)
+        * config.stress_stamina_weight;
 
     let total_pain = body.map(|b| b.total_pain()).unwrap_or(0.0);
     let pain_stress = total_pain * config.stress_pain_weight;
@@ -354,7 +354,7 @@ pub fn compute_stress_recovery_rate(
 ) -> f32 {
     // Both factors in [0, 1]: 1.0 = perfectly fed/rested, 0.0 = starving/exhausted.
     let satiety = (1.0 - physical.hunger / 100.0).clamp(0.0, 1.0);
-    let restedness = (physical.energy / 100.0).clamp(0.0, 1.0);
+    let restedness = physical.stamina.aerobic_fraction();
     // Geometric mean rewards being good at both — being well-fed but exhausted
     // (or vice versa) shouldn't grant the full recovery bonus.
     let well_being = (satiety * restedness).sqrt();
@@ -720,11 +720,11 @@ mod tests {
     }
 
     fn calm_needs() -> crate::agent::body::needs::PhysicalNeeds {
-        use crate::agent::body::needs::PhysicalNeeds;
+        use crate::agent::body::needs::{PhysicalNeeds, Stamina};
         PhysicalNeeds {
             hunger: 0.0,
             thirst: 0.0,
-            energy: 100.0,
+            stamina: Stamina::default(),
             health: 100.0,
         }
     }
@@ -763,7 +763,7 @@ mod tests {
         let healthy = calm_needs();
         let mut starving = calm_needs();
         starving.hunger = 95.0;
-        starving.energy = 5.0;
+        starving.stamina.aerobic = 5.0;
 
         let healthy_recovery = compute_stress_recovery_rate(&healthy, &traits, &config);
         let starving_recovery = compute_stress_recovery_rate(&starving, &traits, &config);

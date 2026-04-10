@@ -263,8 +263,8 @@ pub fn durability_system(mut commands: Commands, mut query: Query<(Entity, &mut 
 
 /// Applies a shelter quality bonus to sleeping agents within range of a [`ShelterProvider`].
 ///
-/// Sleeping provides a base `energy_change` from the activity config. This system
-/// adds an additional energy recovery bonus scaled by the shelter's quality multiplier.
+/// Sleeping provides a base `stamina_change` from the activity config. This system
+/// adds an additional stamina recovery bonus scaled by the shelter's quality multiplier.
 pub fn shelter_system(
     shelter_providers: Query<(&Transform, &ShelterProvider)>,
     mut agents: Query<
@@ -296,9 +296,10 @@ pub fn shelter_system(
             .fold(0.0_f32, f32::max);
 
         if best_quality > 0.0 {
-            // Add bonus energy recovery: quality acts as multiplier on a small base bonus.
-            // Base bonus is 0.1 energy/tick at quality 1.0, scales linearly.
-            needs.energy = (needs.energy + best_quality * 0.1).clamp(0.0, 100.0);
+            // Add bonus aerobic recovery: quality acts as multiplier on a small base bonus.
+            // Base bonus is 0.1 aerobic/tick at quality 1.0, scales linearly.
+            // Shelters aid sustained rest (aerobic), not sprint reserves.
+            needs.stamina.adjust_aerobic(best_quality * 0.1);
         }
     }
 }

@@ -40,7 +40,7 @@ pub fn calculate_brain_powers(
                     power += u.value * 100.0;
                     deprivation += u.value;
                 }
-                UrgencySource::Energy => power += u.value * 80.0,
+                UrgencySource::Stamina => power += u.value * 80.0,
                 UrgencySource::Fear => power += u.value * 50.0,
                 _ => {}
             }

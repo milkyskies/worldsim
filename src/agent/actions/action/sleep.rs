@@ -5,7 +5,7 @@ use crate::agent::actions::channel::{Channel, ChannelUsage};
 use crate::agent::actions::registry::{Action, ActionKind, RuntimeEffects};
 use crate::agent::mind::knowledge::{Node, Predicate, Triple, Value};
 use crate::constants::actions::sleep::{
-    ALERTNESS_PER_SEC, BASE_COST, ENERGY_PER_SEC, HUNGER_PER_SEC,
+    ALERTNESS_PER_SEC, BASE_COST, HUNGER_PER_SEC, STAMINA_PER_SEC,
 };
 
 pub struct SleepAction;
@@ -25,9 +25,13 @@ impl Action for SleepAction {
         }
     }
 
-    // Planning: Sleep leads to full energy
+    // Planning: Sleep leads to full stamina
     fn plan_effects(&self) -> Vec<Triple> {
-        vec![Triple::new(Node::Self_, Predicate::Energy, Value::Int(100))]
+        vec![Triple::new(
+            Node::Self_,
+            Predicate::Stamina,
+            Value::Int(100),
+        )]
     }
 
     fn cost(&self) -> f32 {
@@ -52,7 +56,7 @@ impl Action for SleepAction {
 
     fn runtime_effects(&self) -> RuntimeEffects {
         RuntimeEffects {
-            energy_per_sec: ENERGY_PER_SEC,
+            stamina_per_sec: STAMINA_PER_SEC,
             hunger_per_sec: HUNGER_PER_SEC,
             alertness_per_sec: ALERTNESS_PER_SEC,
         }

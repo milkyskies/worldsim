@@ -84,7 +84,7 @@ pub fn update_rational_brain(
         Entity,
         &mut RationalBrain,
         &mut crate::agent::brains::proposal::BrainState,
-        &Consciousness,
+        &mut Consciousness,
         &ItemSlots,
         &Transform,
         &VisibleObjects,
@@ -92,6 +92,7 @@ pub fn update_rational_brain(
         &MindGraph,
         Option<&Body>,
         &PhysicalNeeds,
+        &crate::agent::psyche::personality::Personality,
     )>,
     tick: Res<crate::core::tick::TickCount>,
     ns_config: Res<crate::agent::nervous_system::config::NervousSystemConfig>,
@@ -115,7 +116,7 @@ pub fn update_rational_brain(
         entity,
         mut brain,
         mut brain_state,
-        consciousness,
+        mut consciousness,
         _inventory,
         _transform,
         _visible,
@@ -123,6 +124,7 @@ pub fn update_rational_brain(
         mind,
         body,
         physical,
+        personality,
     ) in query.iter_mut()
     {
         let capacities = ChannelCapacities::compute(body, Some(physical));
@@ -246,6 +248,18 @@ pub fn update_rational_brain(
                     action_names
                 ));
             }
+
+            // Plan generation drains alertness. GOAP search is cognitively
+            // expensive; curious (high-openness) agents enjoy it so pay less.
+            // Scaled by thinking_interval so fast-brain tests don't burn
+            // alertness faster than a wallclock second's worth.
+            let openness_relief = personality.traits.openness
+                * crate::constants::brains::cognition::OPENNESS_PLANNING_RELIEF;
+            let interval_scale = ns_config.thinking_interval as f32 / 60.0;
+            let plan_drain = crate::constants::brains::rational::PLAN_GENERATION_ALERTNESS_DRAIN
+                * (1.0 - openness_relief)
+                * interval_scale;
+            consciousness.alertness = (consciousness.alertness - plan_drain).max(0.0);
 
             if let Some(plan) = crate::agent::brains::planner::regressive_plan(mind, goal, &actions)
             {

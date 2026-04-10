@@ -1,7 +1,7 @@
 //! Construct action — work on a construction site that requires labor.
 //!
 //! Reads: MindGraph (Becomes beliefs for plan effects and validity), ActionContext (target entity)
-//! Writes: nothing directly; runtime effects (energy/hunger) are applied by the execution system
+//! Writes: nothing directly; runtime effects (stamina/hunger) are applied by the execution system
 //! Upstream: ActionRegistry (registered there), Build action (creates the construction sites)
 //! Downstream: labor_accumulation_system (queries ActiveActions for Construct to tick LaborAccumulated)
 
@@ -14,7 +14,7 @@ use crate::agent::actions::registry::{
 use crate::agent::brains::thinking::TriplePattern;
 use crate::agent::events::FailureReason;
 use crate::agent::mind::knowledge::{MindGraph, Node, Predicate, Triple, Value};
-use crate::constants::actions::construct::{BASE_COST, ENERGY_PER_SEC, HUNGER_PER_SEC};
+use crate::constants::actions::construct::{BASE_COST, HUNGER_PER_SEC, STAMINA_PER_SEC};
 
 pub struct ConstructAction;
 
@@ -105,7 +105,7 @@ impl Action for ConstructAction {
 
     fn runtime_effects(&self) -> RuntimeEffects {
         RuntimeEffects {
-            energy_per_sec: ENERGY_PER_SEC,
+            stamina_per_sec: STAMINA_PER_SEC,
             hunger_per_sec: HUNGER_PER_SEC,
             ..Default::default()
         }

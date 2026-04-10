@@ -133,7 +133,7 @@ pub struct ConversationStats {
 pub struct PhysicalMeans {
     pub hunger: f32,
     pub thirst: f32,
-    pub energy: f32,
+    pub stamina: f32,
     pub health: f32,
 }
 
@@ -366,7 +366,7 @@ fn collect_physical_means(world: &TestWorld, agents: &[Entity]) -> PhysicalMeans
     let mut sum = PhysicalMeans {
         hunger: 0.0,
         thirst: 0.0,
-        energy: 0.0,
+        stamina: 0.0,
         health: 0.0,
     };
     let mut count = 0.0f32;
@@ -374,7 +374,7 @@ fn collect_physical_means(world: &TestWorld, agents: &[Entity]) -> PhysicalMeans
         if let Some(needs) = world.app().world().get::<PhysicalNeeds>(*entity) {
             sum.hunger += needs.hunger;
             sum.thirst += needs.thirst;
-            sum.energy += needs.energy;
+            sum.stamina += needs.stamina.aerobic;
             sum.health += needs.health;
             count += 1.0;
         }
@@ -382,7 +382,7 @@ fn collect_physical_means(world: &TestWorld, agents: &[Entity]) -> PhysicalMeans
     if count > 0.0 {
         sum.hunger /= count;
         sum.thirst /= count;
-        sum.energy /= count;
+        sum.stamina /= count;
         sum.health /= count;
     }
     sum

@@ -5,7 +5,7 @@ use crate::agent::actions::registry::{
     TargetCandidate, TargetSource,
 };
 use crate::agent::mind::knowledge::{Concept, MindGraph, Node, Predicate, Triple, Value};
-use crate::constants::actions::attack::{BASE_COST, DURATION_TICKS, ENERGY_PER_SEC};
+use crate::constants::actions::attack::{BASE_COST, DURATION_TICKS, STAMINA_PER_SEC};
 
 pub struct AttackAction;
 
@@ -67,7 +67,7 @@ impl Action for AttackAction {
 
     fn runtime_effects(&self) -> RuntimeEffects {
         RuntimeEffects {
-            energy_per_sec: ENERGY_PER_SEC,
+            stamina_per_sec: STAMINA_PER_SEC,
             ..Default::default()
         }
     }

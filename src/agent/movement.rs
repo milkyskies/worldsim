@@ -1,13 +1,13 @@
 //! Movement utilities: tick-based position stepping toward a target with speed modifiers for fatigue and injury.
 //!
-//! Reads: MovementState (last_tick), TickCount, PhysicalNeeds (energy for speed penalty), Body (injury mobility), WorldMap (walkability)
+//! Reads: MovementState (last_tick), TickCount, PhysicalNeeds (stamina for speed penalty), Body (injury mobility), WorldMap (walkability)
 //! Writes: Transform (position), MovementState (last_tick updated), MoveResult (Arrived/Moving/Blocked)
 //! Upstream: constants::movement (speed/threshold values), world::map (walkability checks), body::needs (fatigue)
 //! Downstream: action execution systems (call move_toward each tick), nervous_system (movement completes actions)
 
 use crate::constants::movement::{
-    BASE_SPEED_PER_TICK, EXHAUSTED_ENERGY_THRESHOLD, EXHAUSTED_SPEED_MULTIPLIER,
-    INJURY_MOBILITY_RANGE, MIN_INJURY_MOBILITY, TIRED_ENERGY_THRESHOLD, TIRED_SPEED_MULTIPLIER,
+    BASE_SPEED_PER_TICK, EXHAUSTED_SPEED_MULTIPLIER, EXHAUSTED_STAMINA_THRESHOLD,
+    INJURY_MOBILITY_RANGE, MIN_INJURY_MOBILITY, TIRED_SPEED_MULTIPLIER, TIRED_STAMINA_THRESHOLD,
 };
 use bevy::prelude::*;
 
@@ -98,16 +98,16 @@ pub enum MoveResult {
     Blocked,
 }
 
-/// Calculates movement speed based on energy levels and body condition.
+/// Calculates movement speed based on stamina levels and body condition.
 /// Returns pixels per tick (assuming 60 ticks/sec equivalent).
-pub fn calculate_speed(energy: f32, body: Option<&crate::agent::biology::body::Body>) -> f32 {
+pub fn calculate_speed(stamina: f32, body: Option<&crate::agent::biology::body::Body>) -> f32 {
     // Speed = pixels per tick (at 60 ticks/sec, 1.0 = 60 px/sec equivalent)
     // FATIGUE PENALTY
     let mut speed_modifier = 1.0;
-    if energy < TIRED_ENERGY_THRESHOLD {
+    if stamina < TIRED_STAMINA_THRESHOLD {
         speed_modifier = TIRED_SPEED_MULTIPLIER;
     }
-    if energy < EXHAUSTED_ENERGY_THRESHOLD {
+    if stamina < EXHAUSTED_STAMINA_THRESHOLD {
         speed_modifier = EXHAUSTED_SPEED_MULTIPLIER;
     }
 

@@ -38,7 +38,11 @@ pub fn three_brains_system(
             // Brains
             (&super::rational::RationalBrain, &CentralNervousSystem),
             // Needs
-            (&PhysicalNeeds, &Consciousness, Option<&PsychologicalDrives>),
+            (
+                &PhysicalNeeds,
+                &mut Consciousness,
+                Option<&PsychologicalDrives>,
+            ),
             // Body & Self
             (
                 &EmotionalState,
@@ -75,7 +79,7 @@ pub fn three_brains_system(
         name,
         mut brain_state,
         (rational_brain, cns),
-        (physical, consciousness, drives),
+        (physical, mut consciousness, drives),
         (emotions, body, personality, inventory),
         (transform, visible, mind, active_actions, in_conversation, self_entity_type),
     ) in query.iter_mut()
@@ -84,6 +88,22 @@ pub fn three_brains_system(
         if !tick.should_run(entity, ns_config.thinking_interval) {
             continue;
         }
+
+        // Cognitive tick cost: every arbitration burns a sliver of alertness.
+        // Conscientious agents tolerate brain work better — they're wired for it.
+        //
+        // The drain constant is calibrated against the default thinking_interval
+        // (60 ticks ≈ 1 brain tick per second). Tests that crank the interval
+        // down for fast brains would otherwise burn alertness proportionally
+        // faster, so we scale the drain by `thinking_interval / 60` to keep
+        // the per-wallclock-second drain constant.
+        let tick_relief = personality.traits.conscientiousness
+            * crate::constants::brains::cognition::CONSCIENTIOUSNESS_TICK_RELIEF;
+        let interval_scale = ns_config.thinking_interval as f32 / 60.0;
+        let tick_drain = crate::constants::brains::rational::COGNITIVE_TICK_ALERTNESS_DRAIN
+            * (1.0 - tick_relief)
+            * interval_scale;
+        consciousness.alertness = (consciousness.alertness - tick_drain).max(0.0);
 
         // 1. Gather proposals from all three brains
 
@@ -126,7 +146,7 @@ pub fn three_brains_system(
         );
 
         // 2. Calculate brain powers, then apply history-based multiplier
-        let base_powers = calculate_brain_powers(cns, consciousness, emotions, personality);
+        let base_powers = calculate_brain_powers(cns, &consciousness, emotions, personality);
         let powers = if let Ok(history) = brain_histories.get(entity) {
             BrainPowers {
                 survival: base_powers.survival * history.power_multiplier(BrainType::Survival),

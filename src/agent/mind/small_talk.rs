@@ -203,7 +203,7 @@ mod tests {
         let mut speaker = empty_mind();
         speaker.assert(episodic(
             Node::Self_,
-            Predicate::Energy,
+            Predicate::Stamina,
             Value::Int(20),
             100,
             0.5,
@@ -330,7 +330,7 @@ mod tests {
         // Both at salience 0.3, same timestamp, same novelty.
         speaker.assert(episodic(
             Node::Self_,
-            Predicate::Energy,
+            Predicate::Stamina,
             Value::Int(20),
             500,
             0.3,

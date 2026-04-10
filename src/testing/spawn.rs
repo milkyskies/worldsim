@@ -60,7 +60,10 @@ pub(super) fn spawn_test_person(
             physical_needs: PhysicalNeeds {
                 hunger: config.hunger,
                 thirst: config.thirst,
-                energy: config.energy,
+                stamina: crate::agent::body::needs::Stamina {
+                    aerobic: config.stamina,
+                    ..Default::default()
+                },
                 health: 100.0,
             },
             social_drive_override: config.social_drive,

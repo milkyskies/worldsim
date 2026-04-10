@@ -53,11 +53,11 @@ pub mod world {
 
 /// Agent movement parameters
 pub mod movement {
-    /// Pixels per tick at normal energy
+    /// Pixels per tick at normal stamina
     pub const BASE_SPEED_PER_TICK: f32 = 0.8;
-    pub const TIRED_ENERGY_THRESHOLD: f32 = 20.0;
+    pub const TIRED_STAMINA_THRESHOLD: f32 = 20.0;
     pub const TIRED_SPEED_MULTIPLIER: f32 = 0.5;
-    pub const EXHAUSTED_ENERGY_THRESHOLD: f32 = 5.0;
+    pub const EXHAUSTED_STAMINA_THRESHOLD: f32 = 5.0;
     pub const EXHAUSTED_SPEED_MULTIPLIER: f32 = 0.2;
     /// Floor on movement even with fully destroyed legs (can always crawl)
     pub const MIN_INJURY_MOBILITY: f32 = 0.1;
@@ -70,26 +70,26 @@ pub mod actions {
     pub mod eat {
         pub const DURATION_TICKS: u32 = 20;
         pub const HUNGER_REDUCTION: f32 = 50.0;
-        pub const ENERGY_GAIN: f32 = 10.0;
+        pub const STAMINA_GAIN: f32 = 10.0;
     }
 
     pub mod drink {
         pub const DURATION_TICKS: u32 = 15;
         pub const THIRST_REDUCTION: f32 = 50.0;
-        pub const ENERGY_GAIN: f32 = 5.0;
+        pub const STAMINA_GAIN: f32 = 5.0;
     }
 
     pub mod harvest {
         pub const DURATION_TICKS: u32 = 30;
-        pub const ENERGY_PER_SEC: f32 = -0.2;
+        pub const STAMINA_PER_SEC: f32 = -0.2;
         pub const HUNGER_PER_SEC: f32 = 2.0;
     }
 
     pub mod deposit {
         /// Ticks to transfer items into a target entity's slots.
         pub const DURATION_TICKS: u32 = 15;
-        /// Energy drained per second while depositing.
-        pub const ENERGY_PER_SEC: f32 = -0.1;
+        /// Stamina drained per second while depositing.
+        pub const STAMINA_PER_SEC: f32 = -0.1;
         /// Hunger cost per second while depositing.
         pub const HUNGER_PER_SEC: f32 = 0.5;
     }
@@ -97,8 +97,8 @@ pub mod actions {
     pub mod take {
         /// Ticks to extract items from a target entity's slots.
         pub const DURATION_TICKS: u32 = 15;
-        /// Energy drained per second while taking.
-        pub const ENERGY_PER_SEC: f32 = -0.1;
+        /// Stamina drained per second while taking.
+        pub const STAMINA_PER_SEC: f32 = -0.1;
         /// Hunger cost per second while taking.
         pub const HUNGER_PER_SEC: f32 = 0.5;
     }
@@ -106,8 +106,8 @@ pub mod actions {
     pub mod construct {
         /// Interaction distance (pixels) to start constructing a site.
         pub const INTERACTION_DISTANCE: f32 = 32.0;
-        /// Energy drained per second while constructing.
-        pub const ENERGY_PER_SEC: f32 = -0.3;
+        /// Stamina drained per second while constructing.
+        pub const STAMINA_PER_SEC: f32 = -0.3;
         /// Hunger cost per second while constructing.
         pub const HUNGER_PER_SEC: f32 = 1.5;
         /// Labor ticks required to complete a campfire. Each tick one active
@@ -128,8 +128,8 @@ pub mod actions {
         pub const LEAN_TO_WOOD_REQUIRED: u32 = 5;
         /// Large leaves required to build a lean-to.
         pub const LEAN_TO_LEAVES_REQUIRED: u32 = 2;
-        /// Energy drained per second while building.
-        pub const ENERGY_PER_SEC: f32 = -0.3;
+        /// Stamina drained per second while building.
+        pub const STAMINA_PER_SEC: f32 = -0.3;
         /// Hunger cost per second while building.
         pub const HUNGER_PER_SEC: f32 = 1.5;
     }
@@ -137,34 +137,34 @@ pub mod actions {
     pub mod attack {
         pub const DURATION_TICKS: u32 = 30;
         pub const BASE_COST: f32 = 10.0;
-        pub const ENERGY_PER_SEC: f32 = -2.0;
+        pub const STAMINA_PER_SEC: f32 = -2.0;
     }
 
     pub mod walk {
-        pub const ENERGY_PER_SEC: f32 = -0.3;
+        pub const STAMINA_PER_SEC: f32 = -0.3;
         pub const HUNGER_PER_SEC: f32 = 0.5;
         pub const ALERTNESS_PER_SEC: f32 = 10.0;
 
-        /// Estimated energy cost per tile at normal speed (for planner estimation).
-        /// Derived: (TILE_SIZE / BASE_SPEED_PER_TICK) * |ENERGY_PER_SEC| * (DEFAULT_TICKS_PER_SEC / 3600)
+        /// Estimated stamina cost per tile at normal speed (for planner estimation).
+        /// Derived: (TILE_SIZE / BASE_SPEED_PER_TICK) * |STAMINA_PER_SEC| * (DEFAULT_TICKS_PER_SEC / 3600)
         /// = (16 / 0.8) * 0.3 * (60 / 3600) = 20 * 0.005 = 0.1
-        pub const ENERGY_PER_TILE_NORMAL: f32 = 0.1;
+        pub const STAMINA_PER_TILE_NORMAL: f32 = 0.1;
 
-        /// Estimated energy cost per tile at tired speed (below TIRED_ENERGY_THRESHOLD).
+        /// Estimated stamina cost per tile at tired speed (below TIRED_STAMINA_THRESHOLD).
         /// Doubles compared to normal because TIRED_SPEED_MULTIPLIER = 0.5.
-        pub const ENERGY_PER_TILE_TIRED: f32 = 0.2;
+        pub const STAMINA_PER_TILE_TIRED: f32 = 0.2;
     }
 
     pub mod explore {
         pub const BASE_COST: f32 = 3.0;
-        pub const ENERGY_PER_SEC: f32 = -0.25;
+        pub const STAMINA_PER_SEC: f32 = -0.25;
         pub const HUNGER_PER_SEC: f32 = 2.5;
         pub const ALERTNESS_PER_SEC: f32 = 5.0;
     }
 
     pub mod wander {
         pub const BASE_COST: f32 = 5.0;
-        pub const ENERGY_PER_SEC: f32 = -0.2;
+        pub const STAMINA_PER_SEC: f32 = -0.2;
         pub const HUNGER_PER_SEC: f32 = 2.0;
         pub const ALERTNESS_PER_SEC: f32 = 5.0;
     }
@@ -177,8 +177,8 @@ pub mod actions {
         /// movement completes and the brain proposes another drift.
         pub const DRIFT_RANGE_MIN: f32 = 8.0;
         pub const DRIFT_RANGE_MAX: f32 = 20.0;
-        /// Walking burns a little energy.
-        pub const ENERGY_PER_SEC: f32 = -0.15;
+        /// Walking burns a little stamina.
+        pub const STAMINA_PER_SEC: f32 = -0.15;
         /// Negative: grazing continuously reduces hunger as the animal eats
         /// while walking. Modest per-second since grass is low-calorie —
         /// a full graze-loop replaces rather than outpaces a berry.
@@ -188,14 +188,14 @@ pub mod actions {
 
     pub mod flee {
         pub const BASE_COST: f32 = 1.0;
-        pub const ENERGY_PER_SEC: f32 = -0.5;
+        pub const STAMINA_PER_SEC: f32 = -0.5;
         pub const HUNGER_PER_SEC: f32 = 3.0;
         pub const ALERTNESS_PER_SEC: f32 = 20.0;
     }
 
     pub mod sleep {
         pub const BASE_COST: f32 = 0.1;
-        pub const ENERGY_PER_SEC: f32 = 20.0;
+        pub const STAMINA_PER_SEC: f32 = 20.0;
         pub const HUNGER_PER_SEC: f32 = 0.2;
         pub const ALERTNESS_PER_SEC: f32 = -50.0;
     }
@@ -204,9 +204,9 @@ pub mod actions {
 /// Brain behavior thresholds and urgency scores
 pub mod brains {
     pub mod survival {
-        /// Energy level at which a sleeping agent wakes up fully rested.
-        pub const WAKE_ENERGY_THRESHOLD: f32 = 90.0;
-        /// Energy safety margin used by the planner: if a walk would leave the agent below
+        /// Stamina level at which a sleeping agent wakes up fully rested.
+        pub const WAKE_STAMINA_THRESHOLD: f32 = 90.0;
+        /// Stamina safety margin used by the planner: if a walk would leave the agent below
         /// this level, Sleep is prepended so the survival brain doesn't interrupt the trip.
         pub const EXHAUSTION_TRIGGER: f32 = 15.0;
     }
@@ -238,6 +238,37 @@ pub mod brains {
         /// Multiplier applied to goal priority when falling back to exploration
         pub const EXPLORE_FALLBACK_PRIORITY_MULTIPLIER: f32 = 0.3;
         pub const IDLE_WANDER_URGENCY: f32 = 10.0;
+        /// Alertness drained per brain decision cycle (arbitration tick).
+        /// Thinking is mentally taxing; each decision burns a little mental fuel.
+        pub const COGNITIVE_TICK_ALERTNESS_DRAIN: f32 = 0.003;
+        /// Alertness drained per goal-directed plan generation.
+        /// GOAP search is more expensive than simple arbitration.
+        pub const PLAN_GENERATION_ALERTNESS_DRAIN: f32 = 0.02;
+    }
+
+    /// Cognitive load personality modulation
+    pub mod cognition {
+        /// How much conscientiousness reduces per-tick brain drain (0.0 = no effect,
+        /// 1.0 = fully conscientious agents pay zero brain tick cost).
+        pub const CONSCIENTIOUSNESS_TICK_RELIEF: f32 = 0.5;
+        /// How much openness reduces plan generation drain. Curious agents
+        /// enjoy thinking so they tire less from it.
+        pub const OPENNESS_PLANNING_RELIEF: f32 = 0.6;
+        /// How much conscientiousness reduces physical stamina drain. Lazy
+        /// agents feel labor harder; disciplined agents grind through.
+        pub const CONSCIENTIOUSNESS_STAMINA_RELIEF: f32 = 0.4;
+        /// Alertness drained from the speaker per conversation turn.
+        /// Talking is mildly taxing — you're composing language and tracking
+        /// the partner's state.
+        pub const CONVERSATION_SPEAKER_ALERTNESS_DRAIN: f32 = 0.012;
+        /// Alertness drained from each listener per conversation turn.
+        /// Listening is more taxing than speaking because you're parsing
+        /// unfamiliar content and updating your theory-of-mind.
+        pub const CONVERSATION_LISTENER_ALERTNESS_DRAIN: f32 = 0.02;
+        /// How much extraversion relieves conversation alertness drain.
+        /// Introverts pay full price (social fatigue); extraverts pay very
+        /// little (social stimulation is energising).
+        pub const EXTRAVERSION_CONVERSATION_RELIEF: f32 = 0.85;
     }
 
     /// GOAP planner search parameters

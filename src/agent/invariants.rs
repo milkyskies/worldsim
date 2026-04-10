@@ -59,7 +59,20 @@ fn check_components(world: &mut World) {
         if let Some(n) = needs {
             assert_in_range(entity, "hunger", n.hunger, 0.0, 100.0);
             assert_in_range(entity, "thirst", n.thirst, 0.0, 100.0);
-            assert_in_range(entity, "energy", n.energy, 0.0, 100.0);
+            assert_in_range(
+                entity,
+                "stamina.aerobic",
+                n.stamina.aerobic,
+                0.0,
+                n.stamina.aerobic_max,
+            );
+            assert_in_range(
+                entity,
+                "stamina.anaerobic",
+                n.stamina.anaerobic,
+                0.0,
+                n.stamina.anaerobic_max,
+            );
             assert_in_range(entity, "health", n.health, 0.0, 100.0);
         }
         if let Some(c) = consciousness {

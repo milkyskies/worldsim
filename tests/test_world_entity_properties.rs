@@ -193,7 +193,7 @@ fn light_and_heat_sources_removed_when_fuel_runs_out() {
 
 #[test]
 fn shelter_provider_improves_sleep_energy_recovery() {
-    // Two agents start at low energy. One sleeps near a shelter, one without.
+    // Two agents start at low stamina. One sleeps near a shelter, one without.
     let mut world = TestWorld::with_seed(0);
 
     // Spawn shelter
@@ -212,13 +212,13 @@ fn shelter_provider_improves_sleep_energy_recovery() {
     // Agent near shelter
     let sheltered = world.spawn_agent(AgentConfig {
         pos: Vec2::new(100.0, 100.0),
-        energy: 50.0,
+        stamina: 50.0,
         ..AgentConfig::default()
     });
     // Agent far from shelter
     let unsheltered = world.spawn_agent(AgentConfig {
         pos: Vec2::new(500.0, 500.0),
-        energy: 50.0,
+        stamina: 50.0,
         ..AgentConfig::default()
     });
 
@@ -235,21 +235,21 @@ fn shelter_provider_improves_sleep_energy_recovery() {
         .entity_mut(unsheltered)
         .insert(CurrentActivity::Sleeping);
 
-    let energy_before_sheltered = world.get::<PhysicalNeeds>(sheltered).energy;
-    let energy_before_unsheltered = world.get::<PhysicalNeeds>(unsheltered).energy;
+    let aerobic_before_sheltered = world.get::<PhysicalNeeds>(sheltered).stamina.aerobic;
+    let aerobic_before_unsheltered = world.get::<PhysicalNeeds>(unsheltered).stamina.aerobic;
 
     // Tick once — the shelter_system runs exactly once before the brain can override.
     world.tick(1);
 
-    let energy_after_sheltered = world.get::<PhysicalNeeds>(sheltered).energy;
-    let energy_after_unsheltered = world.get::<PhysicalNeeds>(unsheltered).energy;
+    let aerobic_after_sheltered = world.get::<PhysicalNeeds>(sheltered).stamina.aerobic;
+    let aerobic_after_unsheltered = world.get::<PhysicalNeeds>(unsheltered).stamina.aerobic;
 
-    let sheltered_gain = energy_after_sheltered - energy_before_sheltered;
-    let unsheltered_gain = energy_after_unsheltered - energy_before_unsheltered;
+    let sheltered_gain = aerobic_after_sheltered - aerobic_before_sheltered;
+    let unsheltered_gain = aerobic_after_unsheltered - aerobic_before_unsheltered;
 
     assert!(
         sheltered_gain > unsheltered_gain,
-        "agent near shelter should recover more energy while sleeping \
+        "agent near shelter should recover more stamina while sleeping \
          (sheltered gained {:.2}, unsheltered gained {:.2})",
         sheltered_gain,
         unsheltered_gain
@@ -369,16 +369,16 @@ fn campfire_has_emits_effect_comfort_aura() {
     );
 
     // The aura should be a composite effect carrying both stress reduction
-    // and energy recovery — this is what makes a campfire feel like home.
+    // and stamina recovery — this is what makes a campfire feel like home.
     let (has_stress_relief, has_energy_recovery) = match &emits.effect {
         EffectKind::All(effects) => {
             let stress = effects
                 .iter()
                 .any(|e| matches!(e, EffectKind::StressPerSec(r) if *r < 0.0));
-            let energy = effects
+            let stamina = effects
                 .iter()
-                .any(|e| matches!(e, EffectKind::EnergyPerSec(r) if *r > 0.0));
-            (stress, energy)
+                .any(|e| matches!(e, EffectKind::StaminaPerSec(r) if *r > 0.0));
+            (stress, stamina)
         }
         _ => (false, false),
     };
@@ -388,7 +388,7 @@ fn campfire_has_emits_effect_comfort_aura() {
     );
     assert!(
         has_energy_recovery,
-        "campfire aura should restore energy (positive EnergyPerSec)"
+        "campfire aura should restore stamina (positive StaminaPerSec)"
     );
 }
 
@@ -434,15 +434,15 @@ fn agent_near_campfire_has_lower_stress_than_distant_agent() {
 
 #[test]
 fn agent_near_campfire_recovers_more_energy_than_distant_agent() {
-    // Drain both agents' energy to give the campfire something to recover.
+    // Drain both agents' stamina to give the campfire something to recover.
     let (mut world, entities) = TestWorld::scenario(0)
         .agent("near")
         .pos(Vec2::new(100.0, 100.0))
-        .energy(30.0)
+        .stamina(30.0)
         .done()
         .agent("far")
         .pos(Vec2::new(800.0, 800.0))
-        .energy(30.0)
+        .stamina(30.0)
         .done()
         .build();
     let near = entities.get("near");
@@ -452,13 +452,13 @@ fn agent_near_campfire_recovers_more_energy_than_distant_agent() {
 
     world.tick(120);
 
-    let near_energy = world.get::<PhysicalNeeds>(near).energy;
-    let far_energy = world.get::<PhysicalNeeds>(far).energy;
+    let near_aerobic = world.get::<PhysicalNeeds>(near).stamina.aerobic;
+    let far_aerobic = world.get::<PhysicalNeeds>(far).stamina.aerobic;
 
     assert!(
-        near_energy > far_energy,
-        "agent inside campfire aura should recover more energy than distant control \
-         (near={near_energy:.2}, far={far_energy:.2})"
+        near_aerobic > far_aerobic,
+        "agent inside campfire aura should recover more aerobic stamina than distant control \
+         (near={near_aerobic:.2}, far={far_aerobic:.2})"
     );
 }
 

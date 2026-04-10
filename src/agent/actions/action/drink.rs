@@ -14,7 +14,7 @@ use crate::agent::actions::registry::{
 };
 use crate::agent::events::FailureReason;
 use crate::agent::mind::knowledge::{Concept, Node, Predicate, Triple, Value};
-use crate::constants::actions::drink::{DURATION_TICKS, ENERGY_GAIN, THIRST_REDUCTION};
+use crate::constants::actions::drink::{DURATION_TICKS, STAMINA_GAIN, THIRST_REDUCTION};
 pub struct DrinkAction;
 
 /// Check if any tile adjacent to the given position is a water source.
@@ -82,7 +82,7 @@ impl Action for DrinkAction {
 
     fn on_complete(&self, ctx: &mut CompletionContext) {
         ctx.physical.thirst = (ctx.physical.thirst - THIRST_REDUCTION).max(0.0);
-        ctx.physical.energy = (ctx.physical.energy + ENERGY_GAIN).min(100.0);
+        ctx.physical.stamina.adjust_aerobic(STAMINA_GAIN);
     }
 
     fn complete_log(&self) -> Option<&'static str> {
