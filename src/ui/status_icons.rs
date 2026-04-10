@@ -1,8 +1,9 @@
 //! Floating status icons above agents.
 //!
-//! Each agent gets a child `Text2d` entity showing its primary current state.
-//! Only one icon is shown at a time based on a fixed priority ordering.
-//! Icons are hidden when the camera zooms out past a threshold.
+//! Reads: Agent, ActiveActions, EmotionalState, PhysicalNeeds, InConversation, Camera Projection
+//! Writes: Text2d child entities (StatusIcon) spawned as children of agent root entities
+//! Upstream: agent (actions, emotions, needs, conversation), world (spawning agents)
+//! Downstream: Bevy renderer (visual overlay)
 
 use crate::agent::Agent;
 use crate::agent::actions::{ActionType, ActiveActions};
