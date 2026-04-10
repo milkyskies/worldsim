@@ -52,6 +52,27 @@ fn wolf_knows_humans_are_dangerous() {
     );
 }
 
+/// Wolves should know campfires are dangerous intrinsically (fire-fear).
+/// Threat assessment is generic over `(concept, HasTrait, Dangerous)`, so this
+/// triple alone is enough to make wolves treat visible campfires as threats.
+#[test]
+fn wolf_knows_campfire_is_dangerous() {
+    let mut world = TestWorld::with_seed(42);
+    let wolf = world.spawn_wolf(Vec2::new(100.0, 100.0));
+
+    let mind = world.get::<MindGraph>(wolf);
+    let triples = mind.query(
+        Some(&Node::Concept(Concept::Campfire)),
+        Some(Predicate::HasTrait),
+        Some(&Value::Concept(Concept::Dangerous)),
+    );
+
+    assert!(
+        !triples.is_empty(),
+        "wolf should have innate fire-fear (Campfire HasTrait Dangerous)"
+    );
+}
+
 /// No hardcoded emotion triggers — wolf behavior emerges from drives and knowledge.
 #[test]
 fn wolf_has_no_triggers_emotion_triples() {
