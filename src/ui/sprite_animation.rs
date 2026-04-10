@@ -143,16 +143,8 @@ fn animate_sprites(
             let (valence, intensity) = dominant_valence_intensity(emotions);
             let stress_freq_mult = 1.0 + emotions.stress_level * 0.003;
 
-            let jitter_amount = if valence < 0.0 {
-                intensity * 1.0
-            } else {
-                0.0
-            };
-            let bounce_bonus = if valence > 0.0 {
-                intensity * 0.5
-            } else {
-                0.0
-            };
+            let jitter_amount = if valence < 0.0 { intensity * 1.0 } else { 0.0 };
+            let bounce_bonus = if valence > 0.0 { intensity * 0.5 } else { 0.0 };
             let subdued = if valence < 0.0 && intensity < 0.3 {
                 1.0 - intensity
             } else {
@@ -274,8 +266,14 @@ mod tests {
             (0.0, 0.0, 2.0_f32.to_radians())
         };
 
-        assert_eq!(bob_freq, 0.0, "stationary agent should have no bob frequency");
-        assert_eq!(bob_amp, 0.0, "stationary agent should have no bob amplitude");
+        assert_eq!(
+            bob_freq, 0.0,
+            "stationary agent should have no bob frequency"
+        );
+        assert_eq!(
+            bob_amp, 0.0,
+            "stationary agent should have no bob amplitude"
+        );
         assert!(sway_amp > 0.0, "stationary agent should sway");
     }
 
