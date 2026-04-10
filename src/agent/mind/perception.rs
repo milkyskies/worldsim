@@ -1,6 +1,6 @@
 //! Perception: detects nearby entities via vision range and writes observations into MindGraph as triples.
 //!
-//! Reads: Transform, Vision, LightLevel, Physical entities, body state components, TickCount
+//! Reads: Transform, Vision, LightLevel, Physical entities, body state components, TickCount, SpatialIndex
 //! Writes: VisibleObjects (entity list), MindGraph (location and trait triples for observed entities), SimEvent::EntityPerceived
 //! Upstream: world::map (tile/chunk data), world::environment (LightLevel), agent body state
 //! Downstream: brain_system (reads VisibleObjects), knowledge (MindGraph updated with percepts), SimEvent consumers

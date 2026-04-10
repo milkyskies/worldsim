@@ -9,19 +9,17 @@
 use bevy::prelude::{Entity, IVec2, Vec2};
 use criterion::{BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main};
 
-use worldsim::world::map::{CHUNK_SIZE, TILE_SIZE};
-use worldsim::world::spatial_index::{SpatialIndex, world_pos_to_chunk};
+use worldsim::world::map::{CHUNK_SIZE, MAP_CHUNKS_X, MAP_CHUNKS_Y, TILE_SIZE};
+use worldsim::world::spatial_index::SpatialIndex;
 
 /// Populate a spatial index with `n` entities spread uniformly across the 8×8 chunk map.
 fn populated_index(n: usize) -> SpatialIndex {
     let mut index = SpatialIndex::default();
-    let map_chunks_x = 8i32;
-    let map_chunks_y = 8i32;
     for i in 0..n {
         let entity = Entity::from_bits(i as u64 + 1);
         let chunk = IVec2::new(
-            (i as i32 % map_chunks_x),
-            ((i as i32 / map_chunks_x) % map_chunks_y),
+            (i as i32 % MAP_CHUNKS_X as i32),
+            ((i as i32 / MAP_CHUNKS_X as i32) % MAP_CHUNKS_Y as i32),
         );
         index.update_entity(entity, chunk);
     }
@@ -71,14 +69,11 @@ fn bench_linear_scan_vs_spatial(c: &mut Criterion) {
 
     for &n in &[100usize, 1000] {
         // Build the same entity positions for linear scan comparison.
-        let map_chunks_x = 8usize;
-        let map_chunks_y = 8usize;
         let chunk_world = CHUNK_SIZE as f32 * TILE_SIZE;
         let positions: Vec<Vec2> = (0..n)
             .map(|i| {
-                let cx = (i % map_chunks_x) as f32;
-                let cy = ((i / map_chunks_x) % map_chunks_y) as f32;
-                // Center of each chunk.
+                let cx = (i % MAP_CHUNKS_X as usize) as f32;
+                let cy = ((i / MAP_CHUNKS_X as usize) % MAP_CHUNKS_Y as usize) as f32;
                 Vec2::new((cx + 0.5) * chunk_world, (cy + 0.5) * chunk_world)
             })
             .collect();

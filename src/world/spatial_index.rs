@@ -1,10 +1,9 @@
-//! Spatial index for fast entity proximity queries.
+//! Spatial index for fast entity proximity queries using the WorldMap chunk grid as buckets.
 //!
-//! Uses the same chunk grid as `WorldMap` (16×16 tiles per chunk, keyed by `IVec2`) as bucket
-//! boundaries. This keeps one spatial decomposition for the whole project and lets chunk
-//! streaming (#207) clean up the index naturally when terrain is unloaded.
-//!
-//! Query complexity: O(k) where k = entities in nearby chunks, versus O(n) for linear scans.
+//! Reads: Transform (via Changed<Transform>), Physical (component marker), WorldMap chunk constants
+//! Writes: SpatialIndex resource (buckets + entity_chunk tracking)
+//! Upstream: world::map (CHUNK_SIZE, TILE_SIZE constants), world (Physical marker)
+//! Downstream: agent::mind::perception (queries SpatialIndex for nearby entities)
 
 use bevy::prelude::*;
 use std::collections::HashMap;
@@ -36,8 +35,7 @@ pub struct SpatialIndex {
 impl SpatialIndex {
     /// Update an entity's position in the index.
     ///
-    /// `old_chunk` is derived from the internal tracking map — callers do not need to supply it.
-    /// This variant accepts an optional override for cases where the old chunk is already known.
+    /// The old chunk is derived from the internal tracking map — callers only supply the new chunk.
     pub fn update_entity(&mut self, entity: Entity, new_chunk: IVec2) {
         let old_chunk = self.entity_chunks.get(&entity).copied();
 
