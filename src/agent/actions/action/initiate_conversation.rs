@@ -17,7 +17,7 @@
 
 use crate::agent::actions::ActionType;
 use crate::agent::actions::channel::{BodyChannel, ChannelUsage};
-use crate::agent::actions::registry::{Action, ActionContext, ActionKind, TargetType};
+use crate::agent::actions::registry::{Action, ActionContext, ActionKind, TargetSource};
 use crate::agent::events::FailureReason;
 
 pub struct InitiateConversationAction;
@@ -39,8 +39,14 @@ impl Action for InitiateConversationAction {
         ActionKind::Movement
     }
 
-    fn target_type(&self) -> TargetType {
-        TargetType::Entity
+    /// `Implicit` because this action is *proposed by the emotional brain*,
+    /// not enumerated by the rational brain. The rational brain skips
+    /// `Implicit` sources during target enumeration, so InitiateConversation
+    /// never appears in a rational plan and never gets the auto-injected
+    /// proximity precondition (the action does its own walking via the
+    /// CommunicationPlugin's polling system).
+    fn target_source(&self) -> TargetSource {
+        TargetSource::Implicit
     }
 
     fn body_channels(&self) -> &'static [ChannelUsage] {

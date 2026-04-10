@@ -9,7 +9,7 @@ use crate::agent::actions::channel::ChannelUsage;
 use crate::agent::brains::thinking::{ActionTemplate, TriplePattern};
 use crate::agent::events::FailureReason;
 use crate::agent::item_slots::ItemSlots;
-use crate::agent::mind::knowledge::{MindGraph, Triple};
+use crate::agent::mind::knowledge::{Concept, MindGraph, Triple};
 use crate::world::map::TILE_SIZE;
 use bevy::prelude::*;
 use std::collections::HashMap;
@@ -29,18 +29,86 @@ pub struct ActionContext<'a> {
 }
 
 // ============================================================================
-// TARGET TYPE - What kind of target does this action need?
+// TARGET SOURCE - Where does this action's target come from?
 // ============================================================================
 
-/// What kind of target does this action require for planning?
+/// Declares *where* the brain finds candidate targets for this action.
+///
+/// Replaces the old `TargetType` enum, which only said *what kind* of target
+/// existed without saying how to find it — leaving the brain to invent a
+/// per-action collector for every variant. With `TargetSource`, the action
+/// declares the source and the generic `enumerate_targets` function in
+/// `brains::target_enumeration` walks the right knowledge structure.
+///
+/// Adding a new tile-based action (Fish, Forage, Bathe) is a one-line change
+/// to the action: declare `TargetSource::TileWithTrait(Concept::Fishable)`.
+/// No new code in the brain or the planner.
 #[derive(Debug, Clone, PartialEq)]
-pub enum TargetType {
-    /// No target needed (Sleep, Eat, Idle, Wander)
+pub enum TargetSource {
+    /// No target enumeration — the action runs against the agent itself.
+    /// Examples: Sleep, Wander, Idle, Eat (uses inventory), Build, Explore, Flee.
     None,
-    /// Needs a target entity (Harvest from tree, Attack enemy)
-    Entity,
-    /// Needs a target position (Walk to location)
-    Position,
+    /// Generated implicitly by the planner, never enumerated up front.
+    /// Walk is the only such action — the regressive planner inserts Walk
+    /// steps directly when it needs to satisfy a `LocatedAt` precondition.
+    Implicit,
+    /// Iterate entities the agent has knowledge of and keep the ones whose
+    /// world `Affordance` component declares this action type.
+    /// Examples: Harvest, Take, Deposit, Attack (apple trees, wood logs,
+    /// stone nodes, berry bushes, etc).
+    EntityAffordance,
+    /// Iterate tiles matching `Tile(?) HasTrait <concept>` in the MindGraph.
+    /// The tile-based mirror of `EntityWithTrait`. Drink uses this with
+    /// `Concept::Drinkable` so the planner can chain `Walk → Drink` against
+    /// any known water tile.
+    TileWithTrait(Concept),
+}
+
+// ============================================================================
+// TARGET CANDIDATE - One concrete target the brain found for this action
+// ============================================================================
+
+/// One concrete target produced by `enumerate_targets`. Each variant carries
+/// the world position so the planner can compute walk distance without a
+/// second lookup.
+///
+/// This is the unified shape that flows from the brain into
+/// `Action::to_template_for_target` — actions then specialize their dynamic
+/// preconditions / consumes / effects based on which variant arrived.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum TargetCandidate {
+    /// No target — the action has nothing to specialize against.
+    None,
+    /// An entity target. `pos` is the entity's world position at enumeration
+    /// time, used to snapshot a tile-based proximity precondition that the
+    /// planner can solve via an implicit Walk step.
+    Entity { entity: Entity, pos: Vec2 },
+    /// A tile target. `pos` is the world centre of the tile.
+    Tile { tile: (i32, i32), pos: Vec2 },
+}
+
+impl TargetCandidate {
+    pub fn as_entity(&self) -> Option<Entity> {
+        match self {
+            TargetCandidate::Entity { entity, .. } => Some(*entity),
+            _ => None,
+        }
+    }
+
+    /// Tile coordinates of the target, snapshotted at enumeration time. For
+    /// `Entity` targets this is the tile the entity occupied when the brain
+    /// enumerated it — good enough for static targets like trees and rocks,
+    /// stale for moving targets (a known #219 trade-off).
+    pub fn tile(&self) -> Option<(i32, i32)> {
+        match self {
+            TargetCandidate::None => None,
+            TargetCandidate::Entity { pos, .. } => Some((
+                (pos.x / TILE_SIZE).floor() as i32,
+                (pos.y / TILE_SIZE).floor() as i32,
+            )),
+            TargetCandidate::Tile { tile, .. } => Some(*tile),
+        }
+    }
 }
 
 // ============================================================================
@@ -160,17 +228,41 @@ pub trait Action: Send + Sync + 'static {
         1.0
     }
 
-    /// What kind of target does this action need?
-    /// This makes it explicit and self-documenting.
-    fn target_type(&self) -> TargetType {
-        TargetType::None // Most actions don't need targets
+    /// Where does this action find its candidate targets?
+    ///
+    /// Drives `enumerate_targets` in `brains::target_enumeration`. The default
+    /// `TargetSource::None` is right for any action that operates on the agent
+    /// itself (Eat, Sleep, Build, ...). Override to point at entity affordances
+    /// or tile traits.
+    fn target_source(&self) -> TargetSource {
+        TargetSource::None
     }
 
-    /// Does this action require being near the target?
-    /// If true, the default to_template will add a location precondition
-    /// causing the planner to generate a Walk step first.
-    fn requires_proximity(&self) -> bool {
-        false // Most actions don't require proximity
+    /// Per-target preconditions, bound to one specific candidate.
+    ///
+    /// Use this for conditions that depend on *which* target the action is
+    /// running against — e.g. Harvest's "the target must contain something"
+    /// or Take's "this entity must hold an item." Static preconditions that
+    /// don't reference the target belong in `preconditions()`.
+    ///
+    /// Default: empty.
+    fn target_preconditions(
+        &self,
+        _target: &TargetCandidate,
+        _mind: &MindGraph,
+    ) -> Vec<TriplePattern> {
+        vec![]
+    }
+
+    /// Per-target consumed patterns, bound to one specific candidate.
+    ///
+    /// Use this for resources the action removes from a *specific* target,
+    /// so the planner can prevent two plan steps from harvesting the same
+    /// stack. Static consumptions belong in `plan_consumes()`.
+    ///
+    /// Default: empty.
+    fn target_consumes(&self, _target: &TargetCandidate, _mind: &MindGraph) -> Vec<TriplePattern> {
+        vec![]
     }
 
     // === FOR EXECUTION ===
@@ -186,12 +278,8 @@ pub trait Action: Send + Sync + 'static {
 
     /// Planning check - is this action valid for this target/context?
     /// Validates if the agent *knows* enough to attempt this.
-    /// Default: always valid
-    fn is_plan_valid(
-        &self,
-        _target: Option<bevy::prelude::Entity>,
-        _mind: &crate::agent::mind::knowledge::MindGraph,
-    ) -> bool {
+    /// Takes a `TargetCandidate` so tile-targeted actions can also gate.
+    fn is_plan_valid(&self, _target: &TargetCandidate, _mind: &MindGraph) -> bool {
         true
     }
 
@@ -234,27 +322,73 @@ pub trait Action: Send + Sync + 'static {
         None
     }
 
+    /// Dynamic plan effects for a specific target, derived from MindGraph.
+    ///
+    /// Override this in actions whose effects depend on the target (e.g. Harvest
+    /// yields whatever the target entity actually produces). The default delegates
+    /// to `plan_effects()` so most actions need not override.
+    fn plan_effects_for_target(&self, _target: &TargetCandidate, _mind: &MindGraph) -> Vec<Triple> {
+        self.plan_effects()
+    }
+
     // === CONVERSION ===
 
-    /// Generate an ActionTemplate from this Action for the planner.
-    /// Automatically adds a location precondition when `requires_proximity()` is true.
-    fn to_template(
-        &self,
-        target_entity: Option<Entity>,
-        target_position: Option<Vec2>,
-    ) -> ActionTemplate {
+    /// Build a planner-ready `ActionTemplate` for an action that needs no
+    /// per-target enrichment from the MindGraph.
+    ///
+    /// Used by the survival brain (Eat, Sleep, Drink, Flee, Wander, Idle)
+    /// and the emotional brain (Flee, Attack-on-entity), which propose
+    /// concrete actions directly without going through `enumerate_targets`.
+    /// Uses only `preconditions()` / `plan_effects()` / `plan_consumes()`.
+    ///
+    /// **Does not auto-inject a proximity precondition.** That intentionally
+    /// only happens via `to_template_for_target`, which has a `MindGraph`
+    /// reference and the per-target hooks. Callers that want the rich path
+    /// (Harvest yielding what the target produces, Drink with `self_at(tile)`)
+    /// must go through `to_template_for_target`.
+    fn to_template(&self, target_entity: Option<Entity>) -> ActionTemplate {
+        ActionTemplate {
+            name: self.name().to_string(),
+            action_type: self.action_type(),
+            target_entity,
+            target_position: None,
+            preconditions: self.preconditions(),
+            effects: self.plan_effects(),
+            consumes: self.plan_consumes(),
+            base_cost: self.cost(),
+        }
+    }
+
+    /// Build a planner-ready `ActionTemplate` for one concrete target,
+    /// auto-injecting a proximity precondition so the regressive planner
+    /// chains `Walk → action` for any candidate that carries a position.
+    ///
+    /// Single entry point for the rational brain. Actions that *don't* want
+    /// the auto-walk (Walk itself, InitiateConversation) declare
+    /// `TargetSource::Implicit` so the brain skips them entirely. Actions
+    /// rarely need to override this — declaring `target_source()`,
+    /// `target_preconditions()`, and `plan_effects_for_target()` is enough.
+    fn to_template_for_target(&self, target: &TargetCandidate, mind: &MindGraph) -> ActionTemplate {
         let mut preconditions = self.preconditions();
 
-        // Automatically add location precondition for proximity-requiring actions
-        if self.requires_proximity()
-            && let Some(pos) = target_position
-        {
-            let tile = (
-                (pos.x / TILE_SIZE).floor() as i32,
-                (pos.y / TILE_SIZE).floor() as i32,
-            );
+        // Auto-inject the proximity precondition. We use tile-based form so
+        // the runtime check (`are_preconditions_met`) can verify against the
+        // agent's `Self_, LocatedAt, Tile(t)` belief from perception. The
+        // tile is snapshotted from the candidate's current position.
+        if let Some(tile) = target.tile() {
             preconditions.push(TriplePattern::self_at(tile));
         }
+
+        preconditions.extend(self.target_preconditions(target, mind));
+
+        let mut consumes = self.plan_consumes();
+        consumes.extend(self.target_consumes(target, mind));
+
+        let (target_entity, target_position) = match target {
+            TargetCandidate::None => (None, None),
+            TargetCandidate::Entity { entity, pos } => (Some(*entity), Some(*pos)),
+            TargetCandidate::Tile { pos, .. } => (None, Some(*pos)),
+        };
 
         ActionTemplate {
             name: self.name().to_string(),
@@ -262,27 +396,10 @@ pub trait Action: Send + Sync + 'static {
             target_entity,
             target_position,
             preconditions,
-            effects: self.plan_effects(),
-            consumes: self.plan_consumes(),
+            effects: self.plan_effects_for_target(target, mind),
+            consumes,
             base_cost: self.cost(),
         }
-    }
-
-    /// Dynamic plan effects for a specific target entity, derived from MindGraph.
-    ///
-    /// Override this in actions whose effects depend on the target (e.g. Harvest
-    /// yields whatever the target entity actually produces). The default delegates
-    /// to `plan_effects()` so most actions need not override.
-    ///
-    /// Used by `collect_resource_targets` / `collect_affordance_targets` when
-    /// building templates for the planner — allowing multi-step chains like
-    /// Harvest(wood_log) → Build(campfire) to resolve correctly.
-    fn plan_effects_for_target(
-        &self,
-        _target: Option<Entity>,
-        _mind: &crate::agent::mind::knowledge::MindGraph,
-    ) -> Vec<Triple> {
-        self.plan_effects()
     }
 }
 

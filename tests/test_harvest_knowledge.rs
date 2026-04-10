@@ -4,10 +4,17 @@ mod tests {
     use std::collections::HashMap;
     use std::sync::Arc;
     use worldsim::agent::actions::action::harvest::HarvestAction;
-    use worldsim::agent::actions::registry::Action;
+    use worldsim::agent::actions::registry::{Action, TargetCandidate};
     use worldsim::agent::mind::knowledge::{
         Concept, MindGraph, Node, Ontology, Predicate, Triple, Value,
     };
+
+    fn entity_target(entity: Entity) -> TargetCandidate {
+        TargetCandidate::Entity {
+            entity,
+            pos: Vec2::ZERO,
+        }
+    }
 
     #[test]
     fn test_harvest_knowledge_constraints() {
@@ -81,33 +88,33 @@ mod tests {
 
         // Test Human
         assert!(
-            harvest.is_plan_valid(Some(apple_tree), &human_mind),
+            harvest.is_plan_valid(&entity_target(apple_tree), &human_mind),
             "Human should harvest AppleTree"
         );
         assert!(
-            harvest.is_plan_valid(Some(berry_bush), &human_mind),
+            harvest.is_plan_valid(&entity_target(berry_bush), &human_mind),
             "Human should harvest BerryBush"
         );
         assert!(
-            harvest.is_plan_valid(Some(rock), &human_mind),
+            harvest.is_plan_valid(&entity_target(rock), &human_mind),
             "Human should harvest Rock (Resource)"
         );
         assert!(
-            !harvest.is_plan_valid(Some(nothing), &human_mind),
+            !harvest.is_plan_valid(&entity_target(nothing), &human_mind),
             "Human should NOT harvest Empty entity"
         );
 
         // Test Deer
         assert!(
-            !harvest.is_plan_valid(Some(apple_tree), &deer_mind),
+            !harvest.is_plan_valid(&entity_target(apple_tree), &deer_mind),
             "Deer should NOT harvest AppleTree (Unknown)"
         );
         assert!(
-            harvest.is_plan_valid(Some(berry_bush), &deer_mind),
+            harvest.is_plan_valid(&entity_target(berry_bush), &deer_mind),
             "Deer should harvest BerryBush"
         );
         assert!(
-            !harvest.is_plan_valid(Some(rock), &deer_mind),
+            !harvest.is_plan_valid(&entity_target(rock), &deer_mind),
             "Deer should NOT harvest Rock (Unknown)"
         );
     }
