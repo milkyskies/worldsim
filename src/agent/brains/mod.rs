@@ -4,6 +4,7 @@ pub mod arbitration;
 
 pub mod brain_system;
 pub mod emotional;
+pub mod history;
 // pub mod exploration; // REMOVED
 pub mod planner;
 pub mod proposal;
@@ -24,6 +25,7 @@ impl Plugin for BrainPlugin {
             .register_type::<proposal::BrainState>()
             .register_type::<proposal::BrainType>()
             .register_type::<proposal::BrainPowers>()
+            .register_type::<history::BrainHistory>()
             .init_resource::<trace::TraceConfig>()
             .init_resource::<trace::DecisionTraceBuffer>()
             .add_systems(
@@ -35,6 +37,12 @@ impl Plugin for BrainPlugin {
                 )
                     .chain() // update_rational_brain runs before three_brains_system
                     .run_if(not_paused), // ALL brain systems pause together
+            )
+            .add_systems(
+                Update,
+                history::update_brain_history
+                    .after(crate::agent::nervous_system::execution::apply_action_effects)
+                    .run_if(not_paused),
             )
             // Trace system runs in Last to read all SimEvents emitted during Update.
             .add_systems(Last, trace::update_decision_trace.run_if(not_paused));

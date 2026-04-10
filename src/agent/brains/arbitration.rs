@@ -26,6 +26,7 @@ pub fn calculate_brain_powers(
     // === SURVIVAL POWER ===
     // Kicks in HARD when critical needs arise (exponential curves)
     let hunger_factor = (physical.hunger / 100.0).clamp(0.0, 1.0).powf(2.0);
+    let thirst_factor = (physical.thirst / 100.0).clamp(0.0, 1.0).powf(2.0);
     // Pain is hard to normalize without a max, assuming 100 for now as "extreme pain"
     let pain_val = body.map(|b| b.total_pain()).unwrap_or(0.0);
     let pain_factor = (pain_val / 100.0).clamp(0.0, 1.0).powf(2.0);
@@ -37,8 +38,11 @@ pub fn calculate_brain_powers(
     let fear_factor =
         emotions.get_emotion_intensity(crate::agent::psyche::emotions::EmotionType::Fear);
 
-    let survival_power =
-        hunger_factor * 100.0 + pain_factor * 100.0 + fatigue_factor * 80.0 + fear_factor * 50.0;
+    let survival_power = hunger_factor * 100.0
+        + thirst_factor * 100.0
+        + pain_factor * 100.0
+        + fatigue_factor * 80.0
+        + fear_factor * 50.0;
 
     // === EMOTIONAL POWER ===
     // Base instinctual power (social, curiosity, etc.) - allows emotional brain
