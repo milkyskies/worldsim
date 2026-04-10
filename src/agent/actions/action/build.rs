@@ -104,13 +104,19 @@ impl Action for BuildAction {
     }
 
     fn on_complete(&self, ctx: &mut CompletionContext) {
-        // Consume materials
+        // Consume materials from the agent's inventory.
         ctx.inventory.remove(Concept::Wood, CAMPFIRE_WOOD_REQUIRED);
 
-        // Request campfire to be spawned at the agent's position
-        ctx.spawn_requests.push(SpawnRequest {
-            concept: Concept::Campfire,
+        // Spawn a construction site rather than the finished campfire.
+        // The site immediately receives the materials the agent just consumed,
+        // so for a single-agent build the next `becomes_system` pass transforms
+        // it into the finished entity. For collaborative builds (#62 Deposit
+        // action), other agents top up partial slots over time.
+        ctx.spawn_requests.push(SpawnRequest::Site {
+            target: Concept::Campfire,
             position: ctx.agent_position,
+            requirements: vec![(Concept::Wood, CAMPFIRE_WOOD_REQUIRED)],
+            initial_items: vec![(Concept::Wood, CAMPFIRE_WOOD_REQUIRED)],
         });
     }
 
