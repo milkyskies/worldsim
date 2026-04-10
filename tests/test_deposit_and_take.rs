@@ -239,19 +239,18 @@ fn deposit_can_start_requires_non_empty_inventory() {
 // ═══════════════════════════════════════════════════════════════════════════
 
 fn public_chest_with(concept: Concept, qty: u32) -> ItemSlots {
-    let mut slot = Slot {
-        role: SlotRole::Free,
-        filter: SlotFilter::Any,
-        capacity: None,
-        contents: Vec::new(),
-        deposit_access: Access::Public,
-        extract_access: Access::Public,
+    let mut slots = ItemSlots {
+        slots: vec![Slot {
+            role: SlotRole::Free,
+            filter: SlotFilter::Any,
+            capacity: None,
+            contents: Vec::new(),
+            deposit_access: Access::Public,
+            extract_access: Access::Public,
+        }],
     };
-    slot.contents.push(worldsim::agent::item_slots::ItemStack {
-        concept,
-        quantity: qty,
-    });
-    ItemSlots { slots: vec![slot] }
+    slots.add(concept, qty);
+    slots
 }
 
 #[test]
@@ -307,7 +306,7 @@ fn take_with_no_target_inventory_is_a_noop() {
 
     run_on_complete(take, &mut agent_inv, None);
 
-    assert!(agent_inv.all_items().all(|s| s.quantity == 0));
+    assert_eq!(agent_inv.count(Concept::Apple), 0);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

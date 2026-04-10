@@ -283,17 +283,15 @@ fn perceive_inventory(
     };
     let mut observed_concepts = std::collections::HashSet::new();
 
-    // 1. Record what IS there
-    for item in inventory.all_items() {
-        if item.quantity > 0 {
-            observed_concepts.insert(item.concept);
-            mind.assert(Triple::with_meta(
-                subject_node.clone(),
-                Predicate::Contains,
-                Value::Item(item.concept, item.quantity),
-                Metadata::perception_with_conf(time, confidence),
-            ));
-        }
+    // 1. Record what IS there (group Things by concept for belief representation)
+    for (concept, qty) in inventory.group_by_concept() {
+        observed_concepts.insert(concept);
+        mind.assert(Triple::with_meta(
+            subject_node.clone(),
+            Predicate::Contains,
+            Value::Item(concept, qty),
+            Metadata::perception_with_conf(time, confidence),
+        ));
     }
 
     // 2. Clear what IS NOT there (but used to be)

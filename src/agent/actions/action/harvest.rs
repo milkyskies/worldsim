@@ -8,6 +8,7 @@ use crate::agent::actions::registry::{
 };
 use crate::agent::brains::thinking::TriplePattern;
 use crate::agent::events::FailureReason;
+use crate::agent::item_slots::{Thing, perishable_decay_rate};
 use crate::agent::mind::knowledge::{Concept, MindGraph, Node, Predicate, Triple, Value};
 use crate::constants::actions::harvest::{DURATION_TICKS, ENERGY_PER_SEC, HUNGER_PER_SEC};
 
@@ -130,18 +131,22 @@ impl Action for HarvestAction {
 
     // Execution: What happens when harvest completes
     fn on_complete(&self, ctx: &mut CompletionContext) {
-        // Transfer item from target's inventory to agent's inventory
-        // No hardcoding - takes whatever the target actually has!
-        if let Some(target_inv) = &mut ctx.target_inventory {
-            let concept = target_inv
-                .all_items()
-                .find(|i| i.quantity > 0)
-                .map(|i| i.concept);
-            if let Some(concept) = concept {
-                target_inv.remove(concept, 1);
-                ctx.inventory.add(concept, 1);
-            }
-        }
+        // Transfer item from target's inventory to agent's inventory.
+        // Perishable items get freshness = 1.0 and created_at stamped at harvest time.
+        let Some(target_inv) = &mut ctx.target_inventory else {
+            return;
+        };
+        let concept = target_inv.all_items().next().map(|t| t.concept);
+        let Some(concept) = concept else { return };
+
+        target_inv.remove(concept, 1);
+
+        let thing = if perishable_decay_rate(concept).is_some() {
+            Thing::fresh(concept, ctx.tick)
+        } else {
+            Thing::new(concept)
+        };
+        ctx.inventory.add_thing(thing);
     }
 
     fn complete_log(&self) -> Option<&'static str> {
