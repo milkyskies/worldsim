@@ -1,13 +1,9 @@
 //! Construct action — work on a construction site that requires labor.
 //!
-//! This is the "hammer on it" phase that follows the "place the site" phase
-//! from the Build action. While this action runs the `labor_accumulation_system`
-//! increments the target site's `LaborAccumulated.current` by 1 per tick.
-//! Multiple agents constructing the same site add up linearly.
-//!
-//! The action runs indefinitely (like Sleep) until the site's `Becomes`
-//! trigger fires, at which point the site entity is despawned and the
-//! execution system cancels Construct via the `target_gone` path.
+//! Reads: MindGraph (Becomes beliefs for plan effects and validity), ActionContext (target entity)
+//! Writes: nothing directly; runtime effects (energy/hunger) are applied by the execution system
+//! Upstream: ActionRegistry (registered there), Build action (creates the construction sites)
+//! Downstream: labor_accumulation_system (queries ActiveActions for Construct to tick LaborAccumulated)
 
 use crate::agent::actions::ActionType;
 use crate::agent::actions::channel::{BodyChannel, ChannelUsage};

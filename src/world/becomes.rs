@@ -3,7 +3,7 @@
 //! Reads: Becomes (component), ItemSlots (for SlotsFilled trigger), Transform, TickCount,
 //!        ActiveActions (for LaborAccumulated trigger)
 //! Writes: Despawns source entities, spawns target concept entities at the same position,
-//!         mutates LaborAccumulated.current on entities being actively constructed
+//!         mutates LaborAccumulated.current on entities being actively constructed, SimEvent
 //! Upstream: Build action (creates construction sites), future cooking/growing/decay systems
 //! Downstream: Perception (observers see the transformation result on the next tick)
 //!
@@ -15,14 +15,17 @@
 //! entity that has a `Becomes` component. The planner consults beliefs, never
 //! the world component directly.
 
+use std::collections::HashMap;
+
+use bevy::prelude::*;
+
 use crate::agent::actions::ActionType;
 use crate::agent::actions::registry::ActiveActions;
+use crate::agent::events::SimEvent;
 use crate::agent::item_slots::{ItemSlots, SlotRole};
 use crate::agent::mind::knowledge::Concept;
 use crate::core::tick::TickCount;
 use crate::world::spawn::spawn_concept_entity;
-use bevy::prelude::*;
-use std::collections::HashMap;
 
 /// World-truth component declaring "this entity will transform into `target`
 /// when `trigger` fires". Lives on the world entity, NOT in any agent's mind.
@@ -191,26 +194,41 @@ pub fn becomes_system(
 /// accumulated labor can fire a `LaborAccumulated` trigger within the same
 /// tick that it crosses the threshold.
 pub fn labor_accumulation_system(
-    active_actions: Query<&ActiveActions>,
+    active_actions: Query<(Entity, &ActiveActions)>,
     mut becomes_query: Query<&mut Becomes>,
+    tick: Res<TickCount>,
+    mut events: EventWriter<SimEvent>,
 ) {
-    // Count how many agents are actively constructing each site.
-    let mut constructors_per_site: HashMap<Entity, u32> = HashMap::new();
-    for actions in active_actions.iter() {
+    // Collect (agent, site) pairs for all active Construct actions.
+    let mut constructor_pairs: Vec<(Entity, Entity)> = Vec::new();
+    for (agent_entity, actions) in active_actions.iter() {
         for action_state in actions.iter() {
             if action_state.action_type == ActionType::Construct {
                 if let Some(target) = action_state.target_entity {
-                    *constructors_per_site.entry(target).or_insert(0) += 1;
+                    constructor_pairs.push((agent_entity, target));
                 }
             }
         }
     }
 
-    // For each site with at least one constructor, increment its labor counter.
-    for (site_entity, constructor_count) in constructors_per_site {
-        if let Ok(mut becomes) = becomes_query.get_mut(site_entity) {
-            increment_labor_in_trigger(&mut becomes.trigger, constructor_count);
+    // Aggregate and increment labor counters.
+    let mut constructors_per_site: HashMap<Entity, u32> = HashMap::new();
+    for (_, site) in &constructor_pairs {
+        *constructors_per_site.entry(*site).or_insert(0) += 1;
+    }
+    for (site_entity, constructor_count) in &constructors_per_site {
+        if let Ok(mut becomes) = becomes_query.get_mut(*site_entity) {
+            increment_labor_in_trigger(&mut becomes.trigger, *constructor_count);
         }
+    }
+
+    // Emit one event per active constructor so the structured log can trace progress.
+    for (agent_entity, site_entity) in constructor_pairs {
+        events.write(SimEvent::LaborContributed {
+            agent: agent_entity,
+            tick: tick.current,
+            site: site_entity,
+        });
     }
 }
 

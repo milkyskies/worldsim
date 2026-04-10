@@ -270,6 +270,15 @@ pub enum SimEvent {
         triple_count: usize,
     },
 
+    /// An agent contributed one labor-tick to a construction site.
+    /// Emitted once per active constructor per simulation tick by
+    /// `labor_accumulation_system`.
+    LaborContributed {
+        agent: Entity,
+        tick: u64,
+        site: Entity,
+    },
+
     /// An agent felt warmth from a heat source (temperature sense).
     WarmthPerceived {
         agent: Entity,

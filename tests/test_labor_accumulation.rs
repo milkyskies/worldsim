@@ -17,6 +17,7 @@ use worldsim::world::construction_site::spawn_construction_site_headless;
 // TEST APP HELPERS
 // ═══════════════════════════════════════════════════════════════════════════
 
+use worldsim::agent::events::SimEvent;
 use worldsim::core::tick::TickCount;
 
 fn labor_test_app() -> App {
@@ -24,6 +25,7 @@ fn labor_test_app() -> App {
     let mut tick = TickCount::new(1.0);
     tick.current = 0;
     app.insert_resource(tick);
+    app.add_event::<SimEvent>();
     // Labor must run before becomes so a threshold crossing fires in the same tick.
     app.add_systems(
         Update,
