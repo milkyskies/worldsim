@@ -140,11 +140,8 @@ fn compute_realistic_layout(config: &WorldSpawnConfig, map: &WorldMap) -> SpawnL
         None => fallback_random_walkable(map, &mut rng, config.humans),
     };
 
-    // Second human group: find a settlement on the opposite side of the
-    // river from the first group so the two clusters start as strangers
-    // separated by a natural barrier. If no suitable site exists on the
-    // other side (or the first settlement wasn't found), leave the second
-    // positions empty and the spawner skips the group.
+    // Second human group across the river: strangers separated by a natural
+    // barrier so stranger dynamics and cultural divergence can emerge.
     if config.second_humans > 0
         && let Some(first) = settlement
         && let Some(second_center) = find_second_settlement_across_river(map, first)
@@ -216,10 +213,8 @@ fn find_second_settlement_across_river(map: &WorldMap, first: UVec2) -> Option<U
 
     let river_cx = river_center_x(first.y, map.width, DEFAULT_TERRAIN_SEED);
     let x_range = if first.x < river_cx {
-        // First settlement on the left; search the right half.
         (river_cx + RIVER_BUFFER_TILES, map.width)
     } else {
-        // First settlement on the right; search the left half.
         (0, river_cx.saturating_sub(RIVER_BUFFER_TILES))
     };
 
