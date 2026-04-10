@@ -5,8 +5,15 @@
 //! - Positive interactions increase values (small amounts)
 //! - Negative interactions decrease values (larger amounts - negativity bias!)
 //! - Relationships decay slowly without contact
+//! - An [`InteractionRecord`] is pushed into [`RelationshipHistory`]
+//!
+//! The interaction log drives relationship *classification* (Friend, Enemy, etc.)
+//! in `recognition.rs`, replacing the old threshold-based approach. Trust and
+//! affection floats remain as cached summaries that other systems read.
 //!
 //! Emits SimEvent::RelationshipChanged on trust/affection updates.
+
+use std::collections::{HashMap, VecDeque};
 
 use crate::agent::Agent;
 use crate::agent::events::{ConversationTopic, GameEvent};
@@ -16,6 +23,53 @@ use crate::agent::psyche::personality::Personality;
 use crate::core::tick::TickCount;
 use crate::core::time::GameTime;
 use bevy::prelude::*;
+
+// ============================================================================
+// Interaction history
+// ============================================================================
+
+/// Maximum number of interaction records kept per partner.
+pub const MAX_INTERACTION_RECORDS: usize = 50;
+
+/// A single recorded interaction between two agents.
+#[derive(Debug, Clone, Reflect)]
+pub struct InteractionRecord {
+    /// Simulation tick when the interaction occurred.
+    pub tick: u64,
+    /// What kind of interaction this was.
+    pub topic: Option<ConversationTopic>,
+    /// Valence of the interaction (-1.0 hostile .. 1.0 friendly).
+    pub valence: f32,
+}
+
+/// Per-agent log of interactions with other agents. Drives relationship
+/// classification in `recognition.rs`.
+#[derive(Component, Default, Debug, Clone, Reflect)]
+#[reflect(Component)]
+pub struct RelationshipHistory {
+    /// Interaction records keyed by partner entity. Each partner's log is
+    /// capped at [`MAX_INTERACTION_RECORDS`]; oldest entries are evicted.
+    #[reflect(ignore)]
+    pub logs: HashMap<Entity, VecDeque<InteractionRecord>>,
+}
+
+impl RelationshipHistory {
+    /// Push a new interaction record for a partner, evicting the oldest if
+    /// the log exceeds [`MAX_INTERACTION_RECORDS`].
+    pub fn push(&mut self, partner: Entity, record: InteractionRecord) {
+        let log = self.logs.entry(partner).or_default();
+        if log.len() >= MAX_INTERACTION_RECORDS {
+            log.pop_front();
+        }
+        log.push_back(record);
+    }
+
+    /// Returns the interaction log for a partner, or an empty slice.
+    pub fn get(&self, partner: Entity) -> &VecDeque<InteractionRecord> {
+        static EMPTY: VecDeque<InteractionRecord> = VecDeque::new();
+        self.logs.get(&partner).unwrap_or(&EMPTY)
+    }
+}
 
 /// Configuration for relationship dynamics
 #[derive(Resource, Reflect)]
@@ -75,7 +129,16 @@ impl Default for RelationshipConfig {
 /// System: Update relationships based on social interaction events
 pub fn update_relationships(
     mut events: MessageReader<GameEvent>,
-    mut agents: Query<(Entity, &Name, &mut MindGraph, &Personality), With<Agent>>,
+    mut agents: Query<
+        (
+            Entity,
+            &Name,
+            &mut MindGraph,
+            &Personality,
+            &mut RelationshipHistory,
+        ),
+        With<Agent>,
+    >,
     config: Res<RelationshipConfig>,
     tick: Res<TickCount>,
     mut sim_events: MessageWriter<crate::agent::events::SimEvent>,
@@ -92,10 +155,21 @@ pub fn update_relationships(
         } = event
         {
             // Update target's feelings about actor (the one who did the action)
-            if let Ok((_, actor_name, _, _)) = agents.get(*actor) {
+            if let Ok((_, actor_name, _, _, _)) = agents.get(*actor) {
                 let actor_name_str = actor_name.to_string();
 
-                if let Ok((_, _, mut target_mind, personality)) = agents.get_mut(*target) {
+                if let Ok((_, _, mut target_mind, personality, mut history)) =
+                    agents.get_mut(*target)
+                {
+                    // Record the interaction in the log.
+                    history.push(
+                        *actor,
+                        InteractionRecord {
+                            tick: current_time,
+                            topic: *topic,
+                            valence: *valence,
+                        },
+                    );
                     let actor_node = Node::Entity(*actor);
 
                     // Check if we know this person, if not initialize
