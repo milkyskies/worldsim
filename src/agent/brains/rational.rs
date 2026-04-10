@@ -349,23 +349,28 @@ pub fn rational_brain_propose(
             }
         }
 
-        // Fallback: Explore to find resources — but only for goals
-        // exploration could plausibly satisfy. Non-resource goals (social,
-        // pain) fall through to idle-wander so the agent is never decision-dead.
-        if matches!(goal_intent, Intent::SatisfyHunger | Intent::SatisfyThirst) {
-            let explore_action = action_registry
-                .get(ActionType::Explore)
-                .map(|a| a.to_template(None))
-                .expect("Explore action must be registered");
-
-            return Some(BrainProposal {
-                brain: BrainType::Rational,
-                action: explore_action,
-                urgency: goal.priority * EXPLORE_FALLBACK_PRIORITY_MULTIPLIER * 100.0,
-                intent: goal_intent,
-                reasoning: "Can't plan - exploring for resources".to_string(),
-            });
+        // Fallback: Explore to find resources ourselves — but only for goals
+        // exploration could plausibly satisfy. A social or pain-relief goal
+        // can't be solved by wandering the map; proposing Explore there would
+        // dedup against (and outscore, post-units-fix) the Emotional brain's
+        // own answer for the same intent.
+        // TODO(#46): reintroduce epistemic ask via CommunicationPlugin
+        if !matches!(goal_intent, Intent::SatisfyHunger | Intent::SatisfyThirst) {
+            return None;
         }
+
+        let explore_action = action_registry
+            .get(ActionType::Explore)
+            .map(|a| a.to_template(None))
+            .expect("Explore action must be registered");
+
+        return Some(BrainProposal {
+            brain: BrainType::Rational,
+            action: explore_action,
+            urgency: goal.priority * EXPLORE_FALLBACK_PRIORITY_MULTIPLIER * 100.0,
+            intent: goal_intent,
+            reasoning: "Can't plan - exploring for resources".to_string(),
+        });
     }
 
     let wander_action = action_registry
@@ -621,9 +626,11 @@ mod tests {
     }
 
     /// Rational must NOT propose Explore for non-resource intents like Social.
-    /// Instead it falls through to idle-wander so the agent is never decision-dead.
+    /// Exploring the map can't satisfy a social drive; proposing Explore here
+    /// would dedup against (and post-units-fix outscore) the Emotional brain's
+    /// own answer for the same intent, breaking conversation initiation.
     #[test]
-    fn social_goal_falls_through_to_wander_not_explore() {
+    fn no_explore_fallback_when_intent_cannot_be_satisfied_by_exploration() {
         let priority = 0.8;
         let unsatisfiable = Goal {
             conditions: vec![TriplePattern::new(
@@ -643,17 +650,40 @@ mod tests {
             plan_index: 0,
         };
 
-        let proposal = propose(&brain, &cns);
+        // Build the same setup as `propose()` but tolerate `None`.
+        let mut world = World::new();
+        let mut state: SystemState<
+            Query<(
+                &GlobalTransform,
+                Option<&crate::agent::affordance::Affordance>,
+            )>,
+        > = SystemState::new(&mut world);
+        let affordances = state.get(&world);
+        let mut registry = ActionRegistry::default();
+        registry.register(crate::agent::actions::action::WanderAction);
+        registry.register(crate::agent::actions::action::ExploreAction);
+        let inventory = ItemSlots::agent_carry();
+        let transform = Transform::default();
+        let mind = MindGraph::default();
+        let visible = crate::agent::mind::perception::VisibleObjects::default();
+        let world_map = WorldMap::new(64, 64);
 
-        assert_eq!(
-            proposal.action.action_type,
-            ActionType::Wander,
-            "social goal should fall through to Wander, not Explore"
+        let proposal = rational_brain_propose(
+            &brain,
+            &cns,
+            &inventory,
+            &transform,
+            &mind,
+            &visible,
+            &world_map,
+            &registry,
+            &affordances,
         );
+
         assert!(
-            (proposal.urgency - IDLE_WANDER_URGENCY).abs() < 0.01,
-            "should use idle wander urgency, got {}",
-            proposal.urgency
+            proposal.is_none(),
+            "rational must defer (not propose Explore) when the goal can't be \
+             satisfied by exploration; got: {proposal:?}"
         );
     }
 
