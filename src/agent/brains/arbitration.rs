@@ -1,6 +1,6 @@
 //! Brain arbitration: selects the winning brain proposal by urgency and power levels.
 //!
-//! Reads: BrainProposal (from all brains), PhysicalNeeds, Consciousness, Body, EmotionalState, Personality
+//! Reads: BrainProposal (from all brains), CentralNervousSystem, Consciousness, EmotionalState, Personality
 //! Writes: BrainPowers, BrainState (chosen action and winner)
 //! Upstream: survival, emotional, and rational brain systems (proposal.rs)
 //! Downstream: brain_system (consumes arbitrated BrainState), nervous_system execution
@@ -9,55 +9,43 @@ use std::collections::HashMap;
 
 use super::proposal::{BrainPowers, BrainProposal, Intent};
 use crate::agent::actions::channel::ChannelCapacities;
-use crate::agent::biology::body::Body;
-use crate::agent::body::needs::{Consciousness, PhysicalNeeds};
+use crate::agent::body::needs::Consciousness;
+use crate::agent::nervous_system::cns::CentralNervousSystem;
+use crate::agent::nervous_system::urgency::UrgencySource;
 use crate::agent::psyche::emotions::EmotionalState;
 use crate::agent::psyche::personality::Personality;
 
-/// Calculate the current power level of each brain
+/// Calculate the current power level of each brain.
 ///
-/// Brain power represents how much "say" each brain has in decision-making
-/// based on the agent's current state and personality.
+/// Brain power represents how much "say" each brain has in decision-making.
+/// Survival and rational power derive from pre-computed urgency scores in the
+/// CNS rather than raw needs — personality curves and modifiers already baked in.
 pub fn calculate_brain_powers(
-    physical: &PhysicalNeeds,
+    cns: &CentralNervousSystem,
     consciousness: &Consciousness,
-    body: Option<&Body>,
     emotions: &EmotionalState,
     personality: &Personality,
 ) -> BrainPowers {
     // === SURVIVAL POWER ===
-    // Kicks in HARD when critical needs arise (exponential curves)
-    let hunger_factor = (physical.hunger / 100.0).clamp(0.0, 1.0).powf(2.0);
-    let thirst_factor = (physical.thirst / 100.0).clamp(0.0, 1.0).powf(2.0);
-    // Pain is hard to normalize without a max, assuming 100 for now as "extreme pain"
-    let pain_val = body.map(|b| b.total_pain()).unwrap_or(0.0);
-    let pain_factor = (pain_val / 100.0).clamp(0.0, 1.0).powf(2.0);
-
-    // Fatigue: Energy is 0-100 (100 = full energy), so fatigue is 1 - energy%
-    let fatigue_factor = (1.0 - (physical.energy / 100.0).clamp(0.0, 1.0)).powf(3.0);
-
-    // Fear
-    let fear_factor =
-        emotions.get_emotion_intensity(crate::agent::psyche::emotions::EmotionType::Fear);
-
-    let survival_power = hunger_factor * 100.0
-        + thirst_factor * 100.0
-        + pain_factor * 100.0
-        + fatigue_factor * 80.0
-        + fear_factor * 50.0;
+    // Sum urgency-weighted contributions from survival-relevant drives.
+    // Weights match rough priority: physical deprivation > fear.
+    let survival_power = cns
+        .urgencies
+        .iter()
+        .map(|u| match u.source {
+            UrgencySource::Hunger | UrgencySource::Thirst | UrgencySource::Pain => u.value * 100.0,
+            UrgencySource::Energy => u.value * 80.0,
+            UrgencySource::Fear => u.value * 50.0,
+            _ => 0.0,
+        })
+        .sum::<f32>();
 
     // === EMOTIONAL POWER ===
-    // Base instinctual power (social, curiosity, etc.) - allows emotional brain
-    // to act on drives even without active emotions
+    // Base instinctual drive (social, curiosity) keeps emotional brain active
+    // even without acute emotions.
     let instinct_base = 25.0;
-
-    // Additional power from active emotions
     let emotional_intensity: f32 = emotions.active_emotions.iter().map(|e| e.intensity).sum();
-
-    // Neuroticism makes emotions more powerful
     let neuroticism_multiplier = 0.5 + personality.traits.neuroticism * 0.5;
-
-    // Stress amplifies emotional responses
     let stress_factor = (emotions.stress_level / 100.0).clamp(0.0, 1.0);
     let stress_multiplier = 1.0 + stress_factor * 0.5;
 
@@ -65,18 +53,27 @@ pub fn calculate_brain_powers(
         instinct_base + (emotional_intensity * 50.0 * neuroticism_multiplier * stress_multiplier);
 
     // === RATIONAL POWER ===
-    // Baseline from conscientiousness, reduced by stress and critical needs
+    // Baseline from conscientiousness, reduced by stress and survival urgency.
     let base_rational = 30.0 + personality.traits.conscientiousness * 40.0;
-
-    // Can't think straight when stressed
     let stress_penalty = stress_factor * 0.5;
 
-    // Can't focus when starving or in pain
-    let needs_penalty = (hunger_factor + pain_factor) * 0.3;
+    // High survival urgency makes it hard to think straight.
+    let survival_urgency: f32 = cns
+        .urgencies
+        .iter()
+        .filter(|u| {
+            matches!(
+                u.source,
+                UrgencySource::Hunger | UrgencySource::Thirst | UrgencySource::Pain
+            )
+        })
+        .map(|u| u.value)
+        .sum::<f32>()
+        .min(1.0);
+    let needs_penalty = survival_urgency * 0.3;
 
-    // Low alertness (sleepiness) kills rational thought
     let alertness_penalty = if consciousness.alertness < 0.5 {
-        (0.5 - consciousness.alertness) * 2.0 // 0.5 -> 0.0, 0.0 -> 1.0
+        (0.5 - consciousness.alertness) * 2.0
     } else {
         0.0
     };
@@ -193,6 +190,7 @@ mod tests {
     use crate::agent::actions::{ActionRegistry, ActionType};
     use crate::agent::brains::proposal::BrainType;
     use crate::agent::brains::thinking::ActionTemplate;
+    use crate::agent::nervous_system::urgency::Urgency;
     use crate::agent::psyche::emotions::{Emotion, EmotionType};
 
     fn make_proposal(
@@ -391,22 +389,26 @@ mod tests {
         );
     }
 
+    fn cns_with_urgency(source: UrgencySource, value: f32) -> CentralNervousSystem {
+        let mut cns = CentralNervousSystem::default();
+        cns.urgencies.push(Urgency::new(source, value));
+        cns
+    }
+
     #[test]
-    fn test_survival_power_hunger() {
-        let physical = PhysicalNeeds {
-            hunger: 90.0, // Critical hunger
-            ..Default::default()
-        };
+    fn high_hunger_urgency_gives_high_survival_power() {
+        // Hunger urgency 0.9 → survival power = 0.9 * 100 = 90
+        let cns = cns_with_urgency(UrgencySource::Hunger, 0.9);
         let consciousness = Consciousness::default();
         let emotions = EmotionalState::default();
         let personality = Personality::default();
 
-        let powers =
-            calculate_brain_powers(&physical, &consciousness, None, &emotions, &personality);
+        let powers = calculate_brain_powers(&cns, &consciousness, &emotions, &personality);
 
         assert!(
             powers.survival > 70.0,
-            "Survival power should be high when starving"
+            "Survival power should be high when hunger urgency is 0.9, got {:.1}",
+            powers.survival
         );
         assert!(
             powers.survival > powers.rational,
@@ -415,8 +417,24 @@ mod tests {
     }
 
     #[test]
-    fn test_emotional_power_neuroticism() {
-        let physical = PhysicalNeeds::default();
+    fn no_urgency_gives_low_survival_power() {
+        let cns = CentralNervousSystem::default(); // no urgencies
+        let consciousness = Consciousness::default();
+        let emotions = EmotionalState::default();
+        let personality = Personality::default();
+
+        let powers = calculate_brain_powers(&cns, &consciousness, &emotions, &personality);
+
+        assert!(
+            powers.survival < 1.0,
+            "Survival power should be near zero with no urgencies, got {:.1}",
+            powers.survival
+        );
+    }
+
+    #[test]
+    fn emotional_power_scales_with_neuroticism_and_fear() {
+        let cns = CentralNervousSystem::default();
         let consciousness = Consciousness::default();
         let mut emotions = EmotionalState::default();
         emotions.add_emotion(Emotion::new(EmotionType::Fear, 0.8));
@@ -424,12 +442,12 @@ mod tests {
         let mut personality = Personality::default();
         personality.traits.neuroticism = 1.0;
 
-        let powers =
-            calculate_brain_powers(&physical, &consciousness, None, &emotions, &personality);
+        let powers = calculate_brain_powers(&cns, &consciousness, &emotions, &personality);
 
         assert!(
             powers.emotional > 35.0,
-            "Emotional power should be high for neurotic + fearful"
+            "Emotional power should be high for neurotic + fearful agent, got {:.1}",
+            powers.emotional
         );
     }
 }
