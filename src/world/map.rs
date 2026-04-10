@@ -478,6 +478,17 @@ fn tile_base_color(tile_type: TileType, elevation: f32) -> Color {
     }
 }
 
+/// Darken an sRGB color by multiplying each channel by `factor` (0..1).
+fn darken(color: Color, factor: f32) -> Color {
+    let srgba = color.to_srgba();
+    Color::srgba(
+        (srgba.red * factor).clamp(0.0, 1.0),
+        (srgba.green * factor).clamp(0.0, 1.0),
+        (srgba.blue * factor).clamp(0.0, 1.0),
+        srgba.alpha,
+    )
+}
+
 /// Multiply an sRGB color by a scalar brightness factor.
 fn apply_hillshade(color: Color, shade: f32) -> Color {
     let srgba = color.to_srgba();
@@ -641,9 +652,28 @@ pub fn setup_map(mut commands: Commands, mut map_resource: ResMut<WorldMap>) {
                             // proportional to elevation above sea level. Lower
                             // grid rows render in front so hills can occlude
                             // what's behind them.
-                            let screen_y =
-                                y as f32 * TILE_SIZE + (elevation - SEA_LEVEL) * ELEVATION_LIFT;
+                            let lift = (elevation - SEA_LEVEL) * ELEVATION_LIFT;
+                            let screen_y = y as f32 * TILE_SIZE + lift;
                             let z = -(y as f32) * 0.01;
+
+                            // Darker "side face" of the cube, drawn directly
+                            // below the lifted top. Makes the tile read as a
+                            // block sticking up from the ground.
+                            if lift > 0.0 {
+                                parent.spawn((
+                                    Name::new(format!("TileSide ({},{})", x, y)),
+                                    Sprite {
+                                        color: darken(color, 0.5),
+                                        custom_size: Some(Vec2::new(TILE_SIZE, lift)),
+                                        ..default()
+                                    },
+                                    Transform::from_translation(Vec3::new(
+                                        x as f32 * TILE_SIZE,
+                                        screen_y - TILE_SIZE * 0.5 - lift * 0.5,
+                                        z - 0.005,
+                                    )),
+                                ));
+                            }
 
                             parent.spawn((
                                 Name::new(format!("Tile ({},{}) {:?}", x, y, tile_type)),
