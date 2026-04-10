@@ -1,4 +1,7 @@
+use bevy::asset::RenderAssetUsages;
+use bevy::image::ImageSampler;
 use bevy::prelude::*;
+use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use noise::{NoiseFn, Simplex};
 use std::collections::HashMap;
 
@@ -391,11 +394,6 @@ pub fn generate_terrain(width: u32, height: u32, seed: u32) -> Vec<TileType> {
 /// Water tiles are capped at this elevation (sea level). Rivers and lakes sit at or below it.
 pub const SEA_LEVEL: f32 = 64.0;
 
-/// Screen pixels per elevation unit used to fake 3D relief by shifting
-/// tile sprites vertically. At 0.15, a peak at elevation 255 sits ~29 px
-/// (nearly two tiles) above a sea-level tile.
-pub const ELEVATION_LIFT: f32 = 0.15;
-
 /// Generate per-tile elevation values in the 0.0..=255.0 range.
 ///
 /// Uses the same noise seed as terrain generation so elevation naturally
@@ -589,7 +587,11 @@ fn carve_river(tiles: &mut [TileType], width: u32, height: u32, seed: u32) {
     }
 }
 
-pub fn setup_map(mut commands: Commands, mut map_resource: ResMut<WorldMap>) {
+pub fn setup_map(
+    mut commands: Commands,
+    mut map_resource: ResMut<WorldMap>,
+    mut images: ResMut<Assets<Image>>,
+) {
     let width = map_resource.width;
     let height = map_resource.height;
 
@@ -614,61 +616,122 @@ pub fn setup_map(mut commands: Commands, mut map_resource: ResMut<WorldMap>) {
         }
     }
 
-    // Spawn tiles as children of a parent TileMap entity.
-    // Each tile's color combines a biome tint from elevation and a hillshade shadow.
-    commands
-        .spawn((
-            Name::new("TileMap"),
-            TileMap,
-            Transform::default(),
-            Visibility::default(),
-        ))
-        .with_children(|parent| {
-            for cy in 0..MAP_CHUNKS_Y {
-                for cx in 0..MAP_CHUNKS_X {
-                    for ly in 0..CHUNK_SIZE {
-                        for lx in 0..CHUNK_SIZE {
-                            let x = cx * CHUNK_SIZE + lx;
-                            let y = cy * CHUNK_SIZE + ly;
-                            let idx = (y * width + x) as usize;
-                            let tile_type = terrain[idx];
-                            let elevation = elevations[idx];
-                            let shade = hillshade(&elevations, width, height, x, y);
-                            let color =
-                                apply_hillshade(tile_base_color(tile_type, elevation), shade);
+    // Bake the full terrain as a pixel-resolution texture with a gradient
+    // inside each 16×16 tile. Rendered with nearest-neighbor sampling so
+    // individual pixels stay crisp at any zoom level.
+    let image = build_terrain_image(&terrain, &elevations, width, height);
+    let image_handle = images.add(image);
+    let map_pixel_width = width as f32 * TILE_SIZE;
+    let map_pixel_height = height as f32 * TILE_SIZE;
 
-                            // Fake 3D: shift tile sprites up on the screen
-                            // proportional to elevation above sea level. Lower
-                            // grid rows render in front so hills can occlude
-                            // what's behind them.
-                            let screen_y =
-                                y as f32 * TILE_SIZE + (elevation - SEA_LEVEL) * ELEVATION_LIFT;
-                            let z = -(y as f32) * 0.01;
+    commands.spawn((
+        Name::new("TileMap"),
+        TileMap,
+        Sprite {
+            image: image_handle,
+            custom_size: Some(Vec2::new(map_pixel_width, map_pixel_height)),
+            ..default()
+        },
+        Transform::from_translation(Vec3::new(
+            (map_pixel_width - TILE_SIZE) * 0.5,
+            (map_pixel_height - TILE_SIZE) * 0.5,
+            0.0,
+        )),
+    ));
+}
 
-                            parent.spawn((
-                                Name::new(format!("Tile ({},{}) {:?}", x, y, tile_type)),
-                                Tile {
-                                    x: x as i32,
-                                    y: y as i32,
-                                    tile_type,
-                                    elevation,
-                                },
-                                Sprite {
-                                    color,
-                                    custom_size: Some(Vec2::new(TILE_SIZE, TILE_SIZE)),
-                                    ..default()
-                                },
-                                Transform::from_translation(Vec3::new(
-                                    x as f32 * TILE_SIZE,
-                                    screen_y,
-                                    z,
-                                )),
-                            ));
-                        }
-                    }
+/// Build a pixel-resolution terrain texture.
+///
+/// Each tile corner gets a color averaged from the up-to-4 tiles sharing it.
+/// Every pixel in the final image is then filled by bilinearly interpolating
+/// the 4 corner colors of the tile it belongs to. The result is a discrete,
+/// per-pixel gradient within every 16×16 tile.
+fn build_terrain_image(terrain: &[TileType], elevations: &[f32], width: u32, height: u32) -> Image {
+    // Per-tile final color (biome tint + hillshade), in 0..=1 sRGB.
+    let tile_colors: Vec<[f32; 4]> = (0..height)
+        .flat_map(|y| {
+            (0..width).map(move |x| {
+                let idx = (y * width + x) as usize;
+                let shade = hillshade(elevations, width, height, x, y);
+                let color = apply_hillshade(tile_base_color(terrain[idx], elevations[idx]), shade);
+                let c = color.to_srgba();
+                [c.red, c.green, c.blue, c.alpha]
+            })
+        })
+        .collect();
+
+    // Per-corner colors: (width+1) × (height+1), averaged across neighbours.
+    let vw = width + 1;
+    let vh = height + 1;
+    let mut corner_colors: Vec<[f32; 4]> = Vec::with_capacity((vw * vh) as usize);
+    for vy in 0..vh {
+        for vx in 0..vw {
+            let mut sum = [0.0f32; 4];
+            let mut count = 0.0f32;
+            for (dx, dy) in [(-1, -1), (0, -1), (-1, 0), (0, 0)] {
+                let tx = vx as i32 + dx;
+                let ty = vy as i32 + dy;
+                if tx >= 0 && tx < width as i32 && ty >= 0 && ty < height as i32 {
+                    let c = tile_colors[(ty as u32 * width + tx as u32) as usize];
+                    sum[0] += c[0];
+                    sum[1] += c[1];
+                    sum[2] += c[2];
+                    sum[3] += c[3];
+                    count += 1.0;
                 }
             }
-        });
+            corner_colors.push([
+                sum[0] / count,
+                sum[1] / count,
+                sum[2] / count,
+                sum[3] / count,
+            ]);
+        }
+    }
+
+    // Fill pixels. For each pixel, bilinearly interpolate the 4 corners of the
+    // tile it belongs to, using the pixel center as the sample position.
+    let tile_size_u = TILE_SIZE as u32;
+    let pixel_width = width * tile_size_u;
+    let pixel_height = height * tile_size_u;
+    let mut data = Vec::with_capacity((pixel_width * pixel_height * 4) as usize);
+
+    for py in 0..pixel_height {
+        for px in 0..pixel_width {
+            let tx = px / tile_size_u;
+            let ty = py / tile_size_u;
+            let fx = ((px % tile_size_u) as f32 + 0.5) / tile_size_u as f32;
+            let fy = ((py % tile_size_u) as f32 + 0.5) / tile_size_u as f32;
+
+            let bl = corner_colors[(ty * vw + tx) as usize];
+            let br = corner_colors[(ty * vw + tx + 1) as usize];
+            let tl = corner_colors[((ty + 1) * vw + tx) as usize];
+            let tr = corner_colors[((ty + 1) * vw + tx + 1) as usize];
+
+            let mut rgba = [0u8; 4];
+            for i in 0..4 {
+                let bottom = bl[i] + (br[i] - bl[i]) * fx;
+                let top = tl[i] + (tr[i] - tl[i]) * fx;
+                let v = bottom + (top - bottom) * fy;
+                rgba[i] = (v.clamp(0.0, 1.0) * 255.0) as u8;
+            }
+            data.extend_from_slice(&rgba);
+        }
+    }
+
+    let mut image = Image::new(
+        Extent3d {
+            width: pixel_width,
+            height: pixel_height,
+            depth_or_array_layers: 1,
+        },
+        TextureDimension::D2,
+        data,
+        TextureFormat::Rgba8UnormSrgb,
+        RenderAssetUsages::default(),
+    );
+    image.sampler = ImageSampler::nearest();
+    image
 }
 
 #[cfg(test)]
