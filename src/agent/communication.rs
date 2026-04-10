@@ -438,10 +438,10 @@ pub(crate) fn select_intent(
     }
 
     // 4. Ask: active goal that requires finding something (location/containment).
-    if let Some(g) = goal {
-        if goal_needs_location(g) {
-            return Intent::Ask;
-        }
+    if let Some(g) = goal
+        && goal_needs_location(g)
+    {
+        return Intent::Ask;
     }
 
     // 5. Answer: listener asked something last turn.
