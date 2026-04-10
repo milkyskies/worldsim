@@ -427,6 +427,7 @@ pub fn tick_actions(
                         position,
                         requirements,
                         initial_items,
+                        labor_required,
                     } => {
                         crate::world::construction_site::spawn_construction_site_headless(
                             &mut commands,
@@ -434,6 +435,7 @@ pub fn tick_actions(
                             position,
                             &requirements,
                             &initial_items,
+                            labor_required,
                             current_tick,
                         );
                     }

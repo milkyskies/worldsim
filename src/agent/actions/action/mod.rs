@@ -2,6 +2,7 @@
 
 pub mod attack;
 pub mod build;
+pub mod construct;
 pub mod converse;
 pub mod deposit;
 pub mod drink;
@@ -19,6 +20,7 @@ pub mod wander;
 
 pub use attack::AttackAction;
 pub use build::BuildAction;
+pub use construct::ConstructAction;
 pub use converse::ConverseAction;
 pub use deposit::DepositAction;
 pub use drink::DrinkAction;

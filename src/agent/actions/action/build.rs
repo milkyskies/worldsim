@@ -136,6 +136,7 @@ impl Action for BuildAction {
             position: ctx.agent_position,
             requirements: vec![(Concept::Wood, CAMPFIRE_WOOD_REQUIRED)],
             initial_items: vec![(Concept::Wood, CAMPFIRE_WOOD_REQUIRED)],
+            labor_required: None,
         });
     }
 

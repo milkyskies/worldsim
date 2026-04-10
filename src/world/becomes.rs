@@ -1,7 +1,9 @@
 //! Becomes: general substrate for entities that transform into other entities.
 //!
-//! Reads: Becomes (component), ItemSlots (for SlotsFilled trigger), Transform, TickCount
-//! Writes: Despawns source entities, spawns target concept entities at the same position
+//! Reads: Becomes (component), ItemSlots (for SlotsFilled trigger), Transform, TickCount,
+//!        ActiveActions (for LaborAccumulated trigger)
+//! Writes: Despawns source entities, spawns target concept entities at the same position,
+//!         mutates LaborAccumulated.current on entities being actively constructed
 //! Upstream: Build action (creates construction sites), future cooking/growing/decay systems
 //! Downstream: Perception (observers see the transformation result on the next tick)
 //!
@@ -13,11 +15,14 @@
 //! entity that has a `Becomes` component. The planner consults beliefs, never
 //! the world component directly.
 
+use crate::agent::actions::ActionType;
+use crate::agent::actions::registry::ActiveActions;
 use crate::agent::item_slots::{ItemSlots, SlotRole};
 use crate::agent::mind::knowledge::Concept;
 use crate::core::tick::TickCount;
 use crate::world::spawn::spawn_concept_entity;
 use bevy::prelude::*;
+use std::collections::HashMap;
 
 /// World-truth component declaring "this entity will transform into `target`
 /// when `trigger` fires". Lives on the world entity, NOT in any agent's mind.
@@ -71,6 +76,17 @@ pub enum BecomesTrigger {
     /// `TimeBelief` triples in the MindGraph. See #171's "Migration obligation"
     /// section.
     AfterTicks(u32),
+    /// Fires when at least `required` ticks of labor have been contributed by
+    /// agents actively executing a `Construct` action targeting this entity.
+    ///
+    /// `current` counts the accumulated labor ticks so far. It is incremented
+    /// by `labor_accumulation_system` each tick — once per active constructor,
+    /// so two agents both constructing add 2 per tick. Walking away stops
+    /// accumulation; the counter persists because it lives on the component.
+    ///
+    /// TODO(#171): Migrate `required: u32` to `required: Duration` for
+    /// intrinsic variance and skill-modulated labor rates.
+    LaborAccumulated { required: u32, current: u32 },
     /// Fires when every sub-trigger fires.
     All(Vec<BecomesTrigger>),
     /// Fires when at least one sub-trigger fires.
@@ -90,12 +106,25 @@ impl BecomesTrigger {
             BecomesTrigger::AfterTicks(ticks) => {
                 current_tick.saturating_sub(started_tick) >= *ticks as u64
             }
+            BecomesTrigger::LaborAccumulated { required, current } => current >= required,
             BecomesTrigger::All(subs) => subs
                 .iter()
                 .all(|s| s.evaluate(slots, started_tick, current_tick)),
             BecomesTrigger::Any(subs) => subs
                 .iter()
                 .any(|s| s.evaluate(slots, started_tick, current_tick)),
+        }
+    }
+
+    /// Returns true if this trigger tree contains a `LaborAccumulated` variant
+    /// at any depth.
+    pub fn has_labor_accumulated(&self) -> bool {
+        match self {
+            BecomesTrigger::LaborAccumulated { .. } => true,
+            BecomesTrigger::All(subs) | BecomesTrigger::Any(subs) => {
+                subs.iter().any(|s| s.has_labor_accumulated())
+            }
+            _ => false,
         }
     }
 }
@@ -135,6 +164,57 @@ pub fn becomes_system(
             commands.entity(entity).despawn();
             spawn_concept_entity(&mut commands, becomes.target, position);
         }
+    }
+}
+
+/// Increment `LaborAccumulated.current` on every entity that has at least one
+/// agent actively running a `Construct` action targeting it this tick.
+///
+/// Each active constructor contributes 1 labor-tick per simulation tick.
+/// Multiple agents add up linearly. Walking away (removing the Construct
+/// action from `ActiveActions`) stops accumulation — the counter persists
+/// on the `Becomes` component unchanged until construction resumes.
+///
+/// Runs after `apply_action_effects` and before `becomes_system`, so
+/// accumulated labor can fire a `LaborAccumulated` trigger within the same
+/// tick that it crosses the threshold.
+pub fn labor_accumulation_system(
+    active_actions: Query<&ActiveActions>,
+    mut becomes_query: Query<&mut Becomes>,
+) {
+    // Count how many agents are actively constructing each site.
+    let mut constructors_per_site: HashMap<Entity, u32> = HashMap::new();
+    for actions in active_actions.iter() {
+        for action_state in actions.iter() {
+            if action_state.action_type == ActionType::Construct {
+                if let Some(target) = action_state.target_entity {
+                    *constructors_per_site.entry(target).or_insert(0) += 1;
+                }
+            }
+        }
+    }
+
+    // For each site with at least one constructor, increment its labor counter.
+    for (site_entity, constructor_count) in constructors_per_site {
+        if let Ok(mut becomes) = becomes_query.get_mut(site_entity) {
+            increment_labor_in_trigger(&mut becomes.trigger, constructor_count);
+        }
+    }
+}
+
+/// Recursively find and increment every `LaborAccumulated` node in a trigger
+/// tree by `amount`. Handles nested `All` / `Any` composites at arbitrary depth.
+pub fn increment_labor_in_trigger(trigger: &mut BecomesTrigger, amount: u32) {
+    match trigger {
+        BecomesTrigger::LaborAccumulated { current, .. } => {
+            *current = current.saturating_add(amount);
+        }
+        BecomesTrigger::All(subs) | BecomesTrigger::Any(subs) => {
+            for sub in subs.iter_mut() {
+                increment_labor_in_trigger(sub, amount);
+            }
+        }
+        _ => {}
     }
 }
 
@@ -232,5 +312,89 @@ mod tests {
         assert!(!trigger.evaluate(Some(&slots), 100, 102));
         // Time elapsed: fires
         assert!(trigger.evaluate(Some(&slots), 100, 110));
+    }
+
+    #[test]
+    fn labor_accumulated_fires_when_current_reaches_required() {
+        assert!(
+            !BecomesTrigger::LaborAccumulated {
+                required: 5,
+                current: 4,
+            }
+            .evaluate(None, 0, 0)
+        );
+        assert!(
+            BecomesTrigger::LaborAccumulated {
+                required: 5,
+                current: 5,
+            }
+            .evaluate(None, 0, 0)
+        );
+        assert!(
+            BecomesTrigger::LaborAccumulated {
+                required: 5,
+                current: 10,
+            }
+            .evaluate(None, 0, 0)
+        );
+    }
+
+    #[test]
+    fn labor_accumulated_zero_required_fires_immediately() {
+        assert!(
+            BecomesTrigger::LaborAccumulated {
+                required: 0,
+                current: 0,
+            }
+            .evaluate(None, 0, 0)
+        );
+    }
+
+    #[test]
+    fn increment_labor_updates_direct_variant() {
+        let mut trigger = BecomesTrigger::LaborAccumulated {
+            required: 10,
+            current: 3,
+        };
+        increment_labor_in_trigger(&mut trigger, 2);
+        match trigger {
+            BecomesTrigger::LaborAccumulated { current, .. } => assert_eq!(current, 5),
+            _ => panic!("wrong variant"),
+        }
+    }
+
+    #[test]
+    fn increment_labor_updates_nested_inside_all() {
+        let mut trigger = BecomesTrigger::All(vec![
+            BecomesTrigger::SlotsFilled,
+            BecomesTrigger::LaborAccumulated {
+                required: 10,
+                current: 0,
+            },
+        ]);
+        increment_labor_in_trigger(&mut trigger, 3);
+        if let BecomesTrigger::All(subs) = &trigger {
+            if let BecomesTrigger::LaborAccumulated { current, .. } = &subs[1] {
+                assert_eq!(*current, 3);
+            } else {
+                panic!("wrong sub-variant");
+            }
+        } else {
+            panic!("wrong variant");
+        }
+    }
+
+    #[test]
+    fn has_labor_accumulated_detects_nested() {
+        let trigger = BecomesTrigger::All(vec![
+            BecomesTrigger::SlotsFilled,
+            BecomesTrigger::LaborAccumulated {
+                required: 10,
+                current: 0,
+            },
+        ]);
+        assert!(trigger.has_labor_accumulated());
+        assert!(!BecomesTrigger::SlotsFilled.has_labor_accumulated());
+        assert!(!BecomesTrigger::AfterTicks(5).has_labor_accumulated());
     }
 }

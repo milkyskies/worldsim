@@ -81,11 +81,19 @@ impl Plugin for AgentPlugin {
                         .after(nervous_system::execution::start_actions),
                     nervous_system::execution::apply_action_effects
                         .after(nervous_system::execution::tick_actions),
+                    // Labor accumulation: count active Construct actions and
+                    // increment LaborAccumulated.current on targeted sites.
+                    // Runs after action effects (so newly-started Construct actions
+                    // are already in ActiveActions) and before becomes_system (so
+                    // a labor threshold crossing can fire a transformation in the
+                    // same tick it is reached).
+                    crate::world::becomes::labor_accumulation_system
+                        .after(nervous_system::execution::apply_action_effects),
                     // Becomes substrate: process entity transformations after slot
                     // mutations from action effects. The next tick's perception
                     // pass observes the transformed entity.
                     crate::world::becomes::becomes_system
-                        .after(nervous_system::execution::apply_action_effects),
+                        .after(crate::world::becomes::labor_accumulation_system),
                 )
                     .run_if(not_paused),
             )

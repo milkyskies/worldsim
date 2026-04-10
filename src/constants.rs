@@ -103,6 +103,20 @@ pub mod actions {
         pub const HUNGER_PER_SEC: f32 = 0.5;
     }
 
+    pub mod construct {
+        /// Interaction distance (pixels) to start constructing a site.
+        pub const INTERACTION_DISTANCE: f32 = 32.0;
+        /// Energy drained per second while constructing.
+        pub const ENERGY_PER_SEC: f32 = -0.3;
+        /// Hunger cost per second while constructing.
+        pub const HUNGER_PER_SEC: f32 = 1.5;
+        /// Labor ticks required to complete a campfire. Each tick one active
+        /// constructor contributes 1 labor unit; multiple agents add up linearly.
+        pub const CAMPFIRE_LABOR_TICKS: u32 = 120;
+        /// Base planner cost for the Construct action.
+        pub const BASE_COST: f32 = 3.0;
+    }
+
     pub mod build {
         /// Ticks to build a campfire (matches design doc: ~120 ticks).
         pub const CAMPFIRE_DURATION_TICKS: u32 = 120;
