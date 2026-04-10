@@ -91,10 +91,18 @@ pub fn three_brains_system(
 
         // Cognitive tick cost: every arbitration burns a sliver of alertness.
         // Conscientious agents tolerate brain work better — they're wired for it.
+        //
+        // The drain constant is calibrated against the default thinking_interval
+        // (60 ticks ≈ 1 brain tick per second). Tests that crank the interval
+        // down for fast brains would otherwise burn alertness proportionally
+        // faster, so we scale the drain by `thinking_interval / 60` to keep
+        // the per-wallclock-second drain constant.
         let tick_relief = personality.traits.conscientiousness
             * crate::constants::brains::cognition::CONSCIENTIOUSNESS_TICK_RELIEF;
+        let interval_scale = ns_config.thinking_interval as f32 / 60.0;
         let tick_drain = crate::constants::brains::rational::COGNITIVE_TICK_ALERTNESS_DRAIN
-            * (1.0 - tick_relief);
+            * (1.0 - tick_relief)
+            * interval_scale;
         consciousness.alertness = (consciousness.alertness - tick_drain).max(0.0);
 
         // 1. Gather proposals from all three brains

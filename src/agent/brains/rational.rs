@@ -251,10 +251,14 @@ pub fn update_rational_brain(
 
             // Plan generation drains alertness. GOAP search is cognitively
             // expensive; curious (high-openness) agents enjoy it so pay less.
+            // Scaled by thinking_interval so fast-brain tests don't burn
+            // alertness faster than a wallclock second's worth.
             let openness_relief = personality.traits.openness
                 * crate::constants::brains::cognition::OPENNESS_PLANNING_RELIEF;
+            let interval_scale = ns_config.thinking_interval as f32 / 60.0;
             let plan_drain = crate::constants::brains::rational::PLAN_GENERATION_ALERTNESS_DRAIN
-                * (1.0 - openness_relief);
+                * (1.0 - openness_relief)
+                * interval_scale;
             consciousness.alertness = (consciousness.alertness - plan_drain).max(0.0);
 
             if let Some(plan) = crate::agent::brains::planner::regressive_plan(mind, goal, &actions)
