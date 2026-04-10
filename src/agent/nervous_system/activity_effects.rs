@@ -27,10 +27,7 @@ pub fn apply_activity_effects(
 ) {
     // Pause is handled by run_if(not_paused) at the plugin level
 
-    // Convert per-second rates to per-tick
-    // Base 60Hz execution. Speed multiplier = ticks_per_second / 60.0.
-    // dt = (Multiplier) * (1.0 / 60.0) = ticks_per_second / 3600.0.
-    let dt = tick.ticks_per_second / 3600.0;
+    let dt = tick.dt();
 
     // Limits
     let max_stat = 100.0;

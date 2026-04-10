@@ -757,15 +757,8 @@ fn agent_viewer_ui_for_agent(world: &mut World, entity: Entity, ui: &mut egui::U
                     ui.strong("Status");
                     ui.end_row();
 
-                    for (name, part) in [
-                        ("Head", &body.head),
-                        ("Torso", &body.torso),
-                        ("L.Arm", &body.left_arm),
-                        ("R.Arm", &body.right_arm),
-                        ("L.Leg", &body.left_leg),
-                        ("R.Leg", &body.right_leg),
-                    ] {
-                        ui.label(name);
+                    for part in body.parts() {
+                        ui.label(&part.name);
                         let hp = part.current_hp / part.max_hp;
                         let color = if hp < 0.5 {
                             Color32::RED

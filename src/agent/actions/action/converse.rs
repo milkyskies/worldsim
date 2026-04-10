@@ -4,8 +4,8 @@
 //! [`ActiveActions`](crate::agent::actions::ActiveActions) by the
 //! [`CommunicationPlugin`](crate::agent::communication::CommunicationPlugin)
 //! when an agent enters a conversation, and removed when they leave. It exists
-//! solely so the conversation occupies the `Mouth` channel like any other
-//! body-using activity, which lets the standard preemption rules end
+//! solely so the conversation occupies the `Vocalization` channel like any
+//! other body-using activity, which lets the standard preemption rules end
 //! conversations naturally when something more urgent (Sleep, Flee) takes
 //! over the body.
 //!
@@ -16,7 +16,7 @@
 //! preempts it (interruptive end).
 
 use crate::agent::actions::ActionType;
-use crate::agent::actions::channel::{BodyChannel, ChannelUsage};
+use crate::agent::actions::channel::{Channel, ChannelUsage};
 use crate::agent::actions::registry::{Action, ActionKind};
 
 pub struct ConverseAction;
@@ -38,7 +38,7 @@ impl Action for ConverseAction {
     }
 
     fn body_channels(&self) -> &'static [ChannelUsage] {
-        const CHANNELS: &[ChannelUsage] = &[ChannelUsage::new(BodyChannel::Mouth, 0.6)];
+        const CHANNELS: &[ChannelUsage] = &[ChannelUsage::new(Channel::Vocalization, 0.6)];
         CHANNELS
     }
 

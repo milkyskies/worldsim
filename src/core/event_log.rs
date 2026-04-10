@@ -234,6 +234,9 @@ fn event_meta<'a>(
         SimEvent::ItemSpoiled { agent, tick, .. } => {
             ("ItemSpoiled", *tick, vec![agent_resolve(*agent)])
         }
+        SimEvent::EffectApplied { agent, tick, .. } => {
+            ("EffectApplied", *tick, vec![agent_resolve(*agent)])
+        }
     }
 }
 
@@ -518,6 +521,14 @@ fn event_to_json(
                 "agent": resolve(*agent),
                 "from": format!("{from:?}"),
                 "to": format!("{to:?}"),
+            })
+        }
+        SimEvent::EffectApplied { agent, source, .. } => {
+            serde_json::json!({
+                "tick": tick,
+                "type": event_type,
+                "agent": resolve(*agent),
+                "source": resolve(*source),
             })
         }
     }
