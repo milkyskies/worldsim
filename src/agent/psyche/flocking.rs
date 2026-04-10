@@ -38,22 +38,54 @@
 
 use crate::agent::Agent;
 use crate::agent::body::needs::PsychologicalDrives;
+use crate::agent::body::species::Species;
+use crate::agent::body::species::SpeciesProfile;
 use crate::agent::inventory::EntityType;
 use crate::agent::mind::knowledge::{MindGraph, Node, Predicate, Value};
 use crate::agent::mind::perception::VisibleObjects;
+use crate::agent::psyche::personality::Personality;
 use crate::core::tick::TickCount;
 use bevy::prelude::*;
 
-/// Base affection assumed for an unknown conspecific. Nonzero so a deer
-/// standing near a random deer still feels slightly less alone than a deer
-/// standing alone — "eyes watching for wolves" baseline.
-pub const STRANGER_CONSPECIFIC_AFFECTION: f32 = 0.15;
+/// Base affection assumed for an unknown conspecific. Tiny — strangers
+/// barely satisfy social drive on their own. The point of the baseline is
+/// "more eyes watching for wolves" comfort, not loneliness relief; the
+/// real signal is supposed to come from kin (Affection > 0.5) introduced
+/// at spawn. For Person species this is further modulated by extraversion
+/// (introverts get nothing from strangers; extraverts get the full
+/// baseline plus a multiplier).
+pub const STRANGER_CONSPECIFIC_AFFECTION: f32 = 0.05;
+
+/// Extra extravert bonus on top of `STRANGER_CONSPECIFIC_AFFECTION`.
+/// At extraversion 1.0 a Person treats a stranger as if Affection were
+/// `baseline + bonus = 0.05 + 0.20 = 0.25` (still less than a kin signal of
+/// 0.8 but enough to noticeably soothe a crowd-loving extravert). At
+/// extraversion 0.0 the bonus is zero, so introverts get the bare 0.05.
+pub const EXTRAVERT_STRANGER_BONUS: f32 = 0.20;
 
 /// Affection-weighted decay rate applied to the social drive per second.
 /// At `affection_sum = 1.0` (e.g. two herd-mates at 0.5 each, or one at 1.0)
 /// the social drive drops by this fraction per second. Tuned so a herd of 3
 /// deer at 0.8 affection (sum 1.6) satisfies loneliness in a few seconds.
 pub const SOCIAL_PROXIMITY_DECAY_PER_SEC: f32 = 0.15;
+
+/// Compute the effective stranger affection for an agent.
+///
+/// Animals (deer, wolves, etc.) always use the bare baseline — herd safety
+/// in numbers is universal for prey, no per-individual variation. Persons
+/// scale stranger comfort by extraversion: an extravert is genuinely
+/// comforted by being in a crowd of strangers, an introvert isn't.
+pub fn stranger_affection_for(
+    species: Option<&SpeciesProfile>,
+    personality: Option<&Personality>,
+) -> f32 {
+    let is_person = matches!(species.map(|s| s.species), Some(Species::Human));
+    if !is_person {
+        return STRANGER_CONSPECIFIC_AFFECTION;
+    }
+    let extraversion = personality.map(|p| p.traits.extraversion).unwrap_or(0.5);
+    STRANGER_CONSPECIFIC_AFFECTION + EXTRAVERT_STRANGER_BONUS * extraversion
+}
 
 /// Decay the `social` drive based on visible conspecifics, weighted by
 /// remembered affection. Runs every 10 ticks because relationship lookups
@@ -66,6 +98,8 @@ pub fn decay_social_from_proximity(
             &VisibleObjects,
             &MindGraph,
             &EntityType,
+            Option<&SpeciesProfile>,
+            Option<&Personality>,
             &mut PsychologicalDrives,
         ),
         With<Agent>,
@@ -76,10 +110,14 @@ pub fn decay_social_from_proximity(
 
     let dt = tick.dt() * INTERVAL as f32;
 
-    for (self_entity, visible, mind, self_type, mut drives) in agents.iter_mut() {
+    for (self_entity, visible, mind, self_type, species, personality, mut drives) in
+        agents.iter_mut()
+    {
         if !tick.should_run(self_entity, INTERVAL) {
             continue;
         }
+
+        let stranger_value = stranger_affection_for(species, personality);
 
         let mut affection_sum = 0.0_f32;
         for &visible_entity in &visible.entities {
@@ -93,8 +131,7 @@ pub fn decay_social_from_proximity(
                 continue;
             }
 
-            let affection =
-                query_affection(mind, visible_entity).unwrap_or(STRANGER_CONSPECIFIC_AFFECTION);
+            let affection = query_affection(mind, visible_entity).unwrap_or(stranger_value);
             affection_sum += affection;
         }
 
@@ -137,6 +174,57 @@ mod tests {
         let mind = MindGraph::default();
         let stranger = Entity::from_bits(99);
         assert!(query_affection(&mind, stranger).is_none());
+    }
+
+    #[test]
+    fn extravert_humans_get_more_stranger_comfort_than_introverts() {
+        use crate::agent::psyche::personality::{Personality, PersonalityTraits};
+        let species = SpeciesProfile::human();
+
+        let extravert = Personality {
+            traits: PersonalityTraits {
+                extraversion: 1.0,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let introvert = Personality {
+            traits: PersonalityTraits {
+                extraversion: 0.0,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
+        let extra = stranger_affection_for(Some(&species), Some(&extravert));
+        let intro = stranger_affection_for(Some(&species), Some(&introvert));
+        assert!(
+            extra > intro,
+            "extravert should get more stranger comfort: extra={extra}, intro={intro}"
+        );
+        assert_eq!(intro, STRANGER_CONSPECIFIC_AFFECTION);
+        assert_eq!(
+            extra,
+            STRANGER_CONSPECIFIC_AFFECTION + EXTRAVERT_STRANGER_BONUS
+        );
+    }
+
+    #[test]
+    fn animals_ignore_personality_for_stranger_comfort() {
+        use crate::agent::psyche::personality::{Personality, PersonalityTraits};
+        let deer = SpeciesProfile::deer();
+        let extravert = Personality {
+            traits: PersonalityTraits {
+                extraversion: 1.0,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        // A deer with maximum extraversion still uses the bare baseline:
+        // herd safety in numbers is universal for prey, not a personality
+        // dimension.
+        let value = stranger_affection_for(Some(&deer), Some(&extravert));
+        assert_eq!(value, STRANGER_CONSPECIFIC_AFFECTION);
     }
 
     #[test]
