@@ -100,16 +100,15 @@ fn animate_sprite_bodies(
         let phase = body.phase;
         let is_moving = speed > 0.5;
 
-        // Simple: moving = hop, idle = gentle breathing squish
         let (y_offset, x_scale, y_scale) = if is_moving {
-            // Hop frequency: ~2.5 hops per second — slow, deliberate, cute
-            let hop_freq = 8.0;
-            let height = 4.0;
-            hop_frame(t * hop_freq + phase, height, 0.4)
+            // ~1.2 hops per second — slow, deliberate, cute
+            let hop_freq = 4.0;
+            let height = 3.0;
+            hop_frame(t * hop_freq + phase, height, 0.25)
         } else {
-            // Idle: very gentle breathing squish, no vertical movement
-            let breath = (t * 1.5 + phase).sin(); // slow cycle
-            let squish = breath.abs() * 0.08;
+            // Idle: barely-there breathing squish
+            let breath = (t * 0.8 + phase).sin();
+            let squish = breath.abs() * 0.03;
             (0.0, 1.0 + squish * 0.3, 1.0 - squish)
         };
 
