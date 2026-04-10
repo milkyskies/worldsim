@@ -116,8 +116,7 @@ pub fn three_brains_system(
         );
 
         // 2. Calculate brain powers, then apply history-based multiplier
-        let base_powers =
-            calculate_brain_powers(physical, consciousness, body, emotions, personality);
+        let base_powers = calculate_brain_powers(cns, consciousness, emotions, personality);
         let powers = if let Ok(history) = brain_histories.get(entity) {
             BrainPowers {
                 survival: base_powers.survival * history.power_multiplier(BrainType::Survival),
