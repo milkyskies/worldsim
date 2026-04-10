@@ -145,10 +145,7 @@ fn ontology_marks_wolf_as_dangerous() {
 #[test]
 fn human_fears_wolf_via_innate_knowledge() {
     let mut world = TestWorld::with_seed(42);
-    let human = world.spawn_agent(AgentConfig {
-        position: Vec2::ZERO,
-        ..AgentConfig::default()
-    });
+    let human = world.spawn_agent(AgentConfig::at(Vec2::ZERO));
 
     let mind = world.get::<MindGraph>(human);
 
