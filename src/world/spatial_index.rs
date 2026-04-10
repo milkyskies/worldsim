@@ -247,7 +247,7 @@ mod tests {
     fn deterministic_same_insertions_same_query_results() {
         let mut index_a = SpatialIndex::default();
         let mut index_b = SpatialIndex::default();
-        for i in 0..10u32 {
+        for i in 1..=10u32 {
             index_a.update_entity(entity(i), chunk((i % 3) as i32, (i % 2) as i32));
             index_b.update_entity(entity(i), chunk((i % 3) as i32, (i % 2) as i32));
         }
