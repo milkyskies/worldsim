@@ -53,7 +53,7 @@ pub fn spawn_stone_node(commands: &mut Commands, position: Vec2, stones: u32) ->
                 yields: Concept::Stone,
                 remaining: stones,
                 max: 8,
-                regrow_rate: 0.017,
+                regrow_rate: 0.0,
             },
             ResourceRegeneration {
                 timer: 0.0,

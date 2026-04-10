@@ -56,7 +56,7 @@ pub fn spawn_berry_bush(commands: &mut Commands, position: Vec2, berries: u32) -
                 yields: Concept::Berry,
                 remaining: berries,
                 max: 15,
-                regrow_rate: 0.125,
+                regrow_rate: 0.0,
             },
             ResourceRegeneration {
                 timer: 0.0,

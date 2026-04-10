@@ -11,14 +11,13 @@ use worldsim::agent::mind::knowledge::{
 /// All cultures know the campfire recipe: Wood(3) → Campfire.
 #[test]
 fn all_cultures_know_campfire_recipe() {
-    let ontology = setup_ontology();
     for culture in [
         Culture::Nomad,
         Culture::Farmer,
         Culture::Hunter,
         Culture::Gatherer,
     ] {
-        let knowledge = create_cultural_knowledge(culture, &ontology);
+        let knowledge = create_cultural_knowledge(culture);
         let knows_requires = knowledge.iter().any(|t| {
             t.subject == MindNode::Concept(Concept::Campfire)
                 && t.predicate == Predicate::Requires
@@ -34,14 +33,13 @@ fn all_cultures_know_campfire_recipe() {
 /// All cultures know what a campfire provides.
 #[test]
 fn all_cultures_know_campfire_provides_warmth() {
-    let ontology = setup_ontology();
     for culture in [
         Culture::Nomad,
         Culture::Farmer,
         Culture::Hunter,
         Culture::Gatherer,
     ] {
-        let knowledge = create_cultural_knowledge(culture, &ontology);
+        let knowledge = create_cultural_knowledge(culture);
         let knows_provides = knowledge.iter().any(|t| {
             t.subject == MindNode::Concept(Concept::Campfire)
                 && t.predicate == Predicate::Provides

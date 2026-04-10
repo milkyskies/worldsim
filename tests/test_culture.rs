@@ -1,12 +1,9 @@
 use worldsim::agent::culture::{Culture, create_cultural_knowledge};
-use worldsim::agent::mind::knowledge::{
-    Concept, Node as MindNode, Predicate, Value, setup_ontology,
-};
+use worldsim::agent::mind::knowledge::{Concept, Node as MindNode, Predicate, Value};
 
 #[test]
 fn test_farmer_knowledge() {
-    let ontology = setup_ontology();
-    let knowledge = create_cultural_knowledge(Culture::Farmer, &ontology);
+    let knowledge = create_cultural_knowledge(Culture::Farmer);
 
     // Farmers should know AppleTrees produce Apples
     let knows_farming = knowledge.iter().any(|t| {
@@ -20,8 +17,7 @@ fn test_farmer_knowledge() {
 
 #[test]
 fn test_nomad_knowledge() {
-    let ontology = setup_ontology();
-    let knowledge = create_cultural_knowledge(Culture::Nomad, &ontology);
+    let knowledge = create_cultural_knowledge(Culture::Nomad);
 
     // Nomads should NOT know AppleTrees produce Apples (in our simple definition)
     // Actually, create_cultural_knowledge(Nomad) currently only adds Apple IsA Food.
@@ -39,9 +35,8 @@ fn test_nomad_knowledge() {
 #[test]
 fn test_universal_knowledge() {
     // Both should know eating
-    let ontology = setup_ontology();
-    let farmer_knowledge = create_cultural_knowledge(Culture::Farmer, &ontology);
-    let nomad_knowledge = create_cultural_knowledge(Culture::Nomad, &ontology);
+    let farmer_knowledge = create_cultural_knowledge(Culture::Farmer);
+    let nomad_knowledge = create_cultural_knowledge(Culture::Nomad);
 
     let check = |k: &Vec<worldsim::agent::mind::knowledge::Triple>| {
         k.iter().any(|t| {

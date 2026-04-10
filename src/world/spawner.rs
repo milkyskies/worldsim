@@ -97,7 +97,7 @@ pub fn apply_layout(commands: &mut Commands, ontology: &Ontology, layout: &Spawn
         .iter()
         .chain(second_group_cultures.iter())
     {
-        let triples = crate::agent::culture::create_cultural_knowledge(*culture, ontology);
+        let triples = crate::agent::culture::create_cultural_knowledge(*culture);
         cultural_knowledge_map.insert(*culture, Arc::new(triples));
     }
 

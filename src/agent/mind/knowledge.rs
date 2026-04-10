@@ -1179,22 +1179,6 @@ impl Ontology {
         self.parent_cache.get(&concept).cloned().unwrap_or_default()
     }
 
-    /// Filter ontology triples by optional subject/predicate/object.
-    /// Returns an iterator over matching triples. Used by culture to select
-    /// which facts to seed into agents at spawn.
-    pub fn triples_matching(
-        &self,
-        subject: Option<&Node>,
-        predicate: Option<Predicate>,
-        object: Option<&Value>,
-    ) -> impl Iterator<Item = &Triple> {
-        self.triples.iter().filter(move |t| {
-            subject.is_none_or(|s| t.subject == *s)
-                && predicate.is_none_or(|p| t.predicate == p)
-                && object.is_none_or(|o| t.object == *o)
-        })
-    }
-
     /// Assert that a concept has a trait, rebuilding caches if the triple is new.
     /// Idempotent — calling twice with the same arguments is a no-op.
     pub fn ensure_trait(&mut self, concept: Concept, trait_: Concept) {
@@ -1347,17 +1331,12 @@ pub fn setup_ontology() -> Ontology {
     add(c(Water), HasTrait, v(Drinkable));
     add(c(Person), HasTrait, v(Sentient));
     add(c(Animal), HasTrait, v(Sentient));
-    // Plant is the base harvestable category; AppleTree and BerryBush inherit
-    // Harvestable from this via the IsA chain.
+    // AppleTree and BerryBush inherit Harvestable from Plant via IsA.
+    // WoodLog and StoneNode receive it at spawn time via
+    // derive_ontology_harvestable_component (they are not Plants).
     add(c(Plant), HasTrait, v(Harvestable));
-    // WoodLog and StoneNode are not Plants — their Harvestable trait is
-    // auto-derived at runtime by derive_ontology_harvestable_component when
-    // their entities are spawned with HarvestableComponent.
 
-    // ─── Universal production facts ───
-    // These are objective world truths known to all agents through the ontology.
-    // Culture-specific production knowledge (AppleTree→Apple, BerryBush→Berry)
-    // stays in culture.rs because not every culture starts with that knowledge.
+    // ─── Universal production facts (all agents know these) ───
     add(c(WoodLog), Produces, Value::Item(Wood, 1));
     add(c(StoneNode), Produces, Value::Item(Stone, 1));
 

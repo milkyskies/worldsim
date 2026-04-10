@@ -210,7 +210,7 @@ pub(super) fn spawn_test_berry_bush(world: &mut World, pos: Vec2, berries: u32) 
                 yields: Concept::Berry,
                 remaining: berries,
                 max: 15,
-                regrow_rate: 0.125,
+                regrow_rate: 0.0,
             },
             ResourceRegeneration {
                 timer: 0.0,
@@ -247,7 +247,7 @@ pub(super) fn spawn_test_stone_node(world: &mut World, pos: Vec2, stones: u32) -
                 yields: Concept::Stone,
                 remaining: stones,
                 max: 8,
-                regrow_rate: 0.017,
+                regrow_rate: 0.0,
             },
             ResourceRegeneration {
                 timer: 0.0,
@@ -284,7 +284,7 @@ pub(super) fn spawn_test_wood_log(world: &mut World, pos: Vec2, wood: u32) -> En
                 yields: Concept::Wood,
                 remaining: wood,
                 max: 6,
-                regrow_rate: 0.022,
+                regrow_rate: 0.0,
             },
             ResourceRegeneration {
                 timer: 0.0,
@@ -321,7 +321,7 @@ pub(super) fn spawn_test_apple_tree(world: &mut World, pos: Vec2, apples: u32) -
                 yields: Concept::Apple,
                 remaining: apples,
                 max: 20,
-                regrow_rate: 0.1,
+                regrow_rate: 0.0,
             },
             ResourceRegeneration {
                 timer: 0.0,
