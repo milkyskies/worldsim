@@ -1,6 +1,7 @@
 use bevy::asset::RenderAssetUsages;
-use bevy::mesh::{Indices, PrimitiveTopology};
+use bevy::image::ImageSampler;
 use bevy::prelude::*;
+use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use noise::{NoiseFn, Simplex};
 use std::collections::HashMap;
 
@@ -589,8 +590,7 @@ fn carve_river(tiles: &mut [TileType], width: u32, height: u32, seed: u32) {
 pub fn setup_map(
     mut commands: Commands,
     mut map_resource: ResMut<WorldMap>,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<ColorMaterial>>,
+    mut images: ResMut<Assets<Image>>,
 ) {
     let width = map_resource.width;
     let height = map_resource.height;
@@ -616,27 +616,38 @@ pub fn setup_map(
         }
     }
 
-    // Build the terrain mesh. Each tile is a quad with 4 corners shared with
-    // its neighbours. Vertex colors are averaged across surrounding tiles so
-    // the GPU interpolates smoothly between them, giving a faux-3D gradient.
-    let mesh = build_terrain_mesh(&terrain, &elevations, width, height);
+    // Bake the full terrain as a pixel-resolution texture with a gradient
+    // inside each 16×16 tile. Rendered with nearest-neighbor sampling so
+    // individual pixels stay crisp at any zoom level.
+    let image = build_terrain_image(&terrain, &elevations, width, height);
+    let image_handle = images.add(image);
+    let map_pixel_width = width as f32 * TILE_SIZE;
+    let map_pixel_height = height as f32 * TILE_SIZE;
+
     commands.spawn((
         Name::new("TileMap"),
         TileMap,
-        Mesh2d(meshes.add(mesh)),
-        MeshMaterial2d(materials.add(ColorMaterial::from_color(Color::WHITE))),
-        Transform::default(),
+        Sprite {
+            image: image_handle,
+            custom_size: Some(Vec2::new(map_pixel_width, map_pixel_height)),
+            ..default()
+        },
+        Transform::from_translation(Vec3::new(
+            (map_pixel_width - TILE_SIZE) * 0.5,
+            (map_pixel_height - TILE_SIZE) * 0.5,
+            0.0,
+        )),
     ));
 }
 
-/// Build a single terrain mesh with per-corner vertex colors.
+/// Build a pixel-resolution terrain texture.
 ///
-/// Each tile has 4 corner vertices shared with its neighbours. Each vertex
-/// color is the average of the up-to-4 tiles sharing that corner. GPU
-/// bilinear interpolation across each tile quad produces a gradient within
-/// every 16px tile, blending smoothly into neighbouring tiles.
-fn build_terrain_mesh(terrain: &[TileType], elevations: &[f32], width: u32, height: u32) -> Mesh {
-    // Final per-tile color (biome tint + hillshade), flattened as RGBA.
+/// Each tile corner gets a color averaged from the up-to-4 tiles sharing it.
+/// Every pixel in the final image is then filled by bilinearly interpolating
+/// the 4 corner colors of the tile it belongs to. The result is a discrete,
+/// per-pixel gradient within every 16×16 tile.
+fn build_terrain_image(terrain: &[TileType], elevations: &[f32], width: u32, height: u32) -> Image {
+    // Per-tile final color (biome tint + hillshade), in 0..=1 sRGB.
     let tile_colors: Vec<[f32; 4]> = (0..height)
         .flat_map(|y| {
             (0..width).map(move |x| {
@@ -649,22 +660,12 @@ fn build_terrain_mesh(terrain: &[TileType], elevations: &[f32], width: u32, heig
         })
         .collect();
 
+    // Per-corner colors: (width+1) × (height+1), averaged across neighbours.
     let vw = width + 1;
     let vh = height + 1;
-    let vertex_count = (vw * vh) as usize;
-
-    let mut positions: Vec<[f32; 3]> = Vec::with_capacity(vertex_count);
-    let mut colors: Vec<[f32; 4]> = Vec::with_capacity(vertex_count);
-
+    let mut corner_colors: Vec<[f32; 4]> = Vec::with_capacity((vw * vh) as usize);
     for vy in 0..vh {
         for vx in 0..vw {
-            positions.push([
-                vx as f32 * TILE_SIZE - TILE_SIZE * 0.5,
-                vy as f32 * TILE_SIZE - TILE_SIZE * 0.5,
-                0.0,
-            ]);
-
-            // Average the final color of up to 4 tiles sharing this corner.
             let mut sum = [0.0f32; 4];
             let mut count = 0.0f32;
             for (dx, dy) in [(-1, -1), (0, -1), (-1, 0), (0, 0)] {
@@ -679,7 +680,7 @@ fn build_terrain_mesh(terrain: &[TileType], elevations: &[f32], width: u32, heig
                     count += 1.0;
                 }
             }
-            colors.push([
+            corner_colors.push([
                 sum[0] / count,
                 sum[1] / count,
                 sum[2] / count,
@@ -688,26 +689,49 @@ fn build_terrain_mesh(terrain: &[TileType], elevations: &[f32], width: u32, heig
         }
     }
 
-    // Two triangles per tile quad.
-    let mut indices: Vec<u32> = Vec::with_capacity((width * height * 6) as usize);
-    for y in 0..height {
-        for x in 0..width {
-            let bl = y * vw + x;
-            let br = bl + 1;
-            let tl = (y + 1) * vw + x;
-            let tr = tl + 1;
-            indices.extend_from_slice(&[bl, br, tr, bl, tr, tl]);
+    // Fill pixels. For each pixel, bilinearly interpolate the 4 corners of the
+    // tile it belongs to, using the pixel center as the sample position.
+    let tile_size_u = TILE_SIZE as u32;
+    let pixel_width = width * tile_size_u;
+    let pixel_height = height * tile_size_u;
+    let mut data = Vec::with_capacity((pixel_width * pixel_height * 4) as usize);
+
+    for py in 0..pixel_height {
+        for px in 0..pixel_width {
+            let tx = px / tile_size_u;
+            let ty = py / tile_size_u;
+            let fx = ((px % tile_size_u) as f32 + 0.5) / tile_size_u as f32;
+            let fy = ((py % tile_size_u) as f32 + 0.5) / tile_size_u as f32;
+
+            let bl = corner_colors[(ty * vw + tx) as usize];
+            let br = corner_colors[(ty * vw + tx + 1) as usize];
+            let tl = corner_colors[((ty + 1) * vw + tx) as usize];
+            let tr = corner_colors[((ty + 1) * vw + tx + 1) as usize];
+
+            let mut rgba = [0u8; 4];
+            for i in 0..4 {
+                let bottom = bl[i] + (br[i] - bl[i]) * fx;
+                let top = tl[i] + (tr[i] - tl[i]) * fx;
+                let v = bottom + (top - bottom) * fy;
+                rgba[i] = (v.clamp(0.0, 1.0) * 255.0) as u8;
+            }
+            data.extend_from_slice(&rgba);
         }
     }
 
-    let mut mesh = Mesh::new(
-        PrimitiveTopology::TriangleList,
+    let mut image = Image::new(
+        Extent3d {
+            width: pixel_width,
+            height: pixel_height,
+            depth_or_array_layers: 1,
+        },
+        TextureDimension::D2,
+        data,
+        TextureFormat::Rgba8UnormSrgb,
         RenderAssetUsages::default(),
     );
-    mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, positions);
-    mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, colors);
-    mesh.insert_indices(Indices::U32(indices));
-    mesh
+    image.sampler = ImageSampler::nearest();
+    image
 }
 
 #[cfg(test)]
