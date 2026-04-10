@@ -854,7 +854,7 @@ fn agent_viewer_ui_for_agent(world: &mut World, entity: Entity, ui: &mut egui::U
                         // Collect events by ID to reconstruction
                         let mut events = std::collections::HashMap::new();
 
-                        for triple in &mind.triples {
+                        for triple in mind.iter() {
                             if let Node::Event(eid) = triple.subject {
                                 let entry = events.entry(eid).or_insert_with(Vec::new);
                                 entry.push(triple);
@@ -919,7 +919,7 @@ fn agent_viewer_ui_for_agent(world: &mut World, entity: Entity, ui: &mut egui::U
 
                         use crate::agent::mind::knowledge::{Node, Predicate, Value};
 
-                        for triple in &mind.triples {
+                        for triple in mind.iter() {
                             // Looking for "Relationship" or "HasTrait"
                             if triple.predicate == Predicate::Relationship
                                 && let Node::Entity(subject) = triple.subject

@@ -63,10 +63,10 @@ pub fn profile_mindgraph_growth(
     let mut agent_stats: Vec<(String, usize, usize, i64)> = Vec::new();
 
     for (entity, name, mind) in agents.iter() {
-        let triple_count = mind.triples.len();
-        let by_subject_size = mind.by_subject.len();
-        let by_subject_pred_size = mind.by_subject_pred.len();
-        let by_predicate_size = mind.by_predicate.len();
+        let triple_count = mind.len();
+        let by_subject_size = mind.by_subject_len();
+        let by_subject_pred_size = mind.by_subject_predicate_len();
+        let by_predicate_size = mind.by_predicate_len();
 
         total_triples += triple_count;
         total_by_subject += by_subject_size;
@@ -168,7 +168,7 @@ fn profile_memory_types(
     > = std::collections::HashMap::new();
 
     for (_, _, mind) in agents.iter() {
-        for triple in &mind.triples {
+        for triple in mind.iter() {
             *type_counts.entry(triple.meta.memory_type).or_insert(0) += 1;
             *predicate_counts.entry(triple.predicate).or_insert(0) += 1;
         }

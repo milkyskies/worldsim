@@ -386,10 +386,9 @@ pub fn decay_stale_knowledge(
             continue;
         }
 
-        let initial_count = mind.triples.len();
-        let mut decayed_count = 0;
+        let initial_count = mind.len();
 
-        mind.triples.retain(|triple| {
+        let decayed_count = mind.retain(|triple| {
             let age_ticks = current_time.saturating_sub(triple.meta.timestamp);
             let age_seconds = age_ticks as f32 / ticks_per_sec;
 
@@ -399,7 +398,6 @@ pub fn decay_stale_knowledge(
                 triple.meta.memory_type,
                 triple.meta.salience,
             ) {
-                decayed_count += 1;
                 return false; // Forget this triple
             }
 
@@ -411,7 +409,6 @@ pub fn decay_stale_knowledge(
                 // Empty container beliefs decay after ~12 seconds regardless of memory type
                 let empty_decay_threshold = 12.0;
                 if age_seconds > empty_decay_threshold {
-                    decayed_count += 1;
                     return false;
                 }
             }
@@ -419,9 +416,13 @@ pub fn decay_stale_knowledge(
             true // Keep this triple
         });
 
-        // Rebuild indices if we removed anything
         if decayed_count > 0 {
-            mind.rebuild_indices();
+            // Compact only when tombstones outnumber live slots — compaction
+            // is O(n) and rebuilds every index, so doing it on every tick of
+            // light decay would reintroduce the cost we just eliminated.
+            if mind.tombstone_count() * 2 > mind.total_slots() {
+                mind.compact();
+            }
 
             // Log significant decay events
             if decayed_count > 10 {
@@ -430,7 +431,7 @@ pub fn decay_stale_knowledge(
                     entity.index(),
                     decayed_count,
                     initial_count,
-                    mind.triples.len()
+                    mind.len()
                 ));
             }
         }

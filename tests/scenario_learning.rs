@@ -35,7 +35,7 @@ fn test_tree_produces_apples() {
     }
 
     // Query: Does the agent know the tree has apples?
-    let has_apple_knowledge = mind.triples.iter().any(|t| {
+    let has_apple_knowledge = mind.iter().any(|t| {
         matches!(t.subject, MindNode::Entity(e) if e == tree)
             && t.predicate == Predicate::Contains
             && matches!(t.object, Value::Item(Concept::Apple, _))
@@ -49,7 +49,6 @@ fn test_tree_produces_apples() {
     // Verify: MindGraph now de-duplicates identical triples
     // So even with 3 observations of the same fact, we only store 1 triple
     let apple_observations: Vec<_> = mind
-        .triples
         .iter()
         .filter(|t| {
             matches!(t.subject, MindNode::Entity(e) if e == tree)
@@ -118,7 +117,7 @@ fn test_bob_becomes_hostile() {
     // Check: Does agent believe Bob is hostile?
     let mind = app.world().get::<MindGraph>(agent).unwrap();
 
-    let bob_is_hostile = mind.triples.iter().any(|t| {
+    let bob_is_hostile = mind.iter().any(|t| {
         matches!(t.subject, MindNode::Entity(e) if e == bob)
             && t.predicate == Predicate::HasTrait
             && matches!(t.object, Value::Concept(Concept::Hostile))
@@ -129,7 +128,7 @@ fn test_bob_becomes_hostile() {
     // Also verify: asserting the same belief again should NOT create a duplicate
     {
         let mut mind = app.world_mut().get_mut::<MindGraph>(agent).unwrap();
-        let before_count = mind.triples.len();
+        let before_count = mind.len();
 
         // Try to add duplicate
         mind.assert(Triple::with_meta(
@@ -139,7 +138,7 @@ fn test_bob_becomes_hostile() {
             Metadata::perception(500),
         ));
 
-        let after_count = mind.triples.len();
+        let after_count = mind.len();
         assert_eq!(
             before_count, after_count,
             "Duplicate triples should be rejected"
@@ -195,7 +194,7 @@ fn test_knowledge_decay_enables_replanning() {
 
     // Verify the triple metadata
     let mind = app.world().get::<MindGraph>(agent).unwrap();
-    let empty_triple = mind.triples.iter().find(|t| {
+    let empty_triple = mind.iter().find(|t| {
         matches!(t.subject, MindNode::Entity(e) if e == tree)
             && t.predicate == Predicate::Contains
             && matches!(t.object, Value::Item(_, 0))

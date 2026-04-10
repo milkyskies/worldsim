@@ -79,6 +79,7 @@ pub fn spawn_person(
             crate::agent::psyche::emotions::EmotionalState::default(),
             crate::agent::brains::history::BrainHistory::default(),
             crate::agent::brains::active_plan::ActivePlans::default(),
+            crate::agent::psyche::relationships::RelationshipHistory::default(),
         ))
         .id();
 

@@ -271,7 +271,7 @@ pub fn render_mind_inspector(
                     }
                 });
 
-            if mind.triples.is_empty() {
+            if mind.is_empty() {
                 ui.label("Mind is empty.");
             }
         });
