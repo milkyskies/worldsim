@@ -365,19 +365,19 @@ pub fn regressive_plan(
     });
 
     let mut result = None;
-    let mut best_frontier: Option<RegressiveState> = None;
-    let mut goal_pattern_counts: HashMap<String, usize> = HashMap::new();
+    let mut best_unmet: Vec<TriplePattern> = Vec::new();
+    // Key: stable hash of pattern; value: (representative pattern, count)
+    let mut goal_pattern_counts: HashMap<u64, (TriplePattern, usize)> = HashMap::new();
 
     while let Some(current_node) = open_set.pop() {
         iterations += 1;
         if iterations > MAX_ITERATIONS {
-            let unmet = best_frontier
-                .as_ref()
-                .map(|s| s.unmet_goals.as_slice())
-                .unwrap_or(&[]);
-            let mut top_patterns: Vec<(&String, &usize)> = goal_pattern_counts.iter().collect();
-            top_patterns.sort_by(|a, b| b.1.cmp(a.1));
+            let mut top_patterns: Vec<&(TriplePattern, usize)> =
+                goal_pattern_counts.values().collect();
+            top_patterns.sort_by(|a, b| b.1.cmp(&a.1));
             top_patterns.truncate(3);
+            let top_readable: Vec<&TriplePattern> =
+                top_patterns.into_iter().map(|(p, _)| p).collect();
             tracing::warn!(
                 target: "planner",
                 "regressive_plan exhausted {} iterations on goal {:?}",
@@ -387,28 +387,32 @@ pub fn regressive_plan(
             tracing::warn!(
                 target: "planner",
                 "best frontier node had {} unmet goals: {:?}",
-                unmet.len(),
-                unmet
+                best_unmet.len(),
+                best_unmet
             );
             tracing::warn!(
                 target: "planner",
                 "most common unreachable patterns: {:?}",
-                top_patterns.iter().map(|(k, _)| k.as_str()).collect::<Vec<_>>()
+                top_readable
             );
             break;
         }
 
         let current_state = current_node.state;
 
-        // Track the frontier node with fewest unmet goals for diagnostics
-        if best_frontier.as_ref().map_or(true, |b| {
-            current_state.unmet_goals.len() < b.unmet_goals.len()
-        }) {
-            best_frontier = Some(current_state.clone());
+        if current_state.unmet_goals.len() < best_unmet.len() || best_unmet.is_empty() {
+            best_unmet = current_state.unmet_goals.clone();
         }
         for pattern in &current_state.unmet_goals {
-            let key = format!("{:?}", pattern);
-            *goal_pattern_counts.entry(key).or_insert(0) += 1;
+            use std::collections::hash_map::DefaultHasher;
+            use std::hash::Hasher;
+            let mut h = DefaultHasher::new();
+            hash_pattern(pattern, &mut h);
+            let key = h.finish();
+            let entry = goal_pattern_counts
+                .entry(key)
+                .or_insert_with(|| (pattern.clone(), 0));
+            entry.1 += 1;
         }
 
         // If no unmet goals, we are done!
