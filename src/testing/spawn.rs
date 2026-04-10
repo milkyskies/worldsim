@@ -5,6 +5,8 @@
 //! Upstream: testing::config::AgentConfig
 //! Downstream: testing::world::TestWorld
 
+use std::sync::Arc;
+
 use bevy::prelude::*;
 
 use crate::agent::actions::{ActionType, ActiveActions};
@@ -12,10 +14,9 @@ use crate::agent::affordance::Affordance;
 use crate::agent::biology::body::Body;
 use crate::agent::body::needs::{Consciousness, PhysicalNeeds, PsychologicalDrives};
 use crate::agent::body::species::SpeciesProfile;
-use crate::agent::brains::active_plan::ActivePlans;
-use crate::agent::brains::history::BrainHistory;
 use crate::agent::brains::proposal::BrainState;
 use crate::agent::brains::rational::RationalBrain;
+use crate::agent::culture::{Culture, create_cultural_knowledge};
 use crate::agent::inventory::EntityType;
 use crate::agent::item_slots::ItemSlots;
 use crate::agent::mind::knowledge::{Concept, MindGraph, Ontology};
@@ -25,7 +26,8 @@ use crate::agent::mind::recognition::initialize_relationship_with_affection;
 use crate::agent::movement::MovementState;
 use crate::agent::nervous_system::cns::CentralNervousSystem;
 use crate::agent::psyche::emotions::EmotionalState;
-use crate::agent::{Agent, Person, TargetPosition};
+use crate::agent::spawn_human::{PersonInit, build_person_logic};
+use crate::agent::{Agent, TargetPosition};
 use crate::testing::config::AgentConfig;
 use crate::world::Physical;
 use crate::world::apple_tree::ResourceRegeneration;
@@ -34,70 +36,48 @@ use crate::world::property::HarvestableComponent;
 use crate::world::wolf::Wolf;
 
 /// Spawns a Person agent with all logic components but no sprites/children/name tags.
-/// The MindGraph is initialized with the world Ontology and any pre-loaded knowledge.
+///
+/// Goes through the same `build_person_logic` helper as the real game spawner
+/// in `world::human::spawn_person`, so brain-relevant components cannot drift
+/// between the two paths (#306).
 pub(super) fn spawn_test_person(
     world: &mut World,
     ontology: Ontology,
     config: AgentConfig,
 ) -> Entity {
-    let mut mind = MindGraph::new(ontology);
-    for triple in config.knowledge {
-        mind.assert(triple);
-    }
-
     let display_name = config
         .name
         .clone()
         .unwrap_or_else(|| "TestPerson".to_string());
 
-    world
-        .spawn((
-            Name::new(display_name),
-            Agent,
-            Person,
-            EntityType(Concept::Person),
-            SpeciesProfile::human(),
-            Physical,
-            TargetPosition::default(),
-            MovementState::default(),
-            ItemSlots::agent_carry(),
-            config.personality,
-            Transform::from_translation(config.pos.extend(3.0)),
-            GlobalTransform::default(),
-        ))
-        .insert((
-            Affordance::default(),
-            mind,
-            Vision { range: 100.0 },
-            VisibleObjects::default(),
-        ))
-        .insert((
-            WorkingMemory::default(),
-            RationalBrain::default(),
-            BrainState::default(),
-            CentralNervousSystem::default(),
-            PhysicalNeeds {
+    let cultural_knowledge = Arc::new(create_cultural_knowledge(Culture::default()));
+
+    let (core, perception, brain) = build_person_logic(
+        PersonInit {
+            name: display_name,
+            position: config.pos,
+            personality: config.personality,
+            physical_needs: PhysicalNeeds {
                 hunger: config.hunger,
                 thirst: config.thirst,
                 energy: config.energy,
                 health: 100.0,
             },
-            Consciousness::default(),
-            PsychologicalDrives {
-                social: config.social_drive,
-                ..Default::default()
-            },
-            ActiveActions::default(),
-            EmotionalState::default(),
-            BrainHistory::default(),
-            ActivePlans::default(),
-            crate::agent::psyche::relationships::RelationshipHistory::default(),
-            crate::agent::mind::theory_of_mind::TheoryOfMind::default(),
-            // Body is normally added by `setup_biology` on the next Update;
-            // pre-insert it so brain queries that read `Option<&Body>` see it
-            // immediately and tests can inspect injuries without an extra tick.
-            Body::human(),
-        ))
+            social_drive_override: config.social_drive,
+            cultural_knowledge,
+            extra_knowledge: config.knowledge,
+        },
+        ontology,
+    );
+
+    // Body is normally added by `setup_biology` on the next Update;
+    // pre-insert it so brain queries that read `Option<&Body>` see it
+    // immediately and tests can inspect injuries without an extra tick.
+    world
+        .spawn(core)
+        .insert(perception)
+        .insert(brain)
+        .insert(Body::human())
         .id()
 }
 
