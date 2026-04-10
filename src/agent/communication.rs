@@ -1,8 +1,8 @@
 //! Communication: parallel Bevy plugin that runs conversations as a continuous channel.
 //!
-//! Reads: PsychologicalDrives, Transform, ActiveActions, MindGraph, EmotionalState, Personality, RationalBrain
-//! Writes: ConversationManager, InConversation, ActiveActions (Converse marker), MindGraph (Hearsay), GameEvent, SimEvent
-//! Upstream: agent::mind::conversation (data types), agent::actions (channel marker)
+//! Reads: PsychologicalDrives, Transform, ActiveActions, MindGraph, TheoryOfMind, EmotionalState, Personality, RationalBrain
+//! Writes: ConversationManager, InConversation, ActiveActions (Converse marker), MindGraph (Hearsay), TheoryOfMind, GameEvent, SimEvent
+//! Upstream: agent::mind::conversation (data types), agent::actions (channel marker), agent::mind::theory_of_mind
 //! Downstream: psyche::relationships (consumes SocialInteraction), psyche::emotions (ConversationAbandoned)
 //!
 //! # Architecture
@@ -43,6 +43,7 @@ use crate::agent::mind::conversation::{
 };
 use crate::agent::mind::knowledge::{Concept, Metadata, MindGraph, Node, Predicate, Value};
 use crate::agent::mind::social_perception::CONVERSATION_RANGE;
+use crate::agent::mind::theory_of_mind::{self, TheoryOfMind};
 use crate::agent::psyche::emotions::EmotionalState;
 use crate::agent::psyche::personality::Personality;
 use crate::core::not_paused;
@@ -104,6 +105,7 @@ impl Plugin for CommunicationPlugin {
                     process_initiate_conversation
                         .after(crate::agent::nervous_system::execution::start_actions),
                     select_turn_intent.after(process_initiate_conversation),
+                    update_speaker_theory_of_mind.after(select_turn_intent),
                     process_received_communication.after(select_turn_intent),
                     emit_communication_events.after(process_received_communication),
                     evaluate_conversation_continuation.after(emit_communication_events),
@@ -270,6 +272,7 @@ pub fn select_turn_intent(
     mut manager: ResMut<ConversationManager>,
     tick: Res<TickCount>,
     minds: Query<&MindGraph>,
+    toms: Query<&TheoryOfMind>,
     rational_brains: Query<&RationalBrain>,
     personalities: Query<&Personality>,
 ) {
@@ -285,9 +288,7 @@ pub fn select_turn_intent(
         let Ok(speaker_mind) = minds.get(speaker) else {
             continue;
         };
-        let Ok(listener_mind) = minds.get(listener) else {
-            continue;
-        };
+        let speaker_tom = toms.get(speaker).ok();
         let goal = rational_brains
             .get(speaker)
             .ok()
@@ -299,7 +300,8 @@ pub fn select_turn_intent(
         let has_deliberate = !crate::agent::mind::deliberate_talk::pick_deliberate_content(
             speaker_mind,
             goal,
-            listener_mind,
+            speaker_tom,
+            listener,
             now,
             1,
         )
@@ -307,7 +309,8 @@ pub fn select_turn_intent(
         .is_empty();
         let has_casual = !crate::agent::mind::small_talk::pick_small_talk_triples(
             speaker_mind,
-            listener_mind,
+            speaker_tom,
+            listener,
             now,
             1,
         )
@@ -316,7 +319,8 @@ pub fn select_turn_intent(
         let intent = select_intent(
             conv,
             speaker_mind,
-            listener_mind,
+            speaker_tom,
+            listener,
             goal,
             personality,
             now,
@@ -338,7 +342,8 @@ pub fn select_turn_intent(
             let deliberate = crate::agent::mind::deliberate_talk::pick_deliberate_content(
                 speaker_mind,
                 goal,
-                listener_mind,
+                speaker_tom,
+                listener,
                 now,
                 SMALL_TALK_TRIPLES_PER_TURN,
             );
@@ -347,7 +352,8 @@ pub fn select_turn_intent(
             } else {
                 let casual = crate::agent::mind::small_talk::pick_small_talk_triples(
                     speaker_mind,
-                    listener_mind,
+                    speaker_tom,
+                    listener,
                     now,
                     SMALL_TALK_TRIPLES_PER_TURN,
                 );
@@ -407,7 +413,8 @@ pub fn select_turn_intent(
 pub(crate) fn select_intent(
     conv: &Conversation,
     speaker_mind: &MindGraph,
-    listener_mind: &MindGraph,
+    speaker_tom: Option<&TheoryOfMind>,
+    listener: Entity,
     goal: Option<&Goal>,
     personality: Option<&Personality>,
     now: u64,
@@ -433,7 +440,7 @@ pub(crate) fn select_intent(
     // 3. Warn: recent high-salience danger the listener doesn't know yet.
     //    Neuroticism lowers the threshold — anxious agents warn more readily.
     let warn_threshold = (DANGER_WARN_SALIENCE - (neuroticism - 0.5) * 0.2).clamp(0.3, 1.0);
-    if has_danger_to_warn(speaker_mind, listener_mind, warn_threshold, now) {
+    if has_danger_to_warn(speaker_mind, speaker_tom, listener, warn_threshold, now) {
         return Intent::Share;
     }
 
@@ -478,38 +485,25 @@ fn intent_interval(intent: Intent) -> u64 {
 }
 
 /// True if the speaker has recent high-salience danger knowledge the listener
-/// likely doesn't know. Uses the [`DANGER_RECENCY_TICKS`] window to exclude
-/// stale observations.
+/// likely doesn't know. Uses the speaker's [`TheoryOfMind`] to estimate what
+/// the listener already knows, falling back to "assume they don't know" for
+/// strangers. Uses the [`DANGER_RECENCY_TICKS`] window to exclude stale
+/// observations.
 fn has_danger_to_warn(
     speaker_mind: &MindGraph,
-    listener_mind: &MindGraph,
+    speaker_tom: Option<&TheoryOfMind>,
+    listener: Entity,
     salience_threshold: f32,
     now: u64,
 ) -> bool {
-    // Build listener's danger confidence map once to avoid a nested query per
-    // speaker triple.
-    let listener_danger: Vec<(&Node, f32)> = listener_mind
-        .iter()
-        .filter(|t| {
-            t.predicate == Predicate::HasTrait && t.object == Value::Concept(Concept::Dangerous)
-        })
-        .map(|t| (&t.subject, t.meta.confidence))
-        .collect();
-
-    let listener_confidence = |subject: &Node| -> f32 {
-        listener_danger
-            .iter()
-            .filter(|(s, _)| *s == subject)
-            .map(|(_, c)| *c)
-            .fold(0.0_f32, f32::max)
-    };
-
     speaker_mind.iter().any(|t| {
         t.predicate == Predicate::HasTrait
             && t.object == Value::Concept(Concept::Dangerous)
             && t.meta.salience >= salience_threshold
             && now.saturating_sub(t.meta.timestamp) <= DANGER_RECENCY_TICKS
-            && listener_confidence(&t.subject) < 0.5
+            && speaker_tom
+                .map(|tom| !tom.believes_target_knows_danger(listener, &t.subject, 0.5))
+                .unwrap_or(true) // No ToM model = assume they don't know
     })
 }
 
@@ -524,6 +518,49 @@ fn goal_needs_location(goal: &Goal) -> bool {
 }
 
 // ============================================================================
+// 2b. Update speaker's theory of mind after sharing content
+// ============================================================================
+
+/// When a speaker shares triples with a listener, update the speaker's
+/// [`TheoryOfMind`] to record that the listener now probably knows those facts.
+///
+/// This runs after [`select_turn_intent`] so the latest turn's content is
+/// available. Only processes turns emitted this tick.
+pub fn update_speaker_theory_of_mind(
+    manager: Res<ConversationManager>,
+    tick: Res<TickCount>,
+    mut toms: Query<&mut TheoryOfMind>,
+    mut sim_events: MessageWriter<SimEvent>,
+) {
+    for conv in manager.conversations.values() {
+        let Some(turn) = conv.turns.last() else {
+            continue;
+        };
+        if turn.timestamp != tick.current || turn.content.is_empty() {
+            continue;
+        }
+        let listener = conv.other_participant(turn.speaker);
+        let Ok(mut speaker_tom) = toms.get_mut(turn.speaker) else {
+            continue;
+        };
+        let count = turn.content.len();
+        speaker_tom.record_shared_triples(
+            listener,
+            &turn.content,
+            theory_of_mind::COMMUNICATED_BELIEF_CONFIDENCE,
+            tick.current,
+        );
+        sim_events.write(SimEvent::TheoryOfMindUpdated {
+            agent: turn.speaker,
+            about: listener,
+            tick: tick.current,
+            source: crate::agent::events::TheoryOfMindSource::Communicated,
+            belief_count: count,
+        });
+    }
+}
+
+// ============================================================================
 // 3. Process received communication (write hearsay into listener's mind)
 // ============================================================================
 
@@ -533,7 +570,9 @@ fn goal_needs_location(goal: &Goal) -> bool {
 pub fn process_received_communication(
     manager: Res<ConversationManager>,
     mut minds: Query<&mut MindGraph>,
+    mut toms: Query<&mut TheoryOfMind>,
     tick: Res<TickCount>,
+    mut sim_events: MessageWriter<SimEvent>,
 ) {
     for conv in manager.conversations.values() {
         let Some(turn) = conv.turns.last() else {
@@ -555,6 +594,25 @@ pub fn process_received_communication(
             let mut hearsay = triple.clone();
             hearsay.meta = Metadata::hearsay(tick.current, turn.speaker);
             mind.assert(hearsay);
+        }
+
+        // Update listener's theory of mind: the speaker clearly knows what
+        // they just shared (high confidence — they volunteered the info).
+        if let Ok(mut listener_tom) = toms.get_mut(listener) {
+            let count = turn.content.len();
+            listener_tom.record_shared_triples(
+                turn.speaker,
+                &turn.content,
+                theory_of_mind::COMMUNICATED_BELIEF_CONFIDENCE,
+                tick.current,
+            );
+            sim_events.write(SimEvent::TheoryOfMindUpdated {
+                agent: listener,
+                about: turn.speaker,
+                tick: tick.current,
+                source: crate::agent::events::TheoryOfMindSource::Received,
+                belief_count: count,
+            });
         }
     }
 }
@@ -893,6 +951,7 @@ mod tests {
     // ── select_intent tests ─────────────────────────────────────────────────
 
     use crate::agent::mind::knowledge::{MemoryType, Metadata, Source, Triple};
+    use crate::agent::mind::theory_of_mind::TheoryOfMind;
 
     fn empty_mind() -> MindGraph {
         MindGraph::default()
@@ -919,8 +978,9 @@ mod tests {
     fn select_intent_greets_on_first_turn() {
         let conv = Conversation::new(0, [Entity::from_bits(1), Entity::from_bits(2)], 0);
         let mind = empty_mind();
+        let listener = Entity::from_bits(2);
         assert_eq!(
-            select_intent(&conv, &mind, &mind, None, None, 0, false, false),
+            select_intent(&conv, &mind, None, listener, None, None, 0, false, false),
             Intent::Greet
         );
     }
@@ -930,8 +990,9 @@ mod tests {
         let mut conv = Conversation::new(0, [Entity::from_bits(1), Entity::from_bits(2)], 0);
         conv.state = ConversationState::Wrapping;
         let mind = empty_mind();
+        let listener = Entity::from_bits(2);
         assert_eq!(
-            select_intent(&conv, &mind, &mind, None, None, 0, false, false),
+            select_intent(&conv, &mind, None, listener, None, None, 0, false, false),
             Intent::Farewell
         );
     }
@@ -957,17 +1018,20 @@ mod tests {
             0.9, // high salience
             0,   // at tick 0, queried at tick 100 → within DANGER_RECENCY_TICKS
         ));
-        let listener = empty_mind(); // partner unaware
+        // No ToM = stranger model → assume listener doesn't know
+        let listener = Entity::from_bits(2);
 
         assert_eq!(
-            select_intent(&conv, &speaker, &listener, None, None, 100, false, false),
+            select_intent(
+                &conv, &speaker, None, listener, None, None, 100, false, false
+            ),
             Intent::Share,
             "should warn about danger the listener doesn't know"
         );
     }
 
     #[test]
-    fn select_intent_does_not_warn_if_listener_already_knows() {
+    fn select_intent_does_not_warn_if_speaker_believes_listener_knows() {
         let mut conv = Conversation::new(0, [Entity::from_bits(1), Entity::from_bits(2)], 0);
         conv.state = ConversationState::Active;
         conv.add_turn(Turn {
@@ -983,28 +1047,33 @@ mod tests {
         let mut speaker = empty_mind();
         speaker.assert(danger_triple(Node::Concept(Concept::Wolf), 0.9, 0));
 
-        // Listener also knows — high confidence.
-        let mut listener = empty_mind();
-        listener.assert(Triple::with_meta(
+        // Speaker believes listener already knows about the wolf danger.
+        let listener = Entity::from_bits(2);
+        let mut tom = TheoryOfMind::default();
+        tom.record_belief(
+            listener,
             Node::Concept(Concept::Wolf),
             Predicate::HasTrait,
             Value::Concept(Concept::Dangerous),
-            Metadata {
-                source: Source::Experienced,
-                memory_type: MemoryType::Episodic,
-                timestamp: 0,
-                confidence: 1.0,
-                informant: None,
-                evidence: Vec::new(),
-                salience: 0.9,
-            },
-        ));
+            1.0,
+            0,
+        );
 
         // With nothing else to share and no content available, falls through to Acknowledge.
         assert_eq!(
-            select_intent(&conv, &speaker, &listener, None, None, 100, false, false),
+            select_intent(
+                &conv,
+                &speaker,
+                Some(&tom),
+                listener,
+                None,
+                None,
+                100,
+                false,
+                false
+            ),
             Intent::Acknowledge,
-            "should not warn about danger the listener already knows"
+            "should not warn about danger the speaker believes the listener already knows"
         );
     }
 
@@ -1025,13 +1094,24 @@ mod tests {
         });
 
         let mind = empty_mind();
+        let listener = Entity::from_bits(2);
         let goal = Goal {
             conditions: vec![TriplePattern::new(None, Some(Predicate::LocatedAt), None)],
             priority: 1.0,
         };
 
         assert_eq!(
-            select_intent(&conv, &mind, &mind, Some(&goal), None, 0, false, false),
+            select_intent(
+                &conv,
+                &mind,
+                None,
+                listener,
+                Some(&goal),
+                None,
+                0,
+                false,
+                false
+            ),
             Intent::Ask,
             "agent with location-seeking goal should Ask"
         );
@@ -1053,8 +1133,9 @@ mod tests {
         });
 
         let mind = empty_mind();
+        let listener = Entity::from_bits(2);
         assert_eq!(
-            select_intent(&conv, &mind, &mind, None, None, 0, false, false),
+            select_intent(&conv, &mind, None, listener, None, None, 0, false, false),
             Intent::Answer,
             "should Answer when partner asked last turn"
         );
@@ -1076,8 +1157,9 @@ mod tests {
 
         // Empty minds, no goal, low extraversion, no content → Acknowledge.
         let mind = empty_mind();
+        let listener = Entity::from_bits(2);
         assert_eq!(
-            select_intent(&conv, &mind, &mind, None, None, 0, false, false),
+            select_intent(&conv, &mind, None, listener, None, None, 0, false, false),
             Intent::Acknowledge,
             "nothing to say → Acknowledge"
         );

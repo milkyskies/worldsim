@@ -99,7 +99,8 @@ fn sim_event_tick(event: &SimEvent) -> u64 {
         | SimEvent::Death { tick, .. }
         | SimEvent::EntityPerceived { tick, .. }
         | SimEvent::StrangerDetected { tick, .. }
-        | SimEvent::KnowledgeShared { tick, .. } => *tick,
+        | SimEvent::KnowledgeShared { tick, .. }
+        | SimEvent::TheoryOfMindUpdated { tick, .. } => *tick,
     }
 }
 
@@ -133,6 +134,10 @@ fn sim_event_involves(event: &SimEvent, agent: Entity) -> bool {
             abandoned,
             ..
         } => *abandoner == agent || *abandoned == agent,
+
+        SimEvent::TheoryOfMindUpdated {
+            agent: a, about, ..
+        } => *a == agent || *about == agent,
     }
 }
 
@@ -284,6 +289,19 @@ fn format_sim_event(event: &SimEvent) -> String {
             format!(
                 "[t{tick}] KnowledgeShared   speaker={speaker:?} listener={listener:?} \
                  triples={triple_count}"
+            )
+        }
+
+        SimEvent::TheoryOfMindUpdated {
+            agent,
+            about,
+            tick,
+            source,
+            belief_count,
+        } => {
+            format!(
+                "[t{tick}] TheoryOfMindUpdated agent={agent:?} about={about:?} \
+                 source={source:?} beliefs={belief_count}"
             )
         }
     }

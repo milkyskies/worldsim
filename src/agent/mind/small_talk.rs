@@ -1,8 +1,8 @@
 //! Small talk topic selection: scores triples in an agent's MindGraph for use as conversation content.
 //!
-//! Reads: MindGraph (speaker's triples), MindGraph (partner's triples for novelty)
+//! Reads: MindGraph (speaker's triples), TheoryOfMind (speaker's belief about partner for novelty)
 //! Writes: nothing (pure scoring function — no Bevy types touched)
-//! Upstream: agent::mind::knowledge (Triple, Metadata, MemoryType, Source)
+//! Upstream: agent::mind::knowledge (Triple, Metadata, MemoryType, Source), agent::mind::theory_of_mind
 //! Downstream: agent::communication::select_turn_intent (#46 will use these to fill Turn::content)
 //!
 //! # Design
@@ -13,11 +13,18 @@
 //! are filtered out before scoring so we never propose "food satisfies hunger"
 //! as small talk.
 //!
+//! Novelty is estimated via the speaker's TheoryOfMind rather than by directly
+//! querying the partner's MindGraph. If the speaker has no model for the partner,
+//! everything is treated as novel (the "stranger model").
+//!
 //! The function is **pure** — it takes references and returns owned `Triple`s.
 //! Tests can build a fake `MindGraph`, call the function, and check the
 //! ranking without spinning up a Bevy app.
 
+use bevy::prelude::Entity;
+
 use crate::agent::mind::knowledge::{MemoryType, MindGraph, Node, Source, Triple};
+use crate::agent::mind::theory_of_mind::TheoryOfMind;
 
 // ============================================================================
 // Tunables
@@ -61,7 +68,8 @@ pub const MIN_SCORE: f32 = 0.1;
 /// filtered out before scoring — everyone knows them, no point bringing them up.
 pub fn pick_small_talk_triples(
     speaker_mind: &MindGraph,
-    partner_mind: &MindGraph,
+    speaker_tom: Option<&TheoryOfMind>,
+    listener: Entity,
     now: u64,
     n: usize,
 ) -> Vec<Triple> {
@@ -72,7 +80,7 @@ pub fn pick_small_talk_triples(
     let mut scored: Vec<(f32, &Triple)> = speaker_mind
         .iter()
         .filter(|t| is_worth_sharing(t))
-        .map(|t| (score_triple(t, partner_mind, now), t))
+        .map(|t| (score_triple(t, speaker_tom, listener, now), t))
         .filter(|(s, _)| *s >= MIN_SCORE)
         .collect();
 
@@ -108,10 +116,15 @@ fn is_worth_sharing(triple: &Triple) -> bool {
 // ============================================================================
 
 /// Composite score: recency + salience + novelty + self-relevance bonus.
-fn score_triple(triple: &Triple, partner_mind: &MindGraph, now: u64) -> f32 {
+fn score_triple(
+    triple: &Triple,
+    speaker_tom: Option<&TheoryOfMind>,
+    listener: Entity,
+    now: u64,
+) -> f32 {
     let recency = recency_score(triple.meta.timestamp, now);
     let salience = triple.meta.salience.clamp(0.0, 1.0);
-    let novelty = novelty_score(triple, partner_mind);
+    let novelty = novelty_score(triple, speaker_tom, listener);
     let self_bonus = if matches!(triple.subject, Node::Self_) {
         SELF_RELEVANCE_BONUS
     } else {
@@ -128,22 +141,9 @@ fn recency_score(timestamp: u64, now: u64) -> f32 {
     (-age / RECENCY_HALF_LIFE_TICKS).exp()
 }
 
-/// 1.0 if the partner has no record of this exact triple, scaling toward 0.0
-/// as their confidence in it grows. The novelty check uses the speaker's own
-/// triple identity (subject + predicate + object) — if the partner has the
-/// same fact at high confidence, it's not worth telling them.
-fn novelty_score(triple: &Triple, partner_mind: &MindGraph) -> f32 {
-    let known = partner_mind
-        .query(
-            Some(&triple.subject),
-            Some(triple.predicate),
-            Some(&triple.object),
-        )
-        .into_iter()
-        .map(|t| t.meta.confidence.clamp(0.0, 1.0))
-        .fold(0.0_f32, f32::max);
-
-    1.0 - known
+/// Delegates to [`theory_of_mind::tom_novelty_score`].
+fn novelty_score(triple: &Triple, speaker_tom: Option<&TheoryOfMind>, listener: Entity) -> f32 {
+    crate::agent::mind::theory_of_mind::tom_novelty_score(triple, speaker_tom, listener)
 }
 
 // ============================================================================
@@ -156,9 +156,14 @@ mod tests {
     use crate::agent::mind::knowledge::{
         Concept, Metadata, MindGraph, Node, Predicate, Triple, Value,
     };
+    use crate::agent::mind::theory_of_mind::TheoryOfMind;
 
     fn empty_mind() -> MindGraph {
         MindGraph::default()
+    }
+
+    fn test_entity(id: u32) -> Entity {
+        Entity::from_bits(id as u64)
     }
 
     fn episodic(
@@ -187,8 +192,8 @@ mod tests {
     #[test]
     fn empty_mind_returns_no_topics() {
         let speaker = empty_mind();
-        let partner = empty_mind();
-        let picks = pick_small_talk_triples(&speaker, &partner, 100, 5);
+        let listener = test_entity(1);
+        let picks = pick_small_talk_triples(&speaker, None, listener, 100, 5);
         assert!(picks.is_empty());
     }
 
@@ -202,8 +207,8 @@ mod tests {
             100,
             0.5,
         ));
-        let partner = empty_mind();
-        let picks = pick_small_talk_triples(&speaker, &partner, 100, 0);
+        let listener = test_entity(1);
+        let picks = pick_small_talk_triples(&speaker, None, listener, 100, 0);
         assert!(picks.is_empty());
     }
 
@@ -216,8 +221,8 @@ mod tests {
             Value::Concept(Concept::Food),
             Metadata::default(), // Source::Intrinsic, MemoryType::Intrinsic
         ));
-        let partner = empty_mind();
-        let picks = pick_small_talk_triples(&speaker, &partner, 100, 5);
+        let listener = test_entity(1);
+        let picks = pick_small_talk_triples(&speaker, None, listener, 100, 5);
         assert!(picks.is_empty(), "intrinsic triples must be filtered");
     }
 
@@ -246,9 +251,9 @@ mod tests {
             100,
             0.1,
         ));
-        let partner = empty_mind();
+        let listener = test_entity(1);
 
-        let picks = pick_small_talk_triples(&speaker, &partner, 100, 2);
+        let picks = pick_small_talk_triples(&speaker, None, listener, 100, 2);
         assert_eq!(picks.len(), 2);
         // Highest salience should come first.
         assert_eq!(picks[0].subject, Node::Concept(Concept::Deer));
@@ -272,9 +277,9 @@ mod tests {
             999, // recent
             0.5,
         ));
-        let partner = empty_mind();
+        let listener = test_entity(1);
 
-        let picks = pick_small_talk_triples(&speaker, &partner, 1000, 1);
+        let picks = pick_small_talk_triples(&speaker, None, listener, 1000, 1);
         assert_eq!(picks.len(), 1);
         assert_eq!(picks[0].subject, Node::Concept(Concept::AppleTree));
     }
@@ -282,6 +287,7 @@ mod tests {
     #[test]
     fn novel_triples_outrank_known_ones() {
         let mut speaker = empty_mind();
+        let listener = test_entity(1);
         speaker.assert(episodic(
             Node::Concept(Concept::Deer),
             Predicate::LocatedAt,
@@ -297,24 +303,18 @@ mod tests {
             0.5,
         ));
 
-        // Partner already knows about the deer at high confidence.
-        let mut partner = empty_mind();
-        partner.assert(Triple::with_meta(
+        // Speaker believes listener already knows about the deer.
+        let mut tom = TheoryOfMind::default();
+        tom.record_belief(
+            listener,
             Node::Concept(Concept::Deer),
             Predicate::LocatedAt,
             Value::Tile((1, 1)),
-            Metadata {
-                source: Source::Experienced,
-                memory_type: MemoryType::Episodic,
-                timestamp: 500,
-                confidence: 1.0,
-                informant: None,
-                evidence: Vec::new(),
-                salience: 0.5,
-            },
-        ));
+            1.0,
+            500,
+        );
 
-        let picks = pick_small_talk_triples(&speaker, &partner, 600, 1);
+        let picks = pick_small_talk_triples(&speaker, Some(&tom), listener, 600, 1);
         assert_eq!(picks.len(), 1);
         assert_eq!(
             picks[0].subject,
@@ -341,9 +341,9 @@ mod tests {
             500,
             0.3,
         ));
-        let partner = empty_mind();
+        let listener = test_entity(1);
 
-        let picks = pick_small_talk_triples(&speaker, &partner, 600, 1);
+        let picks = pick_small_talk_triples(&speaker, None, listener, 600, 1);
         assert_eq!(picks.len(), 1);
         assert_eq!(
             picks[0].subject,
@@ -355,7 +355,8 @@ mod tests {
     #[test]
     fn min_score_filters_out_truly_uninteresting_triples() {
         let mut speaker = empty_mind();
-        // Salience 0, very old, partner knows it → score should fall below MIN_SCORE.
+        let listener = test_entity(1);
+        // Salience 0, very old, speaker believes listener knows it → score should fall below MIN_SCORE.
         speaker.assert(episodic(
             Node::Concept(Concept::Deer),
             Predicate::LocatedAt,
@@ -363,23 +364,17 @@ mod tests {
             0, // ancient
             0.0,
         ));
-        let mut partner = empty_mind();
-        partner.assert(Triple::with_meta(
+        let mut tom = TheoryOfMind::default();
+        tom.record_belief(
+            listener,
             Node::Concept(Concept::Deer),
             Predicate::LocatedAt,
             Value::Tile((1, 1)),
-            Metadata {
-                source: Source::Experienced,
-                memory_type: MemoryType::Episodic,
-                timestamp: 0,
-                confidence: 1.0,
-                informant: None,
-                evidence: Vec::new(),
-                salience: 0.0,
-            },
-        ));
+            1.0,
+            0,
+        );
 
-        let picks = pick_small_talk_triples(&speaker, &partner, 100_000, 5);
+        let picks = pick_small_talk_triples(&speaker, Some(&tom), listener, 100_000, 5);
         assert!(picks.is_empty(), "uninteresting triples should be filtered");
     }
 }

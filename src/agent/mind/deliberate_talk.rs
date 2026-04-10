@@ -13,12 +13,15 @@
 //! those are not deliberate sharing candidates. Topic is inferred from the content
 //! so the listener knows what the speaker is talking about.
 
+use bevy::prelude::Entity;
+
 use crate::agent::brains::thinking::Goal;
 use crate::agent::mind::conversation::Topic;
 use crate::agent::mind::knowledge::{
     Concept, MemoryType, MindGraph, Node, Predicate, Source, Triple, Value,
 };
 use crate::agent::mind::small_talk::{RECENCY_HALF_LIFE_TICKS, RECENCY_WEIGHT, SALIENCE_WEIGHT};
+use crate::agent::mind::theory_of_mind::TheoryOfMind;
 
 // ============================================================================
 // Tunables
@@ -53,7 +56,8 @@ pub const DELIBERATE_MIN_SCORE: f32 = 0.3;
 pub fn pick_deliberate_content(
     speaker_mind: &MindGraph,
     goal: Option<&Goal>,
-    partner_mind: &MindGraph,
+    speaker_tom: Option<&TheoryOfMind>,
+    listener: Entity,
     now: u64,
     n: usize,
 ) -> (Vec<Triple>, Topic) {
@@ -65,7 +69,7 @@ pub fn pick_deliberate_content(
         .iter()
         .filter(|t| is_deliberate_shareable(t))
         .map(|t| {
-            let s = score_deliberate(t, goal, partner_mind, now);
+            let s = score_deliberate(t, goal, speaker_tom, listener, now);
             (s, t)
         })
         .filter(|(s, _)| *s >= DELIBERATE_MIN_SCORE)
@@ -134,12 +138,13 @@ fn is_deliberate_shareable(triple: &Triple) -> bool {
 fn score_deliberate(
     triple: &Triple,
     goal: Option<&Goal>,
-    partner_mind: &MindGraph,
+    speaker_tom: Option<&TheoryOfMind>,
+    listener: Entity,
     now: u64,
 ) -> f32 {
     let recency = recency_score(triple.meta.timestamp, now);
     let salience = triple.meta.salience.clamp(0.0, 1.0);
-    let novelty = novelty_score(triple, partner_mind);
+    let novelty = novelty_score(triple, speaker_tom, listener);
     let goal_bonus = goal.map(|g| goal_relevance(triple, g)).unwrap_or(0.0);
 
     RECENCY_WEIGHT * recency
@@ -154,27 +159,9 @@ fn recency_score(timestamp: u64, now: u64) -> f32 {
     (-age / RECENCY_HALF_LIFE_TICKS).exp()
 }
 
-/// 1.0 if partner has no *personal* record of this triple, scaling toward 0.0
-/// as their personal confidence grows.
-///
-/// We deliberately ignore the partner's ontology and shared cultural knowledge
-/// here. A personal observation (e.g. "I just saw a dangerous wolf") is socially
-/// novel even when the partner abstractly knows the same fact from the ontology
-/// — the value of sharing is the *specific lived observation*, not the abstract
-/// category. Checking the full mind would silently suppress warnings about
-/// known-dangerous-but-not-yet-personally-observed threats.
-fn novelty_score(triple: &Triple, partner_mind: &MindGraph) -> f32 {
-    let known = partner_mind
-        .iter()
-        .filter(|t| {
-            t.subject == triple.subject
-                && t.predicate == triple.predicate
-                && t.object == triple.object
-        })
-        .map(|t| t.meta.confidence.clamp(0.0, 1.0))
-        .fold(0.0_f32, f32::max);
-
-    1.0 - known
+/// Delegates to [`theory_of_mind::tom_novelty_score`].
+fn novelty_score(triple: &Triple, speaker_tom: Option<&TheoryOfMind>, listener: Entity) -> f32 {
+    crate::agent::mind::theory_of_mind::tom_novelty_score(triple, speaker_tom, listener)
 }
 
 /// Returns 1.0 if the triple's predicate or subject matches any goal condition, else 0.0.
@@ -244,6 +231,7 @@ pub fn infer_topic(triples: &[Triple]) -> Topic {
 mod tests {
     use super::*;
     use crate::agent::mind::knowledge::{Metadata, Node, Predicate, Triple, Value};
+    use crate::agent::mind::theory_of_mind::TheoryOfMind;
 
     fn episodic(
         subject: Node,
@@ -272,11 +260,15 @@ mod tests {
         MindGraph::default()
     }
 
+    fn test_entity(id: u32) -> Entity {
+        Entity::from_bits(id as u64)
+    }
+
     #[test]
     fn empty_mind_returns_no_content() {
         let speaker = empty_mind();
-        let partner = empty_mind();
-        let (triples, topic) = pick_deliberate_content(&speaker, None, &partner, 100, 5);
+        let listener = test_entity(1);
+        let (triples, topic) = pick_deliberate_content(&speaker, None, None, listener, 100, 5);
         assert!(triples.is_empty());
         assert_eq!(topic, Topic::General);
     }
@@ -298,8 +290,8 @@ mod tests {
             100,
             0.9,
         ));
-        let partner = empty_mind();
-        let (triples, _) = pick_deliberate_content(&speaker, None, &partner, 100, 5);
+        let listener = test_entity(1);
+        let (triples, _) = pick_deliberate_content(&speaker, None, None, listener, 100, 5);
         assert!(triples.is_empty(), "self-state predicates must be excluded");
     }
 
@@ -321,8 +313,8 @@ mod tests {
             100,
             0.9,
         ));
-        let partner = empty_mind();
-        let (triples, _) = pick_deliberate_content(&speaker, None, &partner, 100, 5);
+        let listener = test_entity(1);
+        let (triples, _) = pick_deliberate_content(&speaker, None, None, listener, 100, 5);
         assert!(
             triples.is_empty(),
             "relationship predicates must be excluded"
@@ -339,8 +331,8 @@ mod tests {
             100,
             0.8,
         ));
-        let partner = empty_mind();
-        let (triples, topic) = pick_deliberate_content(&speaker, None, &partner, 100, 5);
+        let listener = test_entity(1);
+        let (triples, topic) = pick_deliberate_content(&speaker, None, None, listener, 100, 5);
         assert_eq!(triples.len(), 1);
         assert!(matches!(topic, Topic::Location(Concept::AppleTree)));
     }
@@ -355,8 +347,8 @@ mod tests {
             100,
             0.9,
         ));
-        let partner = empty_mind();
-        let (_, topic) = pick_deliberate_content(&speaker, None, &partner, 100, 5);
+        let listener = test_entity(1);
+        let (_, topic) = pick_deliberate_content(&speaker, None, None, listener, 100, 5);
         assert_eq!(topic, Topic::Help);
     }
 
@@ -387,9 +379,9 @@ mod tests {
             priority: 1.0,
         };
 
-        let partner = empty_mind();
+        let listener = test_entity(1);
         let (triples, _) =
-            pick_deliberate_content(&speaker, Some(&goal_with_location), &partner, 100, 1);
+            pick_deliberate_content(&speaker, Some(&goal_with_location), None, listener, 100, 1);
         assert_eq!(triples.len(), 1);
         // BerryBush LocatedAt should win due to goal relevance bonus
         assert_eq!(triples[0].subject, Node::Concept(Concept::BerryBush));
@@ -398,6 +390,7 @@ mod tests {
     #[test]
     fn already_known_triple_scores_lower() {
         let mut speaker = empty_mind();
+        let listener = test_entity(1);
         speaker.assert(episodic(
             Node::Concept(Concept::AppleTree),
             Predicate::LocatedAt,
@@ -413,24 +406,18 @@ mod tests {
             0.8,
         ));
 
-        // Partner already knows about the apple tree
-        let mut partner = empty_mind();
-        partner.assert(Triple::with_meta(
+        // Speaker believes listener already knows about the apple tree
+        let mut tom = TheoryOfMind::default();
+        tom.record_belief(
+            listener,
             Node::Concept(Concept::AppleTree),
             Predicate::LocatedAt,
             Value::Tile((1, 1)),
-            Metadata {
-                source: Source::Experienced,
-                memory_type: MemoryType::Episodic,
-                timestamp: 100,
-                confidence: 1.0,
-                informant: None,
-                evidence: Vec::new(),
-                salience: 0.8,
-            },
-        ));
+            1.0,
+            100,
+        );
 
-        let (triples, _) = pick_deliberate_content(&speaker, None, &partner, 100, 1);
+        let (triples, _) = pick_deliberate_content(&speaker, None, Some(&tom), listener, 100, 1);
         assert_eq!(triples.len(), 1);
         assert_eq!(
             triples[0].subject,

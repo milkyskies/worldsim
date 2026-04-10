@@ -3,6 +3,7 @@
 use crate::agent::affordance;
 use crate::agent::body::species::SpeciesProfile;
 use crate::agent::mind::knowledge::{Concept, MindGraph, Ontology};
+use crate::agent::mind::theory_of_mind::TheoryOfMind;
 use crate::agent::{Agent, Person, inventory::EntityType, item_slots::ItemSlots};
 use bevy::prelude::*;
 
@@ -80,6 +81,7 @@ pub fn spawn_person(
             crate::agent::brains::history::BrainHistory::default(),
             crate::agent::brains::active_plan::ActivePlans::default(),
             crate::agent::psyche::relationships::RelationshipHistory::default(),
+            TheoryOfMind::default(),
         ))
         .id();
 
