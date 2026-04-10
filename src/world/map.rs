@@ -1,3 +1,5 @@
+use bevy::asset::RenderAssetUsages;
+use bevy::mesh::{Indices, PrimitiveTopology};
 use bevy::prelude::*;
 use noise::{NoiseFn, Simplex};
 use std::collections::HashMap;
@@ -584,7 +586,12 @@ fn carve_river(tiles: &mut [TileType], width: u32, height: u32, seed: u32) {
     }
 }
 
-pub fn setup_map(mut commands: Commands, mut map_resource: ResMut<WorldMap>) {
+pub fn setup_map(
+    mut commands: Commands,
+    mut map_resource: ResMut<WorldMap>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+) {
     let width = map_resource.width;
     let height = map_resource.height;
 
@@ -609,53 +616,98 @@ pub fn setup_map(mut commands: Commands, mut map_resource: ResMut<WorldMap>) {
         }
     }
 
-    // Spawn tiles as children of a parent TileMap entity.
-    // Each tile's color combines a biome tint from elevation and a hillshade shadow.
-    commands
-        .spawn((
-            Name::new("TileMap"),
-            TileMap,
-            Transform::default(),
-            Visibility::default(),
-        ))
-        .with_children(|parent| {
-            for cy in 0..MAP_CHUNKS_Y {
-                for cx in 0..MAP_CHUNKS_X {
-                    for ly in 0..CHUNK_SIZE {
-                        for lx in 0..CHUNK_SIZE {
-                            let x = cx * CHUNK_SIZE + lx;
-                            let y = cy * CHUNK_SIZE + ly;
-                            let idx = (y * width + x) as usize;
-                            let tile_type = terrain[idx];
-                            let elevation = elevations[idx];
-                            let shade = hillshade(&elevations, width, height, x, y);
-                            let color =
-                                apply_hillshade(tile_base_color(tile_type, elevation), shade);
+    // Build the terrain mesh. Each tile is a quad with 4 corners shared with
+    // its neighbours. Vertex colors are averaged across surrounding tiles so
+    // the GPU interpolates smoothly between them, giving a faux-3D gradient.
+    let mesh = build_terrain_mesh(&terrain, &elevations, width, height);
+    commands.spawn((
+        Name::new("TileMap"),
+        TileMap,
+        Mesh2d(meshes.add(mesh)),
+        MeshMaterial2d(materials.add(ColorMaterial::from_color(Color::WHITE))),
+        Transform::default(),
+    ));
+}
 
-                            parent.spawn((
-                                Name::new(format!("Tile ({},{}) {:?}", x, y, tile_type)),
-                                Tile {
-                                    x: x as i32,
-                                    y: y as i32,
-                                    tile_type,
-                                    elevation,
-                                },
-                                Sprite {
-                                    color,
-                                    custom_size: Some(Vec2::new(TILE_SIZE, TILE_SIZE)),
-                                    ..default()
-                                },
-                                Transform::from_translation(Vec3::new(
-                                    x as f32 * TILE_SIZE,
-                                    y as f32 * TILE_SIZE,
-                                    0.0,
-                                )),
-                            ));
-                        }
-                    }
+/// Build a single mesh for the whole terrain with per-vertex colors.
+///
+/// Each tile corner is a vertex shared with up to four tiles; its color is the
+/// average of the final (tinted + shaded) colors of those tiles. GPU bilinear
+/// interpolation across each quad then produces smooth gradients between tiles.
+fn build_terrain_mesh(terrain: &[TileType], elevations: &[f32], width: u32, height: u32) -> Mesh {
+    // Final per-tile color (biome tint + hillshade), flattened as RGBA.
+    let tile_colors: Vec<[f32; 4]> = (0..height)
+        .flat_map(|y| {
+            (0..width).map(move |x| {
+                let idx = (y * width + x) as usize;
+                let shade = hillshade(elevations, width, height, x, y);
+                let color = apply_hillshade(tile_base_color(terrain[idx], elevations[idx]), shade);
+                let c = color.to_srgba();
+                [c.red, c.green, c.blue, c.alpha]
+            })
+        })
+        .collect();
+
+    let vw = width + 1;
+    let vh = height + 1;
+    let vertex_count = (vw * vh) as usize;
+
+    let mut positions: Vec<[f32; 3]> = Vec::with_capacity(vertex_count);
+    let mut colors: Vec<[f32; 4]> = Vec::with_capacity(vertex_count);
+
+    for vy in 0..vh {
+        for vx in 0..vw {
+            // Vertex at world position. TILE_SIZE/2 offset centres tile (0,0).
+            positions.push([
+                vx as f32 * TILE_SIZE - TILE_SIZE * 0.5,
+                vy as f32 * TILE_SIZE - TILE_SIZE * 0.5,
+                0.0,
+            ]);
+
+            // Average the final color of the (up to 4) tiles sharing this corner.
+            let mut sum = [0.0f32; 4];
+            let mut count = 0.0f32;
+            for (dx, dy) in [(-1, -1), (0, -1), (-1, 0), (0, 0)] {
+                let tx = vx as i32 + dx;
+                let ty = vy as i32 + dy;
+                if tx >= 0 && tx < width as i32 && ty >= 0 && ty < height as i32 {
+                    let c = tile_colors[(ty as u32 * width + tx as u32) as usize];
+                    sum[0] += c[0];
+                    sum[1] += c[1];
+                    sum[2] += c[2];
+                    sum[3] += c[3];
+                    count += 1.0;
                 }
             }
-        });
+            colors.push([
+                sum[0] / count,
+                sum[1] / count,
+                sum[2] / count,
+                sum[3] / count,
+            ]);
+        }
+    }
+
+    // Two triangles per tile quad.
+    let mut indices: Vec<u32> = Vec::with_capacity((width * height * 6) as usize);
+    for y in 0..height {
+        for x in 0..width {
+            let bl = y * vw + x;
+            let br = bl + 1;
+            let tl = (y + 1) * vw + x;
+            let tr = tl + 1;
+            indices.extend_from_slice(&[bl, br, tr, bl, tr, tl]);
+        }
+    }
+
+    let mut mesh = Mesh::new(
+        PrimitiveTopology::TriangleList,
+        RenderAssetUsages::default(),
+    );
+    mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, positions);
+    mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, colors);
+    mesh.insert_indices(Indices::U32(indices));
+    mesh
 }
 
 #[cfg(test)]
