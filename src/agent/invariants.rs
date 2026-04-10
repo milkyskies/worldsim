@@ -230,14 +230,13 @@ mod tests {
     fn dangling_conversation_reference_is_caught() {
         let mut world = TestWorld::new();
         let a = world.spawn_agent(AgentConfig::default());
-        let b = world.spawn_agent(AgentConfig::at(Vec2::new(5.0, 0.0)));
+        let _b = world.spawn_agent(AgentConfig::at(Vec2::new(5.0, 0.0)));
         world
             .app_mut()
             .world_mut()
             .entity_mut(a)
             .insert(InConversation {
                 conversation_id: 9_999,
-                partner: b,
             });
         assert_invariants(world.app_mut().world_mut());
     }

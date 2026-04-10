@@ -86,6 +86,18 @@ pub fn spawn_person(
         .id();
 
     commands.entity(entity).with_children(|parent| {
+        // Ground shadow — dark ellipse at the agent's feet. Tracks terrain
+        // elevation but not the bounce so the sprite visibly hops above it.
+        parent.spawn((
+            crate::ui::sprite_animation::GroundShadow::new(entity, Vec2::new(0.0, -8.0)),
+            Sprite {
+                color: Color::srgba(0.0, 0.0, 0.0, 0.35),
+                custom_size: Some(Vec2::new(10.0, 4.0)),
+                ..default()
+            },
+            Transform::from_translation(Vec3::new(0.0, -8.0, -0.05)),
+        ));
+
         // SpriteBody wrapper — animated (hops), contains all visual sprite parts
         parent
             .spawn((

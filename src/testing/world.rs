@@ -93,6 +93,8 @@ fn sim_event_tick(event: &SimEvent) -> u64 {
         | SimEvent::PlanAbandoned { tick, .. }
         | SimEvent::ConversationStarted { tick, .. }
         | SimEvent::ConversationEnded { tick, .. }
+        | SimEvent::ConversationJoined { tick, .. }
+        | SimEvent::ConversationLeft { tick, .. }
         | SimEvent::ConversationAbandoned { tick, .. }
         | SimEvent::RelationshipChanged { tick, .. }
         | SimEvent::EmotionTriggered { tick, .. }
@@ -130,6 +132,9 @@ fn sim_event_involves(event: &SimEvent, agent: Entity) -> bool {
 
         SimEvent::ConversationStarted { participants, .. }
         | SimEvent::ConversationEnded { participants, .. } => participants.contains(&agent),
+
+        SimEvent::ConversationJoined { joiner, .. } => *joiner == agent,
+        SimEvent::ConversationLeft { leaver, .. } => *leaver == agent,
 
         SimEvent::ConversationAbandoned {
             abandoner,
@@ -230,6 +235,22 @@ fn format_sim_event(event: &SimEvent) -> String {
             format!(
                 "[t{tick}] ConversationEnded    id={conversation_id} participants={participants:?}"
             )
+        }
+
+        SimEvent::ConversationJoined {
+            joiner,
+            tick,
+            conversation_id,
+        } => {
+            format!("[t{tick}] ConversationJoined   id={conversation_id} joiner={joiner:?}")
+        }
+
+        SimEvent::ConversationLeft {
+            leaver,
+            tick,
+            conversation_id,
+        } => {
+            format!("[t{tick}] ConversationLeft     id={conversation_id} leaver={leaver:?}")
         }
 
         SimEvent::ConversationAbandoned {
@@ -447,6 +468,9 @@ impl TestWorld {
         // conversation manager, relationship config, etc.
         app.add_plugins(AgentPlugin);
 
+        // Ontology derivation + world entity property systems (fuel, durability, shelter).
+        app.add_plugins(crate::world::property::OntologyDerivationPlugin);
+
         Self { app, seed }
     }
 
@@ -603,23 +627,11 @@ impl TestWorld {
         spawn_test_wood_log(self.app.world_mut(), pos, wood)
     }
 
-    /// Spawns a campfire (logic-only) at the given position. Includes HeatSource.
+    /// Spawns a campfire (logic-only) at the given position. Includes LightSource and HeatSource.
     pub fn spawn_campfire(&mut self, pos: Vec2) -> Entity {
-        use crate::agent::inventory::EntityType;
         self.app
             .world_mut()
-            .spawn((
-                Name::new("Campfire"),
-                EntityType(Concept::Campfire),
-                crate::world::campfire::CampfireMarker,
-                crate::world::sense_sources::HeatSource {
-                    range: 64.0,
-                    intensity: 0.8,
-                },
-                crate::world::Physical,
-                Transform::from_translation(pos.extend(1.0)),
-                GlobalTransform::default(),
-            ))
+            .spawn(crate::world::campfire::campfire_components(pos))
             .id()
     }
 
@@ -1158,11 +1170,22 @@ impl TestWorld {
             return;
         };
 
-        let partner_name = entity_name(world, in_conv.partner);
+        let others: Vec<String> = manager
+            .conversations
+            .get(&in_conv.conversation_id)
+            .map(|conv| {
+                conv.participants
+                    .iter()
+                    .filter(|e| **e != agent)
+                    .map(|e| format!("{} [{e:?}]", entity_name(world, *e)))
+                    .collect()
+            })
+            .unwrap_or_default();
 
         eprintln!(
-            "  conversation_id={}  partner={partner_name} [{:?}]",
-            in_conv.conversation_id, in_conv.partner
+            "  conversation_id={}  others=[{}]",
+            in_conv.conversation_id,
+            others.join(", ")
         );
 
         if let Some(conv) = manager.conversations.get(&in_conv.conversation_id) {
