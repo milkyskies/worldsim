@@ -434,6 +434,7 @@ pub fn tick_actions(
                             &mut commands,
                             concept,
                             position,
+                            tick.current,
                         )
                         .is_none()
                         {

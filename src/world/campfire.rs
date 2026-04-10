@@ -1,16 +1,26 @@
 //! Campfire spawning logic.
 //!
-//! Reads: ItemSlots (none — campfires have no inventory)
-//! Writes: Campfire entities (CampfireMarker, EntityType, Physical, LightSource, HeatSource, FuelConsumer, EmitsEffect, Transform)
-//! Upstream: execution system (Build action on_complete → SpawnRequest)
-//! Downstream: world entities (visible, perceivable by agents), perceive_temperature (reads HeatSource), emits_effect_system (reads EmitsEffect)
+//! Reads: ItemSlots (fuel slot), TickCount (started_tick for Becomes)
+//! Writes: Campfire entities (CampfireMarker, EntityType, Physical, LightSource, HeatSource, FuelConsumer, EmitsEffect, ItemSlots, Becomes, Transform)
+//! Upstream: execution system (Build action on_complete → SpawnRequest), becomes_system (construction site → campfire)
+//! Downstream: world entities (perceivable by agents), perceive_temperature, emits_effect_system, fuel_system, becomes_system (→ Ash)
 
 use crate::agent::inventory::EntityType;
+use crate::agent::item_slots::{ItemSlots, Slot, Thing};
 use crate::agent::mind::knowledge::Concept;
 use crate::world::emits_effect::{EffectKind, EmitsEffect};
 use crate::world::map::TILE_SIZE;
 use crate::world::property::{FuelConsumer, HeatSource, LightSource};
 use bevy::prelude::*;
+
+/// How much `fuel_remaining` one wood item provides when consumed from the fuel slot.
+pub const FUEL_PER_WOOD: f32 = 200.0;
+
+/// Number of wood items a freshly-built campfire starts with in its fuel slot.
+pub const INITIAL_WOOD_COUNT: u32 = 3;
+
+/// Maximum wood items the fuel slot can hold.
+pub const FUEL_SLOT_CAPACITY: u32 = 5;
 
 /// Marker component identifying a campfire entity.
 #[derive(Component, Reflect)]
@@ -21,9 +31,16 @@ pub struct CampfireMarker;
 ///
 /// - [`LightSource`]: emits light in a radius, perceivable by agents at night
 /// - [`HeatSource`]: emits heat, perceivable by agents via temperature sense
-/// - [`FuelConsumer`]: burns wood; removes LightSource and HeatSource when fuel runs out
+/// - [`FuelConsumer`]: burns wood; auto-reloads from the fuel slot when depleted
 /// - [`EmitsEffect`]: comfort aura — reduces stress and restores energy for nearby agents
+/// - [`ItemSlots`]: fuel slot holding wood items; agents refuel via Deposit
+/// - [`Becomes`]: transforms to Ash when fuel is fully exhausted
 pub fn campfire_components(position: Vec2) -> impl Bundle {
+    let mut fuel_slot = Slot::fuel(Concept::Wood, FUEL_SLOT_CAPACITY);
+    for _ in 0..INITIAL_WOOD_COUNT {
+        fuel_slot.contents.push(Thing::new(Concept::Wood));
+    }
+
     (
         Name::new("Campfire"),
         EntityType(Concept::Campfire),
@@ -38,7 +55,7 @@ pub fn campfire_components(position: Vec2) -> impl Bundle {
         },
         FuelConsumer {
             fuel_type: Concept::Wood,
-            fuel_remaining: 200.0,
+            fuel_remaining: FUEL_PER_WOOD,
             consumption_rate: 1.0,
         },
         EmitsEffect::new(
@@ -48,6 +65,9 @@ pub fn campfire_components(position: Vec2) -> impl Bundle {
                 EffectKind::EnergyPerSec(2.0),
             ]),
         ),
+        ItemSlots {
+            slots: vec![fuel_slot],
+        },
         crate::world::Physical,
         Transform::from_translation(position.extend(1.0)),
         GlobalTransform::default(),

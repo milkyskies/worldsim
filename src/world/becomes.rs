@@ -177,7 +177,7 @@ pub fn becomes_system(
         {
             let position = transform.translation.truncate();
             commands.entity(entity).despawn();
-            spawn_concept_entity(&mut commands, becomes.target, position);
+            spawn_concept_entity(&mut commands, becomes.target, position, tick.current);
         }
     }
 }
