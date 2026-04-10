@@ -67,12 +67,10 @@ impl Plugin for CharacterSheetPlugin {
 
 #[derive(Resource, Default)]
 pub struct CharacterSheetState {
-    /// Is the floating sheet window open?
-    pub open: bool,
-    /// Which tab is currently active.
-    pub active_tab: CharSheetTab,
-    /// Tracks the last selection so we can auto-open on change.
-    last_selected: Option<Entity>,
+    /// Which tab's detail window is currently open, or None if closed.
+    /// RimWorld pattern: each tab button on the bottom pane is a toggle for
+    /// its own floating window.
+    pub open_tab: Option<CharSheetTab>,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
@@ -126,18 +124,6 @@ fn character_sheet_system(world: &mut World) {
         .first()
         .copied();
 
-    // Detect selection edge so the sheet auto-opens when the player picks a
-    // new agent, without clobbering a manual close for the same selection.
-    {
-        let mut cs = world.resource_mut::<CharacterSheetState>();
-        if cs.last_selected != selected {
-            cs.last_selected = selected;
-            if selected.is_some() {
-                cs.open = true;
-            }
-        }
-    }
-
     let Some(entity) = selected else {
         return;
     };
@@ -148,30 +134,36 @@ fn character_sheet_system(world: &mut World) {
     }
 
     let debug_enabled = world.resource::<DebugUiEnabled>().0;
+    let visible_tabs = visible_tabs_for_entity(world, entity, debug_enabled);
+    let open_tab = world.resource::<CharacterSheetState>().open_tab;
 
     let summary = build_bottom_summary(world, entity);
-    let toggle = render_bottom_bar(ctx, &summary);
-    if toggle {
+    let clicked_tab = render_bottom_bar(ctx, &summary, &visible_tabs, open_tab);
+
+    // Clicking a tab button toggles its window; clicking the currently-open
+    // tab closes it. Mirrors RimWorld's inspect-pane tab buttons.
+    if let Some(clicked) = clicked_tab {
         let mut cs = world.resource_mut::<CharacterSheetState>();
-        cs.open = !cs.open;
+        cs.open_tab = if cs.open_tab == Some(clicked) {
+            None
+        } else {
+            Some(clicked)
+        };
     }
 
-    let (open, active_tab) = {
-        let cs = world.resource::<CharacterSheetState>();
-        (cs.open, cs.active_tab)
-    };
-    if !open {
-        return;
+    // Close the window if the current open tab is no longer visible for the
+    // selected agent (e.g. player switched from a human to a deer).
+    {
+        let mut cs = world.resource_mut::<CharacterSheetState>();
+        if let Some(open) = cs.open_tab
+            && !visible_tabs.contains(&open)
+        {
+            cs.open_tab = None;
+        }
     }
 
-    let visible_tabs = visible_tabs_for_entity(world, entity, debug_enabled);
-    if visible_tabs.is_empty() {
+    let Some(open_tab) = world.resource::<CharacterSheetState>().open_tab else {
         return;
-    }
-    let active_tab = if visible_tabs.contains(&active_tab) {
-        active_tab
-    } else {
-        visible_tabs[0]
     };
 
     let agent_name = world
@@ -183,42 +175,37 @@ fn character_sheet_system(world: &mut World) {
         .map(|s| format!("{:?}", s.species))
         .unwrap_or_else(|| "Unknown".to_string());
 
-    let mut new_open = true;
-    let mut new_tab = active_tab;
-
-    egui::Window::new(format!("📋 {}  ({})", agent_name, species_label))
-        .id(egui::Id::new("character_sheet_window"))
-        .resizable(true)
-        .default_width(440.0)
-        .default_height(560.0)
-        .open(&mut new_open)
-        .show(ctx, |ui| {
-            ui.horizontal_wrapped(|ui| {
-                for tab in &visible_tabs {
-                    if ui.selectable_label(*tab == new_tab, tab.label()).clicked() {
-                        new_tab = *tab;
-                    }
-                }
+    let mut window_open = true;
+    egui::Window::new(format!(
+        "{} - {}  ({})",
+        open_tab.label(),
+        agent_name,
+        species_label
+    ))
+    .id(egui::Id::new(("character_sheet_tab_window", open_tab)))
+    .resizable(true)
+    .default_width(420.0)
+    .default_height(500.0)
+    .open(&mut window_open)
+    .show(ctx, |ui| {
+        egui::ScrollArea::vertical()
+            .auto_shrink([false, false])
+            .show(ui, |ui| match open_tab {
+                CharSheetTab::Overview => render_overview(ui, world, entity),
+                CharSheetTab::Needs => render_needs(ui, world, entity),
+                CharSheetTab::Personality => render_personality(ui, world, entity),
+                CharSheetTab::Social => render_social(ui, world, entity),
+                CharSheetTab::Health => render_health(ui, world, entity),
+                CharSheetTab::Knowledge => render_knowledge(ui, world, entity),
+                CharSheetTab::Inventory => render_inventory(ui, world, entity),
+                CharSheetTab::Brain => render_brain(ui, world, entity),
             });
-            ui.separator();
+    });
 
-            egui::ScrollArea::vertical()
-                .auto_shrink([false, false])
-                .show(ui, |ui| match new_tab {
-                    CharSheetTab::Overview => render_overview(ui, world, entity),
-                    CharSheetTab::Needs => render_needs(ui, world, entity),
-                    CharSheetTab::Personality => render_personality(ui, world, entity),
-                    CharSheetTab::Social => render_social(ui, world, entity),
-                    CharSheetTab::Health => render_health(ui, world, entity),
-                    CharSheetTab::Knowledge => render_knowledge(ui, world, entity),
-                    CharSheetTab::Inventory => render_inventory(ui, world, entity),
-                    CharSheetTab::Brain => render_brain(ui, world, entity),
-                });
-        });
-
-    let mut cs = world.resource_mut::<CharacterSheetState>();
-    cs.open = new_open;
-    cs.active_tab = new_tab;
+    // The egui window's close button flipped `window_open` to false.
+    if !window_open {
+        world.resource_mut::<CharacterSheetState>().open_tab = None;
+    }
 }
 
 // ============================================================================
@@ -262,23 +249,25 @@ fn build_bottom_summary(world: &World, entity: Entity) -> BottomSummary {
     }
 }
 
-/// Renders the bottom bar. Returns true if the user clicked the name area
-/// (which toggles the character sheet window).
-fn render_bottom_bar(ctx: &mut egui::Context, summary: &BottomSummary) -> bool {
-    let mut clicked = false;
+/// Renders the bottom pane: a summary row (name, mood, action, HP, energy)
+/// followed by a row of tab toggle buttons. Returns the tab the user clicked
+/// this frame, if any — the caller is responsible for turning that into an
+/// open/close transition.
+fn render_bottom_bar(
+    ctx: &mut egui::Context,
+    summary: &BottomSummary,
+    visible_tabs: &[CharSheetTab],
+    open_tab: Option<CharSheetTab>,
+) -> Option<CharSheetTab> {
+    let mut clicked = None;
     egui::TopBottomPanel::bottom("character_sheet_bottom_bar")
         .resizable(false)
         .show(ctx, |ui| {
+            ui.add_space(4.0);
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = 12.0;
 
-                let name_resp = ui.add(
-                    egui::Label::new(egui::RichText::new(&summary.name).strong().size(16.0))
-                        .sense(egui::Sense::click()),
-                );
-                if name_resp.clicked() {
-                    clicked = true;
-                }
+                ui.label(egui::RichText::new(&summary.name).strong().size(16.0));
 
                 ui.separator();
                 ui.colored_label(summary.mood_color, &summary.mood_label);
@@ -301,6 +290,18 @@ fn render_bottom_bar(ctx: &mut egui::Context, summary: &BottomSummary) -> bool {
                         .text(format!("{:.0}", summary.energy_pct * 100.0)),
                 );
             });
+
+            ui.separator();
+
+            ui.horizontal_wrapped(|ui| {
+                for tab in visible_tabs {
+                    let is_open = open_tab == Some(*tab);
+                    if ui.selectable_label(is_open, tab.label()).clicked() {
+                        clicked = Some(*tab);
+                    }
+                }
+            });
+            ui.add_space(4.0);
         });
     clicked
 }
