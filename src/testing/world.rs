@@ -686,12 +686,17 @@ impl TestWorld {
         for &pos in &layout.second_human_positions {
             self.spawn_agent(AgentConfig::at(pos));
         }
-        for &pos in &layout.deer_positions {
-            self.spawn_deer(pos);
+        for herd in &layout.deer_herds {
+            let members: Vec<Entity> = herd.iter().map(|&pos| self.spawn_deer(pos)).collect();
+            if members.len() > 1 {
+                crate::testing::spawn::introduce_kin(self, &members, 0.8);
+            }
         }
-        let wolf_positions: Vec<Vec2> = layout.wolf_positions.clone();
-        if !wolf_positions.is_empty() {
-            self.spawn_wolf_pack(&wolf_positions);
+        for pack in &layout.wolf_packs {
+            let members = self.spawn_wolf_pack(pack);
+            if members.len() > 1 {
+                crate::testing::spawn::introduce_kin(self, &members, 0.8);
+            }
         }
         for &(pos, berries) in &layout.berry_bush_positions {
             self.spawn_berry_bush(pos, berries);

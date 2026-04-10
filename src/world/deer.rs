@@ -76,6 +76,11 @@ pub fn spawn_deer(
             crate::agent::nervous_system::cns::CentralNervousSystem::default(),
             crate::agent::body::needs::PhysicalNeeds::default(),
             crate::agent::body::needs::Consciousness::default(),
+            // Deer need `PsychologicalDrives` so they can feel isolation
+            // stress and drift back toward herd-mates. Before #260 they had
+            // no drives at all — no social, no fun, no curiosity — and
+            // therefore no herd cohesion emerging from urgency.
+            crate::agent::body::needs::PsychologicalDrives::default(),
             crate::agent::actions::ActiveActions::default(),
             crate::agent::psyche::emotions::EmotionalState::default(),
         ))
