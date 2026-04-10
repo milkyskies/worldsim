@@ -558,7 +558,7 @@ fn spawn_named_agent(world: &mut TestWorld, spec: &AgentSpec) -> Entity {
         name: Some(spec.name.clone()),
         hunger: spec.hunger.unwrap_or(0.0),
         energy: spec.energy.unwrap_or(100.0),
-        social_drive: spec.social_drive.unwrap_or(0.5),
+        social_drive: spec.social_drive,
         personality: spec.personality.clone().unwrap_or_default(),
         knowledge: spec.knowledge.clone(),
         ..Default::default()

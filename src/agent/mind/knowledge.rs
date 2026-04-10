@@ -123,9 +123,16 @@ pub enum Concept {
     Meat,
     Corpse,
 
+    // ─── Rotten / spoiled variants ───
+    RottenApple,
+    RottenBerry,
+
     // ─── Buildable entity types ───
     Campfire,
     LeanTo,
+
+    // ─── Remains / byproducts ───
+    Ash,
 
     // ─── Transformation intermediates ───
     /// A partially-built world entity that becomes a finished structure when its
@@ -154,6 +161,7 @@ pub enum Concept {
     // ─── Traits/Properties (adjectives) ───
     Edible,    // Items that can be eaten (Apple, Berry, Meat)
     Drinkable, // Tiles/items that can provide water (ShallowWater, Water)
+    Grazable,  // Tiles that can be grazed on (Grass) — drifting herbivore forage
     Prey,      // Creatures that can be hunted (Deer, Rabbit) → yields Meat
     Territory, // A tile the agent claims as its own (marked intrinsically at spawn)
     Dangerous,
@@ -245,6 +253,9 @@ pub enum Predicate {
     Knows,        // (Self, Knows, Entity) - have we met?
     Introduced,   // (Self, Introduced, Entity) - exchanged names?
     NameOf,       // (Entity, NameOf, String) - what's their name?
+
+    // ─── Possession ───
+    Owns, // (Self, Owns, Entity<campfire>) - "this is mine"
 
     // ─── Relationship Dimensions ───
     Trust,        // (Entity, Trust, Float) - 0.0 to 1.0
@@ -1361,6 +1372,7 @@ pub fn setup_ontology() -> Ontology {
     add(act(ActionType::Wander), IsA, val_act(MovementAction));
     add(act(ActionType::Harvest), IsA, val_act(SurvivalAction));
     add(act(ActionType::Drink), IsA, val_act(SurvivalAction));
+    add(act(ActionType::Graze), IsA, val_act(SurvivalAction));
 
     let mut ontology = Ontology {
         triples: Arc::new(triples),

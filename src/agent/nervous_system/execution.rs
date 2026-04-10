@@ -192,6 +192,13 @@ pub fn start_actions(
                 let new_target = match wanted_action {
                     ActionType::Explore => find_explore_target(pos, mind, &world_map, tick.current),
                     ActionType::Wander => pick_random_walkable_target(pos, &world_map, 10.0..30.0),
+                    ActionType::Graze => pick_random_grass_target(
+                        pos,
+                        &world_map,
+                        crate::constants::actions::graze::DRIFT_RANGE_MIN
+                            ..crate::constants::actions::graze::DRIFT_RANGE_MAX,
+                    )
+                    .or(action_template.target_position),
                     ActionType::Flee => {
                         if let Some(threat) = action_template.target_entity {
                             if let Ok(threat_t) = entity_transforms.get(threat) {
@@ -205,7 +212,17 @@ pub fn start_actions(
                             pick_random_walkable_target(pos, &world_map, 30.0..60.0)
                         }
                     }
-                    ActionType::Walk => action_template.target_position,
+                    ActionType::Walk => action_template.target_position.or_else(|| {
+                        // Fall back to the target entity's current position so
+                        // brains can propose Walk { target_entity, target_position: None }
+                        // for "approach this thing" behaviour (#260 flock
+                        // seeking is the first user). Same lookup pattern as
+                        // InitiateConversation below.
+                        action_template
+                            .target_entity
+                            .and_then(|partner| entity_transforms.get(partner).ok())
+                            .map(|t| t.translation().truncate())
+                    }),
                     ActionType::InitiateConversation => {
                         // Walk toward the partner's current position. The
                         // CommunicationPlugin intercepts arrival at
@@ -430,6 +447,7 @@ pub fn tick_actions(
                             &mut commands,
                             concept,
                             position,
+                            tick.current,
                         )
                         .is_none()
                         {
@@ -443,6 +461,7 @@ pub fn tick_actions(
                         position,
                         requirements,
                         initial_items,
+                        labor_required,
                     } => {
                         crate::world::construction_site::spawn_construction_site_headless(
                             &mut commands,
@@ -450,7 +469,9 @@ pub fn tick_actions(
                             position,
                             &requirements,
                             &initial_items,
+                            labor_required,
                             current_tick,
+                            Some(entity),
                         );
                     }
                     SpawnRequest::BecomesAttach {
@@ -771,6 +792,33 @@ fn pick_random_walkable_target(
         let angle = base_angle + (i as f32 * std::f32::consts::TAU / 8.0);
         let test_pos = pos + Vec2::new(angle.cos(), angle.sin()) * dist;
         if world_map.in_bounds(test_pos) && world_map.is_walkable(test_pos) {
+            return Some(test_pos);
+        }
+    }
+    None
+}
+
+/// Pick a nearby grass tile as a drift target. Grazing only happens on grass,
+/// so this refuses to return non-grass positions rather than silently letting
+/// the grazer wander onto sand, forest, or rock.
+fn pick_random_grass_target(
+    pos: Vec2,
+    world_map: &WorldMap,
+    dist_range: std::ops::Range<f32>,
+) -> Option<Vec2> {
+    use crate::world::map::TileType;
+
+    let mut rng = rand::rng();
+    let base_angle: f32 = rng.random_range(0.0..std::f32::consts::TAU);
+    let dist: f32 = rng.random_range(dist_range);
+
+    for i in 0..8 {
+        let angle = base_angle + (i as f32 * std::f32::consts::TAU / 8.0);
+        let test_pos = pos + Vec2::new(angle.cos(), angle.sin()) * dist;
+        if !world_map.in_bounds(test_pos) {
+            continue;
+        }
+        if matches!(world_map.tile_at(test_pos), Some(TileType::Grass)) {
             return Some(test_pos);
         }
     }

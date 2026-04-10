@@ -14,6 +14,7 @@ pub mod mind;
 pub mod movement;
 pub mod nervous_system;
 pub mod psyche;
+pub mod spawn_human;
 
 pub mod subject;
 
@@ -39,7 +40,7 @@ pub struct AgentPlugin;
 
 impl Plugin for AgentPlugin {
     fn build(&self, app: &mut App) {
-        use crate::core::not_paused;
+        use crate::core::{every_n_ticks, not_paused};
 
         app.register_type::<Agent>()
             .register_type::<Person>()
@@ -47,6 +48,8 @@ impl Plugin for AgentPlugin {
             .register_type::<movement::MovementState>()
             .register_type::<affordance::Affordance>()
             .register_type::<item_slots::ItemSlots>()
+            .register_type::<item_slots::Thing>()
+            .register_type::<item_slots::ThingProperties>()
             .register_type::<inventory::EntityType>()
             .register_type::<psyche::personality::Personality>()
             .register_type::<body::species::SpeciesProfile>()
@@ -81,11 +84,19 @@ impl Plugin for AgentPlugin {
                         .after(nervous_system::execution::start_actions),
                     nervous_system::execution::apply_action_effects
                         .after(nervous_system::execution::tick_actions),
+                    // Labor accumulation: count active Construct actions and
+                    // increment LaborAccumulated.current on targeted sites.
+                    // Runs after action effects (so newly-started Construct actions
+                    // are already in ActiveActions) and before becomes_system (so
+                    // a labor threshold crossing can fire a transformation in the
+                    // same tick it is reached).
+                    crate::world::becomes::labor_accumulation_system
+                        .after(nervous_system::execution::apply_action_effects),
                     // Becomes substrate: process entity transformations after slot
                     // mutations from action effects. The next tick's perception
                     // pass observes the transformed entity.
                     crate::world::becomes::becomes_system
-                        .after(nervous_system::execution::apply_action_effects),
+                        .after(crate::world::becomes::labor_accumulation_system),
                     // EmitsEffect substrate: apply radial effects (campfires, hostile
                     // zones, etc.) to nearby agents after action and transformation
                     // effects are resolved.
@@ -109,6 +120,8 @@ impl Plugin for AgentPlugin {
                     mind::perception::update_body_perception,
                     // Perceive water tiles in vision range
                     mind::perception::perceive_water_tiles,
+                    // Perceive grass tiles in vision range (herbivores only)
+                    mind::perception::perceive_grass_tiles,
                     // Temperature sense: detect heat sources without line-of-sight
                     mind::perception::perceive_temperature,
                     // Hearing sense: detect sounds without line-of-sight
@@ -147,7 +160,15 @@ impl Plugin for AgentPlugin {
                     psyche::relationships::update_relationships
                         .after(psyche::emotions::react_to_events),
                     psyche::relationships::decay_relationships,
+                    psyche::flocking::decay_social_from_proximity
+                        .after(brains::brain_system::three_brains_system),
                 )
+                    .run_if(not_paused),
+            )
+            .add_systems(
+                Update,
+                item_slots::freshness_decay_system
+                    .run_if(every_n_ticks(100))
                     .run_if(not_paused),
             )
             .init_resource::<psyche::relationships::RelationshipConfig>();

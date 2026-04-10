@@ -216,7 +216,9 @@ fn spawn_helper_creates_one_slot_per_requirement() {
             Vec2::new(10.0, 20.0),
             &[(Concept::Wood, 3)],
             &[],
+            None,
             42,
+            None,
         );
         commands_queue.apply(app.world_mut());
         id
@@ -251,7 +253,9 @@ fn spawn_helper_deposits_initial_items() {
             Vec2::ZERO,
             &[(Concept::Wood, 3)],
             &[(Concept::Wood, 2)],
+            None,
             0,
+            None,
         );
         commands_queue.apply(app.world_mut());
         id
@@ -282,7 +286,9 @@ fn full_initial_items_cause_immediate_transform_on_next_tick() {
             Vec2::new(5.0, 5.0),
             &[(Concept::Wood, 3)],
             &[(Concept::Wood, 3)], // exactly enough
+            None,
             7,
+            None,
         );
         commands_queue.apply(app.world_mut());
         id

@@ -105,7 +105,9 @@ fn sim_event_tick(event: &SimEvent) -> u64 {
         | SimEvent::WarmthPerceived { tick, .. }
         | SimEvent::SoundPerceived { tick, .. }
         | SimEvent::TheoryOfMindUpdated { tick, .. }
-        | SimEvent::EffectApplied { tick, .. } => *tick,
+        | SimEvent::ItemSpoiled { tick, .. }
+        | SimEvent::EffectApplied { tick, .. }
+        | SimEvent::LaborContributed { tick, .. } => *tick,
     }
 }
 
@@ -151,7 +153,9 @@ fn sim_event_involves(event: &SimEvent, agent: Entity) -> bool {
             agent: a, about, ..
         } => *a == agent || *about == agent,
 
-        SimEvent::EffectApplied { agent: a, .. } => *a == agent,
+        SimEvent::ItemSpoiled { agent: a, .. }
+        | SimEvent::EffectApplied { agent: a, .. }
+        | SimEvent::LaborContributed { agent: a, .. } => *a == agent,
     }
 }
 
@@ -352,12 +356,25 @@ fn format_sim_event(event: &SimEvent) -> String {
             )
         }
 
+        SimEvent::ItemSpoiled {
+            agent,
+            tick,
+            from,
+            to,
+        } => {
+            format!("[t{tick}] ItemSpoiled    agent={agent:?} {from:?} -> {to:?}")
+        }
+
         SimEvent::EffectApplied {
             agent,
             tick,
             source,
         } => {
             format!("[t{tick}] EffectApplied     agent={agent:?} source={source:?}")
+        }
+
+        SimEvent::LaborContributed { agent, tick, site } => {
+            format!("[t{tick}] LaborContributed  agent={agent:?} site={site:?}")
         }
     }
 }
@@ -668,19 +685,38 @@ impl TestWorld {
     /// Spawns all entities from a layout using the test-compatible (logic-only,
     /// no-visuals) spawners. Counterpart to [`crate::world::spawner::apply_layout`]
     /// which uses the full visual spawners.
+    ///
+    /// Personalities are sampled from a deterministic RNG seeded by `self.seed`
+    /// so spawned humans match the variety of the real spawner without
+    /// sacrificing reproducibility.
     pub fn apply_spawn_layout(&mut self, layout: &SpawnLayout) {
+        use rand::SeedableRng;
+        use rand_chacha::ChaCha8Rng;
+        let mut personality_rng = ChaCha8Rng::seed_from_u64(self.seed);
+        let random_personality =
+            |rng: &mut ChaCha8Rng| crate::agent::psyche::personality::Personality::from_rng(rng);
+
         for &pos in &layout.human_positions {
-            self.spawn_agent(AgentConfig::at(pos));
+            let mut config = AgentConfig::at(pos);
+            config.personality = random_personality(&mut personality_rng);
+            self.spawn_agent(config);
         }
         for &pos in &layout.second_human_positions {
-            self.spawn_agent(AgentConfig::at(pos));
+            let mut config = AgentConfig::at(pos);
+            config.personality = random_personality(&mut personality_rng);
+            self.spawn_agent(config);
         }
-        for &pos in &layout.deer_positions {
-            self.spawn_deer(pos);
+        for herd in &layout.deer_herds {
+            let members: Vec<Entity> = herd.iter().map(|&pos| self.spawn_deer(pos)).collect();
+            if members.len() > 1 {
+                crate::testing::spawn::introduce_kin(self, &members, 0.8);
+            }
         }
-        let wolf_positions: Vec<Vec2> = layout.wolf_positions.clone();
-        if !wolf_positions.is_empty() {
-            self.spawn_wolf_pack(&wolf_positions);
+        for pack in &layout.wolf_packs {
+            let members = self.spawn_wolf_pack(pack);
+            if members.len() > 1 {
+                crate::testing::spawn::introduce_kin(self, &members, 0.8);
+            }
         }
         for &(pos, berries) in &layout.berry_bush_positions {
             self.spawn_berry_bush(pos, berries);

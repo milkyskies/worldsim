@@ -32,6 +32,7 @@ pub fn emotional_brain_propose(
     visible: &VisibleObjects,
     drives: Option<&PsychologicalDrives>,
     in_conversation: Option<&InConversation>,
+    self_concept: Option<Concept>,
     action_registry: &crate::agent::actions::ActionRegistry,
 ) -> Option<BrainProposal> {
     let mut best: Option<BrainProposal> = None;
@@ -50,16 +51,168 @@ pub fn emotional_brain_propose(
         best = Some(proposal);
     }
 
-    // Social seeking — only when not already in a conversation.
+    // Social seeking — conversation path (humans). Identical to the
+    // pre-#260 code so the if-let chain is unchanged.
     if in_conversation.is_none()
         && let Some(d) = drives
         && let Some(proposal) =
             seek_social_initiation(d.social, visible, mind, action_registry, best_urgency)
     {
+        best_urgency = proposal.urgency;
+        best = Some(proposal);
+    }
+
+    // Flock seeking — walk-toward-kin path (deer, wolves). Only fires for
+    // non-Person species; the drive gate and urgency gate are inside the
+    // function so this branch is effectively dormant for humans.
+    if in_conversation.is_none()
+        && let Some(d) = drives
+        && let Some(self_concept) = self_concept
+        && self_concept != Concept::Person
+        && let Some(proposal) = seek_flock_proximity(
+            d.social,
+            self_concept,
+            visible,
+            mind,
+            action_registry,
+            best_urgency,
+        )
+    {
         best = Some(proposal);
     }
 
     best
+}
+
+/// Propose `Walk` toward the highest-affection visible conspecific when
+/// social drive is high. The non-Person counterpart of
+/// `seek_social_initiation`: deer drift back toward herd-mates, wolves
+/// rejoin pack-mates, all using the same drive that humans use to seek
+/// conversation. Affection-weighted target selection means kin always
+/// outrank random strangers of the same species when both are visible.
+///
+/// Returns `None` for solitary species (`self_concept == Concept::Person`
+/// is filtered by the caller; future solitary animals like bears would
+/// pass this check but find no conspecifics in their group anyway, since
+/// they wouldn't be introduced as kin at spawn).
+fn seek_flock_proximity(
+    social_drive: f32,
+    self_concept: Concept,
+    visible: &VisibleObjects,
+    mind: &MindGraph,
+    action_registry: &crate::agent::actions::ActionRegistry,
+    min_urgency: f32,
+) -> Option<BrainProposal> {
+    if social_drive <= SOCIAL_SEEK_THRESHOLD {
+        return None;
+    }
+
+    let urgency = social_drive * SOCIAL_SEEK_URGENCY_MULTIPLIER;
+    if urgency <= min_urgency {
+        return None;
+    }
+
+    let action = action_registry.get(ActionType::Walk)?;
+
+    // First pass: visible kin (preferred — current position is fresh).
+    let mut best_visible: Option<(Entity, f32)> = None;
+    for &entity in &visible.entities {
+        if !is_conspecific(mind, entity, self_concept) {
+            continue;
+        }
+        let affection = read_affection(mind, entity);
+        match best_visible {
+            Some((_, current)) if affection <= current => {}
+            _ => best_visible = Some((entity, affection)),
+        }
+    }
+
+    if let Some((target, affection)) = best_visible {
+        return Some(BrainProposal {
+            brain: BrainType::Emotional,
+            // Walk's target_position resolves from target_entity in execution.rs.
+            action: action.to_template(Some(target)),
+            urgency,
+            intent: Intent::SatisfySocial,
+            reasoning: format!(
+                "I want to be near {target:?} (social: {social_drive:.2}, affection: {affection:.2})"
+            ),
+        });
+    }
+
+    // Fallback: known kin who isn't currently visible. Walk to their last
+    // remembered tile. This is what makes a separated deer find its way
+    // back to the herd — without it, the agent only knows to flock when
+    // already in vision range, which defeats the whole "rejoin the
+    // herd" semantic. Recency falls off naturally because the
+    // `LocatedAt` belief is a percept and decays over time.
+    let mut best_remembered: Option<(Entity, f32, (i32, i32))> = None;
+    let known_conspecifics = mind.query(
+        None,
+        Some(Predicate::IsA),
+        Some(&Value::Concept(self_concept)),
+    );
+    for triple in known_conspecifics {
+        let Node::Entity(entity) = triple.subject else {
+            continue;
+        };
+        // Skip currently-visible — they were handled above.
+        if visible.entities.contains(&entity) {
+            continue;
+        }
+        let affection = read_affection(mind, entity);
+        // Only chase remembered kin, not random animals you once saw.
+        if affection <= 0.5 {
+            continue;
+        }
+        // Look up last remembered tile.
+        let Some(Value::Tile((tx, ty))) = mind.get(&Node::Entity(entity), Predicate::LocatedAt)
+        else {
+            continue;
+        };
+        let tile = (*tx, *ty);
+        match best_remembered {
+            Some((_, current, _)) if affection <= current => {}
+            _ => best_remembered = Some((entity, affection, tile)),
+        }
+    }
+
+    let (target, affection, (tx, ty)) = best_remembered?;
+    let world_pos = Vec2::new(
+        tx as f32 * crate::world::map::TILE_SIZE + crate::world::map::TILE_SIZE / 2.0,
+        ty as f32 * crate::world::map::TILE_SIZE + crate::world::map::TILE_SIZE / 2.0,
+    );
+    let mut template = action.to_template(Some(target));
+    template.target_position = Some(world_pos);
+    Some(BrainProposal {
+        brain: BrainType::Emotional,
+        action: template,
+        urgency,
+        intent: Intent::SatisfySocial,
+        reasoning: format!(
+            "I remember {target:?} was at tile ({tx}, {ty}) — heading there \
+             (social: {social_drive:.2}, affection: {affection:.2})"
+        ),
+    })
+}
+
+fn is_conspecific(mind: &MindGraph, entity: Entity, self_concept: Concept) -> bool {
+    !mind
+        .query(
+            Some(&Node::Entity(entity)),
+            Some(Predicate::IsA),
+            Some(&Value::Concept(self_concept)),
+        )
+        .is_empty()
+}
+
+fn read_affection(mind: &MindGraph, entity: Entity) -> f32 {
+    mind.get(&Node::Entity(entity), Predicate::Affection)
+        .and_then(|v| match v {
+            Value::Float(f) => Some(*f),
+            _ => None,
+        })
+        .unwrap_or(0.5)
 }
 
 /// Propose `InitiateConversation` toward a visible person if social drive is
@@ -258,7 +411,8 @@ mod tests {
         let mut registry = crate::agent::actions::ActionRegistry::default();
         registry.register(crate::agent::actions::action::FleeAction);
 
-        let proposal = emotional_brain_propose(&state, &mind, &visible, None, None, &registry);
+        let proposal =
+            emotional_brain_propose(&state, &mind, &visible, None, None, None, &registry);
 
         assert!(proposal.is_some());
         let prop = proposal.unwrap();
@@ -286,7 +440,8 @@ mod tests {
         let mut registry = crate::agent::actions::ActionRegistry::default();
         registry.register(crate::agent::actions::action::FleeAction);
 
-        let proposal = emotional_brain_propose(&state, &mind, &visible, None, None, &registry);
+        let proposal =
+            emotional_brain_propose(&state, &mind, &visible, None, None, None, &registry);
 
         assert!(proposal.is_some());
         let prop = proposal.unwrap();
@@ -312,7 +467,8 @@ mod tests {
         let mut registry = crate::agent::actions::ActionRegistry::default();
         registry.register(crate::agent::actions::action::WalkAction);
 
-        let proposal = emotional_brain_propose(&state, &mind, &visible, None, None, &registry);
+        let proposal =
+            emotional_brain_propose(&state, &mind, &visible, None, None, None, &registry);
 
         assert!(proposal.is_some());
         let prop = proposal.unwrap();
@@ -326,7 +482,8 @@ mod tests {
         let visible = VisibleObjects::default();
 
         let registry = crate::agent::actions::ActionRegistry::default();
-        let proposal = emotional_brain_propose(&state, &mind, &visible, None, None, &registry);
+        let proposal =
+            emotional_brain_propose(&state, &mind, &visible, None, None, None, &registry);
 
         assert!(proposal.is_none());
     }

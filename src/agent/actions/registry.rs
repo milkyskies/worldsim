@@ -157,15 +157,21 @@ pub enum SpawnRequest {
         concept: crate::agent::mind::knowledge::Concept,
         position: bevy::prelude::Vec2,
     },
-    /// Spawn a construction site that will become `target` when its slots fill.
+    /// Spawn a construction site that will become `target` when its slots fill
+    /// (and optional labor is accumulated).
     /// `requirements` defines the slot configuration; `initial_items` are
     /// deposited into matching slots immediately (used when the agent already
-    /// has the materials in hand).
+    /// has the materials in hand). `labor_required` adds a `LaborAccumulated`
+    /// condition so agents must Construct the site after stocking it.
     Site {
         target: crate::agent::mind::knowledge::Concept,
         position: bevy::prelude::Vec2,
         requirements: Vec<(crate::agent::mind::knowledge::Concept, u32)>,
         initial_items: Vec<(crate::agent::mind::knowledge::Concept, u32)>,
+        /// `Some(n)` requires `n` labor ticks via the Construct action before
+        /// the site can transform. `None` keeps the original SlotsFilled-only
+        /// trigger for backward compatibility.
+        labor_required: Option<u32>,
     },
     /// Attach a `Becomes` transformation to an existing world entity. The
     /// transformation fires immediately (`AfterTicks(0)`), so on the next
@@ -626,9 +632,9 @@ impl ActiveActions {
 // ============================================================================
 
 use super::action::{
-    BuildAction, ConverseAction, DepositAction, DrinkAction, EatAction, ExploreAction, FleeAction,
-    HarvestAction, IdleAction, InitiateConversationAction, SleepAction, TakeAction, WakeUpAction,
-    WalkAction, WanderAction,
+    BuildAction, ConstructAction, ConverseAction, DepositAction, DrinkAction, EatAction,
+    ExploreAction, FleeAction, GrazeAction, HarvestAction, IdleAction, InitiateConversationAction,
+    SleepAction, TakeAction, WakeUpAction, WalkAction, WanderAction,
 };
 
 #[derive(Resource, Default)]
@@ -645,6 +651,7 @@ impl ActionRegistry {
         registry.register(WakeUpAction);
         registry.register(EatAction);
         registry.register(DrinkAction);
+        registry.register(GrazeAction);
         registry.register(WalkAction);
         registry.register(FleeAction);
         registry.register(ExploreAction);
@@ -652,6 +659,7 @@ impl ActionRegistry {
         registry.register(BiteAction);
         registry.register(HarvestAction);
         registry.register(BuildAction);
+        registry.register(ConstructAction);
         registry.register(DepositAction);
         registry.register(TakeAction);
         registry.register(WanderAction);

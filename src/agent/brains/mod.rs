@@ -39,12 +39,13 @@ impl Plugin for BrainPlugin {
                     // Note: start_actions is now in AgentPlugin to run after brain decides
                 )
                     .chain() // update_rational_brain runs before three_brains_system
-                    // Brain decision-making must read fresh perception data each
-                    // tick. Without this explicit ordering Bevy is free to schedule
-                    // the brain chain before perception (they only conflict on
-                    // MindGraph access), which silently breaks reactive behavior
-                    // including conversation initiation.
-                    .after(crate::agent::mind::perception::write_perceptions_to_mind)
+                    // Brains read CentralNervousSystem (goals, urgency) written by
+                    // formulate_goals — without this Bevy's multi-threaded scheduler
+                    // may run the brain before goals are updated for this tick,
+                    // causing stale state to drive incorrect action proposals. The
+                    // perception → brain ordering is implied transitively because
+                    // formulate_goals already runs after write_perceptions_to_mind.
+                    .after(crate::agent::nervous_system::cns::formulate_goals)
                     .run_if(not_paused), // ALL brain systems pause together
             )
             .add_systems(

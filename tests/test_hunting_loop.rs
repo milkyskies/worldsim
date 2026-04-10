@@ -267,6 +267,7 @@ fn spawn_concept_entity_corpse_creates_harvestable_meat_entity() {
                 &mut commands,
                 Concept::Corpse,
                 Vec2::new(40.0, 40.0),
+                0,
             )
             .expect("Corpse should be spawnable")
         };

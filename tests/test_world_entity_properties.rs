@@ -8,10 +8,13 @@ use bevy::prelude::*;
 use worldsim::agent::activity::CurrentActivity;
 use worldsim::agent::body::needs::PhysicalNeeds;
 use worldsim::agent::inventory::EntityType;
+use worldsim::agent::item_slots::ItemSlots;
 use worldsim::agent::mind::knowledge::{Concept, MindGraph, Predicate, Value};
+use worldsim::agent::psyche::emotions::EmotionalState;
 use worldsim::testing::{AgentConfig, TestWorld};
 use worldsim::world::Physical;
 use worldsim::world::campfire::CampfireMarker;
+use worldsim::world::emits_effect::{EffectKind, EmitsEffect};
 use worldsim::world::property::{
     BuiltBy, Durability, FuelConsumer, HeatSource, LightSource, ShelterProvider,
 };
@@ -355,14 +358,123 @@ fn campfire_has_campfire_marker() {
 }
 
 #[test]
+fn campfire_has_emits_effect_comfort_aura() {
+    let mut world = TestWorld::with_seed(0);
+    let campfire = world.spawn_campfire(Vec2::new(100.0, 100.0));
+
+    let emits = world.get::<EmitsEffect>(campfire);
+    assert!(
+        emits.radius > 0.0,
+        "campfire should emit a comfort aura with positive radius"
+    );
+
+    // The aura should be a composite effect carrying both stress reduction
+    // and energy recovery — this is what makes a campfire feel like home.
+    let (has_stress_relief, has_energy_recovery) = match &emits.effect {
+        EffectKind::All(effects) => {
+            let stress = effects
+                .iter()
+                .any(|e| matches!(e, EffectKind::StressPerSec(r) if *r < 0.0));
+            let energy = effects
+                .iter()
+                .any(|e| matches!(e, EffectKind::EnergyPerSec(r) if *r > 0.0));
+            (stress, energy)
+        }
+        _ => (false, false),
+    };
+    assert!(
+        has_stress_relief,
+        "campfire aura should reduce stress (negative StressPerSec)"
+    );
+    assert!(
+        has_energy_recovery,
+        "campfire aura should restore energy (positive EnergyPerSec)"
+    );
+}
+
+#[test]
+fn agent_near_campfire_has_lower_stress_than_distant_agent() {
+    // Two identical agents, one inside the campfire's aura and one well outside.
+    // After ticking, the sheltered agent must have strictly lower stress than
+    // the distant control. Direct comparison cancels out background stress
+    // recovery / drift that affects both agents equally.
+    let (mut world, entities) = TestWorld::scenario(0)
+        .agent("near")
+        .pos(Vec2::new(100.0, 100.0))
+        .done()
+        .agent("far")
+        .pos(Vec2::new(800.0, 800.0))
+        .done()
+        .build();
+    let near = entities.get("near");
+    let far = entities.get("far");
+
+    // Start both agents at the same elevated stress level so the campfire's
+    // contribution shows up as a difference in how much stress drops.
+    // (ScenarioBuilder doesn't expose stress directly — mutate post-build.)
+    for agent in [near, far] {
+        let mut emotional = world.get_mut::<EmotionalState>(agent);
+        emotional.stress_level = 80.0;
+    }
+
+    // Campfire 10px from the near agent — well within the 80px aura radius.
+    let _campfire = world.spawn_campfire(Vec2::new(110.0, 100.0));
+
+    world.tick(120);
+
+    let near_stress = world.get::<EmotionalState>(near).stress_level;
+    let far_stress = world.get::<EmotionalState>(far).stress_level;
+
+    assert!(
+        near_stress < far_stress,
+        "agent inside campfire aura should have lower stress than distant control \
+         (near={near_stress:.2}, far={far_stress:.2})"
+    );
+}
+
+#[test]
+fn agent_near_campfire_recovers_more_energy_than_distant_agent() {
+    // Drain both agents' energy to give the campfire something to recover.
+    let (mut world, entities) = TestWorld::scenario(0)
+        .agent("near")
+        .pos(Vec2::new(100.0, 100.0))
+        .energy(30.0)
+        .done()
+        .agent("far")
+        .pos(Vec2::new(800.0, 800.0))
+        .energy(30.0)
+        .done()
+        .build();
+    let near = entities.get("near");
+    let far = entities.get("far");
+
+    let _campfire = world.spawn_campfire(Vec2::new(110.0, 100.0));
+
+    world.tick(120);
+
+    let near_energy = world.get::<PhysicalNeeds>(near).energy;
+    let far_energy = world.get::<PhysicalNeeds>(far).energy;
+
+    assert!(
+        near_energy > far_energy,
+        "agent inside campfire aura should recover more energy than distant control \
+         (near={near_energy:.2}, far={far_energy:.2})"
+    );
+}
+
+#[test]
 fn campfire_light_dims_when_fuel_exhausted() {
     let mut world = TestWorld::with_seed(0);
     let campfire = world.spawn_campfire(Vec2::new(100.0, 100.0));
 
-    // Drain all fuel
+    // Drain all fuel: both the FuelConsumer float counter AND the item slot.
     {
         let mut consumer = world.get_mut::<FuelConsumer>(campfire);
         consumer.fuel_remaining = 2.0;
+    }
+    {
+        let mut slots = world.get_mut::<ItemSlots>(campfire);
+        while slots.remove_thing_unchecked(Concept::Wood).is_some() {}
     }
 
     world.tick(5);
@@ -374,11 +486,6 @@ fn campfire_light_dims_when_fuel_exhausted() {
     assert!(
         world.app().world().get::<HeatSource>(campfire).is_none(),
         "campfire HeatSource should be removed when fuel runs out"
-    );
-    // The campfire entity itself persists (it's embers/ash)
-    assert!(
-        world.entity_exists(campfire),
-        "campfire entity should still exist after fuel runs out (it's now embers)"
     );
 }
 

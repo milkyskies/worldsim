@@ -1,3 +1,10 @@
+//! Action type enum: the verbs agents can perform, separated from events.
+//!
+//! Reads: nothing (leaf type)
+//! Writes: ActionType (used as value across the agent stack)
+//! Upstream: none
+//! Downstream: actions::registry, brains, nervous_system, ui::character_sheet
+
 use bevy::prelude::*;
 
 /// Defines the objective "verbs" agents can perform.
@@ -9,6 +16,11 @@ pub enum ActionType {
     Sleep,
     WakeUp, // NEW: Transition from sleep to awake
     Drink,
+    /// Slow walk + continuous eating over a grass tile. Occupies
+    /// Locomotion + Consumption simultaneously so the channel system
+    /// expresses the "walk and eat at the same time" behaviour as one
+    /// fused drift.
+    Graze,
 
     // Resource
     Harvest,
@@ -31,6 +43,14 @@ pub enum ActionType {
     #[default]
     Idle,
 
+    /// Work on a construction site that requires labor to complete.
+    /// Targets a world entity with a `Becomes` component whose trigger tree
+    /// contains a `LaborAccumulated` variant. Running this action each tick
+    /// causes the `labor_accumulation_system` to increment the site's labor
+    /// counter by one. The action runs indefinitely until the target is
+    /// despawned (i.e. the site transforms into the finished entity).
+    Construct,
+
     // Social / Combat
     Wave,
     /// Walk-to-target marker proposed by brains to start a conversation.
@@ -52,5 +72,37 @@ pub enum ActionType {
 impl std::fmt::Display for ActionType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{:?}", self)
+    }
+}
+
+impl ActionType {
+    /// Human-readable present-participle verb ("Eating", "Fleeing from", ...)
+    /// for the character sheet. Verbs ending in a preposition imply a target
+    /// follows (e.g. "Walking to <place>", "Attacking <target>").
+    pub fn verb(self) -> &'static str {
+        match self {
+            ActionType::Eat => "Eating",
+            ActionType::Sleep => "Sleeping",
+            ActionType::WakeUp => "Waking up",
+            ActionType::Drink => "Drinking",
+            ActionType::Graze => "Grazing",
+            ActionType::Construct => "Constructing",
+            ActionType::Harvest => "Harvesting",
+            ActionType::Pickup => "Picking up",
+            ActionType::Drop => "Dropping",
+            ActionType::Build => "Building",
+            ActionType::Deposit => "Depositing into",
+            ActionType::Take => "Taking from",
+            ActionType::Walk => "Walking to",
+            ActionType::Wander => "Wandering",
+            ActionType::Explore => "Exploring",
+            ActionType::Idle => "Idle",
+            ActionType::Wave => "Waving at",
+            ActionType::InitiateConversation => "Approaching",
+            ActionType::Converse => "Talking to",
+            ActionType::Attack => "Attacking",
+            ActionType::Bite => "Biting",
+            ActionType::Flee => "Fleeing from",
+        }
     }
 }
