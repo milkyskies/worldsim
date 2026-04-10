@@ -124,6 +124,13 @@ pub enum Concept {
     Awake,
     Asleep,
 
+    // ─── Property traits (auto-derived from ECS components via define_property_component!) ───
+    LightEmitting,    // Entity emits light (e.g. campfire, torch)
+    HeatEmitting,     // Entity emits heat (e.g. campfire, fire)
+    ShelterProviding, // Entity provides shelter from weather (e.g. lean-to, cave)
+    Flammable,        // Entity can catch fire and burn
+    FuelConsuming,    // Entity consumes fuel to function (e.g. campfire)
+
     // ─── Action categories ───
     SocialAction,
     ViolentAction,
@@ -1067,6 +1074,38 @@ impl Ontology {
     /// Get direct parents of concept
     pub fn get_parents(&self, concept: Concept) -> Vec<Concept> {
         self.parent_cache.get(&concept).cloned().unwrap_or_default()
+    }
+
+    /// Assert that a concept has a trait, rebuilding caches if the triple is new.
+    /// Idempotent — calling twice with the same arguments is a no-op.
+    pub fn ensure_trait(&mut self, concept: Concept, trait_: Concept) {
+        if self.has_trait(concept, trait_) {
+            return;
+        }
+        let triple = Triple::new(Node::Concept(concept), Predicate::HasTrait, Value::Concept(trait_));
+        let mut triples = (*self.triples).clone();
+        triples.push(triple);
+        self.triples = Arc::new(triples);
+        self.build_caches();
+    }
+
+    /// Assert that a concept produces another concept (e.g. BerryBush → Berry),
+    /// rebuilding caches if the triple is new.
+    /// Idempotent — calling twice with the same arguments is a no-op.
+    pub fn ensure_production(&mut self, producer: Concept, product: Concept) {
+        let already_exists = self.triples.iter().any(|t| {
+            t.subject == Node::Concept(producer)
+                && t.predicate == Predicate::Produces
+                && t.object == Value::Concept(product)
+        });
+        if already_exists {
+            return;
+        }
+        let triple = Triple::new(Node::Concept(producer), Predicate::Produces, Value::Concept(product));
+        let mut triples = (*self.triples).clone();
+        triples.push(triple);
+        self.triples = Arc::new(triples);
+        // No cache rebuild needed — production triples don't affect trait/parent caches
     }
 
     /// Build caches from triples

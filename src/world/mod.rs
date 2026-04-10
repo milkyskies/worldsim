@@ -1,6 +1,7 @@
 pub mod apple_tree;
 pub mod becomes;
 pub mod berry_bush;
+pub mod property;
 pub mod campfire;
 pub mod construction_site;
 pub mod deer;
@@ -28,7 +29,8 @@ impl Plugin for WorldPlugin {
             .add_plugins(map::MapPlugin)
             .add_plugins(environment::EnvironmentPlugin)
             .add_plugins(spatial_index::SpatialIndexPlugin)
-            .add_plugins(spawner::SpawnerPlugin);
+            .add_plugins(spawner::SpawnerPlugin)
+            .add_plugins(property::OntologyDerivationPlugin);
     }
 }
 

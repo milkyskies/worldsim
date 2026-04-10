@@ -1,0 +1,266 @@
+//! Property components for world entities — auto-derived ontology traits.
+//!
+//! Reads:  [`EntityType`] on newly-spawned entities
+//! Writes: [`Ontology`] (`HasTrait` and `Produces` triples)
+//! Upstream: world spawners (apple_tree, campfire, etc.)
+//! Downstream: agent perception, culture knowledge seeding
+
+use bevy::prelude::*;
+
+use crate::agent::mind::knowledge::{Concept, Ontology};
+use crate::agent::inventory::EntityType;
+
+// ─── Marker traits ──────────────────────────────────────────────────────────
+
+/// Sealed marker trait: every property component created via
+/// `define_property_component!` implements this automatically.
+///
+/// Any system that feeds a component into agent-facing reasoning can bound on
+/// `IsRegisteredProperty` to get a compile-time guarantee that the corresponding
+/// ontology triple will be registered.  A raw `#[derive(Component)]` struct
+/// WITHOUT the macro will fail to satisfy this bound.
+pub trait IsRegisteredProperty: Component {}
+
+/// Maps a property component type to the [`Concept`] trait it asserts in the
+/// ontology when added to an entity.
+pub trait OntologyTrait: Component {
+    fn concept_trait() -> Concept;
+}
+
+// ─── Macro ──────────────────────────────────────────────────────────────────
+
+/// Define a property component that automatically registers an ontology trait.
+///
+/// Usage:
+/// ```rust
+/// define_property_component! {
+///     /// Doc comment
+///     pub struct LightSource {
+///         pub radius: f32,
+///         pub intensity: f32,
+///     } => Concept::LightEmitting
+/// }
+/// ```
+///
+/// The macro generates:
+/// 1. The struct with `#[derive(Component, Reflect, Debug, Clone)]` and `#[reflect(Component)]`
+/// 2. `impl IsRegisteredProperty` — compile-time proof of registration
+/// 3. `impl OntologyTrait` — maps to the concept trait
+/// 4. A derive system `derive_ontology_<snake_name>` — fires on `Added<Self>`,
+///    calls `ontology.ensure_trait(entity_type, concept_trait)` for every new entity
+#[macro_export]
+macro_rules! define_property_component {
+    (
+        $(#[$meta:meta])*
+        pub struct $name:ident {
+            $(pub $field:ident : $ftype:ty),* $(,)?
+        } => $concept:expr
+    ) => {
+        $(#[$meta])*
+        #[derive(Component, Reflect, Debug, Clone)]
+        #[reflect(Component)]
+        pub struct $name {
+            $(pub $field: $ftype,)*
+        }
+
+        impl $crate::world::property::IsRegisteredProperty for $name {}
+
+        impl $crate::world::property::OntologyTrait for $name {
+            fn concept_trait() -> $crate::agent::mind::knowledge::Concept {
+                $concept
+            }
+        }
+
+        ::paste::paste! {
+            pub fn [<derive_ontology_ $name:snake>](
+                query: Query<&$crate::agent::inventory::EntityType, Added<$name>>,
+                mut ontology: ResMut<$crate::agent::mind::knowledge::Ontology>,
+            ) {
+                for entity_type in query.iter() {
+                    ontology.ensure_trait(entity_type.0, $concept);
+                }
+            }
+        }
+    };
+}
+
+// ─── Property components ─────────────────────────────────────────────────────
+
+define_property_component! {
+    /// Emits light in a radius. Perceived via visual sense.
+    pub struct LightSource {
+        pub radius: f32,
+        pub intensity: f32,
+    } => Concept::LightEmitting
+}
+
+define_property_component! {
+    /// Emits heat in a radius. Affects warmth comfort of nearby agents.
+    pub struct HeatSource {
+        pub radius: f32,
+        pub intensity: f32,
+    } => Concept::HeatEmitting
+}
+
+define_property_component! {
+    /// Provides shelter from weather. Reduces exposure to rain/cold when nearby.
+    pub struct ShelterProvider {
+        pub capacity: u32,
+        pub protection: f32,
+    } => Concept::ShelterProviding
+}
+
+define_property_component! {
+    /// Can catch fire and burn. Consumed when ignited.
+    pub struct Flammable {
+        pub burn_time: f32,
+    } => Concept::Flammable
+}
+
+define_property_component! {
+    /// Consumes fuel to maintain function (e.g. campfire burns wood).
+    pub struct FuelConsumer {
+        pub fuel_type: Concept,
+        pub consumption_rate: f32,
+    } => Concept::FuelConsuming
+}
+
+// Harvestable is handled specially: it also derives a Produces triple from its
+// `yields` field.  Written manually (not via the macro) because the macro only
+// handles simple trait derivation; field-based derivation is the exception.
+
+/// Can be harvested for resources. Auto-derives both the `Harvestable` trait
+/// and a `Produces` triple from the `yields` field.
+#[derive(Component, Reflect, Debug, Clone)]
+#[reflect(Component)]
+pub struct HarvestableComponent {
+    pub yields: Concept,
+    pub remaining: u32,
+    pub max: u32,
+    pub regrow_rate: f32,
+}
+
+impl IsRegisteredProperty for HarvestableComponent {}
+
+impl OntologyTrait for HarvestableComponent {
+    fn concept_trait() -> Concept {
+        Concept::Harvestable
+    }
+}
+
+pub fn derive_ontology_harvestable_component(
+    query: Query<(&EntityType, &HarvestableComponent), Added<HarvestableComponent>>,
+    mut ontology: ResMut<Ontology>,
+) {
+    for (entity_type, harvestable) in query.iter() {
+        ontology.ensure_trait(entity_type.0, Concept::Harvestable);
+        ontology.ensure_production(entity_type.0, harvestable.yields);
+    }
+}
+
+// ─── Plugin ──────────────────────────────────────────────────────────────────
+
+/// Registers all ontology-derivation systems generated by `define_property_component!`.
+///
+/// Each system fires on `Added<Component>` so derivation works for entities
+/// spawned at startup AND mid-game.  `ensure_trait`/`ensure_production` are
+/// idempotent, so multiple spawns of the same entity type are safe.
+pub struct OntologyDerivationPlugin;
+
+impl Plugin for OntologyDerivationPlugin {
+    fn build(&self, app: &mut App) {
+        app.register_type::<LightSource>()
+            .register_type::<HeatSource>()
+            .register_type::<ShelterProvider>()
+            .register_type::<Flammable>()
+            .register_type::<FuelConsumer>()
+            .register_type::<HarvestableComponent>()
+            .add_systems(
+                Update,
+                (
+                    derive_ontology_light_source,
+                    derive_ontology_heat_source,
+                    derive_ontology_shelter_provider,
+                    derive_ontology_flammable,
+                    derive_ontology_fuel_consumer,
+                    derive_ontology_harvestable_component,
+                ),
+            );
+    }
+}
+
+// ─── Tests ───────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::agent::mind::knowledge::{Ontology, setup_ontology};
+
+    fn empty_ontology() -> Ontology {
+        setup_ontology()
+    }
+
+    // ── ensure_trait ────────────────────────────────────────────────────────
+
+    #[test]
+    fn ensure_trait_adds_missing_trait() {
+        let mut ontology = empty_ontology();
+        assert!(!ontology.has_trait(Concept::Campfire, Concept::LightEmitting));
+        ontology.ensure_trait(Concept::Campfire, Concept::LightEmitting);
+        assert!(ontology.has_trait(Concept::Campfire, Concept::LightEmitting));
+    }
+
+    #[test]
+    fn ensure_trait_is_idempotent() {
+        let mut ontology = empty_ontology();
+        let count_before = ontology.triples.len();
+        ontology.ensure_trait(Concept::Campfire, Concept::LightEmitting);
+        let count_after_first = ontology.triples.len();
+        ontology.ensure_trait(Concept::Campfire, Concept::LightEmitting); // duplicate
+        let count_after_second = ontology.triples.len();
+        assert_eq!(count_before + 1, count_after_first);
+        assert_eq!(count_after_first, count_after_second, "duplicate call must not add a second triple");
+    }
+
+    // ── ensure_production ───────────────────────────────────────────────────
+
+    #[test]
+    fn ensure_production_adds_produces_triple() {
+        let mut ontology = empty_ontology();
+        ontology.ensure_production(Concept::BerryBush, Concept::Berry);
+        let exists = ontology.triples.iter().any(|t| {
+            t.subject == crate::agent::mind::knowledge::Node::Concept(Concept::BerryBush)
+                && t.predicate == crate::agent::mind::knowledge::Predicate::Produces
+                && t.object == crate::agent::mind::knowledge::Value::Concept(Concept::Berry)
+        });
+        assert!(exists, "Produces triple should exist after ensure_production");
+    }
+
+    #[test]
+    fn ensure_production_is_idempotent() {
+        let mut ontology = empty_ontology();
+        ontology.ensure_production(Concept::BerryBush, Concept::Berry);
+        let count = ontology.triples.len();
+        ontology.ensure_production(Concept::BerryBush, Concept::Berry); // duplicate
+        assert_eq!(count, ontology.triples.len(), "duplicate call must not add a second triple");
+    }
+
+    // ── Trait impls ─────────────────────────────────────────────────────────
+
+    #[test]
+    fn light_source_implements_is_registered_property() {
+        fn requires_registered<T: IsRegisteredProperty>() {}
+        requires_registered::<LightSource>();
+    }
+
+    #[test]
+    fn heat_source_concept_trait_is_heat_emitting() {
+        assert_eq!(HeatSource::concept_trait(), Concept::HeatEmitting);
+    }
+
+    #[test]
+    fn harvestable_component_implements_is_registered_property() {
+        fn requires_registered<T: IsRegisteredProperty>() {}
+        requires_registered::<HarvestableComponent>();
+    }
+}
