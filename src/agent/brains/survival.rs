@@ -18,6 +18,8 @@ use bevy::prelude::*;
 pub struct SurvivalBrainContext<'a> {
     pub physical: &'a PhysicalNeeds,
     pub cns: &'a CentralNervousSystem,
+    /// The visible entity the agent fears most, if any.
+    pub most_feared_entity: Option<Entity>,
 }
 
 /// Propose a survival action based on the highest urgency drive.
@@ -110,7 +112,7 @@ pub fn survival_brain_propose(
             if let Some(action) = action_registry.get(ActionType::Flee) {
                 return Some(BrainProposal {
                     brain: BrainType::Survival,
-                    action: action.to_template(None),
+                    action: action.to_template(context.most_feared_entity),
                     urgency: urgency_score,
                     intent,
                     reasoning: format!("Fear urgency {:.2} — fleeing!", top.value),
@@ -167,7 +169,11 @@ mod tests {
         physical: &'a PhysicalNeeds,
         cns: &'a CentralNervousSystem,
     ) -> SurvivalBrainContext<'a> {
-        SurvivalBrainContext { physical, cns }
+        SurvivalBrainContext {
+            physical,
+            cns,
+            most_feared_entity: None,
+        }
     }
 
     fn cns_with_top(source: UrgencySource, value: f32) -> CentralNervousSystem {

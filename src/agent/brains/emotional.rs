@@ -260,6 +260,21 @@ fn seek_social_initiation(
     None
 }
 
+/// Returns the first visible entity that the mind knows is `Dangerous`.
+///
+/// Perception writes `(entity, IsA, Concept::Wolf)` triples; `has_trait` walks
+/// the IsA chain to find `(Wolf, HasTrait, Dangerous)` in the ontology.
+pub(crate) fn find_most_feared_visible_entity(
+    visible: &VisibleObjects,
+    mind: &MindGraph,
+) -> Option<Entity> {
+    visible
+        .entities
+        .iter()
+        .find(|&&e| mind.has_trait(&Node::Entity(e), Concept::Dangerous))
+        .copied()
+}
+
 /// Returns (fear, joy, anger) intensities from direct and inherited associations.
 fn collect_entity_feelings(entity: Entity, mind: &MindGraph) -> (f32, f32, f32) {
     let subject = Node::Entity(entity);
