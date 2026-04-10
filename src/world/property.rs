@@ -141,15 +141,14 @@ define_property_component! {
 // `yields` field.  Written manually (not via the macro) because the macro only
 // handles simple trait derivation; field-based derivation is the exception.
 
-/// Can be harvested for resources. Auto-derives both the `Harvestable` trait
-/// and a `Produces` triple from the `yields` field.
+/// Marks an entity as harvestable and declares what it produces. Auto-derives
+/// both the `Harvestable` trait and a `Produces` triple in the ontology.
+///
+/// Inventory count and regeneration live in `ItemSlots` + `ResourceRegeneration`.
 #[derive(Component, Reflect, Debug, Clone)]
 #[reflect(Component)]
 pub struct HarvestableComponent {
     pub yields: Concept,
-    pub remaining: u32,
-    pub max: u32,
-    pub regrow_rate: f32,
 }
 
 impl IsRegisteredProperty for HarvestableComponent {}

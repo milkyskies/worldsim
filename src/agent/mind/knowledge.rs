@@ -1331,11 +1331,14 @@ pub fn setup_ontology() -> Ontology {
     add(c(Water), HasTrait, v(Drinkable));
     add(c(Person), HasTrait, v(Sentient));
     add(c(Animal), HasTrait, v(Sentient));
+    // AppleTree and BerryBush inherit Harvestable from Plant via IsA.
+    // WoodLog and StoneNode receive it at spawn time via
+    // derive_ontology_harvestable_component (they are not Plants).
     add(c(Plant), HasTrait, v(Harvestable));
-    add(c(AppleTree), HasTrait, v(Harvestable));
-    add(c(BerryBush), HasTrait, v(Harvestable));
-    add(c(WoodLog), HasTrait, v(Harvestable));
-    add(c(StoneNode), HasTrait, v(Harvestable));
+
+    // ─── Universal production facts (all agents know these) ───
+    add(c(WoodLog), Produces, Value::Item(Wood, 1));
+    add(c(StoneNode), Produces, Value::Item(Stone, 1));
 
     // ─── Action Categorization ───
     use crate::agent::actions::ActionType;
