@@ -40,8 +40,15 @@ pub struct RelationshipConfig {
     /// Multiplier on half-life when `current < neutral` (grudges / distrust).
     /// Values > 1.0 make negative feelings linger longer than positive ones (negativity bias).
     pub negativity_bias: f32,
-    /// Grace period in game days. Any relationship updated within this window is skipped.
-    pub decay_grace_days: u64,
+    /// Interval (in ticks) between decay fires. Tests can set this small to
+    /// avoid ticking through a full game day in the test harness.
+    pub decay_interval_ticks: u64,
+    /// Grace period (in ticks). Any relationship updated within this window
+    /// of the current tick is skipped by decay — recent contact maintains closeness.
+    pub decay_grace_ticks: u64,
+    /// How much elapsed game time (in days) each decay fire represents.
+    /// Production uses 1.0 (each fire = 1 day); tests override to any value.
+    pub decay_step_days: f32,
 }
 
 impl Default for RelationshipConfig {
@@ -58,7 +65,9 @@ impl Default for RelationshipConfig {
             weak_bond_half_life_days: 3.0,
             strong_bond_half_life_days: 60.0,
             negativity_bias: 1.5,
-            decay_grace_days: 1,
+            decay_interval_ticks: GameTime::TICKS_PER_DAY,
+            decay_grace_ticks: GameTime::TICKS_PER_DAY,
+            decay_step_days: 1.0,
         }
     }
 }
@@ -246,23 +255,24 @@ fn decay_fraction(current: f32, step_days: f32, config: &RelationshipConfig) -> 
 
 /// System: Decay relationships toward neutral over time without contact.
 ///
-/// Fires once per game day. Uses an exponential half-life that scales with
-/// bond strength, so close friends take a full in-game year to fade while
-/// acquaintances fade within a week. A grace period skips any relationship
-/// refreshed by a recent interaction.
+/// Fires every `config.decay_interval_ticks` (default: once per game day).
+/// Uses an exponential half-life that scales with bond strength, so close
+/// friends take a full in-game year to fade while acquaintances fade within
+/// a week. A grace period skips any relationship refreshed by a recent
+/// interaction.
 pub fn decay_relationships(
     mut agents: Query<&mut MindGraph, With<Agent>>,
     tick: Res<TickCount>,
     config: Res<RelationshipConfig>,
 ) {
-    if !tick.current.is_multiple_of(GameTime::TICKS_PER_DAY) {
+    if config.decay_interval_ticks == 0 || !tick.current.is_multiple_of(config.decay_interval_ticks)
+    {
         return;
     }
 
     let current_time = tick.current;
-    let grace_ticks = config.decay_grace_days * GameTime::TICKS_PER_DAY;
-    // Each fire represents one game day of elapsed time.
-    let step_days = 1.0;
+    let grace_ticks = config.decay_grace_ticks;
+    let step_days = config.decay_step_days;
 
     for mut mind in agents.iter_mut() {
         decay_predicate(
@@ -321,5 +331,66 @@ fn decay_predicate(
             Value::Float(new_value),
             Metadata::semantic(current_time),
         ));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test_config() -> RelationshipConfig {
+        RelationshipConfig::default()
+    }
+
+    /// Strong bonds (trust near the extremes) should barely decay in one day
+    /// thanks to the ~60-day half-life at maximum strength.
+    #[test]
+    fn strong_trust_barely_decays_in_one_day() {
+        let config = test_config();
+        let fraction = decay_fraction(0.95, 1.0, &config);
+        // Half-life ≈ 3 + (60-3)*0.9 ≈ 54.3 days → frac ≈ 1 - 0.5^(1/54.3) ≈ 0.0127
+        assert!(
+            fraction < 0.02,
+            "strong trust should decay <2% per day, got {fraction}"
+        );
+        assert!(fraction > 0.0, "some decay should occur");
+    }
+
+    /// Weak bonds decay quickly — a few percent per day at the weakest half-life.
+    #[test]
+    fn weak_trust_decays_quickly() {
+        let config = test_config();
+        let fraction = decay_fraction(0.55, 1.0, &config);
+        // Half-life ≈ 3 + (60-3)*0.1 ≈ 8.7 days → frac ≈ 0.077
+        assert!(
+            fraction > 0.05,
+            "weak trust should decay >5% per day, got {fraction}"
+        );
+    }
+
+    /// Negative trust decays slower than symmetric positive trust — grudges linger.
+    #[test]
+    fn negative_trust_lingers_longer_than_positive() {
+        let config = test_config();
+        let positive_fraction = decay_fraction(0.8, 1.0, &config);
+        let negative_fraction = decay_fraction(0.2, 1.0, &config);
+        assert!(
+            negative_fraction < positive_fraction,
+            "negativity bias: negative ({negative_fraction}) should decay slower \
+             than positive ({positive_fraction})"
+        );
+    }
+
+    /// At neutral (0.5) exactly, strength is 0 so the half-life is the weakest.
+    /// The fraction is still a positive number, but applied to a zero distance
+    /// → no actual change. This just verifies the math doesn't NaN.
+    #[test]
+    fn decay_at_neutral_is_finite() {
+        let config = test_config();
+        let fraction = decay_fraction(0.5, 1.0, &config);
+        assert!(
+            fraction.is_finite() && fraction >= 0.0,
+            "fraction at neutral should be finite and non-negative, got {fraction}"
+        );
     }
 }

@@ -1,19 +1,18 @@
-//! Verifies relationship decay behavior (see src/agent/psyche/relationships.rs).
+//! Integration tests for the decay_relationships ECS wiring.
 //!
-//! The decay system fires once per game day and uses an exponential half-life
-//! that scales with bond strength:
-//!   - Strong bonds (near 0.0 or 1.0) decay slowly — full-year half-life.
-//!   - Weak bonds (near 0.5) decay quickly — few-day half-life.
-//!   - Negative feelings (below 0.5) linger longer (negativity bias).
-//!   - Any relationship refreshed within `decay_grace_days` is skipped entirely.
+//! The pure-math behavior (half-life model, strength scaling, negativity bias)
+//! is unit-tested in `src/agent/psyche/relationships.rs`. These tests only
+//! verify the two things that require the ECS:
+//!   - Decay fires at `decay_interval_ticks` boundaries.
+//!   - A relationship updated within the grace window is skipped.
+//!
+//! Tests override `RelationshipConfig` with a small `decay_interval_ticks`
+//! so they don't need to tick through 86,400 ticks per game day.
 
 use bevy::prelude::*;
 use worldsim::agent::mind::knowledge::{Metadata, MindGraph, Node, Predicate, Triple, Value};
-use worldsim::core::time::GameTime;
+use worldsim::agent::psyche::relationships::RelationshipConfig;
 use worldsim::testing::{AgentConfig, TestWorld};
-
-/// One game day in ticks — the interval at which decay fires.
-const TICKS_PER_DAY: u64 = GameTime::TICKS_PER_DAY;
 
 fn set_trust(world: &mut TestWorld, agent: Entity, other: Entity, trust: f32, timestamp: u64) {
     world
@@ -44,109 +43,63 @@ fn get_trust(world: &TestWorld, agent: Entity, other: Entity) -> Option<f32> {
         })
 }
 
-/// Strong bonds should lose only a small fraction of their distance from
-/// neutral after a single game day. At a ~60-day half-life, one day removes
-/// less than 2% of the gap between the current value and neutral.
-#[test]
-fn strong_trust_barely_decays_in_one_game_day() {
-    let mut world = TestWorld::with_seed(42);
-    let agent = world.spawn_agent(AgentConfig::default());
-    // Bare entity so no social system can refresh the timestamp.
-    let other = world.app_mut().world_mut().spawn_empty().id();
-
-    set_trust(&mut world, agent, other, 0.95, 0);
-
-    // Tick one full day + a margin so the day-boundary system definitely fires.
-    world.tick(TICKS_PER_DAY + 1);
-
-    let trust = get_trust(&world, agent, other).expect("trust should still exist");
-    // 0.95 with a ~60-day half-life: one day ≈ 0.94.7 — nearly unchanged.
-    assert!(
-        trust > 0.93,
-        "strong trust (0.95) should barely fade after 1 game day, got {trust}"
-    );
-    assert!(trust < 0.95, "some decay should have occurred, got {trust}");
+/// Override decay config so the test can tick a handful of ticks instead
+/// of marching through a full game day (86,400 ticks).
+fn set_fast_decay(world: &mut TestWorld, interval_ticks: u64, grace_ticks: u64) {
+    let mut config = world
+        .app_mut()
+        .world_mut()
+        .resource_mut::<RelationshipConfig>();
+    config.decay_interval_ticks = interval_ticks;
+    config.decay_grace_ticks = grace_ticks;
 }
 
-/// Weak bonds (close to neutral) fade quickly — a few game days should move a
-/// 0.6 trust noticeably back toward 0.5.
+/// When the grace window has passed and the decay interval is hit, trust
+/// should move from its starting value toward neutral.
 #[test]
-fn weak_trust_fades_quickly_over_several_days() {
+fn decay_fires_and_pulls_trust_toward_neutral() {
     let mut world = TestWorld::with_seed(42);
     let agent = world.spawn_agent(AgentConfig::default());
+    // Bare entity so no social system refreshes the timestamp.
     let other = world.app_mut().world_mut().spawn_empty().id();
 
-    set_trust(&mut world, agent, other, 0.6, 0);
+    // Fire every 10 ticks with no grace period.
+    set_fast_decay(&mut world, 10, 0);
 
-    // 5 game days.
-    world.tick(TICKS_PER_DAY * 5 + 1);
+    // Set trust at tick 0; advance past the first decay boundary at tick 10.
+    set_trust(&mut world, agent, other, 0.8, 0);
+    world.tick(11);
 
     let trust = get_trust(&world, agent, other).expect("trust should still exist");
-    // Weak bond has a half-life of ~4 days; after 5 days trust should be noticeably
-    // below 0.6 but still above neutral.
     assert!(
-        trust < 0.58,
-        "weak trust (0.6) should fade within 5 game days, got {trust}"
+        trust < 0.8,
+        "trust should have decayed from 0.8, got {trust}"
     );
     assert!(
         trust > 0.5,
-        "trust should asymptote toward neutral, not overshoot, got {trust}"
+        "trust should not overshoot neutral, got {trust}"
     );
 }
 
-/// Negativity bias: below-neutral trust decays more slowly than equivalent
-/// above-neutral trust. Starting from symmetric distances (0.2 vs 0.8), after
-/// the same elapsed time, the negative value should be closer to its start.
-#[test]
-fn negative_trust_lingers_longer_than_positive() {
-    let mut world = TestWorld::with_seed(42);
-    let agent = world.spawn_agent(AgentConfig::default());
-    let positive_other = world.app_mut().world_mut().spawn_empty().id();
-    let negative_other = world.app_mut().world_mut().spawn_empty().id();
-
-    set_trust(&mut world, agent, positive_other, 0.8, 0);
-    set_trust(&mut world, agent, negative_other, 0.2, 0);
-
-    // Advance 10 game days.
-    world.tick(TICKS_PER_DAY * 10 + 1);
-
-    let positive = get_trust(&world, agent, positive_other).expect("positive trust exists");
-    let negative = get_trust(&world, agent, negative_other).expect("negative trust exists");
-
-    // Distance remaining from neutral.
-    let positive_remaining = (positive - 0.5).abs();
-    let negative_remaining = (negative - 0.5).abs();
-
-    assert!(
-        negative_remaining > positive_remaining,
-        "negativity bias: below-neutral trust ({negative}) should decay slower than \
-         above-neutral ({positive}). remaining: neg={negative_remaining} pos={positive_remaining}"
-    );
-}
-
-/// Grace period: a relationship refreshed within `decay_grace_days` of the
-/// next decay tick must NOT decay. Starting the clock one day short of the
-/// grace boundary means the first decay fire still sees it as "recent."
+/// A relationship refreshed within the grace window must not decay.
 #[test]
 fn recent_interaction_skips_decay() {
     let mut world = TestWorld::with_seed(42);
     let agent = world.spawn_agent(AgentConfig::default());
     let other = world.app_mut().world_mut().spawn_empty().id();
 
-    // Advance to just before the first decay fire.
-    world.tick(TICKS_PER_DAY - 5);
+    // Fire every 10 ticks; grace window of 20 ticks.
+    set_fast_decay(&mut world, 10, 20);
 
-    // Refresh the trust timestamp at this tick.
-    let timestamp = TICKS_PER_DAY - 5;
-    set_trust(&mut world, agent, other, 0.8, timestamp);
-
-    // Cross the first day boundary — decay fires at tick TICKS_PER_DAY.
-    // Time since last interaction = 5 ticks, well within the 1-day grace period.
+    // Refresh trust at tick 5. At the next decay fire (tick 10), age = 5, which
+    // is well within the 20-tick grace window → should be skipped.
+    world.tick(5);
+    set_trust(&mut world, agent, other, 0.8, 5);
     world.tick(6);
 
     let trust = get_trust(&world, agent, other).expect("trust should still exist");
     assert_eq!(
         trust, 0.8,
-        "trust refreshed within the grace period should not decay"
+        "trust refreshed within the grace window should not decay"
     );
 }
