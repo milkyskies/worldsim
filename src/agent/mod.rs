@@ -86,13 +86,6 @@ impl Plugin for AgentPlugin {
                     // pass observes the transformed entity.
                     crate::world::becomes::becomes_system
                         .after(nervous_system::execution::apply_action_effects),
-                    // Brain decision-making must read fresh perception data, so the
-                    // brain chain must run AFTER write_perceptions_to_mind. Without
-                    // this constraint Bevy is free to schedule brain before perception
-                    // (they only conflict on MindGraph access), which silently breaks
-                    // any reactive behavior — including conversation initiation.
-                    brains::brain_system::three_brains_system
-                        .after(mind::perception::write_perceptions_to_mind),
                 )
                     .run_if(not_paused),
             )
