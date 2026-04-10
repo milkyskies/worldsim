@@ -113,6 +113,9 @@ impl Plugin for AgentPlugin {
                     // Recognition: detect strangers vs known people
                     mind::recognition::check_recognition
                         .after(mind::social_perception::perceive_other_agents),
+                    // Theory of mind: infer shared experience from co-located conversations
+                    mind::theory_of_mind::update_shared_experience_tom
+                        .after(mind::perception::write_perceptions_to_mind),
                 )
                     .run_if(not_paused),
             )

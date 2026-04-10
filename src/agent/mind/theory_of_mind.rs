@@ -185,6 +185,81 @@ impl TheoryOfMind {
 }
 
 // ============================================================================
+// Shared-experience system
+// ============================================================================
+
+/// Minimum salience for a triple to be included in shared-experience ToM updates.
+/// Only noteworthy observations are worth modeling — mundane perception is ignored.
+const SHARED_EXPERIENCE_MIN_SALIENCE: f32 = 0.5;
+
+/// When two agents are in conversation (co-located), each agent infers that the
+/// other probably also observed any high-salience entities they can both see.
+///
+/// For each conversation pair, we check which entities both agents can see.
+/// For each shared visible entity, we look at the observer's high-salience
+/// triples about that entity and record in their ToM that the partner
+/// probably knows about it too.
+pub fn update_shared_experience_tom(
+    manager: Res<crate::agent::mind::conversation::ConversationManager>,
+    visible_query: Query<&super::perception::VisibleObjects>,
+    minds: Query<&super::knowledge::MindGraph>,
+    mut toms: Query<&mut TheoryOfMind>,
+    tick: Res<crate::core::tick::TickCount>,
+) {
+    for conv in manager.conversations.values() {
+        if conv.state == crate::agent::mind::conversation::ConversationState::Ended {
+            continue;
+        }
+
+        let [agent_a, agent_b] = conv.participants;
+
+        let (Ok(vis_a), Ok(vis_b)) = (visible_query.get(agent_a), visible_query.get(agent_b))
+        else {
+            continue;
+        };
+
+        // Find entities both agents can see
+        let shared_visible: Vec<Entity> = vis_a
+            .entities
+            .iter()
+            .filter(|e| vis_b.entities.contains(e))
+            .copied()
+            .collect();
+
+        if shared_visible.is_empty() {
+            continue;
+        }
+
+        // For each agent, check their high-salience triples about shared visible entities
+        // and record that their partner probably also observed them.
+        for (observer, partner) in [(agent_a, agent_b), (agent_b, agent_a)] {
+            let Ok(mind) = minds.get(observer) else {
+                continue;
+            };
+            let Ok(mut tom) = toms.get_mut(observer) else {
+                continue;
+            };
+
+            for &visible_entity in &shared_visible {
+                let node = Node::Entity(visible_entity);
+                for triple in mind.query(Some(&node), None, None) {
+                    if triple.meta.salience >= SHARED_EXPERIENCE_MIN_SALIENCE {
+                        tom.record_belief(
+                            partner,
+                            triple.subject.clone(),
+                            triple.predicate,
+                            triple.object.clone(),
+                            SHARED_EXPERIENCE_CONFIDENCE,
+                            tick.current,
+                        );
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ============================================================================
 // Tests
 // ============================================================================
 
