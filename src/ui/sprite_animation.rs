@@ -97,8 +97,8 @@ fn animate_sprites(
             Entity,
             &mut Transform,
             &mut SpriteAnimation,
-            &CurrentActivity,
-            &EmotionalState,
+            Option<&CurrentActivity>,
+            Option<&EmotionalState>,
         ),
         With<Agent>,
     >,
@@ -134,7 +134,8 @@ fn animate_sprites(
         };
         prev_positions.insert(entity, pos);
 
-        let (y_offset, rotation, y_scale) = if matches!(activity, CurrentActivity::Sleeping) {
+        let is_sleeping = matches!(activity, Some(CurrentActivity::Sleeping));
+        let (y_offset, rotation, y_scale) = if is_sleeping {
             let breathing = (t * (std::f32::consts::TAU / 4.0) + phase).sin() * 0.02;
             (0.0, 0.0, 0.7 + breathing)
         } else {
@@ -146,8 +147,10 @@ fn animate_sprites(
 
             let sway_freq = std::f32::consts::TAU / 3.0;
 
-            let (valence, intensity) = dominant_valence_intensity(emotions);
-            let stress_freq_mult = 1.0 + emotions.stress_level * 0.003;
+            let default_emotions = EmotionalState::default();
+            let emo = emotions.unwrap_or(&default_emotions);
+            let (valence, intensity) = dominant_valence_intensity(emo);
+            let stress_freq_mult = 1.0 + emo.stress_level * 0.003;
 
             let jitter_amount = if valence < 0.0 { intensity } else { 0.0 };
             let bounce_bonus = if valence > 0.0 { intensity * 0.5 } else { 0.0 };
