@@ -263,7 +263,7 @@ fn seek_social_initiation(
 /// Returns the first visible entity that the mind knows is `Dangerous`.
 ///
 /// Perception writes `(entity, IsA, Concept::Wolf)` triples; `has_trait` walks
-/// the IsA chain to find `(Wolf, HasTrait, Dangerous)` in the ontology.
+/// the IsA chain to find `(Wolf, HasTrait, Dangerous)` in the agent's knowledge.
 pub(crate) fn find_most_feared_visible_entity(
     visible: &VisibleObjects,
     mind: &MindGraph,

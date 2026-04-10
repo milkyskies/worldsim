@@ -105,6 +105,27 @@ pub struct PersonInit {
     pub extra_knowledge: Vec<Triple>,
 }
 
+/// Adds innate biological knowledge all humans have regardless of culture.
+fn add_person_knowledge(mind: &mut MindGraph) {
+    use crate::agent::mind::knowledge::{Metadata, Node, Predicate, Triple, Value};
+
+    let meta = Metadata::default(); // Source::Intrinsic, confidence 1.0
+
+    mind.assert(Triple::with_meta(
+        Node::Action(crate::agent::actions::ActionType::Eat),
+        Predicate::Satisfies,
+        Value::Concept(Concept::Thing),
+        meta.clone(),
+    ));
+
+    mind.assert(Triple::with_meta(
+        Node::Concept(Concept::Wolf),
+        Predicate::HasTrait,
+        Value::Concept(Concept::Dangerous),
+        meta,
+    ));
+}
+
 /// Builds the three logic-only bundles for a Person agent. Both
 /// `world::human::spawn_person` (real game) and
 /// `testing::spawn::spawn_test_person` (TestWorld) call this — drift here
@@ -114,6 +135,7 @@ pub fn build_person_logic(
     ontology: Ontology,
 ) -> (PersonCoreBundle, PersonPerceptionBundle, PersonBrainBundle) {
     let mut mind = MindGraph::new(ontology);
+    add_person_knowledge(&mut mind);
     mind.add_shared_knowledge(init.cultural_knowledge);
     for triple in init.extra_knowledge {
         mind.assert(triple);

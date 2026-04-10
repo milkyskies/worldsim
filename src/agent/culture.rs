@@ -59,15 +59,6 @@ pub fn create_cultural_knowledge(culture: Culture) -> Vec<Triple> {
 
     add(c(Thing), IsA, v(Physical));
 
-    // TODO: express (Eat, Satisfies, Hunger) properly once Hunger is a Concept.
-    add(
-        Node::Action(crate::agent::actions::ActionType::Eat),
-        Satisfies,
-        Value::Concept(Concept::Thing),
-    );
-
-    add(c(Food), HasTrait, v(Edible));
-
     // ─── Universal recipe knowledge (all cultures know these) ───
 
     // Campfire: Wood(3) → provides Safety, Warmth, Light
