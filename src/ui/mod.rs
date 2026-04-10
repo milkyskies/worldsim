@@ -24,6 +24,8 @@ pub mod character_sheet;
 pub mod debug_knowledge;
 pub mod sprite_animation;
 
+use sprite_animation::VisualOffset;
+
 /// Toggle for the developer debug dock (Hierarchy, Inspector, AgentViewer,
 /// MindInspector, Social, Log, Settings, Time, Resources). Disabled by default
 /// so players see only the clean character sheet UI. Press F12 to toggle.
@@ -224,7 +226,7 @@ fn handle_game_click(
     cameras: Query<(&Camera, &GlobalTransform)>,
     mut egui_contexts: Query<&mut EguiContext, With<PrimaryEguiContext>>,
     mut ui_state: ResMut<UiState>,
-    entities: Query<(Entity, &Transform, Option<&Sprite>)>,
+    entities: Query<(Entity, &Transform, Option<&Sprite>, Option<&VisualOffset>)>,
 ) {
     if buttons.just_pressed(MouseButton::Left) {
         // Let egui consume clicks over its panels (bottom bar, floating sheet)
@@ -260,13 +262,13 @@ fn handle_game_click(
             return;
         };
 
-        // Find closest entity within pick radius
+        // Pick at drawn position, not logical root, so raised sprites are clickable.
         let pick_radius = 16.0;
         let mut candidates: Vec<(Entity, f32, f32)> = Vec::new(); // (entity, z, distance)
 
-        for (entity, transform, sprite) in entities.iter() {
-            let entity_pos = transform.translation.truncate();
-            let dist = entity_pos.distance(world_position);
+        for (entity, transform, sprite, visual_offset) in entities.iter() {
+            let visual_pos = VisualOffset::apply(visual_offset, transform.translation.truncate());
+            let dist = visual_pos.distance(world_position);
 
             // Use sprite size if available, otherwise default radius
             let entity_radius = sprite
@@ -296,19 +298,17 @@ fn handle_game_click(
 fn draw_selection_gizmos(
     mut gizmos: Gizmos,
     ui_state: Res<UiState>,
-    entities: Query<(&GlobalTransform, Option<&Sprite>)>,
+    entities: Query<(&GlobalTransform, Option<&Sprite>, Option<&VisualOffset>)>,
 ) {
     for &entity in ui_state.selected_entities.as_slice() {
-        if let Ok((transform, sprite)) = entities.get(entity) {
-            let position = transform.translation().truncate();
+        if let Ok((transform, sprite, visual_offset)) = entities.get(entity) {
+            let position = VisualOffset::apply(visual_offset, transform.translation().truncate());
 
-            // Determine radius based on sprite size or default
             let radius = sprite
                 .and_then(|s| s.custom_size)
-                .map(|size| size.x.max(size.y) * 0.7) // Roughly fit circle to bounding box
+                .map(|size| size.x.max(size.y) * 0.7)
                 .unwrap_or(16.0);
 
-            // Draw static selection circle
             gizmos.circle_2d(position, radius, Color::WHITE);
         }
     }
