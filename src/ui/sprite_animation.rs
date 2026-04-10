@@ -87,8 +87,7 @@ fn animate_sprite_bodies(
         let is_moving = speed > 2.0;
 
         let (y_offset, x_scale, y_scale) = if is_moving {
-            // ~2.5 bounces per second
-            let bounces_per_sec = 2.5;
+            let bounces_per_sec = 0.5; // 1 bounce per 2 seconds (testing)
             let cycle = ((t * bounces_per_sec + body.phase) % 1.0).clamp(0.0, 1.0);
             bounce_frame(cycle, 3.0)
         } else {
