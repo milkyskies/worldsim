@@ -7,6 +7,7 @@ pub mod deer;
 pub mod environment;
 pub mod human;
 pub mod map;
+pub mod property;
 pub mod spatial_index;
 pub mod spawn;
 pub mod spawn_config;
@@ -28,7 +29,8 @@ impl Plugin for WorldPlugin {
             .add_plugins(map::MapPlugin)
             .add_plugins(environment::EnvironmentPlugin)
             .add_plugins(spatial_index::SpatialIndexPlugin)
-            .add_plugins(spawner::SpawnerPlugin);
+            .add_plugins(spawner::SpawnerPlugin)
+            .add_plugins(property::OntologyDerivationPlugin);
     }
 }
 
