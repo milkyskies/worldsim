@@ -213,6 +213,7 @@ fn record_interaction_event(
         informant: None,
         evidence: Vec::new(),
         salience,
+        source_sense: None,
     };
 
     mind.assert(Triple::with_meta(
@@ -293,6 +294,7 @@ fn record_social_interaction(
         informant: None,
         evidence: Vec::new(),
         salience: intensity,
+        source_sense: None,
     };
 
     mind.assert(Triple::with_meta(
@@ -345,6 +347,7 @@ fn record_knowledge_shared(
             informant: Some(*speaker),
             evidence: Vec::new(),
             salience: 0.5,
+            source_sense: None,
         };
 
         mind.assert(crate::agent::mind::knowledge::Triple::with_meta(

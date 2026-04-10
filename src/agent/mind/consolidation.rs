@@ -113,7 +113,8 @@ pub fn consolidate_knowledge(
                                 confidence,
                                 informant: None,
                                 evidence: events.iter().map(|(id, _)| *id).collect(),
-                                salience: confidence, // High confidence beliefs are salient
+                                salience: confidence,
+                                source_sense: None,
                             },
                         ));
                     } else if aggregate_valence > 0.3 {
@@ -130,6 +131,7 @@ pub fn consolidate_knowledge(
                                 informant: None,
                                 evidence: events.iter().map(|(id, _)| *id).collect(),
                                 salience: confidence,
+                                source_sense: None,
                             },
                         ));
                     }

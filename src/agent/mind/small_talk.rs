@@ -180,6 +180,7 @@ mod tests {
                 informant: None,
                 evidence: Vec::new(),
                 salience,
+                source_sense: None,
             },
         )
     }
@@ -311,6 +312,7 @@ mod tests {
                 informant: None,
                 evidence: Vec::new(),
                 salience: 0.5,
+                source_sense: None,
             },
         ));
 
@@ -376,6 +378,7 @@ mod tests {
                 informant: None,
                 evidence: Vec::new(),
                 salience: 0.0,
+                source_sense: None,
             },
         ));
 
