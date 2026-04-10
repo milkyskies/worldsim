@@ -255,6 +255,9 @@ pub enum Predicate {
     // ─── Possession ───
     Owns, // (Self, Owns, Entity<campfire>) - "this is mine"
 
+    // ─── Commitment ───
+    Committed, // (Self, Committed, Concept) - "I've promised to pursue this"
+
     // ─── Relationship Dimensions ───
     Trust,        // (Entity, Trust, Float) - 0.0 to 1.0
     Affection,    // (Entity, Affection, Float) - 0.0 to 1.0
