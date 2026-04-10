@@ -7,10 +7,12 @@
 //! - Pack bonding is established at spawn
 
 use bevy::prelude::*;
+use worldsim::agent::actions::ActionType;
 use worldsim::agent::mind::knowledge::{
-    Concept, MindGraph, Node, Predicate, Value, setup_ontology,
+    Concept, Metadata, MindGraph, Node, Predicate, Source, Triple, Value, setup_ontology,
 };
-use worldsim::testing::TestWorld;
+use worldsim::agent::psyche::emotions::{EmotionType, EmotionalState};
+use worldsim::testing::{AgentConfig, TestWorld};
 
 /// Wolves should recognize deer as food intrinsically.
 #[test]
@@ -99,6 +101,139 @@ fn human_fears_wolf_via_ontology() {
     assert!(
         !danger_triples.is_empty(),
         "human mind (with shared ontology) should know Wolf is Dangerous"
+    );
+}
+
+/// Regression for #222: an agent that *knows* wolves are dangerous (via either
+/// shared ontology or experiential personal knowledge) but cannot currently
+/// perceive a wolf must NOT enter a fear/Flee state. Stale or abstract knowledge
+/// alone is not a present threat.
+#[test]
+fn agent_does_not_flee_from_abstract_wolf_danger_knowledge() {
+    let mut world = TestWorld::with_seed(42);
+
+    // Inject a high-salience experiential triple on top of the shared ontology
+    // entry, mirroring the issue's reproduction recipe.
+    let knowledge = vec![Triple::with_meta(
+        Node::Concept(Concept::Wolf),
+        Predicate::HasTrait,
+        Value::Concept(Concept::Dangerous),
+        Metadata {
+            source: Source::Experienced,
+            confidence: 1.0,
+            salience: 0.9,
+            ..Metadata::default()
+        },
+    )];
+
+    let agent = world.spawn_agent(AgentConfig {
+        pos: Vec2::new(200.0, 200.0),
+        knowledge,
+        ..AgentConfig::default()
+    });
+
+    // No wolf entity exists in this scenario.
+    world.tick(120);
+
+    let emotions = world.get::<EmotionalState>(agent);
+    let fear: f32 = emotions
+        .active_emotions
+        .iter()
+        .filter(|e| e.emotion_type == EmotionType::Fear)
+        .map(|e| e.intensity)
+        .sum();
+    let action = world.current_action(agent).unwrap_or(ActionType::Idle);
+
+    assert!(
+        fear < 0.05,
+        "agent with no perceived wolf must not accumulate Fear from abstract knowledge \
+         (got fear={fear:.2}, current action={action:?})"
+    );
+    assert_ne!(
+        action,
+        ActionType::Flee,
+        "agent must not enter Flee when no dangerous entity is perceived"
+    );
+}
+
+/// Regression for #222: even when another *non-dangerous* agent is in vision
+/// range (so VisibleObjects has entries), the threat-assessment system must not
+/// confuse abstract wolf-danger knowledge with a perceived wolf and panic.
+#[test]
+fn agent_does_not_flee_from_wolf_knowledge_when_only_humans_are_visible() {
+    let mut world = TestWorld::with_seed(42);
+
+    let knowledge = vec![Triple::with_meta(
+        Node::Concept(Concept::Wolf),
+        Predicate::HasTrait,
+        Value::Concept(Concept::Dangerous),
+        Metadata {
+            source: Source::Experienced,
+            confidence: 1.0,
+            salience: 0.9,
+            ..Metadata::default()
+        },
+    )];
+
+    let alice = world.spawn_agent(AgentConfig {
+        pos: Vec2::new(200.0, 200.0),
+        knowledge,
+        ..AgentConfig::default()
+    });
+    let _bob = world.spawn_agent(AgentConfig {
+        pos: Vec2::new(210.0, 200.0),
+        ..AgentConfig::default()
+    });
+
+    world.tick(120);
+
+    let emotions = world.get::<EmotionalState>(alice);
+    let fear: f32 = emotions
+        .active_emotions
+        .iter()
+        .filter(|e| e.emotion_type == EmotionType::Fear)
+        .map(|e| e.intensity)
+        .sum();
+    let action = world.current_action(alice).unwrap_or(ActionType::Idle);
+
+    assert!(
+        fear < 0.05,
+        "alice must not feel Fear when only bob (a Person) is visible \
+         (got fear={fear:.2}, current action={action:?})"
+    );
+    assert_ne!(
+        action,
+        ActionType::Flee,
+        "alice must not flee when no Wolf entity is perceived"
+    );
+}
+
+/// Companion to the #222 regressions: a *real* visible wolf must still trigger
+/// fear. The fix for #222 must not regress the in-vision case.
+#[test]
+fn agent_feels_fear_when_a_wolf_is_actually_visible() {
+    let mut world = TestWorld::with_seed(42);
+
+    let agent = world.spawn_agent(AgentConfig {
+        pos: Vec2::new(200.0, 200.0),
+        ..AgentConfig::default()
+    });
+    // Within human Vision range (100 px).
+    let _wolf = world.spawn_wolf(Vec2::new(220.0, 200.0));
+
+    world.tick(120);
+
+    let emotions = world.get::<EmotionalState>(agent);
+    let fear: f32 = emotions
+        .active_emotions
+        .iter()
+        .filter(|e| e.emotion_type == EmotionType::Fear)
+        .map(|e| e.intensity)
+        .sum();
+
+    assert!(
+        fear > 0.1,
+        "agent should feel Fear when a wolf is in vision range (got fear={fear:.2})"
     );
 }
 
