@@ -147,19 +147,9 @@ mod tests {
     fn thirsty_agent_near_water_drinks() {
         let mut world = TestWorld::with_seed(42);
 
-        // Surround tile (2, 2) with water on all 8 sides so the agent can
-        // drink regardless of where the Wander action moves it first.
-        // Agent world pos ~(40, 40) → tile (2, 2).
-        for dx in -1i32..=1 {
-            for dy in -1i32..=1 {
-                if dx == 0 && dy == 0 {
-                    continue; // keep the agent's tile walkable
-                }
-                let tx = (2 + dx) as u32;
-                let ty = (2 + dy) as u32;
-                world.set_tile(tx, ty, TileType::ShallowWater);
-            }
-        }
+        // Place water tiles adjacent to where the agent will be.
+        // Agent at tile (2, 2) → world pos ~(40, 40). Water at tile (3, 2).
+        world.set_tile(3, 2, TileType::ShallowWater);
 
         let agent = world.spawn_agent(AgentConfig {
             pos: Vec2::new(40.0, 40.0),
