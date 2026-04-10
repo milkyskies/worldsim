@@ -15,9 +15,48 @@
 //! - `stone_node.rs` - Stone Node spawning
 //! - `wood_log.rs` - Wood Log spawning
 
-use crate::agent::mind::knowledge::Ontology;
+use crate::agent::mind::knowledge::{MindGraph, Ontology};
+use crate::agent::mind::recognition::initialize_relationship_with_affection;
 use crate::world::spawn_config::{SpawnLayout, WorldSpawnConfig};
 use bevy::prelude::*;
+
+/// Initial affection value written from each herd-mate's mind toward every
+/// other herd-mate at spawn. Kin-level: well above the 0.5 neutral
+/// stranger default, so the proximity-decay pathway in the flocking system
+/// pulls them strongly toward each other.
+const KIN_BASELINE_AFFECTION: f32 = 0.8;
+
+/// Schedule mutual introductions between the members of a spawned herd or
+/// pack. The entity IDs are valid immediately after spawn but the
+/// `MindGraph` components are only accessible once the command buffer
+/// flushes, so we queue a deferred closure to do the actual writes.
+fn introduce_group_as_kin(commands: &mut Commands, members: Vec<Entity>, affection: f32) {
+    commands.queue(move |world: &mut World| {
+        let pairs: Vec<(Entity, String)> = members
+            .iter()
+            .map(|&e| {
+                let name = world
+                    .get::<Name>(e)
+                    .map(|n| n.as_str().to_string())
+                    .unwrap_or_default();
+                (e, name)
+            })
+            .collect();
+
+        for (i, (entity_a, _)) in pairs.iter().enumerate() {
+            for (j, (entity_b, name_b)) in pairs.iter().enumerate() {
+                if i == j {
+                    continue;
+                }
+                if let Some(mut mind) = world.get_mut::<MindGraph>(*entity_a) {
+                    initialize_relationship_with_affection(
+                        &mut mind, *entity_b, name_b, 0, affection,
+                    );
+                }
+            }
+        }
+    });
+}
 
 // Re-export spawning functions for convenience
 pub use super::apple_tree::{
@@ -123,12 +162,34 @@ pub fn apply_layout(commands: &mut Commands, ontology: &Ontology, layout: &Spawn
         layout.human_positions.len(),
     );
 
-    for (i, &pos) in layout.deer_positions.iter().enumerate() {
-        spawn_deer(commands, ontology.clone(), pos, i);
+    let mut deer_index = 0;
+    for herd in &layout.deer_herds {
+        let members: Vec<Entity> = herd
+            .iter()
+            .map(|&pos| {
+                let entity = spawn_deer(commands, ontology.clone(), pos, deer_index);
+                deer_index += 1;
+                entity
+            })
+            .collect();
+        if members.len() > 1 {
+            introduce_group_as_kin(commands, members, KIN_BASELINE_AFFECTION);
+        }
     }
 
-    for (i, &pos) in layout.wolf_positions.iter().enumerate() {
-        spawn_wolf(commands, ontology.clone(), pos, i);
+    let mut wolf_index = 0;
+    for pack in &layout.wolf_packs {
+        let members: Vec<Entity> = pack
+            .iter()
+            .map(|&pos| {
+                let entity = spawn_wolf(commands, ontology.clone(), pos, wolf_index);
+                wolf_index += 1;
+                entity
+            })
+            .collect();
+        if members.len() > 1 {
+            introduce_group_as_kin(commands, members, KIN_BASELINE_AFFECTION);
+        }
     }
 
     for &(pos, berries) in &layout.berry_bush_positions {

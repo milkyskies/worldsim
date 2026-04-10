@@ -93,8 +93,14 @@ pub struct SpawnLayout {
     /// [`Self::human_positions`]. Empty when the config disables it or when
     /// no suitable site was found on the other side.
     pub second_human_positions: Vec<Vec2>,
-    pub deer_positions: Vec<Vec2>,
-    pub wolf_positions: Vec<Vec2>,
+    /// Deer positions grouped by herd. Each inner `Vec` is one herd that
+    /// should be mutually introduced to each other at spawn so herd cohesion
+    /// (#260) has a real relationship graph to decay against.
+    pub deer_herds: Vec<Vec<Vec2>>,
+    /// Wolf positions grouped by pack. Same herd-cohesion story — pack-mates
+    /// are introduced at spawn with high Affection so the flocking drive
+    /// pulls them together.
+    pub wolf_packs: Vec<Vec<Vec2>>,
     /// Each entry is (world position, initial berry count).
     pub berry_bush_positions: Vec<(Vec2, u32)>,
     /// Each entry is (world position, initial apple count).
@@ -189,10 +195,10 @@ fn compute_realistic_layout(config: &WorldSpawnConfig, map: &WorldMap) -> SpawnL
     }
 
     // Deer in small herds kept away from the settlement.
-    layout.deer_positions = compute_deer_herd_positions(map, settlement, config.deer, &mut rng);
+    layout.deer_herds = compute_deer_herd_positions(map, settlement, config.deer, &mut rng);
 
     // Wolves in packs in deep forest, well away from the settlement.
-    layout.wolf_positions = compute_wolf_pack_positions(map, settlement, config.wolves, &mut rng);
+    layout.wolf_packs = compute_wolf_pack_positions(map, settlement, config.wolves, &mut rng);
 
     layout
 }
@@ -227,13 +233,14 @@ fn compute_deer_herd_positions(
     settlement: Option<UVec2>,
     total: usize,
     rng: &mut impl rand::Rng,
-) -> Vec<Vec2> {
+) -> Vec<Vec<Vec2>> {
     let allowed = [TileType::Grass];
-    let mut positions = Vec::new();
+    let mut herds: Vec<Vec<Vec2>> = Vec::new();
+    let mut placed = 0usize;
     let mut attempts = 0usize;
 
-    while positions.len() < total {
-        let remaining = total - positions.len();
+    while placed < total {
+        let remaining = total - placed;
         let herd_size = remaining.min(DEER_HERD_SIZE);
 
         let anchor = match settlement {
@@ -249,12 +256,15 @@ fn compute_deer_herd_positions(
         };
 
         let Some(anchor_pos) = anchor else {
+            // Fallback: scatter the remaining deer as singletons so at least
+            // they exist. Singletons are their own "herd of one" and skip
+            // the mutual-introduction step in the spawner.
             for _ in 0..remaining {
                 if let Some(pos) = find_biome_tile(map, rng, &allowed, MAX_SPAWN_ATTEMPTS) {
-                    positions.push(pos);
+                    herds.push(vec![pos]);
                 }
             }
-            return positions;
+            return herds;
         };
 
         let (anchor_tx, anchor_ty) = map.world_to_tile(anchor_pos);
@@ -267,14 +277,13 @@ fn compute_deer_herd_positions(
         );
 
         if herd_positions.is_empty() {
-            positions.push(anchor_pos);
+            herds.push(vec![anchor_pos]);
+            placed += 1;
         } else {
-            for pos in herd_positions {
-                positions.push(pos);
-                if positions.len() == total {
-                    return positions;
-                }
-            }
+            // Cap the herd to `remaining` so we don't overshoot `total`.
+            let capped: Vec<Vec2> = herd_positions.into_iter().take(remaining).collect();
+            placed += capped.len();
+            herds.push(capped);
         }
 
         attempts += 1;
@@ -283,7 +292,7 @@ fn compute_deer_herd_positions(
         }
     }
 
-    positions
+    herds
 }
 
 fn compute_wolf_pack_positions(
@@ -291,13 +300,14 @@ fn compute_wolf_pack_positions(
     settlement: Option<UVec2>,
     total: usize,
     rng: &mut impl rand::Rng,
-) -> Vec<Vec2> {
+) -> Vec<Vec<Vec2>> {
     let allowed = [TileType::Grass];
-    let mut positions = Vec::new();
+    let mut packs: Vec<Vec<Vec2>> = Vec::new();
+    let mut placed = 0usize;
     let mut attempts = 0usize;
 
-    while positions.len() < total {
-        let remaining = total - positions.len();
+    while placed < total {
+        let remaining = total - placed;
         let pack_size = remaining.min(WOLF_PACK_SIZE);
 
         let anchor = match settlement {
@@ -330,27 +340,25 @@ fn compute_wolf_pack_positions(
         );
 
         if pack_positions.is_empty() {
-            positions.push(anchor_pos);
+            packs.push(vec![anchor_pos]);
+            placed += 1;
         } else {
-            for pos in pack_positions {
-                positions.push(pos);
-                if positions.len() == total {
-                    return positions;
-                }
-            }
+            let capped: Vec<Vec2> = pack_positions.into_iter().take(remaining).collect();
+            placed += capped.len();
+            packs.push(capped);
         }
 
         attempts += 1;
         if attempts > total * 2 {
             bevy::log::warn!(
                 "wolf spawn: placement loop exceeded limit ({} wolves unplaced)",
-                total - positions.len()
+                total - placed
             );
             break;
         }
     }
 
-    positions
+    packs
 }
 
 fn fallback_random_walkable(map: &WorldMap, rng: &mut impl rand::Rng, count: usize) -> Vec<Vec2> {
@@ -380,11 +388,13 @@ fn compute_uniform_layout(config: &WorldSpawnConfig) -> SpawnLayout {
     for _ in 0..config.humans {
         layout.human_positions.push(random_uniform_pos(&mut rng));
     }
+    // Uniform layout doesn't cluster — each deer/wolf is its own "herd of
+    // one" so the spawner's introduction loop trivially skips them.
     for _ in 0..config.deer {
-        layout.deer_positions.push(random_uniform_pos(&mut rng));
+        layout.deer_herds.push(vec![random_uniform_pos(&mut rng)]);
     }
     for _ in 0..config.wolves {
-        layout.wolf_positions.push(random_uniform_pos(&mut rng));
+        layout.wolf_packs.push(vec![random_uniform_pos(&mut rng)]);
     }
     for _ in 0..config.berry_bushes {
         layout
