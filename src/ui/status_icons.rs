@@ -5,11 +5,11 @@
 //! Upstream: agent (actions, emotions, needs, conversation), world (spawning agents)
 //! Downstream: Bevy renderer (visual overlay)
 
+use crate::agent::Agent;
 use crate::agent::actions::{ActionType, ActiveActions};
 use crate::agent::body::needs::PhysicalNeeds;
 use crate::agent::mind::conversation::InConversation;
 use crate::agent::psyche::emotions::{EmotionType, EmotionalState};
-use crate::agent::Agent;
 use bevy::prelude::*;
 
 /// Camera scale above which status icons are hidden.
