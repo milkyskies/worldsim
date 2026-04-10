@@ -9,6 +9,7 @@ pub mod spawn_config;
 pub mod spawn_placement;
 pub mod spawner;
 pub mod stone_node;
+pub mod wolf;
 pub mod wood_log;
 
 use bevy::prelude::*;

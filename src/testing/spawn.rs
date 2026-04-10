@@ -27,6 +27,7 @@ use crate::testing::config::AgentConfig;
 use crate::world::Physical;
 use crate::world::apple_tree::ResourceRegeneration;
 use crate::world::deer::Deer;
+use crate::world::wolf::Wolf;
 
 /// Spawns a Person agent with all logic components but no sprites/children/name tags.
 /// The MindGraph is initialized with the world Ontology and any pre-loaded knowledge.
@@ -94,39 +95,10 @@ pub(super) fn spawn_test_person(
 
 /// Spawns a Deer animal agent with all logic components but no visuals.
 pub(super) fn spawn_test_deer(world: &mut World, ontology: Ontology, pos: Vec2) -> Entity {
-    use crate::agent::mind::knowledge::{
-        MemoryType, Metadata, Node, Predicate, Source, Triple, Value,
-    };
     use crate::agent::psyche::personality::Personality;
 
     let mut mind = MindGraph::new(ontology);
-
-    // Deer-specific innate knowledge: berries are food, persons are dangerous.
-    let intrinsic = Metadata {
-        source: Source::Intrinsic,
-        memory_type: MemoryType::Intrinsic,
-        timestamp: 0,
-        confidence: 1.0,
-        ..Default::default()
-    };
-    mind.assert(Triple::with_meta(
-        Node::Concept(Concept::Berry),
-        Predicate::IsA,
-        Value::Concept(Concept::Food),
-        intrinsic.clone(),
-    ));
-    mind.assert(Triple::with_meta(
-        Node::Concept(Concept::BerryBush),
-        Predicate::Produces,
-        Value::Item(Concept::Berry, 1),
-        intrinsic.clone(),
-    ));
-    mind.assert(Triple::with_meta(
-        Node::Concept(Concept::Person),
-        Predicate::HasTrait,
-        Value::Concept(Concept::Dangerous),
-        intrinsic,
-    ));
+    crate::world::deer::add_deer_knowledge(&mut mind);
 
     world
         .spawn((
@@ -156,6 +128,50 @@ pub(super) fn spawn_test_deer(world: &mut World, ontology: Ontology, pos: Vec2) 
             CentralNervousSystem::default(),
             PhysicalNeeds::default(),
             Consciousness::default(),
+            ActiveActions::default(),
+            EmotionalState::default(),
+        ))
+        .id()
+}
+
+/// Spawns a Wolf predator agent with all logic components but no visuals.
+pub(super) fn spawn_test_wolf(world: &mut World, ontology: Ontology, pos: Vec2) -> Entity {
+    use crate::agent::psyche::personality::Personality;
+    use crate::world::map::TILE_SIZE;
+
+    let spawn_tile = ((pos.x / TILE_SIZE) as i32, (pos.y / TILE_SIZE) as i32);
+    let mut mind = MindGraph::new(ontology);
+    crate::world::wolf::add_wolf_knowledge(&mut mind, spawn_tile);
+
+    world
+        .spawn((
+            Name::new("TestWolf"),
+            Agent,
+            Wolf,
+            EntityType(Concept::Wolf),
+            SpeciesProfile::wolf(),
+            Physical,
+            TargetPosition::default(),
+            MovementState::default(),
+            ItemSlots::agent_carry(),
+            Personality::default(),
+            Transform::from_translation(pos.extend(3.0)),
+            GlobalTransform::default(),
+        ))
+        .insert((
+            Affordance::default(),
+            mind,
+            Vision { range: 120.0 },
+            VisibleObjects::default(),
+        ))
+        .insert((
+            WorkingMemory::default(),
+            RationalBrain::default(),
+            BrainState::default(),
+            CentralNervousSystem::default(),
+            PhysicalNeeds::default(),
+            Consciousness::default(),
+            PsychologicalDrives::default(),
             ActiveActions::default(),
             EmotionalState::default(),
         ))

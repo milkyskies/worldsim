@@ -70,6 +70,11 @@ pub struct CliArgs {
     #[arg(long)]
     pub deer: Option<usize>,
 
+    /// Number of wolf predators to scatter (headless mode only).
+    /// Defaults to 0 when not set. Use --game-defaults to spawn the full wolf pack.
+    #[arg(long)]
+    pub wolves: Option<usize>,
+
     /// Enable decision trace logging. Use "all" to trace all agents or
     /// "agent:<name>" (e.g. "agent:alice") to trace a specific agent.
     /// Trace output is written to stderr (text) or the file set by
@@ -131,13 +136,18 @@ impl CliArgs {
     /// Population counts fall back to game defaults when `--game-defaults` is set,
     /// or headless defaults otherwise.
     pub fn to_headless_config(&self) -> HeadlessConfig {
-        let (default_humans, default_deer, default_berry_bushes, default_apple_trees) =
-            if self.game_defaults {
-                let g = WorldSpawnConfig::game_defaults();
-                (g.humans, g.deer, g.berry_bushes, g.apple_trees)
-            } else {
-                (5, 3, 8, 4)
-            };
+        let (
+            default_humans,
+            default_deer,
+            default_wolves,
+            default_berry_bushes,
+            default_apple_trees,
+        ) = if self.game_defaults {
+            let g = WorldSpawnConfig::game_defaults();
+            (g.humans, g.deer, g.wolves, g.berry_bushes, g.apple_trees)
+        } else {
+            (5, 3, 0, 8, 4)
+        };
 
         HeadlessConfig {
             ticks: self.ticks,
@@ -147,6 +157,7 @@ impl CliArgs {
             berry_bushes: self.berry_bushes.unwrap_or(default_berry_bushes),
             apple_trees: self.apple_trees.unwrap_or(default_apple_trees),
             deer: self.deer.unwrap_or(default_deer),
+            wolves: self.wolves.unwrap_or(default_wolves),
             trace: self.build_trace_config(),
             event_log: self.build_event_log_config(),
             inspect: self.build_inspect_config(),
