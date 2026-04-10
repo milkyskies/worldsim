@@ -1,3 +1,16 @@
+//! Bite action - jaws-as-weapon attack for species with Bite capability.
+//!
+//! Distinct from [`AttackAction`](super::attack::AttackAction) because the
+//! two actions require different capability channels: Attack needs
+//! Manipulation (humans holding weapons or striking with hands) while Bite
+//! needs the dedicated `Channel::Bite` that only jaws / beaks / pincers
+//! provide. A wolf can `Bite` but not `Attack`; a human can `Attack` but
+//! not `Bite`.
+//!
+//! No AI currently proposes this action — it exists so the capability is
+//! reachable by tests and can be wired into future wolf predator behaviour
+//! without another round of channel refactoring.
+
 use crate::agent::actions::ActionType;
 use crate::agent::actions::channel::{Channel, ChannelUsage};
 use crate::agent::actions::registry::{
@@ -5,15 +18,15 @@ use crate::agent::actions::registry::{
 };
 use crate::constants::actions::attack::{BASE_COST, DURATION_TICKS, ENERGY_PER_SEC};
 
-pub struct AttackAction;
+pub struct BiteAction;
 
-impl Action for AttackAction {
+impl Action for BiteAction {
     fn name(&self) -> &'static str {
-        "Attack"
+        "Bite"
     }
 
     fn action_type(&self) -> ActionType {
-        ActionType::Attack
+        ActionType::Bite
     }
 
     fn kind(&self) -> ActionKind {
@@ -31,11 +44,8 @@ impl Action for AttackAction {
     }
 
     fn body_channels(&self) -> &'static [ChannelUsage] {
-        // Manual melee — requires hands/arms to strike. Wolves can't use
-        // this (no Manipulation); they get `BiteAction` instead. Humans use
-        // it for punches, grapples, and held weapons.
         const CHANNELS: &[ChannelUsage] = &[
-            ChannelUsage::new(Channel::Manipulation, 0.9),
+            ChannelUsage::new(Channel::Bite, 1.0),
             ChannelUsage::new(Channel::Locomotion, 0.6),
             ChannelUsage::new(Channel::FullBody, 0.7),
         ];

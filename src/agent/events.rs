@@ -296,6 +296,15 @@ pub enum SimEvent {
         /// Number of beliefs updated in this batch
         belief_count: usize,
     },
+
+    /// An environmental effect (aura, zone, emitter) was applied to an agent.
+    /// Emitted once per agent per emitter per tick when the agent is in range.
+    EffectApplied {
+        agent: Entity,
+        tick: u64,
+        /// The entity that emitted the effect (campfire, hostile zone, etc.)
+        source: Entity,
+    },
 }
 
 /// Which relationship dimension changed.

@@ -93,6 +93,19 @@ impl EmotionalState {
         }
     }
 
+    /// Reduce the fuel (and derived intensity) of a specific emotion type by `amount`.
+    /// If the emotion is absent or amount is zero, does nothing.
+    pub fn drain_emotion(&mut self, emotion_type: EmotionType, amount: f32) {
+        if let Some(emotion) = self
+            .active_emotions
+            .iter_mut()
+            .find(|e| e.emotion_type == emotion_type)
+        {
+            emotion.fuel = (emotion.fuel - amount).max(0.0);
+            emotion.intensity = emotion.fuel.min(1.0);
+        }
+    }
+
     pub fn get_emotion_intensity(&self, emotion_type: EmotionType) -> f32 {
         self.active_emotions
             .iter()
