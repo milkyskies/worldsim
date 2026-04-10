@@ -364,14 +364,55 @@ pub fn regressive_plan(
     });
 
     let mut result = None;
+    let mut best_unmet: Vec<TriplePattern> = Vec::new();
+    // Key: stable hash of pattern; value: (representative pattern, count)
+    let mut goal_pattern_counts: HashMap<u64, (TriplePattern, usize)> = HashMap::new();
 
     while let Some(current_node) = open_set.pop() {
         iterations += 1;
         if iterations > MAX_ITERATIONS {
+            let mut top_patterns: Vec<&(TriplePattern, usize)> =
+                goal_pattern_counts.values().collect();
+            top_patterns.sort_by(|a, b| b.1.cmp(&a.1));
+            top_patterns.truncate(3);
+            let top_readable: Vec<&TriplePattern> =
+                top_patterns.into_iter().map(|(p, _)| p).collect();
+            tracing::warn!(
+                target: "planner",
+                "regressive_plan exhausted {} iterations on goal {:?}",
+                MAX_ITERATIONS,
+                goal
+            );
+            tracing::warn!(
+                target: "planner",
+                "best frontier node had {} unmet goals: {:?}",
+                best_unmet.len(),
+                best_unmet
+            );
+            tracing::warn!(
+                target: "planner",
+                "most common unreachable patterns: {:?}",
+                top_readable
+            );
             break;
         }
 
         let current_state = current_node.state;
+
+        if current_state.unmet_goals.len() < best_unmet.len() || best_unmet.is_empty() {
+            best_unmet = current_state.unmet_goals.clone();
+        }
+        for pattern in &current_state.unmet_goals {
+            use std::collections::hash_map::DefaultHasher;
+            use std::hash::Hasher;
+            let mut h = DefaultHasher::new();
+            hash_pattern(pattern, &mut h);
+            let key = h.finish();
+            let entry = goal_pattern_counts
+                .entry(key)
+                .or_insert_with(|| (pattern.clone(), 0));
+            entry.1 += 1;
+        }
 
         // If no unmet goals, we are done!
         if current_state.unmet_goals.is_empty() {
@@ -1451,5 +1492,61 @@ mod tests {
 
         assert_eq!(single, duplicated);
         assert_eq!(hash_state(&single), hash_state(&duplicated));
+    }
+
+    // ─── MAX_ITERATIONS diagnostic ────────────────────────────────────────────
+
+    #[test]
+    fn max_iterations_emits_warning_with_unreachable_goal() {
+        // Goal: self contains Apple. We provide MAX_ITERATIONS+1 gather actions, each requiring
+        // a different source entity that contains Apple. None of the entities have Apple in the
+        // mind, so every child state is stuck on "entity_i Contains Apple" with no further
+        // actions to satisfy it. This generates MAX_ITERATIONS+1 child nodes from the initial
+        // expansion, forcing the planner to exhaust MAX_ITERATIONS before the open_set empties.
+        use crate::constants::brains::planner::MAX_ITERATIONS;
+        use std::sync::{Arc, Mutex};
+
+        let captured: Arc<Mutex<Vec<u8>>> = Arc::new(Mutex::new(Vec::new()));
+        let captured_clone = captured.clone();
+
+        let make_writer = move || {
+            struct VecWriter(Arc<Mutex<Vec<u8>>>);
+            impl std::io::Write for VecWriter {
+                fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+                    self.0.lock().unwrap().extend_from_slice(buf);
+                    Ok(buf.len())
+                }
+                fn flush(&mut self) -> std::io::Result<()> {
+                    Ok(())
+                }
+            }
+            VecWriter(captured_clone.clone())
+        };
+
+        let subscriber = tracing_subscriber::fmt()
+            .with_max_level(tracing::Level::WARN)
+            .with_writer(make_writer)
+            .finish();
+
+        let mind = test_mind(); // empty — no entity contains Apple
+        let actions: Vec<ActionTemplate> = (1..=(MAX_ITERATIONS + 1))
+            .map(|i| gather_template(Entity::from_bits(i as u64), Concept::Apple))
+            .collect();
+        let goal = goal_self_contains(Concept::Apple);
+
+        let plan = tracing::subscriber::with_default(subscriber, || {
+            regressive_plan(&mind, &goal, &actions)
+        });
+
+        let log_output = String::from_utf8(captured.lock().unwrap().clone()).unwrap_or_default();
+        assert!(plan.is_none(), "unsatisfiable goal must return None");
+        assert!(
+            log_output.contains("regressive_plan exhausted"),
+            "must warn about MAX_ITERATIONS exhaustion; got: {log_output}"
+        );
+        assert!(
+            log_output.contains("unmet goals"),
+            "must warn about remaining unmet goals; got: {log_output}"
+        );
     }
 }
