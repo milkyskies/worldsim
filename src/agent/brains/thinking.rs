@@ -114,4 +114,4 @@ impl PartialEq for Goal {
 
 // NOTE: Static ActionTemplate methods (wake_up, wander, explore, etc.) have been removed.
 // Actions are now defined via the Action trait and accessed through ActionRegistry.
-// Use: action_registry.get(ActionType::Wander).map(|a| a.to_template(None, None))
+// Use: action_registry.get(ActionType::Wander).map(|a| a.to_template(None))

@@ -3,14 +3,57 @@
 #MISE usage="dev [worktree-num]"
 set -euo pipefail
 
+# Resolve the main repo so we can find sibling worktrees regardless of cwd.
+MAIN_REPO="$(cd "$(git rev-parse --git-common-dir)/.." && pwd)"
+
+WT_NAME="main"
 if [ -n "${1:-}" ]; then
-    REPO_ROOT="$(git rev-parse --show-toplevel)"
-    WT_DIR="$REPO_ROOT/../worldsim-worktrees/$1"
+    WT_DIR="$MAIN_REPO/../worldsim-worktrees/$1"
     if [ ! -d "$WT_DIR" ]; then
         echo "Worktree $1 not found at $WT_DIR" >&2
         exit 1
     fi
     cd "$WT_DIR"
+    WT_NAME="$1"
 fi
 
+# Each worktree gets its own dev target dir. This guarantees `mise run dev N`
+# always runs N's binary — no cross-contamination from other worktrees sharing
+# .cargo/config.toml's hardcoded target path.
+#
+# First-build trick: instead of compiling Bevy from scratch (~10 min), we
+# clone main's target dir using APFS copy-on-write (cp -c). The clone is
+# instant and uses ~zero extra disk because APFS shares blocks until
+# modification. cargo opens the clone, sees every dep already compiled, and
+# only recompiles the worldsim crate itself (~30-60s). On non-APFS systems
+# (Linux) we fall back to a regular copy on first build.
+#
+# Other cargo commands (test, build, check, nextest) keep using the shared
+# target/ — they're already correct because test binaries are hash-named per
+# source content. Only the canonical `cargo run` binary collides.
+#
+# Disk cost: nearly zero on APFS thanks to copy-on-write. Subsequent diverging
+# builds within a worktree only consume blocks for what actually changed.
+# Mass-clean with: rm -rf ~/.cache/worldsim-dev/
+DEV_CACHE="${XDG_CACHE_HOME:-$HOME/.cache}/worldsim-dev/$WT_NAME"
+SHARED_TARGET="$MAIN_REPO/target"
+
+if [ ! -d "$DEV_CACHE" ]; then
+    if [ -d "$SHARED_TARGET" ]; then
+        echo "dev: priming cache for worktree '$WT_NAME' from main's target..." >&2
+        mkdir -p "$(dirname "$DEV_CACHE")"
+        # Try APFS copy-on-write first (instant, zero disk on macOS).
+        # Fall back to a plain recursive copy on non-APFS systems.
+        if ! cp -c -R "$SHARED_TARGET" "$DEV_CACHE" 2>/dev/null; then
+            echo "dev: APFS clone unavailable, falling back to plain copy (slow)..." >&2
+            cp -R "$SHARED_TARGET" "$DEV_CACHE"
+        fi
+        echo "dev: cache primed. First build will recompile worldsim only (~30-60s)" >&2
+    else
+        echo "dev: no main target dir to clone from — first build will be cold (~10 min)" >&2
+        mkdir -p "$DEV_CACHE"
+    fi
+fi
+
+export CARGO_TARGET_DIR="$DEV_CACHE"
 cargo run

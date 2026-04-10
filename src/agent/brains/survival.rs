@@ -62,7 +62,7 @@ pub fn survival_brain_propose(
             {
                 return Some(BrainProposal {
                     brain: BrainType::Survival,
-                    action: action.to_template(None, None),
+                    action: action.to_template(None),
                     urgency: urgency_score,
                     intent,
                     reasoning: format!("Hunger urgency {:.2} — eating!", top.value),
@@ -77,7 +77,7 @@ pub fn survival_brain_propose(
             if let Some(action) = action_registry.get(ActionType::Drink) {
                 return Some(BrainProposal {
                     brain: BrainType::Survival,
-                    action: action.to_template(None, None),
+                    action: action.to_template(None),
                     urgency: urgency_score,
                     intent,
                     reasoning: format!("Thirst urgency {:.2} — drinking!", top.value),
@@ -88,7 +88,7 @@ pub fn survival_brain_propose(
             if let Some(action) = action_registry.get(ActionType::Sleep) {
                 return Some(BrainProposal {
                     brain: BrainType::Survival,
-                    action: action.to_template(None, None),
+                    action: action.to_template(None),
                     urgency: urgency_score,
                     intent,
                     reasoning: format!("Fatigue urgency {:.2} — sleeping!", top.value),
@@ -99,7 +99,7 @@ pub fn survival_brain_propose(
             if let Some(action) = action_registry.get(ActionType::Idle) {
                 return Some(BrainProposal {
                     brain: BrainType::Survival,
-                    action: action.to_template(None, None),
+                    action: action.to_template(None),
                     urgency: urgency_score,
                     intent,
                     reasoning: format!("Pain urgency {:.2} — can't move!", top.value),
@@ -110,7 +110,7 @@ pub fn survival_brain_propose(
             if let Some(action) = action_registry.get(ActionType::Flee) {
                 return Some(BrainProposal {
                     brain: BrainType::Survival,
-                    action: action.to_template(None, None),
+                    action: action.to_template(None),
                     urgency: urgency_score,
                     intent,
                     reasoning: format!("Fear urgency {:.2} — fleeing!", top.value),
@@ -135,7 +135,7 @@ fn check_sleep_wake(
         if energy >= WAKE_ENERGY_THRESHOLD {
             let wake_action = action_registry
                 .get(ActionType::WakeUp)
-                .map(|a| a.to_template(None, None))
+                .map(|a| a.to_template(None))
                 .expect("WakeUp action must be registered");
             return Some(BrainProposal {
                 brain: BrainType::Survival,
@@ -147,7 +147,7 @@ fn check_sleep_wake(
         } else if let Some(action) = action_registry.get(ActionType::Sleep) {
             return Some(BrainProposal {
                 brain: BrainType::Survival,
-                action: action.to_template(None, None),
+                action: action.to_template(None),
                 urgency: 100.0 - energy,
                 intent: Intent::SatisfyEnergy,
                 reasoning: format!("Still tired... {:.0} energy", energy),

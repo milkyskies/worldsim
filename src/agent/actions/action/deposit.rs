@@ -9,14 +9,14 @@
 use crate::agent::actions::ActionType;
 use crate::agent::actions::channel::{BodyChannel, ChannelUsage};
 use crate::agent::actions::registry::{
-    Action, ActionContext, ActionKind, CompletionContext, RuntimeEffects, TargetType,
+    Action, ActionContext, ActionKind, CompletionContext, RuntimeEffects, TargetCandidate,
+    TargetSource,
 };
-use crate::agent::brains::thinking::{ActionTemplate, TriplePattern};
+use crate::agent::brains::thinking::TriplePattern;
 use crate::agent::events::FailureReason;
 use crate::agent::item_slots::ItemSlots;
 use crate::agent::mind::knowledge::{Concept, MindGraph, Node, Predicate, Triple, Value};
 use crate::constants::actions::deposit::{DURATION_TICKS, ENERGY_PER_SEC, HUNGER_PER_SEC};
-use bevy::prelude::*;
 
 pub struct DepositAction;
 
@@ -35,12 +35,8 @@ impl Action for DepositAction {
         }
     }
 
-    fn target_type(&self) -> TargetType {
-        TargetType::Entity
-    }
-
-    fn requires_proximity(&self) -> bool {
-        true
+    fn target_source(&self) -> TargetSource {
+        TargetSource::EntityAffordance
     }
 
     fn body_channels(&self) -> &'static [ChannelUsage] {
@@ -69,6 +65,16 @@ impl Action for DepositAction {
         vec![]
     }
 
+    /// Depositing destroys items from the agent's inventory — declare it
+    /// so the planner doesn't double-count the same wood across two plan steps.
+    fn plan_consumes(&self) -> Vec<TriplePattern> {
+        vec![TriplePattern::new(
+            Some(Node::Self_),
+            Some(Predicate::Contains),
+            None,
+        )]
+    }
+
     /// Plan-time view of "what depositing into this target accomplishes":
     /// for each item the target already accepts (has Construction slots for,
     /// expressed via the recipe's `Requires` triples on the target's `Becomes`
@@ -78,8 +84,8 @@ impl Action for DepositAction {
     /// Falls back to a generic empty effect for targets the agent has no
     /// slot-shape beliefs about — runtime still works, the planner just
     /// can't reason about it.
-    fn plan_effects_for_target(&self, target: Option<Entity>, mind: &MindGraph) -> Vec<Triple> {
-        let Some(entity) = target else {
+    fn plan_effects_for_target(&self, target: &TargetCandidate, mind: &MindGraph) -> Vec<Triple> {
+        let Some(entity) = target.as_entity() else {
             return self.plan_effects();
         };
 
@@ -120,11 +126,13 @@ impl Action for DepositAction {
         effects
     }
 
-    fn is_plan_valid(&self, target: Option<Entity>, mind: &MindGraph) -> bool {
+    fn is_plan_valid(&self, target: &TargetCandidate, mind: &MindGraph) -> bool {
         // Valid if the target is known to want something (e.g. a Becomes triple
         // exists pointing at a recipe). Without that the planner has no way to
         // chain through this action sensibly.
-        let Some(entity) = target else { return false };
+        let Some(entity) = target.as_entity() else {
+            return false;
+        };
         !mind
             .query(Some(&Node::Entity(entity)), Some(Predicate::Becomes), None)
             .is_empty()
@@ -177,44 +185,6 @@ impl Action for DepositAction {
 
     fn complete_log(&self) -> Option<&'static str> {
         Some("deposited")
-    }
-
-    fn to_template(
-        &self,
-        target_entity: Option<Entity>,
-        target_position: Option<Vec2>,
-    ) -> ActionTemplate {
-        let mut preconditions = self.preconditions();
-
-        // Proximity precondition (mirrors Harvest).
-        if let Some(pos) = target_position {
-            const TILE_SIZE: f32 = 16.0;
-            let tile = (
-                (pos.x / TILE_SIZE).floor() as i32,
-                (pos.y / TILE_SIZE).floor() as i32,
-            );
-            preconditions.push(TriplePattern::self_at(tile));
-        }
-
-        // Depositing destroys items from the agent's inventory — declare it
-        // so the planner doesn't double-count the same wood across two plan
-        // steps.
-        let consumes = vec![TriplePattern::new(
-            Some(Node::Self_),
-            Some(Predicate::Contains),
-            None,
-        )];
-
-        ActionTemplate {
-            name: self.name().to_string(),
-            action_type: self.action_type(),
-            target_entity,
-            target_position,
-            preconditions,
-            effects: self.plan_effects(),
-            consumes,
-            base_cost: self.cost(),
-        }
     }
 }
 

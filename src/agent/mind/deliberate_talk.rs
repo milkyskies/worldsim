@@ -154,15 +154,23 @@ fn recency_score(timestamp: u64, now: u64) -> f32 {
     (-age / RECENCY_HALF_LIFE_TICKS).exp()
 }
 
-/// 1.0 if partner has no record of this triple, scaling toward 0.0 as their confidence grows.
+/// 1.0 if partner has no *personal* record of this triple, scaling toward 0.0
+/// as their personal confidence grows.
+///
+/// We deliberately ignore the partner's ontology and shared cultural knowledge
+/// here. A personal observation (e.g. "I just saw a dangerous wolf") is socially
+/// novel even when the partner abstractly knows the same fact from the ontology
+/// — the value of sharing is the *specific lived observation*, not the abstract
+/// category. Checking the full mind would silently suppress warnings about
+/// known-dangerous-but-not-yet-personally-observed threats.
 fn novelty_score(triple: &Triple, partner_mind: &MindGraph) -> f32 {
     let known = partner_mind
-        .query(
-            Some(&triple.subject),
-            Some(triple.predicate),
-            Some(&triple.object),
-        )
-        .into_iter()
+        .iter()
+        .filter(|t| {
+            t.subject == triple.subject
+                && t.predicate == triple.predicate
+                && t.object == triple.object
+        })
         .map(|t| t.meta.confidence.clamp(0.0, 1.0))
         .fold(0.0_f32, f32::max);
 

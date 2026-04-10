@@ -382,8 +382,10 @@ impl TestWorld {
 
         // Replace tick_system with a deterministic per-update tick advancer so
         // each `app.update()` advances exactly one logical tick regardless of
-        // wall-clock delta. This is critical for reproducible tests.
-        app.add_systems(Update, deterministic_tick);
+        // wall-clock delta. Running in PreUpdate guarantees the tick is
+        // committed before any Update systems (e.g. decay_relationships) read it,
+        // which prevents ordering-dependent flakes.
+        app.add_systems(PreUpdate, deterministic_tick);
 
         // Adds biology, brains, nervous_system, mind systems, action registry,
         // conversation manager, relationship config, etc.

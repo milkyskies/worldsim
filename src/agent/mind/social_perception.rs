@@ -10,6 +10,7 @@
 use crate::agent::Agent;
 use crate::agent::actions::registry::{ActionRegistry, ActiveActions};
 use crate::agent::body::needs::PhysicalNeeds;
+use crate::agent::inventory::EntityType;
 use crate::agent::mind::knowledge::{
     AgentName, Concept, Metadata, MindGraph, Node, Predicate, Triple, Value,
 };
@@ -32,6 +33,7 @@ pub fn perceive_other_agents(
             &ActiveActions,
             &EmotionalState,
             &PhysicalNeeds,
+            &EntityType,
         ),
         With<Agent>,
     >,
@@ -50,7 +52,7 @@ pub fn perceive_other_agents(
             }
 
             // Only perceive other agents
-            let Ok((_, name, target_transform, active, emotional_state, physical)) =
+            let Ok((_, name, target_transform, active, emotional_state, physical, entity_type)) =
                 observable_agents.get(visible_entity)
             else {
                 continue;
@@ -65,11 +67,11 @@ pub fn perceive_other_agents(
 
             let target_node = Node::Entity(visible_entity);
 
-            // 1. Perceive type: This is a Person
+            // 1. Perceive type: what species this entity actually is
             mind.assert(Triple::with_meta(
                 target_node.clone(),
                 Predicate::IsA,
-                Value::Concept(Concept::Person),
+                Value::Concept(entity_type.0),
                 meta.clone(),
             ));
 

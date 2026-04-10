@@ -4,14 +4,14 @@ use crate::agent::actions::ActionType;
 use crate::agent::actions::channel::{BodyChannel, ChannelUsage};
 use crate::agent::actions::registry::{
     Action, ActionContext, ActionKind, CompletionContext, RuntimeEffects, SpawnRequest,
+    TargetCandidate,
 };
-use crate::agent::brains::thinking::{ActionTemplate, TriplePattern};
+use crate::agent::brains::thinking::TriplePattern;
 use crate::agent::events::FailureReason;
 use crate::agent::mind::knowledge::{Concept, MindGraph, Node, Predicate, Triple, Value};
 use crate::constants::actions::build::{
     CAMPFIRE_DURATION_TICKS, CAMPFIRE_WOOD_REQUIRED, ENERGY_PER_SEC, HUNGER_PER_SEC,
 };
-use bevy::prelude::*;
 
 pub struct BuildAction;
 
@@ -103,7 +103,7 @@ impl Action for BuildAction {
         }
     }
 
-    fn is_plan_valid(&self, _target: Option<Entity>, mind: &MindGraph) -> bool {
+    fn is_plan_valid(&self, _target: &TargetCandidate, mind: &MindGraph) -> bool {
         // Valid if the agent knows at least one recipe (campfire requires something)
         !mind
             .query(
@@ -145,22 +145,5 @@ impl Action for BuildAction {
 
     fn complete_log(&self) -> Option<&'static str> {
         Some("built campfire")
-    }
-
-    fn to_template(
-        &self,
-        target_entity: Option<Entity>,
-        target_position: Option<Vec2>,
-    ) -> ActionTemplate {
-        ActionTemplate {
-            name: self.name().to_string(),
-            action_type: self.action_type(),
-            target_entity,
-            target_position,
-            preconditions: self.preconditions(),
-            effects: self.plan_effects(),
-            consumes: self.plan_consumes(),
-            base_cost: self.cost(),
-        }
     }
 }
