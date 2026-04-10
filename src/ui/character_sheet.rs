@@ -345,7 +345,7 @@ fn visible_tabs_for_entity(
 
     let has_items = world
         .get::<ItemSlots>(entity)
-        .map(|i| i.all_items().any(|s| s.quantity > 0))
+        .map(|i| i.all_items().next().is_some())
         .unwrap_or(false);
     if has_items {
         tabs.push(CharSheetTab::Inventory);
@@ -1173,21 +1173,42 @@ fn render_inventory(ui: &mut egui::Ui, world: &World, entity: Entity) {
     };
     ui.heading("Carrying");
 
-    let items: Vec<_> = slots.all_items().filter(|s| s.quantity > 0).collect();
-    if items.is_empty() {
+    // Things are now per-instance — group by concept for the count column,
+    // and average freshness when present so the player sees "how good" the
+    // pile is at a glance.
+    let mut grouped: std::collections::BTreeMap<String, (u32, f32, u32)> =
+        std::collections::BTreeMap::new();
+    for thing in slots.all_items() {
+        let key = format!("{:?}", thing.concept);
+        let entry = grouped.entry(key).or_insert((0, 0.0, 0));
+        entry.0 += 1;
+        if let Some(f) = thing.properties.freshness {
+            entry.1 += f;
+            entry.2 += 1;
+        }
+    }
+
+    if grouped.is_empty() {
         ui.label(egui::RichText::new("Empty").italics());
         return;
     }
     egui::Grid::new("inventory_grid")
-        .num_columns(2)
+        .num_columns(3)
         .striped(true)
         .show(ui, |ui| {
             ui.strong("Item");
             ui.strong("Qty");
+            ui.strong("Freshness");
             ui.end_row();
-            for stack in items {
-                ui.label(format!("{:?}", stack.concept));
-                ui.label(format!("{}", stack.quantity));
+            for (concept, (qty, fresh_sum, fresh_count)) in grouped {
+                ui.label(concept);
+                ui.label(format!("{}", qty));
+                if fresh_count > 0 {
+                    let avg = fresh_sum / fresh_count as f32;
+                    ui.label(format!("{:.0}%", avg * 100.0));
+                } else {
+                    ui.label("—");
+                }
                 ui.end_row();
             }
         });
