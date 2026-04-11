@@ -11,53 +11,12 @@ use std::ops::Index;
 use bevy::math::Vec2;
 use bevy::prelude::*;
 
+use crate::agent::body::genetics::genome::Genome;
 use crate::agent::mind::knowledge::{Metadata, MindGraph, Node, Predicate, Triple, Value};
 use crate::agent::mind::recognition::initialize_relationship;
-use crate::agent::psyche::personality::{Personality, PersonalityTraits};
 use crate::testing::config::AgentConfig;
 use crate::testing::world::{TestWorld, make_walkable_map};
 use crate::world::map::{TileType, WorldMap};
-
-// ─── PersonalityBuilder ────────────────────────────────────────────────────
-
-/// Fluent builder for `PersonalityTraits`. All values start at 0.5 (neutral).
-#[derive(Default)]
-pub struct PersonalityBuilder {
-    traits: PersonalityTraits,
-}
-
-impl PersonalityBuilder {
-    pub fn openness(mut self, v: f32) -> Self {
-        self.traits.openness = v.clamp(0.0, 1.0);
-        self
-    }
-
-    pub fn conscientiousness(mut self, v: f32) -> Self {
-        self.traits.conscientiousness = v.clamp(0.0, 1.0);
-        self
-    }
-
-    pub fn extraversion(mut self, v: f32) -> Self {
-        self.traits.extraversion = v.clamp(0.0, 1.0);
-        self
-    }
-
-    pub fn agreeableness(mut self, v: f32) -> Self {
-        self.traits.agreeableness = v.clamp(0.0, 1.0);
-        self
-    }
-
-    pub fn neuroticism(mut self, v: f32) -> Self {
-        self.traits.neuroticism = v.clamp(0.0, 1.0);
-        self
-    }
-
-    fn build(self) -> Personality {
-        Personality {
-            traits: self.traits,
-        }
-    }
-}
 
 // ─── RelBuilder ───────────────────────────────────────────────────────────
 
@@ -100,7 +59,7 @@ impl RelBuilder {
 struct AgentSpec {
     name: String,
     pos: Option<Vec2>,
-    personality: Option<Personality>,
+    genome: Option<Genome>,
     metabolism: Option<crate::agent::body::metabolism::Metabolism>,
     stamina: Option<f32>,
     social_drive: Option<f32>,
@@ -112,7 +71,7 @@ struct GroupSpec {
     name: String,
     agent_count: usize,
     near: Option<Vec2>,
-    personality: Option<Personality>,
+    genome: Option<Genome>,
     metabolism: Option<crate::agent::body::metabolism::Metabolism>,
     stamina: Option<f32>,
     knows_each_other: bool,
@@ -158,10 +117,12 @@ impl AgentBuilder {
         self
     }
 
-    /// Personality traits via a closure over `PersonalityBuilder`.
-    pub fn personality(mut self, f: impl FnOnce(PersonalityBuilder) -> PersonalityBuilder) -> Self {
-        let p = f(PersonalityBuilder::default());
-        self.spec.personality = Some(p.build());
+    /// Set the genome used to derive this agent's phenotype, personality, and
+    /// drives. Accepts anything that converts into a `Genome` — most callers
+    /// pass a fluent builder like `personality().conscientiousness(0.0)` or
+    /// `physical().speed(1.3)`.
+    pub fn genome(mut self, g: impl Into<Genome>) -> Self {
+        self.spec.genome = Some(g.into());
         self
     }
 
@@ -230,10 +191,10 @@ impl GroupBuilder {
         self
     }
 
-    /// Shared personality for all agents in this group.
-    pub fn personality(mut self, f: impl FnOnce(PersonalityBuilder) -> PersonalityBuilder) -> Self {
-        let p = f(PersonalityBuilder::default());
-        self.spec.personality = Some(p.build());
+    /// Shared genome for every agent in this group. Accepts any
+    /// `Into<Genome>` — typically a fluent builder.
+    pub fn genome(mut self, g: impl Into<Genome>) -> Self {
+        self.spec.genome = Some(g.into());
         self
     }
 
@@ -341,7 +302,7 @@ impl ScenarioBuilder {
                 name: name.to_string(),
                 agent_count: 1,
                 near: None,
-                personality: None,
+                genome: None,
                 metabolism: None,
                 stamina: None,
                 knows_each_other: false,
@@ -359,7 +320,7 @@ impl ScenarioBuilder {
             spec: AgentSpec {
                 name: name.to_string(),
                 pos: None,
-                personality: None,
+                genome: None,
                 metabolism: None,
                 stamina: None,
                 social_drive: None,
@@ -559,7 +520,7 @@ fn spawn_group(world: &mut TestWorld, spec: &GroupSpec) -> Vec<Entity> {
                 .clone()
                 .unwrap_or_else(crate::agent::body::metabolism::Metabolism::well_fed),
             stamina: spec.stamina.unwrap_or(100.0),
-            personality: spec.personality.clone().unwrap_or_default(),
+            genome: spec.genome.clone().unwrap_or_default(),
             ..Default::default()
         };
         entities.push(world.spawn_agent(config));
@@ -578,7 +539,7 @@ fn spawn_named_agent(world: &mut TestWorld, spec: &AgentSpec) -> Entity {
             .unwrap_or_else(crate::agent::body::metabolism::Metabolism::well_fed),
         stamina: spec.stamina.unwrap_or(100.0),
         social_drive: spec.social_drive,
-        personality: spec.personality.clone().unwrap_or_default(),
+        genome: spec.genome.clone().unwrap_or_default(),
         knowledge: spec.knowledge.clone(),
         ..Default::default()
     };

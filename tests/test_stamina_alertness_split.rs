@@ -7,8 +7,7 @@
 
 use worldsim::agent::activity::CurrentActivity;
 use worldsim::agent::body::needs::{Consciousness, PhysicalNeeds, Stamina};
-use worldsim::agent::psyche::personality::{Personality, PersonalityTraits};
-use worldsim::testing::{AgentConfig, TestWorld};
+use worldsim::testing::{AgentConfig, TestWorld, personality};
 
 /// Sleep activity refills BOTH aerobic and anaerobic pools — the acceptance
 /// criterion for "sleep restores both at high rate".
@@ -84,22 +83,12 @@ fn low_conscientiousness_drains_stamina_faster_than_high() {
     let mut world = TestWorld::with_seed(0);
     let lazy = world.spawn_agent(AgentConfig {
         name: Some("lazy".into()),
-        personality: Personality {
-            traits: PersonalityTraits {
-                conscientiousness: 0.0,
-                ..Default::default()
-            },
-        },
+        genome: personality().conscientiousness(0.0).into(),
         ..AgentConfig::default()
     });
     let disciplined = world.spawn_agent(AgentConfig {
         name: Some("disciplined".into()),
-        personality: Personality {
-            traits: PersonalityTraits {
-                conscientiousness: 1.0,
-                ..Default::default()
-            },
-        },
+        genome: personality().conscientiousness(1.0).into(),
         ..AgentConfig::default()
     });
 
@@ -133,13 +122,7 @@ fn cognitive_load_drains_alertness_during_activity() {
     let mut world = TestWorld::with_seed(0);
     // Agent with near-zero conscientiousness so tick relief is minimal.
     let agent = world.spawn_agent(AgentConfig {
-        personality: Personality {
-            traits: PersonalityTraits {
-                conscientiousness: 0.0,
-                openness: 0.0,
-                ..Default::default()
-            },
-        },
+        genome: personality().conscientiousness(0.0).openness(0.0).into(),
         ..AgentConfig::default()
     });
     // Harvesting: alertness_change -0.5, so activity pulls alertness down
@@ -181,13 +164,7 @@ fn idle_brain_work_drains_alertness_but_not_stamina() {
     let mut world = TestWorld::with_seed(0);
     let agent = world.spawn_agent(AgentConfig {
         // Zero openness / conscientiousness so cognitive drain lands at full rate.
-        personality: Personality {
-            traits: PersonalityTraits {
-                conscientiousness: 0.0,
-                openness: 0.0,
-                ..Default::default()
-            },
-        },
+        genome: personality().conscientiousness(0.0).openness(0.0).into(),
         ..AgentConfig::default()
     });
 
@@ -229,6 +206,7 @@ fn low_alertness_cripples_rational_power() {
     use worldsim::agent::brains::arbitration::calculate_brain_powers;
     use worldsim::agent::nervous_system::cns::CentralNervousSystem;
     use worldsim::agent::psyche::emotions::EmotionalState;
+    use worldsim::agent::psyche::personality::Personality;
 
     let cns = CentralNervousSystem::default();
     let low = Consciousness { alertness: 0.2 };

@@ -205,6 +205,16 @@ impl Default for Consciousness {
     }
 }
 
+/// Post-spawn override for the social drive.
+///
+/// Normally `develop_phenotype_system` derives drives from genome-derived
+/// personality. Tests that need a specific social drive value (e.g. forcing
+/// two strangers to feel lonely) insert this component; the system reads it
+/// and replaces `drives.social` with the override value.
+#[derive(Component, Reflect, Debug, Clone, Copy)]
+#[reflect(Component)]
+pub struct SocialDriveOverride(pub f32);
+
 /// Higher psychological drives (Humans only)
 #[derive(Component, Reflect, Debug, Clone)]
 #[reflect(Component)]

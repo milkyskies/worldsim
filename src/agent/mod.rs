@@ -59,6 +59,7 @@ impl Plugin for AgentPlugin {
             .register_type::<body::needs::PhysicalNeeds>()
             .register_type::<body::needs::Consciousness>()
             .register_type::<body::needs::PsychologicalDrives>()
+            .register_type::<body::needs::SocialDriveOverride>()
             .register_type::<activity::CurrentActivity>()
             .register_type::<mind::memory::WorkingMemory>()
             .register_type::<psyche::emotions::EmotionalState>()

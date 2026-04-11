@@ -10,8 +10,10 @@ use bevy::prelude::*;
 
 use crate::agent::body::genetics::genome::{
     AGREEABLENESS_START, CONSCIENTIOUSNESS_START, ENDURANCE_START, EXTRAVERSION_START, Genome,
-    METABOLISM_START, NEUROTICISM_START, OPENNESS_START, SPEED_START, VISION_START,
+    LOCI_PER_TRAIT, METABOLISM_START, N_LOCI, NEUROTICISM_START, OPENNESS_START, SPEED_START,
+    VISION_START,
 };
+use crate::agent::body::needs::{PsychologicalDrives, SocialDriveOverride};
 use crate::agent::body::species::SpeciesProfile;
 use crate::agent::events::SimEvent;
 use crate::agent::mind::perception::Vision;
@@ -90,6 +92,117 @@ impl Phenotype {
     }
 }
 
+impl Genome {
+    /// Build a genome whose phenotype development yields traits matching `target`.
+    ///
+    /// Inverse of [`Phenotype::from_genome`]. Used by tests and scenario builders
+    /// that want an agent with specific trait values without touching genome loci
+    /// directly.
+    ///
+    /// Because H2 < 1.0 dampens genetic influence, target values saturate near the
+    /// edges of the representable range: physical multipliers in roughly
+    /// `[0.65, 1.35]` (H2_PHYSICAL = 0.7) and personality scores in roughly
+    /// `[0.25, 0.75]` (H2_PERSONALITY = 0.5). Targets outside those ranges are
+    /// clamped to the nearest representable value.
+    pub fn from_phenotype(target: &Phenotype) -> Self {
+        let mut maternal = [0.0_f32; N_LOCI];
+        let mut paternal = [0.0_f32; N_LOCI];
+
+        fill_physical(&mut maternal, &mut paternal, SPEED_START, target.speed);
+        fill_physical(&mut maternal, &mut paternal, VISION_START, target.vision);
+        fill_physical(
+            &mut maternal,
+            &mut paternal,
+            METABOLISM_START,
+            target.metabolism,
+        );
+        fill_physical(
+            &mut maternal,
+            &mut paternal,
+            ENDURANCE_START,
+            target.endurance,
+        );
+
+        fill_personality(
+            &mut maternal,
+            &mut paternal,
+            OPENNESS_START,
+            target.openness,
+        );
+        fill_personality(
+            &mut maternal,
+            &mut paternal,
+            CONSCIENTIOUSNESS_START,
+            target.conscientiousness,
+        );
+        fill_personality(
+            &mut maternal,
+            &mut paternal,
+            EXTRAVERSION_START,
+            target.extraversion,
+        );
+        fill_personality(
+            &mut maternal,
+            &mut paternal,
+            AGREEABLENESS_START,
+            target.agreeableness,
+        );
+        fill_personality(
+            &mut maternal,
+            &mut paternal,
+            NEUROTICISM_START,
+            target.neuroticism,
+        );
+
+        Self { maternal, paternal }
+    }
+}
+
+/// Maximum |tanh| we let the inverse reach, to keep `atanh` finite.
+const INVERSE_CLAMP: f32 = 0.999;
+
+/// Fill `LOCI_PER_TRAIT` loci on both haplotypes so the forward pass reproduces
+/// the physical `target` multiplier (centered at 1.0).
+fn fill_physical(
+    maternal: &mut [f32; N_LOCI],
+    paternal: &mut [f32; N_LOCI],
+    start: usize,
+    target: f32,
+) {
+    // Forward: target = 1.0 + H2_PHYSICAL * 0.5 * tanh(locus_sum / 2.0)
+    let tanh_arg = ((target - 1.0) / (H2_PHYSICAL * 0.5)).clamp(-INVERSE_CLAMP, INVERSE_CLAMP);
+    let locus_sum = 2.0 * tanh_arg.atanh();
+    fill_loci(maternal, paternal, start, locus_sum);
+}
+
+/// Fill `LOCI_PER_TRAIT` loci on both haplotypes so the forward pass reproduces
+/// the personality `target` score (centered at 0.5).
+fn fill_personality(
+    maternal: &mut [f32; N_LOCI],
+    paternal: &mut [f32; N_LOCI],
+    start: usize,
+    target: f32,
+) {
+    // Forward: target = 0.5 + H2_PERSONALITY * 0.5 * tanh(locus_sum / 2.0)
+    let tanh_arg = ((target - 0.5) / (H2_PERSONALITY * 0.5)).clamp(-INVERSE_CLAMP, INVERSE_CLAMP);
+    let locus_sum = 2.0 * tanh_arg.atanh();
+    fill_loci(maternal, paternal, start, locus_sum);
+}
+
+fn fill_loci(
+    maternal: &mut [f32; N_LOCI],
+    paternal: &mut [f32; N_LOCI],
+    start: usize,
+    locus_sum: f32,
+) {
+    // locus_sum is the total across 2 haplotypes × LOCI_PER_TRAIT loci.
+    let per_locus = locus_sum / (2.0 * LOCI_PER_TRAIT as f32);
+    for i in start..start + LOCI_PER_TRAIT {
+        maternal[i] = per_locus;
+        paternal[i] = per_locus;
+    }
+}
+
 /// Map a raw locus sum to a physical trait multiplier centered at 1.0.
 ///
 /// `locus_sum` is the sum of 2×LOCI_PER_TRAIT values, typically in (-4.0, 4.0)
@@ -112,20 +225,33 @@ fn develop_personality(locus_sum: f32) -> f32 {
 
 /// Runs once per entity when a [`Genome`] is added (at spawn).
 ///
-/// Inserts:
+/// Inserts (or overwrites):
 /// - [`Phenotype`] derived from the genome
 /// - [`Vision`] with range scaled by `species.vision_range * phenotype.vision`
 /// - [`Personality`] derived from the phenotype's personality fields
-/// - Adjusted stamina aerobic max from `phenotype.endurance`
+/// - [`PsychologicalDrives`] derived from the personality (so drives stay in
+///   sync with genes)
+///
+/// If a [`SocialDriveOverride`] component is present, the derived drives have
+/// their `social` field replaced with the override — tests use this to force
+/// agents into loneliness regardless of their extraversion genome.
 ///
 /// Emits [`SimEvent::PhenotypeDeveloped`] for observability.
 pub fn develop_phenotype_system(
     mut commands: Commands,
-    query: Query<(Entity, &Genome, &SpeciesProfile), Added<Genome>>,
+    query: Query<
+        (
+            Entity,
+            &Genome,
+            &SpeciesProfile,
+            Option<&SocialDriveOverride>,
+        ),
+        Added<Genome>,
+    >,
     tick: Res<TickCount>,
     mut sim_events: MessageWriter<SimEvent>,
 ) {
-    for (entity, genome, species) in query.iter() {
+    for (entity, genome, species, social_override) in query.iter() {
         let phenotype = Phenotype::from_genome(genome);
 
         let vision_range = species.vision_range * phenotype.vision;
@@ -139,6 +265,11 @@ pub fn develop_phenotype_system(
                 neuroticism: phenotype.neuroticism,
             },
         };
+
+        let mut drives = PsychologicalDrives::from_personality(&personality.traits);
+        if let Some(SocialDriveOverride(v)) = social_override {
+            drives.social = *v;
+        }
 
         sim_events.write(SimEvent::PhenotypeDeveloped {
             agent: entity,
@@ -155,6 +286,7 @@ pub fn develop_phenotype_system(
                 range: vision_range,
             },
             personality,
+            drives,
         ));
     }
 }
@@ -263,6 +395,76 @@ mod tests {
         assert!(
             (p.vision - 1.0).abs() < 1e-6,
             "personality loci bled into vision"
+        );
+    }
+
+    #[test]
+    fn neutral_phenotype_round_trips_to_neutral_genome() {
+        let target = Phenotype::default();
+        let g = Genome::from_phenotype(&target);
+        let back = Phenotype::from_genome(&g);
+        assert!((back.speed - 1.0).abs() < 1e-5);
+        assert!((back.openness - 0.5).abs() < 1e-5);
+        assert!((back.conscientiousness - 0.5).abs() < 1e-5);
+        // Zero target loci means the genome should also be all zeros.
+        for v in g.maternal.iter().chain(g.paternal.iter()) {
+            assert_eq!(*v, 0.0);
+        }
+    }
+
+    #[test]
+    fn mid_range_physical_target_round_trips() {
+        let target = Phenotype {
+            speed: 1.2,
+            ..Phenotype::default()
+        };
+        let g = Genome::from_phenotype(&target);
+        let back = Phenotype::from_genome(&g);
+        assert!(
+            (back.speed - 1.2).abs() < 1e-3,
+            "speed target 1.2 round-tripped to {}",
+            back.speed
+        );
+        // Other traits stay baseline.
+        assert!((back.vision - 1.0).abs() < 1e-5);
+        assert!((back.openness - 0.5).abs() < 1e-5);
+    }
+
+    #[test]
+    fn mid_range_personality_target_round_trips() {
+        let target = Phenotype {
+            conscientiousness: 0.7,
+            ..Phenotype::default()
+        };
+        let g = Genome::from_phenotype(&target);
+        let back = Phenotype::from_genome(&g);
+        assert!(
+            (back.conscientiousness - 0.7).abs() < 1e-3,
+            "conscientiousness target 0.7 round-tripped to {}",
+            back.conscientiousness
+        );
+        assert!((back.openness - 0.5).abs() < 1e-5);
+    }
+
+    #[test]
+    fn extreme_personality_target_saturates_near_limit() {
+        // 0.0 is outside the representable range under H2_PERSONALITY = 0.5.
+        // It should saturate near the lower limit (~0.25) rather than explode.
+        let target = Phenotype {
+            conscientiousness: 0.0,
+            ..Phenotype::default()
+        };
+        let g = Genome::from_phenotype(&target);
+        let back = Phenotype::from_genome(&g);
+        assert!(
+            back.conscientiousness < 0.3,
+            "extreme target should saturate low, got {}",
+            back.conscientiousness
+        );
+        assert!(
+            back.conscientiousness > 0.2,
+            "saturation shouldn't overshoot past the representable limit, got {}",
+            back.conscientiousness
         );
     }
 }

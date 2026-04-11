@@ -12,8 +12,7 @@ use worldsim::agent::brains::plan_memory::{
 use worldsim::agent::brains::proposal::BrainType;
 use worldsim::agent::brains::thinking::{Goal, TriplePattern};
 use worldsim::agent::mind::knowledge::{Concept, Node as MindNode, Predicate, Value};
-use worldsim::agent::psyche::personality::{Personality, PersonalityTraits};
-use worldsim::testing::{AgentConfig, TestWorld};
+use worldsim::testing::{AgentConfig, TestWorld, personality};
 
 fn hunger_goal(priority: f32, concept: Concept) -> Goal {
     Goal {
@@ -81,12 +80,7 @@ fn verbal_commitment_persists_across_thinking_cycles() {
     let mut world = TestWorld::with_seed(42);
     let alice = world.spawn_agent(AgentConfig {
         pos: Vec2::new(50.0, 50.0),
-        personality: Personality {
-            traits: PersonalityTraits {
-                conscientiousness: 0.8,
-                ..Default::default()
-            },
-        },
+        genome: personality().conscientiousness(0.8).into(),
         ..Default::default()
     });
     let bob = world.spawn_agent(AgentConfig {
@@ -125,12 +119,7 @@ fn verbal_commitment_survives_unrelated_urgency_spike() {
     let mut world = TestWorld::with_seed(42);
     let alice = world.spawn_agent(AgentConfig {
         pos: Vec2::new(50.0, 50.0),
-        personality: Personality {
-            traits: PersonalityTraits {
-                conscientiousness: 0.8,
-                ..Default::default()
-            },
-        },
+        genome: personality().conscientiousness(0.8).into(),
         ..Default::default()
     });
     let bob = world.spawn_agent(AgentConfig {
@@ -175,13 +164,7 @@ fn agent_holds_multiple_background_plans_simultaneously() {
     let mut world = TestWorld::with_seed(42);
     let alice = world.spawn_agent(AgentConfig {
         pos: Vec2::new(50.0, 50.0),
-        personality: Personality {
-            traits: PersonalityTraits {
-                openness: 1.0,
-                conscientiousness: 1.0,
-                ..Default::default()
-            },
-        },
+        genome: personality().openness(1.0).conscientiousness(1.0).into(),
         ..Default::default()
     });
     let bob = world.spawn_agent(AgentConfig {
@@ -751,12 +734,7 @@ fn peer_commitment_discounts_listener_goal_priority() {
     let mut world = TestWorld::with_seed(42);
     let bob = world.spawn_agent(AgentConfig {
         pos: Vec2::new(50.0, 50.0),
-        personality: Personality {
-            traits: PersonalityTraits {
-                conscientiousness: 0.8,
-                ..Default::default()
-            },
-        },
+        genome: personality().conscientiousness(0.8).into(),
         ..Default::default()
     });
 

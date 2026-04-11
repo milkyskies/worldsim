@@ -6,6 +6,7 @@
 //! Downstream: nervous_system::execution (speed), mind::perception (vision),
 //!             nervous_system (Personality traits)
 
+pub mod builder;
 pub mod founder;
 pub mod genome;
 pub mod phenotype;
