@@ -129,18 +129,20 @@ impl Default for Metabolism {
 }
 
 impl Metabolism {
-    /// Freshly-spawned agent: stomach holds a recent meal, glucose is peaked
-    /// (simulating "just ate"), reserves are substantial. On the first few
-    /// ticks the surplus glucose above `GLUCOSE_OVERFLOW_THRESHOLD` spills
-    /// into reserves, which is fine — that's how "storing a big meal as
-    /// fat" is supposed to feel. Produces a `hunger_urgency()` well below
-    /// 0.3 so the agent reads as comfortably satiated.
+    /// Freshly-spawned agent with every pool saturated. `hunger_urgency()`
+    /// returns 0.0 exactly, which matches the legacy `hunger: 0.0` default
+    /// state and keeps `desperation`-style multipliers (perception threat
+    /// assessment, stress recovery) reading as "fully calm" at baseline.
+    ///
+    /// On the first few ticks the surplus glucose above
+    /// `GLUCOSE_OVERFLOW_THRESHOLD` spills into reserves — physiologically
+    /// this is "just finished a meal, body is storing the surplus as fat".
     pub fn well_fed() -> Self {
         Self {
-            stomach_carbs: 30.0,
-            stomach_fat: 10.0,
+            stomach_carbs: STOMACH_CAPACITY * 0.6,
+            stomach_fat: STOMACH_CAPACITY * 0.4,
             glucose: GLUCOSE_MAX,
-            reserves: 400.0,
+            reserves: RESERVES_MAX,
         }
     }
 
