@@ -17,8 +17,7 @@ use worldsim::agent::body::metabolism::Metabolism;
 use worldsim::agent::body::needs::PhysicalNeeds;
 use worldsim::agent::inventory::EntityType;
 use worldsim::agent::mind::knowledge::Concept;
-use worldsim::testing::config::AgentConfig;
-use worldsim::testing::world::TestWorld;
+use worldsim::testing::{AgentConfig, TestWorld};
 
 /// A starving agent whose health reaches zero must morph into a Corpse in
 /// place — preserving its entity ID — rather than despawning outright.
