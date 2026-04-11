@@ -489,11 +489,13 @@ impl Injury {
     }
 }
 
-/// Per-game-second decay on `Injury::bleed_rate` applied by the bleed
-/// system. Units: bleed-rate per game second. 1/300 means a fresh
-/// wound's bleed rate decays to zero in 300 game seconds (5 game
-/// minutes) — fast enough to match real-world clotting, but slow
-/// enough that a gushing Pierce wound matters during a fight.
+/// Per-real-second decay on `Injury::bleed_rate` applied by the bleed
+/// system. Matches the codebase's rate-per-real-second convention
+/// (same as starvation damage, digestion rates, etc.). 1/300 means a
+/// fresh wound's bleed rate decays to zero in 300 real seconds
+/// (5 real minutes) — fast enough to match real-world clotting
+/// timescales, but slow enough that a gushing Pierce wound still
+/// matters during a fight.
 pub const CLOT_DECAY_PER_SEC: f32 = 1.0 / 300.0;
 
 #[derive(Debug, Clone, Reflect)]
@@ -582,32 +584,37 @@ impl BodyPart {
     }
 }
 
-/// Target time to fully heal a fresh injury of the given type, in game
-/// seconds. Calibrated against rough real-world recovery windows, then
-/// compressed slightly so tests don't hang on week-long heals:
+/// Target time to fully heal a fresh injury of the given type, in the
+/// codebase's per-second rate convention. `TickCount::dt()` accumulates
+/// to 1.0 per real second at 1x simulation speed, so these durations
+/// are in **real seconds** — the same unit starvation, digestion, and
+/// every other rate-per-second constant uses.
 ///
-/// - Bruise: ~1 game week (soft tissue swelling resolves).
-/// - Cut / Slash: ~1 game week (skin closes and scar stabilises).
-/// - Crush: ~10 game days (deep tissue damage, longer than a bruise).
-/// - Burn: ~2 game weeks (skin regeneration is slow).
-/// - Pierce: ~3 game weeks (deep wound channel, internal clotting).
-/// - Infection: ~3 game weeks (immune clearance).
-/// - Fracture: ~6 game weeks (bone remodelling).
+/// At the game's 1 real second = 1 game minute compression, the
+/// durations below map to roughly:
 ///
-/// These are still 10-100x faster than real-world recovery but close
-/// enough that a wounded agent stays meaningfully disadvantaged for
-/// a handful of real-time minutes rather than a fraction of a second.
+/// - Bruise / Cut: ~3 real minutes = ~3 game hours
+/// - Slash: ~4 real minutes = ~4 game hours
+/// - Crush: ~5 real minutes = ~5 game hours
+/// - Burn: ~7 real minutes = ~7 game hours
+/// - Pierce / Infection: ~10 real minutes = ~10 game hours
+/// - Fracture: ~20 real minutes = ~20 game hours
+///
+/// Still compressed vs real-world recovery (a real bruise takes weeks)
+/// but long enough that a wounded agent stays meaningfully
+/// disadvantaged for several real minutes instead of a fraction of a
+/// second, without making tests hang on week-long heals.
 fn heal_duration_seconds(kind: InjuryType) -> f32 {
-    const DAY: f32 = 86_400.0; // 1 game day in game seconds
+    const MINUTE: f32 = 60.0;
     match kind {
-        InjuryType::Bruise => 7.0 * DAY,
-        InjuryType::Cut => 7.0 * DAY,
-        InjuryType::Slash => 7.0 * DAY,
-        InjuryType::Crush => 10.0 * DAY,
-        InjuryType::Burn => 14.0 * DAY,
-        InjuryType::Pierce => 21.0 * DAY,
-        InjuryType::Infection => 21.0 * DAY,
-        InjuryType::Fracture => 42.0 * DAY,
+        InjuryType::Bruise => 3.0 * MINUTE,
+        InjuryType::Cut => 3.0 * MINUTE,
+        InjuryType::Slash => 4.0 * MINUTE,
+        InjuryType::Crush => 5.0 * MINUTE,
+        InjuryType::Burn => 7.0 * MINUTE,
+        InjuryType::Pierce => 10.0 * MINUTE,
+        InjuryType::Infection => 10.0 * MINUTE,
+        InjuryType::Fracture => 20.0 * MINUTE,
     }
 }
 
