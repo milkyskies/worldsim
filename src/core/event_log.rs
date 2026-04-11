@@ -240,6 +240,9 @@ fn event_meta<'a>(
         SimEvent::LaborContributed { agent, tick, .. } => {
             ("LaborContributed", *tick, vec![agent_resolve(*agent)])
         }
+        SimEvent::SkillChanged { agent, tick, .. } => {
+            ("SkillChanged", *tick, vec![agent_resolve(*agent)])
+        }
     }
 }
 
@@ -540,6 +543,22 @@ fn event_to_json(
                 "type": event_type,
                 "agent": resolve(*agent),
                 "site": resolve(*site),
+            })
+        }
+        SimEvent::SkillChanged {
+            agent,
+            skill,
+            old_value,
+            new_value,
+            ..
+        } => {
+            serde_json::json!({
+                "tick": tick,
+                "type": event_type,
+                "agent": resolve(*agent),
+                "skill": format!("{skill:?}"),
+                "old": old_value,
+                "new": new_value,
             })
         }
     }
