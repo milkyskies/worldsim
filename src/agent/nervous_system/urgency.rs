@@ -77,6 +77,7 @@ pub fn generate_urgency(
         }
 
         cns.urgencies.clear();
+        cns.sleep_wake_trigger = None;
 
         // Helper: Get normalized value (0-1) for a specific urgency source
         // This maps the Source (Hunger, Stamina) to the underlying Component Field.
@@ -124,6 +125,19 @@ pub fn generate_urgency(
             } else {
                 base_input
             };
+
+            // Sleep wake pathway: compare the pre-gated raw input against the
+            // drive's wake threshold. This runs before gating/curves/sensitivity
+            // because real-life wake pathways (nociception, amygdala alarm,
+            // starvation cortisol) respond to raw stimulus strength, not to
+            // the attenuated conscious-perception signal. The brain reads
+            // `cns.sleep_wake_trigger` to decide whether to rouse a sleeper.
+            if let Some(threshold) = drive_config.sleep_wake_threshold
+                && normalized_input >= threshold
+                && cns.sleep_wake_trigger.is_none()
+            {
+                cns.sleep_wake_trigger = Some(drive_config.source);
+            }
 
             // If base constant is non-zero, it might override or add to input (e.g. Boredom)
             // If input is 0 (e.g. Boredom source returns 0), we use base_constant?

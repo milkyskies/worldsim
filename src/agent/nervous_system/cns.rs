@@ -18,6 +18,13 @@ use bevy::prelude::*;
 pub struct CentralNervousSystem {
     pub urgencies: Vec<Urgency>,
     pub current_goal: Option<Goal>,
+    /// Set by `generate_urgency` when a drive's raw input has crossed its
+    /// `sleep_wake_threshold`. The survival brain reads this to decide
+    /// whether a sleeping agent should be roused. Independent from
+    /// `urgencies` because it compares against the *pre-gated* input — the
+    /// biological wake pathway sees the raw signal, not the alertness-
+    /// dampened urgency.
+    pub sleep_wake_trigger: Option<UrgencySource>,
 }
 
 /// Formulates goals based on the highest urgency
