@@ -136,6 +136,7 @@ pub fn three_brains_system(
             physical,
             &consciousness,
             personality,
+            tick.current,
         );
         let rational_proposal = rational_brain_propose(
             rational_brain,

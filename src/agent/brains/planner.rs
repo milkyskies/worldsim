@@ -51,7 +51,17 @@ pub struct PlanCostContext {
     pub alertness: f32,
     /// Big Five neuroticism in [0, 1]. Higher = anxious, inflates cost.
     pub neuroticism: f32,
+    /// Current simulation tick. Used by `PlanCostCache` to age-check
+    /// transient beliefs like `(Tile, HasTrait, Unreachable)` so an old
+    /// path-blocked marker eventually stops filtering walk targets.
+    pub current_tick: u64,
 }
+
+/// How long a `(Tile, HasTrait, Unreachable)` belief suppresses walk
+/// planning to that tile. After this many ticks the planner treats the
+/// tile as fair game again so agents retry paths that may have opened up
+/// (tree chopped, obstacle despawned, etc.).
+pub const UNREACHABLE_BELIEF_TTL_TICKS: u64 = 500;
 
 impl PlanCostContext {
     /// All factors neutral — used in tests and as a fallback when no agent
@@ -61,6 +71,7 @@ impl PlanCostContext {
             stamina_aerobic: 1.0,
             alertness: 1.0,
             neuroticism: 0.0,
+            current_tick: 0,
         }
     }
 
@@ -69,11 +80,13 @@ impl PlanCostContext {
         physical: &PhysicalNeeds,
         consciousness: &Consciousness,
         personality: &Personality,
+        current_tick: u64,
     ) -> Self {
         Self {
             stamina_aerobic: physical.stamina.aerobic_fraction().clamp(0.0, 1.0),
             alertness: consciousness.alertness.clamp(0.0, 1.0),
             neuroticism: personality.traits.neuroticism.clamp(0.0, 1.0),
+            current_tick,
         }
     }
 
@@ -155,6 +168,12 @@ fn cost_profile_for(action_type: ActionType) -> CostProfile {
 struct PlanCostCache<'a> {
     ctx: &'a PlanCostContext,
     dangers: Vec<(i32, i32)>,
+    /// Tiles the agent recently failed to reach via Walk. Populated from
+    /// `(Tile, HasTrait, Unreachable)` triples written by the belief
+    /// updater on `ActionOutcome::Failed { PathBlocked }`. Stale entries
+    /// (older than `UNREACHABLE_BELIEF_TTL_TICKS`) are filtered out here
+    /// so the planner automatically retries once the belief ages out.
+    unreachable_tiles: Vec<(i32, i32)>,
 }
 
 impl<'a> PlanCostCache<'a> {
@@ -175,7 +194,32 @@ impl<'a> PlanCostCache<'a> {
             };
             dangers.push(*tile);
         }
-        Self { ctx, dangers }
+        let mut unreachable_tiles = Vec::new();
+        for triple in mind.query(
+            None,
+            Some(Predicate::HasTrait),
+            Some(&Value::Concept(Concept::Unreachable)),
+        ) {
+            let MindNode::Tile(tile) = triple.subject else {
+                continue;
+            };
+            // TTL check: expire stale beliefs so the agent retries paths
+            // that may have opened up since the last block.
+            if ctx.current_tick.saturating_sub(triple.meta.timestamp)
+                <= UNREACHABLE_BELIEF_TTL_TICKS
+            {
+                unreachable_tiles.push(tile);
+            }
+        }
+        Self {
+            ctx,
+            dangers,
+            unreachable_tiles,
+        }
+    }
+
+    fn is_unreachable(&self, tile: (i32, i32)) -> bool {
+        self.unreachable_tiles.contains(&tile)
     }
 }
 
@@ -1113,6 +1157,14 @@ fn generate_implicit_walk(
         Some(Value::Tile(t)) => *t,
         _ => return None,
     };
+
+    // Fix #364: skip tiles the agent recently failed to reach. The A*
+    // search will explore alternative goals (different food sources,
+    // different drinking spots, etc.) instead of reissuing the same
+    // blocked walk every tick until the belief ages out.
+    if cost_cache.is_unreachable(tile) {
+        return None;
+    }
 
     let current_pos_val = mind.get(&MindNode::Self_, Predicate::LocatedAt)?;
     let (cx, cy) = match current_pos_val {

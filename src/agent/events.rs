@@ -112,8 +112,11 @@ pub enum FailureReason {
     TooFar,
     /// Interrupted by something else
     Interrupted,
-    /// Path is blocked
-    PathBlocked,
+    /// A Walk could not reach its target tile: a straight-line step
+    /// crossed a non-walkable tile. Carries the target tile so the belief
+    /// updater can mark it Unreachable and the planner can avoid
+    /// re-picking it on the next replan.
+    PathBlocked { target_tile: (i32, i32) },
     /// Already did this (e.g., already introduced)
     AlreadyDone,
     /// No drinkable water adjacent to agent
