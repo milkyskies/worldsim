@@ -338,8 +338,9 @@ mod tests {
         assert_eq!(m.stomach_carbs, 30.0, "carbs go into stomach first");
         assert_eq!(m.glucose, 40.0, "glucose unchanged until digestion tick");
 
-        // Tick 5 seconds: at 1.0 carb/s this should fully digest.
-        m.tick(5.0, 0.0, 0.0);
+        // Tick 60 seconds: at DIGEST_CARB_RATE = 1.0 carb/s, the 30-carb
+        // meal needs 30 seconds to fully digest. 60s leaves headroom.
+        m.tick(60.0, 0.0, 0.0);
         assert!(m.stomach_carbs < 0.001, "carbs fully digested");
         assert!(
             m.glucose > 60.0,
@@ -444,13 +445,15 @@ mod tests {
     #[test]
     fn prolonged_fast_progresses_through_gradient() {
         let mut m = Metabolism::well_fed();
-        // Simulate ~200 seconds of moderate activity with zero food input.
-        // BMR 0.2/s + activity 0.3/s = 0.5 glucose/s drain; reserves start
-        // at 300 and mobilize to buffer. Eventually all pools empty.
+        // Simulate an extended fast under heavy exertion. BMR 1.0/s +
+        // activity 4.0/s = 5.0 glucose/s — drains ~20 in/stomach + 80
+        // glucose + 300 reserves (~400 total units) within the 500
+        // simulated seconds below. Reserves mobilize to buffer, but
+        // eventually every pool empties.
         let mut saw_weak = false;
         let mut saw_starving = false;
-        for _ in 0..2000 {
-            m.tick(0.1, 0.2, 0.3);
+        for _ in 0..5000 {
+            m.tick(0.1, 1.0, 4.0);
             if m.is_weak_from_hunger() {
                 saw_weak = true;
             }

@@ -31,9 +31,11 @@ fn starvation_death_transforms_agent_into_corpse_in_place() {
         ..Default::default()
     });
 
-    // Stage the agent at the death threshold. A single starvation-damage
-    // tick tips them over into `check_death` -> `die()` ->
-    // `Becomes InPlace Corpse` -> `becomes_system` -> `kill_into_corpse`.
+    // Stage the agent just above the death threshold. With TestWorld's
+    // `ticks_per_second = 60` (`dt ≈ 0.0167s`) and `STARVATION_DAMAGE = 0.3/s`,
+    // a 0.1-HP cushion drains in about 20 ticks of `process_starvation`,
+    // at which point `check_death` -> `die()` -> `Becomes InPlace Corpse`
+    // -> `becomes_system` -> `kill_into_corpse` fires and the agent morphs.
     world
         .app_mut()
         .world_mut()
@@ -41,7 +43,7 @@ fn starvation_death_transforms_agent_into_corpse_in_place() {
         .expect("agent has physical needs")
         .health = 0.1;
 
-    world.tick(5);
+    world.tick(60);
 
     // Entity ID survives the in-place transformation — this is the point
     // of the fix. The legacy despawn path would have deleted the entity
