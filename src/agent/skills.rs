@@ -284,8 +284,12 @@ struct AgentSnapshot {
 /// Runs after `tick_actions` so ActionCompleted messages from this tick
 /// are visible. Early-exits when there are no events this tick so the
 /// mentorship snapshot allocation only happens on frames with work.
+///
+/// `SimEvent` reading and writing share one `ParamSet` because Bevy's
+/// system-param checker rejects a plain `MessageReader` + `MessageWriter`
+/// pair against the same message type (disjoint-access violation).
 pub fn skill_progression_system(
-    mut events: MessageReader<SimEvent>,
+    mut sim_events: ParamSet<(MessageReader<SimEvent>, MessageWriter<SimEvent>)>,
     mut agents: Query<
         (
             Entity,
@@ -298,12 +302,12 @@ pub fn skill_progression_system(
     >,
     config: Res<SkillsConfig>,
     tick: Res<TickCount>,
-    mut sim_events: MessageWriter<SimEvent>,
 ) {
     // Drain the events first so the expensive agent snapshot only runs
     // on ticks that actually have action completions. Most ticks have
     // none — this keeps the hot path allocation-free.
-    let completions: Vec<(Entity, ActionType)> = events
+    let completions: Vec<(Entity, ActionType)> = sim_events
+        .p0()
         .read()
         .filter_map(|event| match event {
             SimEvent::ActionCompleted { agent, action, .. } => Some((*agent, *action)),
@@ -332,6 +336,9 @@ pub fn skill_progression_system(
         .collect();
 
     let current_tick = tick.current;
+    // Collected here so ParamSet can switch from reader to writer only
+    // once, after every mutation is done.
+    let mut emitted: Vec<(Entity, SkillKind, f32, f32)> = Vec::new();
 
     for (learner_entity, action) in completions {
         let Some(skill_kind) = skill_for_action(action) else {
@@ -361,10 +368,17 @@ pub fn skill_progression_system(
         };
 
         if let Some((old, new)) = skills.practice(skill_kind, delta, current_tick) {
-            sim_events.write(SimEvent::SkillChanged {
-                agent: learner_entity,
+            emitted.push((learner_entity, skill_kind, old, new));
+        }
+    }
+
+    if !emitted.is_empty() {
+        let mut writer = sim_events.p1();
+        for (agent, skill, old, new) in emitted {
+            writer.write(SimEvent::SkillChanged {
+                agent,
                 tick: current_tick,
-                skill: skill_kind,
+                skill,
                 old_value: old,
                 new_value: new,
             });
