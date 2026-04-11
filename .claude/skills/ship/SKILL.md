@@ -37,11 +37,13 @@ On **re-runs** (PR already exists), skip PR creation — just run quality gates,
 
 If anything is ✗, finish it before proceeding.
 
-## Step 3: Quality gates
+## Step 3: Code review
 
-Run **only `cargo fmt`** locally. Skip clippy and nextest — Worldsim's Bevy
-compile is too slow for the full trinity to run on every push, and CI
-already runs fmt + clippy + nextest on a fast runner with caching.
+Run **`/simplify`** — review changed code for reuse, quality, and efficiency. Commit any fixes.
+
+## Step 4: Quality gates
+
+Run **only `cargo fmt`** locally — after code review, since /simplify may have rewritten code. Skip clippy and nextest (CI handles them).
 
 ```bash
 cargo fmt
@@ -49,17 +51,7 @@ cargo fmt
 
 If fmt makes any changes, commit them.
 
-**Trust CI for clippy and test results.** If CI fails after pushing, fix
-the issue and push again — do NOT try to "pre-validate" by running clippy
-or nextest locally.
-
-## Step 4: Code review
-
-Run **`/simplify`** — review changed code for reuse, quality, and efficiency.
-
-If it made changes:
-- Re-run quality gates (step 3) on affected packages
-- Commit fixes
+**Trust CI for clippy and test results.** If CI fails after pushing, fix the issue and push again.
 
 ## Step 5: PR
 
@@ -128,7 +120,7 @@ Track consecutive failures. **Cap at 3 — after 3 consecutive failures, stop an
 
 1. **Merge conflicts** (`mergeable` is `CONFLICTING`): merge the base branch in and resolve conflicts
 2. **CI failures**: read failure logs and fix the issue
-3. Re-run quality gates (step 3) on affected packages
+3. Re-run quality gates (step 4) on affected packages
 4. If the fix involved new logic or structural changes (not just mechanical fixes like missing imports or type annotations), re-run `/simplify`
 5. Commit, push, poll again
 
