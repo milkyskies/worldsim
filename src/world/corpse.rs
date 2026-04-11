@@ -17,6 +17,7 @@ use crate::agent::affordance::Affordance;
 use crate::agent::inventory::EntityType;
 use crate::agent::item_slots::ItemSlots;
 use crate::agent::mind::knowledge::Concept;
+use crate::ui::sprite_animation::SpriteBody;
 use crate::world::property::HarvestableComponent;
 use bevy::ecs::world::CommandQueue;
 use bevy::prelude::*;
@@ -77,6 +78,30 @@ pub fn spawn_corpse_headless(commands: &mut Commands, position: Vec2) -> Entity 
 pub fn kill_into_corpse(commands: &mut Commands, entity: Entity, meat_qty: u32) {
     let mut queue = CommandQueue::default();
     queue.push(move |world: &mut World| {
+        // Tilt corpses: humans fall on their side (90°), animals flip upside down (180°).
+        let rotation_z = {
+            let concept = world.get::<EntityType>(entity).map(|et| et.0);
+            match concept {
+                Some(Concept::Person) => std::f32::consts::FRAC_PI_2,
+                _ => std::f32::consts::PI,
+            }
+        };
+
+        {
+            let mut sb_query = world.query::<(Entity, &SpriteBody)>();
+            let sb_entity = sb_query
+                .iter(world)
+                .find(|(_, sb)| sb.root == entity)
+                .map(|(e, _)| e);
+            if let Some(sb_entity) = sb_entity {
+                if let Ok(mut sb_mut) = world.get_entity_mut(sb_entity) {
+                    if let Some(mut transform) = sb_mut.get_mut::<Transform>() {
+                        transform.rotation = Quat::from_rotation_z(rotation_z);
+                    }
+                }
+            }
+        }
+
         let Ok(mut entity_mut) = world.get_entity_mut(entity) else {
             return;
         };
