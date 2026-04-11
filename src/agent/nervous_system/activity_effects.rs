@@ -44,6 +44,16 @@ pub fn tick_metabolism(
         physical
             .metabolism
             .tick_with_mods(dt, bmr_drain, 0.0, organ_mods);
+
+        // Passive stamina regen. The old `Stamina::recover` path is only
+        // called from tests, so without this block a Flee/Attack sprint
+        // drops anaerobic to 0 and it stays there until Sleep. Mirrors
+        // the 0.5/tick anaerobic and slow aerobic refill that the
+        // legacy recover API documents.
+        physical.stamina.anaerobic =
+            (physical.stamina.anaerobic + 0.5).min(physical.stamina.anaerobic_max);
+        physical.stamina.aerobic =
+            (physical.stamina.aerobic + 0.1).min(physical.stamina.aerobic_max);
     }
 }
 

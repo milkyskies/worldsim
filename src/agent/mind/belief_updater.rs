@@ -210,7 +210,7 @@ fn generate_failure_frustration(
             sim_events,
             agent,
             tick,
-            Emotion::new(EmotionType::Anger, urgency * 0.6),
+            Emotion::new(EmotionType::Anger, urgency * 0.15),
         );
     }
 }
@@ -275,10 +275,10 @@ mod tests {
             ..Default::default()
         };
         let urgency = needs.hunger_urgency();
-        let frustration = urgency * 0.6;
+        let frustration = urgency * 0.15;
         assert!(
-            frustration > 0.4,
-            "high hunger failure should produce significant frustration (got {frustration})"
+            frustration > 0.05,
+            "high hunger failure should still register some frustration (got {frustration})"
         );
     }
 

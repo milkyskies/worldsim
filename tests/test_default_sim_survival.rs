@@ -436,45 +436,56 @@ fn assert_humans_survive_default_sim(ticks: u64) {
     let _ = WorldSpawnConfig::game_defaults();
 }
 
-/// 30k ticks — 8 minutes of play. Should be trivially survivable; this
-/// catches catastrophic regressions where humans can't even feed
-/// themselves once.
+// 86,400 ticks = 1 game day. Tests are labelled in days so the budget
+// matches game-world time instead of wall-clock.
+
+/// ~0.35 days (30k ticks). Catastrophic-regression floor.
 #[test]
-#[ignore = "slow (~15s): full game_defaults run. Run with --ignored."]
+#[ignore = "slow: full game_defaults run. Run with --ignored."]
 fn default_sim_seed_42_humans_survive_30k() {
     assert_humans_survive_default_sim(30_000);
 }
 
-/// 65k ticks — 18 minutes. Past the first death wave in the original
-/// pre-fix baseline (humans died ~59k–63k). This is the contract level
-/// the #416 fix had to clear.
+/// ~0.75 days (65k ticks). Contract level for the initial #416 fix.
 #[test]
-#[ignore = "slow (~30s): full game_defaults run. Run with --ignored."]
+#[ignore = "slow: full game_defaults run. Run with --ignored."]
 fn default_sim_seed_42_humans_survive_65k() {
     assert_humans_survive_default_sim(65_000);
 }
 
-/// 100k ticks — 28 minutes. Tests whether humans recover their reserves
-/// fast enough to outpace BMR drain over many eating cycles, not just
-/// one wave. Passing this level required two #416 fixes in tandem:
-/// (a) execution emits `ResourceDepleted` when Harvest yields nothing,
-/// so agents stop spamming the same empty target; (b) the belief
-/// updater's `ResourceDepleted` handler clears every `Contains` belief
-/// on the target instead of the old hardcoded `Concept::Apple`, so
-/// BerryBush/Corpse depletion is actually learned.
+/// ~1.2 days (100k ticks). First full day-night cycle.
 #[test]
-#[ignore = "slow (~90s): full game_defaults run. Run with --ignored."]
+#[ignore = "slow: full game_defaults run. Run with --ignored."]
 fn default_sim_seed_42_humans_survive_100k() {
     assert_humans_survive_default_sim(100_000);
 }
 
-/// 200k ticks — 56 minutes. The endgame check: indefinite play. This
-/// is the calorie-balance and knowledge-maintenance contract for the
-/// typical play session.
+/// ~2.3 days (200k ticks). Two-plus day-night cycles.
 #[test]
-#[ignore = "slow (~180s): full game_defaults run. Run with --ignored."]
+#[ignore = "slow: full game_defaults run. Run with --ignored."]
 fn default_sim_seed_42_humans_survive_200k() {
     assert_humans_survive_default_sim(200_000);
+}
+
+/// ~4.6 days (400k ticks).
+#[test]
+#[ignore = "slow: full game_defaults run. Run with --ignored."]
+fn default_sim_seed_42_humans_survive_400k() {
+    assert_humans_survive_default_sim(400_000);
+}
+
+/// ~9.3 days (800k ticks).
+#[test]
+#[ignore = "slow: full game_defaults run. Run with --ignored."]
+fn default_sim_seed_42_humans_survive_800k() {
+    assert_humans_survive_default_sim(800_000);
+}
+
+/// ~23 days (2M ticks). Extended-play canary.
+#[test]
+#[ignore = "very slow: full game_defaults run. Run with --ignored."]
+fn default_sim_seed_42_humans_survive_2m() {
+    assert_humans_survive_default_sim(2_000_000);
 }
 
 /// Diagnostic helper kept for manual investigation: walks the default

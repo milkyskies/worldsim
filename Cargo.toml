@@ -50,6 +50,13 @@ opt-level = 1
 [profile.dev.package."*"]
 opt-level = 3
 
+# Tests inherit from dev (same optimization level) but turn opt-level
+# up for our own crate so the long-run survival tests and fuzzy sim
+# trajectories don't pay the 5x slowdown of the default dev opt-level=1.
+# A 200k-tick full-sim test drops from ~170s to ~30s at opt-level=3.
+[profile.test]
+opt-level = 3
+
 # CI profile: drop opt-level overrides so compile is fast.
 # CI doesn't need fast runtime, just fast compile + test.
 [profile.ci]

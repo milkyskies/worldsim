@@ -1490,7 +1490,9 @@ impl TestWorld {
             );
         }
 
-        // Emotional state
+        // Emotional state. Fuel is load-bearing when intensity saturates
+        // at 1.0: stuck-max-anger looks identical to one-tick-max-anger
+        // without it.
         if let Some(emo) = world.get::<EmotionalState>(agent) {
             eprintln!(
                 "  Emotions:  mood={:.3}  stress={:.1}  active=[{}]",
@@ -1498,7 +1500,7 @@ impl TestWorld {
                 emo.stress_level,
                 emo.active_emotions
                     .iter()
-                    .map(|e| format!("{:?}({:.2})", e.emotion_type, e.intensity))
+                    .map(|e| format!("{:?}(i={:.2},f={:.1})", e.emotion_type, e.intensity, e.fuel))
                     .collect::<Vec<_>>()
                     .join(", ")
             );
