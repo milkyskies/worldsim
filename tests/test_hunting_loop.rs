@@ -80,7 +80,10 @@ fn hungry_hunter_kills_and_eats_nearby_deer() {
         ..Default::default()
     });
 
-    world.tick(1200);
+    // Real-damage combat takes many attack cycles to drop a deer via
+    // incapacitation (function_rate < 0.2 on a vital part). 3000 ticks
+    // matches the wolf test's budget, which needs the same headroom.
+    world.tick(3000);
 
     let final_hunger = world.agent_hunger(hunter);
 
