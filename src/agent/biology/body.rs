@@ -12,12 +12,12 @@
 //! Downstream: channel::ChannelCapacities (capability queries),
 //!             movement::calculate_speed (injury penalty), UI/debug
 
+use crate::agent::Agent;
 use crate::agent::actions::channel::Channel;
 use crate::agent::body::metabolism::STARVATION_DAMAGE_PER_SEC;
 use crate::agent::body::needs::PhysicalNeeds;
 use crate::agent::body::species::Species;
 use crate::agent::mind::knowledge::Concept;
-use crate::agent::Agent;
 use crate::core::GameLog;
 use crate::world::becomes::{Becomes, BecomesMode, BecomesTrigger};
 use bevy::prelude::*;
