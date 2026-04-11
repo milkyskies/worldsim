@@ -79,6 +79,7 @@ pub fn emotional_brain_propose(
             best_urgency,
         )
     {
+        best_urgency = proposal.urgency;
         best = Some(proposal);
     }
 
