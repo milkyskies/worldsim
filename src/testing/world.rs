@@ -1156,6 +1156,322 @@ impl TestWorld {
             }
         }
 
+        // Self-inventory beliefs as they appear in the MindGraph. These
+        // are what the Rational planner's `self_contains_food()`
+        // precondition actually queries, not the ItemSlots component —
+        // when the two disagree it means perception or belief-update
+        // drift. Silent divergence here was the final Alice-eats-nothing
+        // pathology in #416.
+        if let Some(mind_graph) = world.get::<crate::agent::mind::knowledge::MindGraph>(agent) {
+            use crate::agent::mind::knowledge::{Node, Predicate, Value};
+            let triples = mind_graph.query(Some(&Node::Self_), Some(Predicate::Contains), None);
+            let items: Vec<String> = triples
+                .iter()
+                .filter_map(|t| match &t.object {
+                    Value::Item(c, q) => Some(format!("{c:?}×{q}")),
+                    _ => None,
+                })
+                .collect();
+            if items.is_empty() {
+                eprintln!("  MindInv:   (empty)");
+            } else {
+                eprintln!("  MindInv:   [{}]", items.join(", "));
+            }
+        }
+
+        // Current CNS goal
+        if let Some(cns) =
+            world.get::<crate::agent::nervous_system::cns::CentralNervousSystem>(agent)
+        {
+            match &cns.current_goal {
+                Some(goal) => {
+                    let conds: Vec<String> = goal
+                        .conditions
+                        .iter()
+                        .map(|c| {
+                            format!(
+                                "{:?}={:?}",
+                                c.predicate.map(|p| format!("{p:?}")).unwrap_or_default(),
+                                c.object
+                            )
+                        })
+                        .collect();
+                    eprintln!(
+                        "  Goal:      {} (priority {:.2})",
+                        if conds.is_empty() {
+                            "(empty)".to_string()
+                        } else {
+                            conds.join(", ")
+                        },
+                        goal.priority
+                    );
+                }
+                None => eprintln!("  Goal:      (none)"),
+            }
+            // Top urgencies for context
+            let top: Vec<String> = cns
+                .urgencies
+                .iter()
+                .take(3)
+                .map(|u| format!("{:?}={:.2}", u.source, u.value))
+                .collect();
+            if !top.is_empty() {
+                eprintln!("  Urgency:   [{}]", top.join(", "));
+            }
+        }
+
+        // Plan memory
+        if let Some(memory) = world.get::<crate::agent::brains::plan_memory::PlanMemory>(agent) {
+            if memory.plans.is_empty() {
+                eprintln!("  Plans:     (none)");
+            } else {
+                eprintln!("  Plans:");
+                for plan in memory.plans.iter() {
+                    let cur_action = plan.current();
+                    let cur = cur_action
+                        .map(|a| format!("{:?}", a.action_type))
+                        .unwrap_or_else(|| "(finished)".to_string());
+                    let target = cur_action
+                        .and_then(|a| {
+                            a.target_entity
+                                .map(|e| format!(" tgt={:?}", e))
+                                .or_else(|| {
+                                    a.target_position
+                                        .map(|p| format!(" pos=({:.0},{:.0})", p.x, p.y))
+                                })
+                        })
+                        .unwrap_or_default();
+                    let intent = plan
+                        .goal
+                        .conditions
+                        .iter()
+                        .find_map(|c| c.predicate.map(|p| format!("{p:?}")))
+                        .unwrap_or_else(|| "?".to_string());
+                    eprintln!(
+                        "    {:?} {:?} step {}/{}: {}{}  (goal={}, prio={:.2}, commit={:.2})",
+                        plan.id,
+                        plan.state,
+                        plan.current_step,
+                        plan.steps.len(),
+                        cur,
+                        target,
+                        intent,
+                        plan.goal.priority,
+                        plan.commitment,
+                    );
+                    // Print remaining steps so we can see the full plan
+                    // shape (Harvest→Eat, Walk→Drink, etc.).
+                    if plan.steps.len() > 1 {
+                        let steps: Vec<String> = plan
+                            .steps
+                            .iter()
+                            .enumerate()
+                            .map(|(i, s)| {
+                                let marker = if i == plan.current_step { ">" } else { " " };
+                                format!("{}{:?}", marker, s.action_type)
+                            })
+                            .collect();
+                        eprintln!("      steps: [{}]", steps.join(", "));
+                    }
+                }
+            }
+        }
+
+        // Recent action summary — what's the agent been doing in the last
+        // 2000 ticks? Critical for spotting "Alice harvests 178 times but
+        // eats 0 times after tick 26000" patterns.
+        {
+            let log = world.resource::<SimEventLog>();
+            const WINDOW: u64 = 2000;
+            let cutoff = tick.saturating_sub(WINDOW);
+            let mut started: std::collections::HashMap<String, usize> =
+                std::collections::HashMap::new();
+            let mut failed: std::collections::HashMap<String, usize> =
+                std::collections::HashMap::new();
+            let mut last_eat_tick: Option<u64> = None;
+            let mut last_harvest_tick: Option<u64> = None;
+            for event in log.all() {
+                let event_tick = sim_event_tick(event);
+                match event {
+                    SimEvent::ActionStarted {
+                        agent: a, action, ..
+                    } if *a == agent => {
+                        if event_tick >= cutoff {
+                            *started.entry(format!("{action:?}")).or_insert(0) += 1;
+                        }
+                        match action {
+                            crate::agent::actions::ActionType::Eat => {
+                                last_eat_tick = Some(event_tick);
+                            }
+                            crate::agent::actions::ActionType::Harvest => {
+                                last_harvest_tick = Some(event_tick);
+                            }
+                            _ => {}
+                        }
+                    }
+                    SimEvent::ActionFailed {
+                        agent: a, action, ..
+                    } if *a == agent && event_tick >= cutoff => {
+                        *failed.entry(format!("{action:?}")).or_insert(0) += 1;
+                    }
+                    _ => {}
+                }
+            }
+            if !started.is_empty() {
+                let mut entries: Vec<(String, usize)> = started.into_iter().collect();
+                entries.sort_by(|a, b| b.1.cmp(&a.1));
+                let summary: Vec<String> =
+                    entries.iter().map(|(k, v)| format!("{k}×{v}")).collect();
+                eprintln!("  Recent({} ticks): [{}]", WINDOW, summary.join(", "));
+            }
+            if !failed.is_empty() {
+                let mut entries: Vec<(String, usize)> = failed.into_iter().collect();
+                entries.sort_by(|a, b| b.1.cmp(&a.1));
+                let summary: Vec<String> =
+                    entries.iter().map(|(k, v)| format!("{k}×{v}")).collect();
+                eprintln!("  Failed({} ticks): [{}]", WINDOW, summary.join(", "));
+            }
+            let format_ago = |t: u64| {
+                if t > tick {
+                    "?".to_string()
+                } else {
+                    format!("{} ticks ago", tick - t)
+                }
+            };
+            eprintln!(
+                "  Last eat:  {}",
+                last_eat_tick
+                    .map(format_ago)
+                    .unwrap_or_else(|| "(never)".to_string())
+            );
+            eprintln!(
+                "  Last harv: {}",
+                last_harvest_tick
+                    .map(format_ago)
+                    .unwrap_or_else(|| "(never)".to_string())
+            );
+        }
+
+        // Resource knowledge breakdown — counts of each known entity type
+        // and how many of them have a stocked Contains belief.
+        if let Some(mind_graph) = world.get::<crate::agent::mind::knowledge::MindGraph>(agent) {
+            use crate::agent::mind::knowledge::{Node, Predicate, Value};
+            use std::collections::HashMap;
+            let mut by_type: HashMap<String, (usize, usize)> = HashMap::new();
+            // First pass: collect known entities by IsA-concept.
+            let mut entity_type: HashMap<bevy::prelude::Entity, String> = HashMap::new();
+            for triple in mind_graph.query(None, Some(Predicate::IsA), None) {
+                if let (Node::Entity(e), Value::Concept(c)) =
+                    (triple.subject.clone(), &triple.object)
+                {
+                    entity_type.insert(e, format!("{c:?}"));
+                }
+            }
+            // Second pass: figure out which of those have a stocked Contains.
+            let mut stocked: std::collections::HashSet<bevy::prelude::Entity> = Default::default();
+            for triple in mind_graph.query(None, Some(Predicate::Contains), None) {
+                if let Node::Entity(e) = triple.subject
+                    && matches!(triple.object, Value::Item(_, q) if q > 0)
+                {
+                    stocked.insert(e);
+                }
+            }
+            for (e, type_name) in &entity_type {
+                let entry = by_type.entry(type_name.clone()).or_insert((0, 0));
+                entry.0 += 1;
+                if stocked.contains(e) {
+                    entry.1 += 1;
+                }
+            }
+            if !by_type.is_empty() {
+                let mut summary: Vec<String> = by_type
+                    .iter()
+                    .map(|(t, (total, stocked))| {
+                        if *stocked > 0 || *total > 5 {
+                            format!("{}×{}({}stocked)", t, total, stocked)
+                        } else {
+                            format!("{}×{}", t, total)
+                        }
+                    })
+                    .collect();
+                summary.sort();
+                eprintln!("  Knows:     [{}]", summary.join(", "));
+            }
+
+            // Distance breakdown to known food sources. The agent might
+            // "know" 5 BerryBushes but if they're all 200 tiles away across
+            // unwalkable terrain, that knowledge is useless. Sort by distance
+            // and tag each with its stocked Contains belief so it's obvious
+            // when the agent only remembers depleted bushes.
+            let agent_pos = world
+                .get::<bevy::prelude::Transform>(agent)
+                .map(|t| t.translation.truncate());
+            if let Some(agent_pos) = agent_pos {
+                let mut food_entries: Vec<(f32, String, bool)> = Vec::new();
+                for (e, type_name) in &entity_type {
+                    if !matches!(
+                        type_name.as_str(),
+                        "BerryBush" | "AppleTree" | "Berry" | "Apple"
+                    ) {
+                        continue;
+                    }
+                    let Some(tf) = world.get::<bevy::prelude::Transform>(*e) else {
+                        continue;
+                    };
+                    let dist = tf.translation.truncate().distance(agent_pos);
+                    food_entries.push((dist, type_name.clone(), stocked.contains(e)));
+                }
+                food_entries.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+                if !food_entries.is_empty() {
+                    let summary: Vec<String> = food_entries
+                        .iter()
+                        .take(6)
+                        .map(|(d, t, s)| {
+                            let mark = if *s { "+" } else { "-" };
+                            format!("{t}@{d:.0}{mark}")
+                        })
+                        .collect();
+                    eprintln!("  Food dist: [{}] (+stocked, -empty)", summary.join(", "));
+                }
+            }
+        }
+
+        // Recent path-blocked targets — when an agent is geographically
+        // trapped, this surfaces the actual tiles the pathfinder rejected.
+        // Pair this with `Failed[Explore×N]` from the recent action summary
+        // to spot the "agent keeps trying to walk through the same wall"
+        // pattern that drives long-tail starvation deaths.
+        {
+            let log = world.resource::<SimEventLog>();
+            const WINDOW: u64 = 2000;
+            let cutoff = tick.saturating_sub(WINDOW);
+            let mut blocked: std::collections::HashMap<(i32, i32), usize> =
+                std::collections::HashMap::new();
+            for event in log.all() {
+                if let SimEvent::ActionFailed {
+                    agent: a,
+                    tick: et,
+                    reason: crate::agent::events::FailureReason::PathBlocked { target_tile },
+                    ..
+                } = event
+                    && *a == agent
+                    && *et >= cutoff
+                {
+                    *blocked.entry(*target_tile).or_insert(0) += 1;
+                }
+            }
+            if !blocked.is_empty() {
+                let mut entries: Vec<((i32, i32), usize)> = blocked.into_iter().collect();
+                entries.sort_by(|a, b| b.1.cmp(&a.1));
+                let summary: Vec<String> = entries
+                    .iter()
+                    .take(6)
+                    .map(|((tx, ty), n)| format!("({tx},{ty})×{n}"))
+                    .collect();
+                eprintln!("  Blocked({} ticks): [{}]", WINDOW, summary.join(", "));
+            }
+        }
+
         // Consciousness
         if let Some(con) = world.get::<Consciousness>(agent) {
             eprintln!("  Alertness: {:.2}", con.alertness);

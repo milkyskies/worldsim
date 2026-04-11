@@ -109,13 +109,32 @@ fn handle_failure_outcome(
 ) {
     match reason {
         FailureReason::ResourceDepleted => {
+            // Zero out every `Contains` belief the agent held about this
+            // target. Before #416 this hardcoded `Apple` — so Harvest
+            // failures against BerryBush/Corpse/WoodLog left the stale
+            // belief untouched and the planner kept regenerating the same
+            // doomed plan. Clearing per-concept reflects the semantics of
+            // "this target is empty" regardless of what it was storing.
             if let Some(target_entity) = target {
-                mind.assert(Triple::with_meta(
-                    Node::Entity(*target_entity),
-                    Predicate::Contains,
-                    Value::Item(Concept::Apple, 0),
-                    Metadata::experience(current_time),
-                ));
+                let existing: Vec<Value> = mind
+                    .query(
+                        Some(&Node::Entity(*target_entity)),
+                        Some(Predicate::Contains),
+                        None,
+                    )
+                    .into_iter()
+                    .map(|t| t.object.clone())
+                    .collect();
+                for value in existing {
+                    if let Value::Item(concept, _) = value {
+                        mind.assert(Triple::with_meta(
+                            Node::Entity(*target_entity),
+                            Predicate::Contains,
+                            Value::Item(concept, 0),
+                            Metadata::experience(current_time),
+                        ));
+                    }
+                }
             }
         }
         FailureReason::MissingItem(concept) => {

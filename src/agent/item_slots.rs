@@ -499,6 +499,15 @@ impl ItemSlots {
 /// Runs every 100 ticks. Decrements freshness on perishable Things in all
 /// `ItemSlots`. When freshness reaches 0, the concept changes to its rotten
 /// variant (e.g. Apple → RottenApple) and a `SimEvent::ItemSpoiled` fires.
+///
+/// Items with `freshness = None` are skipped — that sentinel marks "still
+/// attached to the source" (berries on a bush, apples on a tree). A berry
+/// only starts aging once an agent plucks it via Harvest's on_complete,
+/// which replaces the sourceless `Thing::new` with a `Thing::fresh` that
+/// carries `freshness = Some(1.0)` and a `created_at` timestamp. Before
+/// this gate, the old `get_or_insert(1.0)` path rotted berries in place
+/// on the bush: agents would wander up to a visibly-stocked bush and
+/// harvest a handful of RottenBerry, fail to eat them, and starve (#416).
 pub fn freshness_decay_system(
     mut query: Query<(Entity, &mut ItemSlots)>,
     tick: Res<crate::core::tick::TickCount>,
@@ -510,7 +519,9 @@ pub fn freshness_decay_system(
                 let Some(rate) = perishable_decay_rate(thing.concept) else {
                     continue;
                 };
-                let freshness = thing.properties.freshness.get_or_insert(1.0);
+                let Some(freshness) = thing.properties.freshness.as_mut() else {
+                    continue;
+                };
                 *freshness = (*freshness - rate).max(0.0);
                 if *freshness == 0.0
                     && let Some(rotten) = rotten_variant(thing.concept)

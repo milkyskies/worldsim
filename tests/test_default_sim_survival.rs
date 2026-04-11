@@ -224,6 +224,106 @@ fn thirsty_human_next_to_water_drinks_within_500_ticks() {
     );
 }
 
+// ─── Bug 4: Empty-target Harvest loop ──────────────────────────────────
+
+/// Direct-execution probe: force a Harvest into the active set against
+/// a target with zero items, step the world one tick, and assert that
+/// the execution layer emits `ActionFailed(ResourceDepleted)`. Before
+/// the #416 execution fix, on_complete silently returned early on an
+/// empty target and the only downstream signal was ActionCompleted —
+/// so the Rational brain happily advanced its plan step thinking the
+/// Harvest had worked, the agent spammed the same plan forever, and
+/// every human eventually starved to death in the long-run sim.
+#[test]
+fn empty_harvest_emits_resource_depleted() {
+    use worldsim::agent::actions::ActionType;
+    use worldsim::agent::actions::ActiveActions;
+    use worldsim::agent::actions::registry::ActionState;
+    use worldsim::agent::events::{FailureReason, SimEvent};
+
+    let bush_pos = Vec2::new(100.0, 100.0);
+    let (mut world, agents) = TestWorld::scenario(42)
+        .map_size(64, 64)
+        .noise_biomes(false)
+        .agent("alice")
+        .pos(bush_pos)
+        .done()
+        .build();
+
+    // Empty bush on top of Alice. The real inventory is 0 berries so
+    // Harvest's on_complete will return early (no items to take).
+    let empty_bush = world.spawn_berry_bush(bush_pos, 0);
+    let alice = agents["alice"];
+
+    // Inject a Harvest directly into ActiveActions with
+    // `ticks_remaining = 0` so it completes on the next execution tick.
+    // This bypasses the brain entirely — we're testing just the
+    // execution-layer empty-yield detection, not the whole plan stack.
+    {
+        let mut active = world
+            .app_mut()
+            .world_mut()
+            .get_mut::<ActiveActions>(alice)
+            .expect("alice has ActiveActions");
+        let mut state = ActionState::new(ActionType::Harvest, 0);
+        state.target_entity = Some(empty_bush);
+        state.target_position = Some(bush_pos);
+        state.ticks_remaining = 0;
+        active.insert(state);
+    }
+
+    world.tick(2);
+
+    let depletions = world
+        .sim_events()
+        .all()
+        .iter()
+        .filter(|e| {
+            matches!(
+                e,
+                SimEvent::ActionFailed {
+                    agent: a,
+                    action: ActionType::Harvest,
+                    reason: FailureReason::ResourceDepleted,
+                    ..
+                } if *a == alice
+            )
+        })
+        .count();
+    let completions = world
+        .sim_events()
+        .all()
+        .iter()
+        .filter(|e| {
+            matches!(
+                e,
+                SimEvent::ActionCompleted {
+                    agent: a,
+                    action: ActionType::Harvest,
+                    ..
+                } if *a == alice
+            )
+        })
+        .count();
+
+    if depletions == 0 {
+        world.print_agent_events(alice, 10);
+    }
+
+    assert!(
+        depletions >= 1,
+        "empty Harvest must emit ResourceDepleted (saw {depletions} depletions, {completions} completions)"
+    );
+    // And we must NOT also emit a spurious ActionCompleted for the
+    // same harvest — the failure path takes over exclusively, which is
+    // what lets the Rational brain's `recently_failed` bucket pick the
+    // signal up and drop the stale plan instead of advancing its step.
+    assert_eq!(
+        completions, 0,
+        "empty Harvest must not also emit ActionCompleted (the failure path replaces it)"
+    );
+}
+
 // ─── Tight diagnostic: can a hungry human plan against a visible bush? ─
 
 /// An even tighter test than the "eats within 500 ticks" one: gives the
@@ -264,27 +364,17 @@ fn hungry_agent_with_visible_bush_plans_a_harvest() {
 
 // ─── The actual regression: default sim survival ───────────────────────
 
-/// Full default-sim regression — the real bug report. Runs `game_defaults`
-/// on seed 42 for long enough that the first wave of starvation deaths
-/// would normally appear (they started at tick ~59k in the original
-/// investigation), and asserts that **all humans survive**.
+/// Run `game_defaults(42)` for `ticks` ticks and assert every human is
+/// still alive. Shared helper for the multi-level survival ladder below.
 ///
-/// Before the #416 fix every human died of starvation around tick
-/// 59k–63k. The user-facing complaint was specifically "guys just die"
-/// — meaning the human agents the player is watching. Wolves dying off
-/// is a separate, much narrower bug (their hunting/meat-eating loop
-/// hasn't been tuned in this pass) and is tracked as a follow-up. The
-/// contract here is the contract for the player experience: humans
-/// stay alive across the typical play session length.
-///
-/// This is the one test that exercises the *real* starvation conditions:
-/// Realistic biome placement, wolves triggering Fear→Flee interruptions,
-/// scattered food that requires a Rational plan to reach, and slow
-/// natural thirst/hunger ramp-up (as opposed to the per-bug tests which
-/// set high values directly).
-#[test]
-#[ignore = "slow (~30s): full game_defaults run for 65k ticks. Run with `cargo nextest run --test test_default_sim_survival -- --ignored`."]
-fn default_sim_seed_42_humans_survive_first_wave() {
+/// Each level is its own `#[test]` rather than a parameterized loop so
+/// the pass/fail signal is per-tick-budget — "30k passes, 60k passes,
+/// 100k fails" tells you exactly where the calorie balance breaks down.
+/// This is the contract for the player experience: humans stay alive
+/// across the typical play session length under realistic conditions
+/// (Realistic biome placement, wolves triggering Fear→Flee interrupts,
+/// scattered food, natural hunger ramp-up).
+fn assert_humans_survive_default_sim(ticks: u64) {
     use worldsim::agent::Person;
     use worldsim::world::spawn_config::WorldSpawnConfig;
 
@@ -301,8 +391,7 @@ fn default_sim_seed_42_humans_survive_first_wave() {
         "game_defaults must populate a non-empty human population"
     );
 
-    // 65k ticks — 5k past the first death wave in the 200k baseline run.
-    world.tick(65_000);
+    world.tick(ticks);
 
     let deaths: Vec<SimEvent> = world
         .sim_events()
@@ -322,8 +411,9 @@ fn default_sim_seed_42_humans_survive_first_wave() {
 
     if surviving_humans < initial_humans {
         eprintln!(
-            "default sim seed 42: {} deaths total in 65k ticks; humans {}/{}",
+            "default sim seed 42: {} deaths total in {}k ticks; humans {}/{}",
             deaths.len(),
+            ticks / 1000,
             surviving_humans,
             initial_humans
         );
@@ -335,11 +425,99 @@ fn default_sim_seed_42_humans_survive_first_wave() {
     }
 
     assert_eq!(
-        surviving_humans, initial_humans,
-        "every human must survive 65k ticks of the seed-42 default sim — got {surviving_humans}/{initial_humans}"
+        surviving_humans,
+        initial_humans,
+        "every human must survive {}k ticks of the seed-42 default sim — got {surviving_humans}/{initial_humans}",
+        ticks / 1000
     );
 
     // Also assert WorldSpawnConfig defaults haven't drifted — if the
     // regression fires with zero spawns it's a trivially-passing test.
     let _ = WorldSpawnConfig::game_defaults();
+}
+
+/// 30k ticks — 8 minutes of play. Should be trivially survivable; this
+/// catches catastrophic regressions where humans can't even feed
+/// themselves once.
+#[test]
+#[ignore = "slow (~15s): full game_defaults run. Run with --ignored."]
+fn default_sim_seed_42_humans_survive_30k() {
+    assert_humans_survive_default_sim(30_000);
+}
+
+/// 65k ticks — 18 minutes. Past the first death wave in the original
+/// pre-fix baseline (humans died ~59k–63k). This is the contract level
+/// the #416 fix had to clear.
+#[test]
+#[ignore = "slow (~30s): full game_defaults run. Run with --ignored."]
+fn default_sim_seed_42_humans_survive_65k() {
+    assert_humans_survive_default_sim(65_000);
+}
+
+/// 100k ticks — 28 minutes. Tests whether humans recover their reserves
+/// fast enough to outpace BMR drain over many eating cycles, not just
+/// one wave. Passing this level required two #416 fixes in tandem:
+/// (a) execution emits `ResourceDepleted` when Harvest yields nothing,
+/// so agents stop spamming the same empty target; (b) the belief
+/// updater's `ResourceDepleted` handler clears every `Contains` belief
+/// on the target instead of the old hardcoded `Concept::Apple`, so
+/// BerryBush/Corpse depletion is actually learned.
+#[test]
+#[ignore = "slow (~90s): full game_defaults run. Run with --ignored."]
+fn default_sim_seed_42_humans_survive_100k() {
+    assert_humans_survive_default_sim(100_000);
+}
+
+/// 200k ticks — 56 minutes. The endgame check: indefinite play. This
+/// is the calorie-balance and knowledge-maintenance contract for the
+/// typical play session.
+#[test]
+#[ignore = "slow (~180s): full game_defaults run. Run with --ignored."]
+fn default_sim_seed_42_humans_survive_200k() {
+    assert_humans_survive_default_sim(200_000);
+}
+
+/// Diagnostic helper kept for manual investigation: walks the default
+/// sim in 10k-tick chunks and dumps Alice's full state at each
+/// checkpoint. Not a regression assertion; used to characterize the
+/// slow-starvation trajectory when debugging long-tail deaths.
+#[test]
+#[ignore = "diagnostic (~60s): dumps Alice trajectory, not an assertion"]
+fn diagnostic_alice_trajectory_100k() {
+    use bevy::prelude::{Entity, Name, With};
+    use worldsim::agent::Person;
+
+    let mut world = TestWorld::game_defaults(42);
+    let alice: Entity = {
+        let mut q = world
+            .app_mut()
+            .world_mut()
+            .query_filtered::<(Entity, &Name), With<Person>>();
+        let mut found = None;
+        for (e, name) in q.iter(world.app().world()) {
+            if name.as_str() == "Alice" {
+                found = Some(e);
+                break;
+            }
+        }
+        found.expect("Alice must be spawned in game_defaults")
+    };
+
+    for chunk in 1..=10u64 {
+        world.tick(10_000);
+        let tick = chunk * 10_000;
+
+        let alive = world
+            .app()
+            .world()
+            .get_entity(alice)
+            .map(|e| e.contains::<Person>())
+            .unwrap_or(false);
+        eprintln!("\n==== CHECKPOINT tick={tick} alive={alive} ====");
+        if !alive {
+            eprintln!("(Alice is dead, stopping trajectory dump)");
+            break;
+        }
+        world.print_agent_state(alice);
+    }
 }

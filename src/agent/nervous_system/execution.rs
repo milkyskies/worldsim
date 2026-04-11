@@ -504,6 +504,15 @@ pub fn tick_actions(
             let pre_hunger = physical.metabolism.hunger_urgency() * 100.0;
             let pre_thirst = physical.thirst;
             let pre_aerobic = physical.stamina.aerobic;
+            // Snapshot inventory-total so we can detect Harvest/Take
+            // completions that yielded nothing (target was empty). Before
+            // #416 this was invisible: Harvest's on_complete silently
+            // returns early on an empty target, execution emits
+            // ActionCompleted, the planner's recently_completed advances
+            // the plan step — and the agent spent 20k+ ticks re-harvesting
+            // the same empty target, never gaining the food its Eat step
+            // needed. See tests::harvesting_empty_bush_stops_within_500_ticks.
+            let pre_inventory_total: usize = inventory.all_items().count();
 
             let agent_position = transform.translation.truncate();
             let mut spawn_requests = Vec::new();
@@ -575,6 +584,40 @@ pub fn tick_actions(
                         commands.entity(entity).insert(becomes);
                     }
                 }
+            }
+
+            // Detect acquisition actions that completed without gaining
+            // anything. Harvest and Take both pull from a target's
+            // inventory; when the target is empty, on_complete is a silent
+            // no-op and the only evidence of failure is the unchanged
+            // inventory total. Route that through the normal failure path
+            // so the Rational brain can drop the stale plan and the
+            // belief updater can mark the target depleted (#416).
+            let post_inventory_total: usize = inventory.all_items().count();
+            let acquisition_yielded_nothing =
+                matches!(*action_type, ActionType::Harvest | ActionType::Take)
+                    && post_inventory_total == pre_inventory_total
+                    && snapshot.target_entity.is_some();
+
+            if acquisition_yielded_nothing {
+                sim_events.write(crate::agent::events::SimEvent::ActionFailed {
+                    agent: entity,
+                    tick: current_tick,
+                    action: *action_type,
+                    reason: crate::agent::events::FailureReason::ResourceDepleted,
+                });
+                outcome_events.write(ActionOutcomeEvent {
+                    actor: entity,
+                    outcome: ActionOutcome::Failed {
+                        action: *action_type,
+                        target: snapshot.target_entity,
+                        reason: crate::agent::events::FailureReason::ResourceDepleted,
+                    },
+                });
+                // Skip the Success/Completed events below — this path
+                // is the failure branch and we already wrote the right
+                // signals.
+                continue;
             }
 
             // Only emit a success outcome when something observable changed.
