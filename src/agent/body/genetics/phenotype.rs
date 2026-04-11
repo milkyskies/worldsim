@@ -19,9 +19,18 @@ use crate::agent::psyche::personality::{Personality, PersonalityTraits};
 use crate::core::tick::TickCount;
 
 /// Heritability for physical traits (speed, vision, metabolism, endurance).
+///
+/// Twin studies put physical heritability in the 0.6–0.8 range; 0.7 is the
+/// conventional midpoint. Higher than personality because physical traits have
+/// fewer environmental buffering pathways.
 const H2_PHYSICAL: f32 = 0.7;
 
 /// Heritability for Big Five personality traits.
+///
+/// Meta-analyses (e.g. Vukasović & Bratko 2015) consistently find ~0.4–0.5.
+/// Using 0.5 means half of a trait score comes from genetics, half from the
+/// species-neutral baseline — leaving room for environmental development in
+/// future iterations.
 const H2_PERSONALITY: f32 = 0.5;
 
 /// Traits derived from the agent's genome, used by locomotion, perception, and drive systems.
@@ -140,13 +149,13 @@ pub fn develop_phenotype_system(
             endurance: phenotype.endurance,
         });
 
-        commands
-            .entity(entity)
-            .insert(phenotype)
-            .insert(Vision {
+        commands.entity(entity).insert((
+            phenotype,
+            Vision {
                 range: vision_range,
-            })
-            .insert(personality);
+            },
+            personality,
+        ));
     }
 }
 

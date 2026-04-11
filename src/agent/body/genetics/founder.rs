@@ -10,64 +10,35 @@ use rand::Rng;
 use crate::agent::body::genetics::genome::{Genome, N_LOCI};
 use crate::agent::body::species::Species;
 
-/// Per-species locus variance for the founding population.
-///
-/// Higher values produce more phenotype diversity in the first generation.
-/// All loci are centered at 0.0 — the neutral allele maps to the species
-/// baseline phenotype.
-struct FounderVariance {
-    physical_std: f32,
-    personality_std: f32,
-}
-
-impl FounderVariance {
-    fn for_species(species: Species) -> Self {
-        match species {
-            Species::Human => Self {
-                physical_std: 0.5,
-                personality_std: 0.6,
-            },
-            Species::Deer => Self {
-                physical_std: 0.4,
-                personality_std: 0.5,
-            },
-            Species::Wolf => Self {
-                physical_std: 0.4,
-                personality_std: 0.5,
-            },
-            Species::Rabbit => Self {
-                physical_std: 0.3,
-                personality_std: 0.4,
-            },
-            Species::Bird => Self {
-                physical_std: 0.4,
-                personality_std: 0.5,
-            },
-        }
-    }
-}
-
 /// Generate a random founder genome for the given species.
 ///
 /// Each locus is drawn from a triangle-distributed random variable centered at 0.0,
 /// approximating a Gaussian with standard deviation `std` (physical or personality).
 /// Loci are independent across traits and between maternal/paternal haplotypes.
 pub fn random_genome<R: Rng>(rng: &mut R, species: Species) -> Genome {
-    let v = FounderVariance::for_species(species);
+    // (physical_std, personality_std): higher values → more phenotype diversity.
+    // All loci centered at 0.0 — the neutral allele maps to the species baseline.
+    let (physical_std, personality_std): (f32, f32) = match species {
+        Species::Human => (0.5, 0.6),
+        Species::Deer => (0.4, 0.5),
+        Species::Wolf => (0.4, 0.5),
+        Species::Rabbit => (0.3, 0.4),
+        Species::Bird => (0.4, 0.5),
+    };
 
     let mut maternal = [0.0_f32; N_LOCI];
     let mut paternal = [0.0_f32; N_LOCI];
 
     // Physical trait loci (0..16)
     for i in 0..16 {
-        maternal[i] = sample_locus(rng, v.physical_std);
-        paternal[i] = sample_locus(rng, v.physical_std);
+        maternal[i] = sample_locus(rng, physical_std);
+        paternal[i] = sample_locus(rng, physical_std);
     }
 
     // Personality trait loci (16..36)
     for i in 16..N_LOCI {
-        maternal[i] = sample_locus(rng, v.personality_std);
-        paternal[i] = sample_locus(rng, v.personality_std);
+        maternal[i] = sample_locus(rng, personality_std);
+        paternal[i] = sample_locus(rng, personality_std);
     }
 
     Genome { maternal, paternal }
