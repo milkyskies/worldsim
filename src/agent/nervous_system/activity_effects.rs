@@ -49,24 +49,29 @@ pub fn apply_activity_effects(
         // by the intensity-driven drain/recover functions that the locomotion
         // system will call; activity_effects only moves aerobic. Sleep is the
         // exception: it refills both pools via restore_full below.
+        //
+        // Two modulators stack here:
+        // - conscientiousness reduces *drain* (disciplined agents grind through)
+        // - lung condition reduces *recovery* (damaged lungs deliver less O2,
+        //   so aerobic reserves refill more slowly — #351 respiration bridge)
         let raw_stamina_change = base_config.stamina_change + config.stamina_change;
-        // Low-conscientiousness agents tire faster from physical work. Only
-        // applies to drain; positive (recovery) is not penalized by personality.
-        let stamina_change = if raw_stamina_change < 0.0 {
-            let conscientiousness_relief = personality.traits.conscientiousness
-                * crate::constants::brains::cognition::CONSCIENTIOUSNESS_STAMINA_RELIEF;
-            raw_stamina_change * (1.0 - conscientiousness_relief)
-        } else {
-            raw_stamina_change
-        };
+        let lung_condition = body.map(Body::lung_condition).unwrap_or(1.0);
+        let stamina_change = compute_stamina_change(
+            raw_stamina_change,
+            personality.traits.conscientiousness,
+            lung_condition,
+        );
         physical.stamina.adjust_aerobic(stamina_change * dt);
 
         // Sleep specifically refills both pools fast and boosts alertness
         // restoration. The activity's stamina_change contributes to aerobic;
-        // anaerobic is refilled here at the same per-second rate.
+        // anaerobic is refilled here at the same per-second rate. Lung
+        // condition gates the anaerobic refill the same way (oxygen debt
+        // recovery is a respiratory process too).
         if matches!(activity, CurrentActivity::Sleeping) && raw_stamina_change > 0.0 {
-            physical.stamina.anaerobic = (physical.stamina.anaerobic + raw_stamina_change * dt)
-                .min(physical.stamina.anaerobic_max);
+            let anaerobic_refill = raw_stamina_change * lung_condition * dt;
+            physical.stamina.anaerobic =
+                (physical.stamina.anaerobic + anaerobic_refill).min(physical.stamina.anaerobic_max);
         }
 
         // Metabolism: burn glucose at BMR (base) + activity cost, digest the
@@ -128,5 +133,99 @@ pub fn apply_activity_effects(
                 emotions.add_emotion(Emotion::new(*etype, d_intensity));
             }
         }
+    }
+}
+
+/// Compute the effective stamina change for one tick, stacking the two
+/// modulators that live here:
+///
+/// - **Drain path** (`raw_change < 0`): low-conscientiousness agents tire
+///   faster. Lung condition is intentionally ignored on drain — weak lungs
+///   don't make effort cheaper, just recovery slower. Weak-lungs penalty
+///   applies through the *recovery* path.
+/// - **Recovery path** (`raw_change >= 0`): lung condition scales the
+///   refill. Fully intact lungs pass the raw change through; fully
+///   destroyed lungs zero out recovery. Conscientiousness does not
+///   accelerate recovery (rest isn't a willpower contest).
+///
+/// Pulled out as a pure function so the drain and recovery branches are
+/// testable in isolation without spinning up a Bevy world.
+fn compute_stamina_change(raw_change: f32, conscientiousness: f32, lung_condition: f32) -> f32 {
+    if raw_change < 0.0 {
+        let relief = conscientiousness
+            * crate::constants::brains::cognition::CONSCIENTIOUSNESS_STAMINA_RELIEF;
+        raw_change * (1.0 - relief)
+    } else {
+        raw_change * lung_condition.clamp(0.0, 1.0)
+    }
+}
+
+#[cfg(test)]
+mod respiration_tests {
+    use super::compute_stamina_change;
+
+    /// Fully-intact lungs and neutral conscientiousness leave recovery
+    /// unchanged — a baseline that protects the helper from accidental
+    /// "always apply a multiplier" refactors.
+    #[test]
+    fn healthy_lungs_pass_recovery_through_unchanged() {
+        let change = compute_stamina_change(20.0, 0.5, 1.0);
+        assert!(
+            (change - 20.0).abs() < 1e-6,
+            "healthy lungs must not alter recovery, got {change}"
+        );
+    }
+
+    /// Destroyed lungs zero out recovery. Downstream effect: an agent with
+    /// no lungs sleeping on soft grass does not recover aerobic stamina,
+    /// matching the issue-spec acceptance criterion.
+    #[test]
+    fn destroyed_lungs_zero_out_recovery() {
+        let change = compute_stamina_change(20.0, 0.5, 0.0);
+        assert_eq!(change, 0.0, "dead lungs must halt recovery");
+    }
+
+    /// Half-damaged lungs deliver half recovery — verifies the modulator
+    /// is proportional, not a binary gate.
+    #[test]
+    fn half_damaged_lungs_halve_recovery() {
+        let change = compute_stamina_change(20.0, 0.5, 0.5);
+        assert!((change - 10.0).abs() < 1e-6, "expected 10.0, got {change}");
+    }
+
+    /// Drain is unaffected by lung condition. Weak lungs slow recovery but
+    /// do not make running cheaper — you still burn effort.
+    #[test]
+    fn drain_is_independent_of_lung_condition() {
+        let healthy = compute_stamina_change(-10.0, 0.0, 1.0);
+        let dying = compute_stamina_change(-10.0, 0.0, 0.0);
+        assert!(
+            (healthy - dying).abs() < 1e-6,
+            "drain must not differ by lungs, got healthy={healthy} dying={dying}"
+        );
+    }
+
+    /// Conscientiousness still relieves drain as before. Protects the
+    /// existing behaviour from the refactor.
+    #[test]
+    fn conscientiousness_relieves_drain() {
+        let lazy = compute_stamina_change(-10.0, 0.0, 1.0);
+        let disciplined = compute_stamina_change(-10.0, 1.0, 1.0);
+        assert!(
+            disciplined.abs() < lazy.abs(),
+            "disciplined agents drain less stamina, got lazy={lazy} disciplined={disciplined}"
+        );
+    }
+
+    /// Conscientiousness does NOT accelerate recovery — rest is not a
+    /// willpower contest.
+    #[test]
+    fn conscientiousness_does_not_accelerate_recovery() {
+        let lazy = compute_stamina_change(20.0, 0.0, 1.0);
+        let disciplined = compute_stamina_change(20.0, 1.0, 1.0);
+        assert!(
+            (lazy - disciplined).abs() < 1e-6,
+            "recovery must ignore conscientiousness, got lazy={lazy} disciplined={disciplined}"
+        );
     }
 }

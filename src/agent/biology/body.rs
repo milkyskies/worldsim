@@ -236,6 +236,19 @@ impl Body {
                 .unwrap_or(1.0),
         }
     }
+
+    /// Respiration multiplier: lung condition in `[0, 1]`. Consumed by the
+    /// activity-effects stamina recovery path — oxygen delivery gates how
+    /// fast aerobic reserves refill, so damaged lungs slow recovery without
+    /// making activities themselves cheaper.
+    ///
+    /// Missing lungs default to `1.0` for the same reason `organ_mods`
+    /// does: absence of anatomy never degrades the pipeline.
+    pub fn lung_condition(&self) -> f32 {
+        self.organ(OrganKind::Lungs)
+            .map(|o| o.condition())
+            .unwrap_or(1.0)
+    }
 }
 
 /// Head organ seed — brain (vital), eyes, ears, nose. Shared across every
@@ -709,6 +722,25 @@ mod organ_tests {
             let count = body.organs().count();
             assert_eq!(count, 9, "every species carries 4 head + 5 torso organs");
         }
+    }
+
+    /// Fresh lungs report full condition; damaging them scales `lung_condition`
+    /// proportionally. Feeds the respiration bridge into activity_effects.
+    #[test]
+    fn lung_condition_tracks_lung_organ_hp() {
+        let healthy = Body::human();
+        assert!((healthy.lung_condition() - 1.0).abs() < 1e-6);
+
+        let mut damaged = Body::human();
+        let lungs = damaged
+            .organ_mut(OrganKind::Lungs)
+            .expect("humans have lungs");
+        lungs.hp = lungs.max_hp * 0.25;
+        assert!(
+            (damaged.lung_condition() - 0.25).abs() < 1e-6,
+            "quarter-hp lungs should report 0.25, got {}",
+            damaged.lung_condition()
+        );
     }
 
     /// A fresh body produces fully-intact organ mods (all 1.0). Degrading
