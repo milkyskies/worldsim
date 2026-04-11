@@ -8,7 +8,7 @@
 use super::arbitration::{arbitrate_parallel, calculate_brain_powers};
 use super::emotional::{emotional_brain_propose, find_most_feared_visible_entity};
 use super::history::BrainHistory;
-use super::plan_memory::PlanMemory;
+use super::plan_memory::{PlanMemory, PlanState};
 use super::proposal::{BrainPowers, BrainState, BrainType};
 use super::rational::rational_brain_propose;
 use super::survival::{SurvivalBrainContext, survival_brain_propose};
@@ -34,7 +34,7 @@ pub fn three_brains_system(
             &Name,
             &mut BrainState,
             // Brains
-            (&PlanMemory, &CentralNervousSystem),
+            (&mut PlanMemory, &CentralNervousSystem),
             // Needs
             (
                 &PhysicalNeeds,
@@ -78,7 +78,7 @@ pub fn three_brains_system(
         entity,
         name,
         mut brain_state,
-        (plan_memory, cns),
+        (mut plan_memory, cns),
         (physical, mut consciousness, drives),
         (emotions, body, personality, inventory),
         (_transform, visible, mind, active_actions, in_conversation, self_entity_type),
@@ -133,8 +133,16 @@ pub fn three_brains_system(
 
         // Rational brain now surfaces one proposal per Executing plan in
         // `PlanMemory`, so the output is variable-length and joins the
-        // proposals list alongside survival/emotional entries.
-        let rational_proposals = rational_brain_propose(plan_memory, cns, mind, &action_registry);
+        // proposals list alongside survival/emotional entries. Pass the
+        // `in_conversation` flag so the idle Wander fallback is
+        // suppressed mid-conversation (1-tick flicker fix from #330).
+        let rational_proposals = rational_brain_propose(
+            &plan_memory,
+            cns,
+            mind,
+            &action_registry,
+            in_conversation.is_some(),
+        );
 
         // 2. Calculate brain powers, then apply history-based multiplier
         let base_powers = calculate_brain_powers(cns, &consciousness, emotions, personality);
@@ -155,7 +163,37 @@ pub fn three_brains_system(
         proposals.extend(rational_proposals.into_iter().map(Some));
         let capacities = crate::agent::actions::ChannelCapacities::compute(body, Some(physical));
 
-        let admitted = arbitrate_parallel(&proposals, &powers, &capacities, &action_registry);
+        let result = arbitrate_parallel(&proposals, &powers, &capacities, &action_registry);
+        let admitted = result.admitted;
+        let rejected = result.rejected;
+
+        // 3a. Channel-conflict losers from the rational brain demote
+        // their backing Executing plan to Suspended (#338). The plan
+        // sticks around in PlanMemory; its commitment decays each tick
+        // until it drops back to Background, at which point the
+        // commitment ladder can re-promote it once channels free up.
+        for losing in &rejected {
+            if losing.brain != BrainType::Rational {
+                continue;
+            }
+            let action_type = losing.action.action_type;
+            let mut to_suspend = Vec::new();
+            for plan in plan_memory.in_state(PlanState::Executing) {
+                if plan
+                    .current()
+                    .map(|a| a.action_type == action_type)
+                    .unwrap_or(false)
+                {
+                    to_suspend.push(plan.id);
+                }
+            }
+            for id in to_suspend {
+                if let Some(plan) = plan_memory.get_mut(id) {
+                    plan.state = PlanState::Suspended;
+                    plan.last_touched = tick.current;
+                }
+            }
+        }
 
         // 4. Update attribution map so outcome events can credit the right brain
         if let Ok(mut history) = brain_histories.get_mut(entity) {

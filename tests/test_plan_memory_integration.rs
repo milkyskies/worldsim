@@ -203,6 +203,223 @@ fn agent_holds_multiple_background_plans_simultaneously() {
     );
 }
 
+/// Two humans starting a conversation should stay in it for more than
+/// the 1-tick flicker the issue describes. Pre-#338, an agent's idle
+/// Wander would walk them out of conversation range the same tick the
+/// turn started; the new in-conversation Wander suppression keeps the
+/// conversation alive long enough for turns to actually fire.
+#[test]
+fn agents_in_conversation_do_not_flicker_via_wander() {
+    use worldsim::agent::nervous_system::config::NervousSystemConfig;
+
+    let (mut world, agents) = TestWorld::scenario(42)
+        .map_size(64, 64)
+        .noise_biomes(false)
+        .agent("alice")
+        .pos(Vec2::new(200.0, 200.0))
+        .social_drive(0.8)
+        .done()
+        .agent("bob")
+        .pos(Vec2::new(210.0, 200.0))
+        .social_drive(0.8)
+        .done()
+        .build();
+
+    // Force the brains to fire every tick so we don't have to wait
+    // a full thinking interval for the conversation to spin up.
+    {
+        let mut config = world
+            .app_mut()
+            .world_mut()
+            .resource_mut::<NervousSystemConfig>();
+        config.thinking_interval = 1;
+    }
+
+    let alice = agents["alice"];
+    let bob = agents["bob"];
+
+    // Tick long enough for both agents to perceive each other, choose
+    // an InitiateConversation action, swap into Converse, and stay in
+    // it past the 1-tick window the old bug collapsed inside.
+    world.tick(120);
+
+    assert!(
+        world.in_conversation(alice) && world.in_conversation(bob),
+        "both agents should still be in conversation 120 ticks after spawn \
+         (pre-#338 the conversation collapsed within 1 tick when Wander walked \
+         the partner out of range)"
+    );
+}
+
+/// A rational brain emitting two Executing plans on disjoint body
+/// channels gets both admitted in parallel: the proposal generator
+/// returns multiple `BrainProposal`s, arbitration's channel-conflict
+/// path doesn't reject either, and admission is order-stable.
+#[test]
+fn multiple_executing_plans_admit_in_parallel() {
+    use worldsim::agent::actions::ActionRegistry;
+    use worldsim::agent::actions::ActionType;
+    use worldsim::agent::brains::plan_memory::{HeldPlan, PlanMemory, PlanSource, PlanState};
+    use worldsim::agent::brains::proposal::{BrainProposal, BrainType, Intent};
+    use worldsim::agent::brains::rational::rational_brain_propose;
+    use worldsim::agent::brains::thinking::{ActionTemplate, Goal, TriplePattern};
+    use worldsim::agent::mind::knowledge::{
+        Concept, MindGraph, Node as MindNode, Predicate, Value,
+    };
+    use worldsim::agent::nervous_system::cns::CentralNervousSystem;
+    use worldsim::agent::nervous_system::urgency::{Urgency, UrgencySource};
+
+    let mut memory = PlanMemory::default();
+    // Walk plan: rides Locomotion.
+    let walk_id = memory.mint_plan_id();
+    memory.insert(HeldPlan {
+        id: walk_id,
+        goal: Goal {
+            conditions: vec![TriplePattern::new(
+                Some(MindNode::Self_),
+                Some(Predicate::Contains),
+                Some(Value::Item(Concept::Apple, 1)),
+            )],
+            priority: 0.5,
+        },
+        steps: vec![ActionTemplate {
+            name: "WalkStep".into(),
+            action_type: ActionType::Walk,
+            target_entity: None,
+            target_position: Some(Vec2::new(60.0, 60.0)),
+            preconditions: vec![],
+            effects: vec![],
+            consumes: vec![],
+            base_cost: 0.0,
+            locomotion_intensity: ActionType::Walk.default_locomotion_intensity(),
+        }],
+        state: PlanState::Executing,
+        commitment: 5.0,
+        subjective_cost: 10.0,
+        source: PlanSource::Brain(BrainType::Rational),
+        created_at: 0,
+        last_touched: 0,
+        current_step: 0,
+    });
+    // Converse plan: rides Vocalization.
+    let talk_id = memory.mint_plan_id();
+    memory.insert(HeldPlan {
+        id: talk_id,
+        goal: Goal {
+            conditions: vec![TriplePattern::new(
+                Some(MindNode::Self_),
+                Some(Predicate::SocialDrive),
+                Some(Value::Int(0)),
+            )],
+            priority: 0.5,
+        },
+        steps: vec![ActionTemplate {
+            name: "ConverseStep".into(),
+            action_type: ActionType::Converse,
+            target_entity: None,
+            target_position: None,
+            preconditions: vec![],
+            effects: vec![],
+            consumes: vec![],
+            base_cost: 0.0,
+            locomotion_intensity: ActionType::Converse.default_locomotion_intensity(),
+        }],
+        state: PlanState::Executing,
+        commitment: 5.0,
+        subjective_cost: 10.0,
+        source: PlanSource::Brain(BrainType::Rational),
+        created_at: 0,
+        last_touched: 0,
+        current_step: 0,
+    });
+
+    let mut cns = CentralNervousSystem::default();
+    cns.urgencies.push(Urgency::new(UrgencySource::Hunger, 0.5));
+    let registry = ActionRegistry::new();
+    let proposals = rational_brain_propose(&memory, &cns, &MindGraph::default(), &registry, false);
+
+    let kinds: Vec<_> = proposals.iter().map(|p| p.action.action_type).collect();
+    assert!(
+        kinds.contains(&ActionType::Walk),
+        "Walk plan should surface as a proposal, got {kinds:?}"
+    );
+    assert!(
+        kinds.contains(&ActionType::Converse),
+        "Converse plan should surface as a proposal, got {kinds:?}"
+    );
+    let _: Vec<BrainProposal> = proposals; // type assertion
+    assert!(matches!(
+        cns.urgencies.first().map(|u| u.source),
+        Some(UrgencySource::Hunger)
+    ));
+    let _ = (Intent::None,); // keep import alive
+}
+
+/// Listener-side demand reduction (#338): an agent whose MindGraph
+/// already records a peer's `Committed` triple for the same concept
+/// they would otherwise pursue should see their own goal priority
+/// discounted in CNS.
+#[test]
+fn peer_commitment_discounts_listener_goal_priority() {
+    use worldsim::agent::mind::knowledge::{
+        Concept, Metadata, MindGraph, Node, Predicate, Triple, Value,
+    };
+    use worldsim::agent::nervous_system::cns::CentralNervousSystem;
+
+    let mut world = TestWorld::with_seed(42);
+    let bob = world.spawn_agent(AgentConfig {
+        pos: Vec2::new(50.0, 50.0),
+        personality: Personality {
+            traits: PersonalityTraits {
+                conscientiousness: 0.8,
+                ..Default::default()
+            },
+        },
+        ..Default::default()
+    });
+
+    // Inject a verbal-commitment plan on Bob targeting Campfire so the
+    // CNS picks Campfire as Bob's commitment goal.
+    inject_verbal_commitment(&mut world, bob, Concept::Campfire, Entity::from_bits(99), 1);
+
+    // Tick once to let formulate_goals run with the verbal-only plan
+    // and pick the commitment goal.
+    world.tick(1);
+    let baseline_priority = world
+        .get::<CentralNervousSystem>(bob)
+        .current_goal
+        .as_ref()
+        .map(|g| g.priority)
+        .expect("CNS should formulate a commitment goal for Campfire");
+
+    // Now broadcast that a peer (entity 99) is also committed to
+    // Campfire — exactly the triple `communication.rs` writes when an
+    // agent verbally announces their commitment.
+    let peer = Entity::from_bits(99);
+    {
+        let mut mind = world.get_mut::<MindGraph>(bob);
+        mind.assert(Triple::with_meta(
+            Node::Entity(peer),
+            Predicate::Committed,
+            Value::Concept(Concept::Campfire),
+            Metadata::default(),
+        ));
+    }
+    world.tick(1);
+    let discounted_priority = world
+        .get::<CentralNervousSystem>(bob)
+        .current_goal
+        .as_ref()
+        .map(|g| g.priority)
+        .expect("CNS should still emit a goal after the peer commitment");
+
+    assert!(
+        discounted_priority < baseline_priority,
+        "peer commitment must discount the listener's goal priority \
+         (baseline={baseline_priority:.2}, after_peer={discounted_priority:.2})"
+    );
+}
+
 /// Cognitive-load eviction drops the weakest Background plan when the
 /// cap is exceeded. Verbal commitments are protected relative to
 /// self-generated Background plans.

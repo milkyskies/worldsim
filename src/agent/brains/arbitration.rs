@@ -116,6 +116,19 @@ fn deduplicate_by_intent(
     out
 }
 
+/// Outcome of a single arbitration cycle. `admitted` is the parallel set
+/// the agent runs this tick. `rejected` lists proposals that lost on a
+/// body-channel conflict (or the single-Movement-per-tick rule) — they
+/// were *not* dropped by intent dedup, they were genuinely outbid by a
+/// higher-priority running action. Used by `brain_system` to demote the
+/// rational brain's matching Executing plans into `Suspended` so the
+/// state machine sees the displacement.
+#[derive(Debug, Default)]
+pub struct ArbitrationResult {
+    pub admitted: Vec<BrainProposal>,
+    pub rejected: Vec<BrainProposal>,
+}
+
 /// Multi-action arbitration: greedy admission of proposals into a parallel set.
 ///
 /// 1. Deduplicate by `Intent` (see [`deduplicate_by_intent`]) so two brains
@@ -127,8 +140,10 @@ fn deduplicate_by_intent(
 /// 4. Soft conflicts are accepted - both contributing actions will degrade
 ///    proportionally during execution.
 ///
-/// Returns the admitted proposals in score order. The first proposal in the
-/// returned list is also the "winner" for legacy attribution.
+/// Returns admitted + rejected proposals; rejected entries are the ones
+/// that lost a body-channel conflict (they survived intent dedup but
+/// could not be admitted). The first admitted proposal is the "winner"
+/// for legacy attribution.
 ///
 /// Plan inertia used to live here (the old `CommitmentContext` bonus from
 /// #166); after #338 absorbed ActivePlans, inertia is modelled as
@@ -140,7 +155,7 @@ pub fn arbitrate_parallel(
     powers: &BrainPowers,
     capacities: &ChannelCapacities,
     registry: &crate::agent::actions::ActionRegistry,
-) -> Vec<BrainProposal> {
+) -> ArbitrationResult {
     use crate::agent::actions::channel::ChannelLoad;
 
     let collected: Vec<BrainProposal> = proposals.iter().flatten().cloned().collect();
@@ -154,6 +169,7 @@ pub fn arbitrate_parallel(
     scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
 
     let mut admitted: Vec<BrainProposal> = Vec::new();
+    let mut rejected: Vec<BrainProposal> = Vec::new();
     let mut load = ChannelLoad::new();
     let mut movement_admitted = false;
 
@@ -177,12 +193,14 @@ pub fn arbitrate_parallel(
         // one has already been admitted this tick. The highest-scoring
         // Movement wins because the loop iterates in score order.
         if matches!(kind, crate::agent::actions::ActionKind::Movement) && movement_admitted {
+            rejected.push(proposal);
             continue;
         }
 
         let requirements = action_def.body_channels();
 
         if load.would_hard_conflict(requirements, capacities) {
+            rejected.push(proposal);
             continue;
         }
 
@@ -193,7 +211,7 @@ pub fn arbitrate_parallel(
         admitted.push(proposal);
     }
 
-    admitted
+    ArbitrationResult { admitted, rejected }
 }
 
 fn score_proposal(proposal: &BrainProposal, powers: &BrainPowers) -> f32 {
@@ -360,7 +378,7 @@ mod tests {
         );
 
         let proposals = [Some(walk), Some(explore), None];
-        let admitted = arbitrate_parallel(&proposals, &powers, &capacities, &registry);
+        let admitted = arbitrate_parallel(&proposals, &powers, &capacities, &registry).admitted;
 
         assert_eq!(
             admitted.len(),
@@ -394,7 +412,7 @@ mod tests {
         let wander = make_proposal(BrainType::Rational, ActionType::Wander, 30.0, Intent::None);
 
         let proposals = [Some(walk), Some(wander), None];
-        let admitted = arbitrate_parallel(&proposals, &powers, &capacities, &registry);
+        let admitted = arbitrate_parallel(&proposals, &powers, &capacities, &registry).admitted;
 
         let movement_count = admitted
             .iter()
@@ -439,7 +457,7 @@ mod tests {
         );
 
         let proposals = [Some(walk), Some(eat), None];
-        let admitted = arbitrate_parallel(&proposals, &powers, &capacities, &registry);
+        let admitted = arbitrate_parallel(&proposals, &powers, &capacities, &registry).admitted;
 
         let kinds: Vec<_> = admitted.iter().map(|p| p.action.action_type).collect();
         assert!(
@@ -542,7 +560,7 @@ mod tests {
         let registry = ActionRegistry::new();
         let capacities = ChannelCapacities::full();
         let proposals = [Some(walk), Some(flee), None];
-        let admitted = arbitrate_parallel(&proposals, &powers, &capacities, &registry);
+        let admitted = arbitrate_parallel(&proposals, &powers, &capacities, &registry).admitted;
 
         assert!(
             !admitted.is_empty(),

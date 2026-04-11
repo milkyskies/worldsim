@@ -526,17 +526,20 @@ const BACKGROUND_PROMOTE_RATIO: f32 = 0.5;
 
 /// Emit rational-brain proposals for every plan currently in the
 /// Executing state. Arbitration consumes this list and admits as many as
-/// body channels allow; the rest implicitly suspend (their commitment
-/// stops accumulating progress bonus and decays until they drop back to
-/// Background).
+/// body channels allow; rejected proposals trigger Executing → Suspended
+/// transitions back in `brain_system`.
 ///
 /// When no plan is executing, falls back to Explore (for hunger/thirst
-/// goals that have no known target) or Wander (idle).
+/// goals with no known target) or Wander (idle). The Wander fallback is
+/// gated when the agent is currently in a conversation — emitting it
+/// would walk them out of conversation range and collapse the social
+/// turn (the 1-tick flicker bug from #330).
 pub fn rational_brain_propose(
     plan_memory: &PlanMemory,
     cns: &crate::agent::nervous_system::cns::CentralNervousSystem,
     mind: &MindGraph,
     action_registry: &crate::agent::actions::ActionRegistry,
+    in_conversation: bool,
 ) -> Vec<BrainProposal> {
     let goal_intent = cns
         .urgencies
@@ -585,6 +588,13 @@ pub fn rational_brain_propose(
             }];
         }
         // Non-resource goal with no plan yet: let another brain win.
+        return Vec::new();
+    }
+
+    // Idle wander suppressed during conversation — Wander rides
+    // Locomotion and would walk the agent out of conversation range,
+    // collapsing the turn and triggering the #330 flicker.
+    if in_conversation {
         return Vec::new();
     }
 
@@ -743,8 +753,13 @@ mod tests {
             template("WalkToApple", ActionType::Walk),
         );
 
-        let proposals =
-            rational_brain_propose(&memory, &cns, &MindGraph::default(), &test_registry());
+        let proposals = rational_brain_propose(
+            &memory,
+            &cns,
+            &MindGraph::default(),
+            &test_registry(),
+            false,
+        );
 
         assert_eq!(proposals.len(), 1);
         assert_eq!(proposals[0].brain, BrainType::Rational);
@@ -766,8 +781,13 @@ mod tests {
         });
         let memory = PlanMemory::default();
 
-        let proposals =
-            rational_brain_propose(&memory, &cns, &MindGraph::default(), &test_registry());
+        let proposals = rational_brain_propose(
+            &memory,
+            &cns,
+            &MindGraph::default(),
+            &test_registry(),
+            false,
+        );
 
         assert!(
             proposals.is_empty(),
@@ -780,8 +800,13 @@ mod tests {
         let cns = cns_with_hunger(1.0);
         let memory = PlanMemory::default();
 
-        let proposals =
-            rational_brain_propose(&memory, &cns, &MindGraph::default(), &test_registry());
+        let proposals = rational_brain_propose(
+            &memory,
+            &cns,
+            &MindGraph::default(),
+            &test_registry(),
+            false,
+        );
 
         assert_eq!(proposals.len(), 1);
         assert_eq!(proposals[0].action.action_type, ActionType::Explore);
@@ -794,8 +819,13 @@ mod tests {
         let cns = CentralNervousSystem::default();
         let memory = PlanMemory::default();
 
-        let proposals =
-            rational_brain_propose(&memory, &cns, &MindGraph::default(), &test_registry());
+        let proposals = rational_brain_propose(
+            &memory,
+            &cns,
+            &MindGraph::default(),
+            &test_registry(),
+            false,
+        );
 
         assert_eq!(proposals.len(), 1);
         assert_eq!(proposals[0].action.action_type, ActionType::Wander);
@@ -817,8 +847,13 @@ mod tests {
             template("Converse", ActionType::Converse),
         );
 
-        let proposals =
-            rational_brain_propose(&memory, &cns, &MindGraph::default(), &test_registry());
+        let proposals = rational_brain_propose(
+            &memory,
+            &cns,
+            &MindGraph::default(),
+            &test_registry(),
+            false,
+        );
 
         assert_eq!(
             proposals.len(),
@@ -971,8 +1006,13 @@ mod tests {
             current_step: 0,
         });
 
-        let proposals =
-            rational_brain_propose(&memory, &cns, &MindGraph::default(), &test_registry());
+        let proposals = rational_brain_propose(
+            &memory,
+            &cns,
+            &MindGraph::default(),
+            &test_registry(),
+            false,
+        );
 
         // Background plans aren't proposed — Explore fallback fires because
         // hunger is a resource goal with no executing plan yet.
