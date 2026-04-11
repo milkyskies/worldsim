@@ -190,6 +190,18 @@ fn drain_quit_requested(mut quit: ResMut<QuitRequested>, mut exit_writer: Messag
     }
 }
 
+/// Shared entry point used by every "Quit" button. Sets the `QuitRequested`
+/// flag so an Update-time system can write `AppExit` in a schedule the
+/// runner will see, and — if we're still mid-sim — routes through
+/// `MainMenu` first so `OnExit(InSim)` tears the world down before Bevy
+/// tries to drop it on shutdown.
+fn request_quit(quit: &mut QuitRequested, state: AppState, next_state: &mut NextState<AppState>) {
+    quit.0 = true;
+    if state == AppState::InSim {
+        next_state.set(AppState::MainMenu);
+    }
+}
+
 fn pause_menu_is_open(pause: Res<PauseMenuOpen>) -> bool {
     pause.0
 }
@@ -260,6 +272,7 @@ pub fn start_simulation(
 
 fn main_menu_screen(
     mut contexts: Query<&mut EguiContext, With<PrimaryEguiContext>>,
+    state: Res<State<AppState>>,
     mut next_state: ResMut<NextState<AppState>>,
     mut quit: ResMut<QuitRequested>,
 ) {
@@ -286,7 +299,7 @@ fn main_menu_screen(
                 .add_sized(button_size, egui::Button::new("Quit"))
                 .clicked()
             {
-                quit.0 = true;
+                request_quit(&mut quit, *state.get(), &mut next_state);
             }
         });
     });
@@ -428,6 +441,7 @@ fn create_world_screen(
 
 fn pause_menu_screen(
     mut contexts: Query<&mut EguiContext, With<PrimaryEguiContext>>,
+    state: Res<State<AppState>>,
     mut next_state: ResMut<NextState<AppState>>,
     mut pause: ResMut<PauseMenuOpen>,
     tick: Option<ResMut<TickCount>>,
@@ -477,13 +491,7 @@ fn pause_menu_screen(
                     .add_sized(button_size, egui::Button::new("Quit"))
                     .clicked()
                 {
-                    // Route through MainMenu first so DespawnOnExit cleans
-                    // up every sim entity before the runner tears the app
-                    // down. Exiting directly from InSim left Bevy dropping
-                    // a populated world mid-shutdown on macOS, which hung
-                    // the main thread with the beach ball.
-                    quit.0 = true;
-                    next_state.set(AppState::MainMenu);
+                    request_quit(&mut quit, *state.get(), &mut next_state);
                 }
             });
         });
