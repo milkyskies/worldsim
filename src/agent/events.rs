@@ -378,6 +378,20 @@ pub enum SimEvent {
         tick: u64,
         part_kind: crate::agent::biology::body::BodyPartKind,
     },
+
+    /// A genome was expressed into a phenotype at spawn.
+    ///
+    /// Emitted once per agent by `develop_phenotype_system` immediately after
+    /// the genome is added. Carries the physical multipliers for quick
+    /// inspection without querying the Phenotype component.
+    PhenotypeDeveloped {
+        agent: Entity,
+        tick: u64,
+        speed: f32,
+        vision: f32,
+        metabolism: f32,
+        endurance: f32,
+    },
 }
 
 /// Which relationship dimension changed.

@@ -106,22 +106,25 @@ fn spawn_initial_population(
     mut commands: Commands,
     map: Res<crate::world::map::WorldMap>,
     ontology: Res<Ontology>,
+    mut sim_rng: ResMut<crate::core::SimRng>,
 ) {
     let config = WorldSpawnConfig::game_defaults();
     let layout = config.compute_layout(&map);
-    apply_layout(&mut commands, &ontology, &layout);
+    apply_layout(&mut commands, &ontology, &layout, sim_rng.inner_mut());
 }
 
 /// Spawns all entities described by `layout` into the Bevy world using full
 /// visual spawners. Used by the windowed game path.
-pub fn apply_layout(commands: &mut Commands, ontology: &Ontology, layout: &SpawnLayout) {
+pub fn apply_layout(
+    commands: &mut Commands,
+    ontology: &Ontology,
+    layout: &SpawnLayout,
+    rng: &mut impl rand::Rng,
+) {
     use std::collections::HashMap;
     use std::sync::Arc;
 
-    use rand::Rng;
-
     use crate::agent::culture::Culture;
-    let mut rng = rand::rng();
 
     // First group stays on the original settlement side; second group spawns
     // across the river. Cultures are split so the two groups have different
@@ -140,34 +143,33 @@ pub fn apply_layout(commands: &mut Commands, ontology: &Ontology, layout: &Spawn
         cultural_knowledge_map.insert(*culture, Arc::new(triples));
     }
 
-    let mut spawn_group = |positions: &[Vec2], pool: &[Culture], index_offset: usize| {
-        for (i, &pos) in positions.iter().enumerate() {
-            let culture = pool[rng.random_range(0..pool.len())];
-            let knowledge = cultural_knowledge_map.get(&culture).unwrap().clone();
-            spawn_person(
-                commands,
-                ontology.clone(),
-                pos,
-                index_offset + i,
-                culture,
-                knowledge,
-            );
-        }
-    };
+    for (i, &pos) in layout.human_positions.iter().enumerate() {
+        let culture = first_group_cultures[rng.random_range(0..first_group_cultures.len())];
+        let knowledge = cultural_knowledge_map.get(&culture).unwrap().clone();
+        spawn_person(commands, ontology.clone(), pos, i, culture, knowledge, rng);
+    }
 
-    spawn_group(&layout.human_positions, &first_group_cultures, 0);
-    spawn_group(
-        &layout.second_human_positions,
-        &second_group_cultures,
-        layout.human_positions.len(),
-    );
+    let offset = layout.human_positions.len();
+    for (i, &pos) in layout.second_human_positions.iter().enumerate() {
+        let culture = second_group_cultures[rng.random_range(0..second_group_cultures.len())];
+        let knowledge = cultural_knowledge_map.get(&culture).unwrap().clone();
+        spawn_person(
+            commands,
+            ontology.clone(),
+            pos,
+            offset + i,
+            culture,
+            knowledge,
+            rng,
+        );
+    }
 
     let mut deer_index = 0;
     for herd in &layout.deer_herds {
         let members: Vec<Entity> = herd
             .iter()
             .map(|&pos| {
-                let entity = spawn_deer(commands, ontology.clone(), pos, deer_index);
+                let entity = spawn_deer(commands, ontology.clone(), pos, deer_index, rng);
                 deer_index += 1;
                 entity
             })
@@ -182,7 +184,7 @@ pub fn apply_layout(commands: &mut Commands, ontology: &Ontology, layout: &Spawn
         let members: Vec<Entity> = pack
             .iter()
             .map(|&pos| {
-                let entity = spawn_wolf(commands, ontology.clone(), pos, wolf_index);
+                let entity = spawn_wolf(commands, ontology.clone(), pos, wolf_index, rng);
                 wolf_index += 1;
                 entity
             })

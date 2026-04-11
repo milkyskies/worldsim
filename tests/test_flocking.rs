@@ -55,6 +55,11 @@ fn visible_kin_decay_social_drive() {
         initialize_relationship_with_affection(&mut mind_b, deer_a, "Deer 1", 0, 0.8);
     }
 
+    // Tick once to let `develop_phenotype_system` run (Added<Genome>) so the
+    // drives it computes from the genome don't clobber our test-authored
+    // values below. After this tick, direct drive writes are stable.
+    world.tick(1);
+
     // Crank both deer to maximum loneliness.
     {
         let mut drives = world.get_mut::<PsychologicalDrives>(deer_a);
@@ -111,6 +116,10 @@ fn lonely_deer_with_visible_kin_walks_toward_them() {
         initialize_relationship_with_affection(&mut mind, lonely, "Deer 1", 0, 0.9);
     }
 
+    // Tick once to let `develop_phenotype_system` run, so our direct drive
+    // mutation below isn't overwritten by the genome→drives pipeline.
+    world.tick(1);
+
     // Pin the lonely deer's social drive high so the urgency dominates
     // for the duration of the test (otherwise the proximity decay we
     // just enabled will erase it before the brain even runs).
@@ -153,6 +162,9 @@ fn lonely_deer_alone_does_not_flock_walk() {
     // Single deer in the middle of nowhere. Vision range 128px, so we
     // need to be sure no other deer is anywhere nearby.
     let alone = world.spawn_deer(Vec2::new(400.0, 400.0));
+
+    // Tick once so `develop_phenotype_system` runs before we touch drives.
+    world.tick(1);
 
     {
         let mut drives = world.get_mut::<PsychologicalDrives>(alone);

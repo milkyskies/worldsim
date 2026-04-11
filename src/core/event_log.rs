@@ -265,6 +265,9 @@ fn event_meta<'a>(
             tick,
         } => two("CombatMissed", *tick, *attacker, *defender, true),
         SimEvent::PartSevered { entity, tick, .. } => one("PartSevered", *tick, *entity, true),
+        SimEvent::PhenotypeDeveloped { agent, tick, .. } => {
+            one("PhenotypeDeveloped", *tick, *agent, true)
+        }
     }
 }
 
@@ -654,6 +657,25 @@ fn event_to_json(
                 "type": event_type,
                 "entity": resolve(*entity),
                 "part": part_kind.display_name(),
+            })
+        }
+        SimEvent::PhenotypeDeveloped {
+            agent,
+            speed,
+            vision,
+            metabolism,
+            endurance,
+            ..
+        } => {
+            serde_json::json!({
+                "tick": tick,
+                "type": event_type,
+                "agent": resolve(*agent),
+                "agent_id": entity_id_str(*agent),
+                "speed": speed,
+                "vision": vision,
+                "metabolism": metabolism,
+                "endurance": endurance,
             })
         }
     }

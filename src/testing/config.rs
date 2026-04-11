@@ -5,9 +5,9 @@
 //! Upstream: nothing
 //! Downstream: testing::world::TestWorld::spawn_agent
 
+use crate::agent::body::genetics::genome::Genome;
 use crate::agent::body::metabolism::Metabolism;
 use crate::agent::mind::knowledge::Triple;
-use crate::agent::psyche::personality::Personality;
 use bevy::math::Vec2;
 
 /// Configuration for a test agent. All fields default to neutral values so tests
@@ -27,11 +27,15 @@ pub struct AgentConfig {
     /// Stamina value (0.0 = exhausted, 100.0 = fully rested).
     pub stamina: f32,
     /// Optional override for social drive (0.0 = satisfied, 1.0 = lonely).
-    /// `None` keeps the personality-derived value (mirrors the real spawner).
-    /// `Some(v)` clamps the spawned agent's social drive to `v`.
+    /// `None` keeps the genome-derived value. `Some(v)` inserts a
+    /// `SocialDriveOverride` component that `develop_phenotype_system` applies
+    /// when deriving drives from the genome.
     pub social_drive: Option<f32>,
-    /// Personality traits. Defaults to all 0.5 (neutral).
-    pub personality: Personality,
+    /// Genome the phenotype, personality, and drives are derived from.
+    /// Defaults to the neutral genome (all-zero loci → species baseline).
+    /// Tests that want specific trait values use
+    /// `Genome::from_phenotype(&Phenotype { ... })`.
+    pub genome: Genome,
     /// Pre-loaded knowledge triples added to the agent's MindGraph at spawn.
     pub knowledge: Vec<Triple>,
 }
@@ -45,7 +49,7 @@ impl Default for AgentConfig {
             thirst: 0.0,
             stamina: 100.0,
             social_drive: None,
-            personality: Personality::default(),
+            genome: Genome::default(),
             knowledge: Vec::new(),
         }
     }

@@ -9,7 +9,7 @@ use super::thinking::{ActionTemplate, Goal, TriplePattern};
 use crate::agent::actions::ActionType;
 use crate::agent::body::needs::{Consciousness, PhysicalNeeds};
 use crate::agent::mind::knowledge::{
-    Concept, MindGraph, Node as MindNode, Predicate, Triple, Value,
+    Concept, MindGraph, Node as MindNode, Ontology, Predicate, Triple, Value,
 };
 use crate::agent::psyche::personality::Personality;
 use crate::constants::actions::walk as walk_const;
@@ -491,7 +491,11 @@ pub fn estimate_plan_cost(
 // }
 
 /// Helper: Check if pattern matches a concrete triple
-fn pattern_matches_triple(pattern: &TriplePattern, triple: &Triple) -> bool {
+fn pattern_matches_triple(
+    pattern: &TriplePattern,
+    triple: &Triple,
+    ontology: Option<&Ontology>,
+) -> bool {
     if let Some(s) = &pattern.subject
         && &triple.subject != s
     {
@@ -506,6 +510,26 @@ fn pattern_matches_triple(pattern: &TriplePattern, triple: &Triple) -> bool {
         && &triple.object != o
     {
         return false;
+    }
+    // If the pattern requires items to be of a certain category or have a certain
+    // trait, verify the concrete item concept passes the ontology checks.
+    // Both filters AND together — the item must satisfy every constraint set.
+    if pattern.isa_filter.is_some() || pattern.trait_filter.is_some() {
+        match &triple.object {
+            Value::Item(concept, _) => {
+                if let Some(isa) = pattern.isa_filter
+                    && !ontology.is_some_and(|o| o.is_a(*concept, isa))
+                {
+                    return false;
+                }
+                if let Some(trait_) = pattern.trait_filter
+                    && !ontology.is_some_and(|o| o.has_trait(*concept, trait_))
+                {
+                    return false;
+                }
+            }
+            _ => return false,
+        }
     }
     true
 }
@@ -858,16 +882,38 @@ fn mind_satisfies_pattern(mind: &MindGraph, pattern: &TriplePattern) -> bool {
     );
 
     // Filter out Item values with quantity == 0 (e.g., "Contains Apple(0)" is not satisfied)
+    // and reject items that don't pass the isa_filter or trait_filter (e.g. Stone is not Food).
+    // Both filters AND together.
+    let has_concept_filter = pattern.isa_filter.is_some() || pattern.trait_filter.is_some();
     results.into_iter().any(|triple| match &triple.object {
-        Value::Item(_, qty) => *qty > 0,
-        _ => true,
+        Value::Item(concept, qty) => {
+            if *qty == 0 {
+                return false;
+            }
+            if let Some(isa) = pattern.isa_filter
+                && !mind.ontology.is_a(*concept, isa)
+            {
+                return false;
+            }
+            if let Some(trait_) = pattern.trait_filter
+                && !mind.ontology.has_trait(*concept, trait_)
+            {
+                return false;
+            }
+            true
+        }
+        _ => !has_concept_filter,
     })
 }
 
-fn action_satisfies_pattern(action: &ActionTemplate, pattern: &TriplePattern) -> bool {
+fn action_satisfies_pattern(
+    action: &ActionTemplate,
+    pattern: &TriplePattern,
+    ontology: &Ontology,
+) -> bool {
     // Action satisfies pattern if one of its effects matches the pattern
     for effect in &action.effects {
-        if pattern_matches_triple(pattern, effect) {
+        if pattern_matches_triple(pattern, effect, Some(ontology)) {
             return true;
         }
     }
@@ -1035,7 +1081,7 @@ fn find_explicit_actions_for_goal(
     let mut candidates = Vec::new();
 
     for action in available_actions {
-        if !action_satisfies_pattern(action, target_goal) {
+        if !action_satisfies_pattern(action, target_goal, &mind.ontology) {
             continue;
         }
 
@@ -1672,6 +1718,147 @@ mod tests {
         );
     }
 
+    // ─── isa_filter / trait_filter: typed wildcard correctness ────────────────
+
+    #[test]
+    fn planner_does_not_chain_stone_harvest_to_satisfy_hunger() {
+        // Bug regression: the eat action's precondition was (Self, Contains, ?any),
+        // allowing the planner to chain "harvest stone → eat stone" to satisfy hunger.
+        // With isa_filter = Food, stone must be rejected.
+        let stone_node = Entity::from_bits(20);
+        let stone_tile = (5i32, 0i32);
+
+        let mut mind = test_mind();
+        mind.add(Triple::new(
+            MindNode::Self_,
+            Predicate::LocatedAt,
+            Value::Tile((0, 0)),
+        ));
+        mind.add(Triple::new(
+            MindNode::Self_,
+            Predicate::Stamina,
+            Value::Int(80),
+        ));
+        mind.add(Triple::new(
+            MindNode::Entity(stone_node),
+            Predicate::LocatedAt,
+            Value::Tile(stone_tile),
+        ));
+        mind.add(Triple::new(
+            MindNode::Entity(stone_node),
+            Predicate::Contains,
+            Value::Item(Concept::Stone, 5),
+        ));
+
+        // Eat action: precondition is self_contains_food() (isa_filter = Food)
+        let eat_action = ActionTemplate {
+            name: "Eat".to_string(),
+            action_type: ActionType::Eat,
+            target_entity: None,
+            target_position: None,
+            preconditions: vec![TriplePattern::self_contains_food()],
+            effects: vec![Triple::new(
+                MindNode::Self_,
+                Predicate::Hunger,
+                Value::Int(0),
+            )],
+            consumes: vec![],
+            base_cost: 1.0,
+            locomotion_intensity: 0.0,
+        };
+        let harvest_stone = ActionTemplate {
+            name: "HarvestStone".to_string(),
+            action_type: ActionType::Harvest,
+            target_entity: Some(stone_node),
+            target_position: None,
+            preconditions: vec![
+                TriplePattern::entity_contains(stone_node),
+                TriplePattern::self_at(stone_tile),
+            ],
+            effects: vec![Triple::new(
+                MindNode::Self_,
+                Predicate::Contains,
+                Value::Item(Concept::Stone, 1),
+            )],
+            consumes: vec![TriplePattern::entity_contains(stone_node)],
+            base_cost: 2.0,
+            locomotion_intensity: 0.0,
+        };
+
+        let hunger_goal = Goal {
+            conditions: vec![TriplePattern::new(
+                Some(MindNode::Self_),
+                Some(Predicate::Hunger),
+                Some(Value::Int(0)),
+            )],
+            priority: 1.0,
+        };
+
+        let actions = vec![eat_action, harvest_stone];
+        let plan = regressive_plan(&mind, &hunger_goal, &actions, &PlanCostContext::neutral());
+        assert!(
+            plan.is_none(),
+            "planner must not satisfy hunger by harvesting stone"
+        );
+    }
+
+    #[test]
+    fn isa_filter_accepts_matching_concept_and_rejects_non_matching() {
+        let ontology = setup_ontology();
+
+        let food_triple = Triple::new(
+            MindNode::Self_,
+            Predicate::Contains,
+            Value::Item(Concept::Apple, 1),
+        );
+        let stone_triple = Triple::new(
+            MindNode::Self_,
+            Predicate::Contains,
+            Value::Item(Concept::Stone, 1),
+        );
+
+        let food_pattern = TriplePattern::self_contains_food();
+
+        assert!(
+            pattern_matches_triple(&food_pattern, &food_triple, Some(&ontology)),
+            "Apple (IsA Food) must match self_contains_food()"
+        );
+        assert!(
+            !pattern_matches_triple(&food_pattern, &stone_triple, Some(&ontology)),
+            "Stone (not Food) must not match self_contains_food()"
+        );
+    }
+
+    #[test]
+    fn trait_filter_accepts_edible_and_rejects_non_edible() {
+        let ontology = setup_ontology();
+
+        let berry_triple = Triple::new(
+            MindNode::Self_,
+            Predicate::Contains,
+            Value::Item(Concept::Berry, 1),
+        );
+        let stone_triple = Triple::new(
+            MindNode::Self_,
+            Predicate::Contains,
+            Value::Item(Concept::Stone, 1),
+        );
+
+        let edible_pattern = TriplePattern {
+            trait_filter: Some(Concept::Edible),
+            ..TriplePattern::self_contains()
+        };
+
+        assert!(
+            pattern_matches_triple(&edible_pattern, &berry_triple, Some(&ontology)),
+            "Berry (HasTrait Edible) must match trait_filter = Edible"
+        );
+        assert!(
+            !pattern_matches_triple(&edible_pattern, &stone_triple, Some(&ontology)),
+            "Stone (no Edible trait) must not match trait_filter = Edible"
+        );
+    }
+
     // ─── Pattern matching correctness (#20) ───────────────────────────────────
 
     #[test]
@@ -1763,9 +1950,9 @@ mod tests {
             Some(Predicate::Contains),
             Some(Value::Item(Concept::Apple, 1)),
         );
-        assert!(pattern_matches_triple(&pat_self, &agent_apple));
+        assert!(pattern_matches_triple(&pat_self, &agent_apple, None));
         assert!(
-            !pattern_matches_triple(&pat_self, &other_apple),
+            !pattern_matches_triple(&pat_self, &other_apple, None),
             "Self_ pattern must not match an entity-subject triple"
         );
     }
@@ -1784,7 +1971,7 @@ mod tests {
             Some(Predicate::Contains),
             Some(Value::Item(Concept::Apple, 3)),
         );
-        assert!(pattern_matches_triple(&pat, &triple));
+        assert!(pattern_matches_triple(&pat, &triple, None));
 
         // Wildcard predicate
         let pat = TriplePattern::new(
@@ -1792,7 +1979,7 @@ mod tests {
             None,
             Some(Value::Item(Concept::Apple, 3)),
         );
-        assert!(pattern_matches_triple(&pat, &triple));
+        assert!(pattern_matches_triple(&pat, &triple, None));
 
         // Wildcard object
         let pat = TriplePattern::new(
@@ -1800,7 +1987,7 @@ mod tests {
             Some(Predicate::Contains),
             None,
         );
-        assert!(pattern_matches_triple(&pat, &triple));
+        assert!(pattern_matches_triple(&pat, &triple, None));
 
         // Concrete mismatch
         let pat = TriplePattern::new(
@@ -1808,7 +1995,7 @@ mod tests {
             Some(Predicate::Contains),
             Some(Value::Item(Concept::Apple, 3)),
         );
-        assert!(!pattern_matches_triple(&pat, &triple));
+        assert!(!pattern_matches_triple(&pat, &triple, None));
     }
 
     // ─── RegressiveState dedup (#20) ──────────────────────────────────────────

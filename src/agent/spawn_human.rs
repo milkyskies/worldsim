@@ -1,6 +1,6 @@
 //! Shared logic-only spawn helper for human (Person) agents.
 //!
-//! Reads: Personality, Ontology, cultural knowledge triples
+//! Reads: Genome, Ontology, cultural knowledge triples
 //! Writes: PersonCoreBundle, PersonPerceptionBundle, PersonBrainBundle
 //! Upstream: world::human::spawn_person (real game), testing::spawn::spawn_test_person (TestWorld)
 //! Downstream: brain pipeline (any system that queries Person logic components)
@@ -9,6 +9,10 @@
 //! TestWorld humans drift from real-game humans (e.g. issue #306 where
 //! TestWorld humans were decision-dead because the test path skipped
 //! cultural knowledge and personality-derived drives).
+//!
+//! `Personality` and `PsychologicalDrives` are inserted as neutral placeholders
+//! and then overwritten by `develop_phenotype_system` on the first tick (when
+//! `Added<Genome>` fires) with values derived from the genome.
 
 use std::sync::Arc;
 
@@ -16,6 +20,7 @@ use bevy::prelude::*;
 
 use crate::agent::actions::ActiveActions;
 use crate::agent::affordance::Affordance;
+use crate::agent::body::genetics::genome::Genome;
 use crate::agent::body::needs::{Consciousness, PhysicalNeeds, PsychologicalDrives};
 use crate::agent::body::species::SpeciesProfile;
 use crate::agent::brains::history::BrainHistory;
@@ -50,6 +55,7 @@ pub struct PersonCoreBundle {
     pub target_position: TargetPosition,
     pub movement_state: MovementState,
     pub inventory: ItemSlots,
+    pub genome: Genome,
     pub personality: Personality,
     pub transform: Transform,
     pub global_transform: GlobalTransform,
@@ -90,14 +96,11 @@ pub struct PersonInit {
     pub name: String,
     /// World position to spawn at.
     pub position: Vec2,
-    /// Personality traits. Drives are derived from these.
-    pub personality: Personality,
+    /// Genome that the phenotype, personality, and drives are derived from.
+    /// Tests use `Genome::from_phenotype(...)` to construct targeted genomes.
+    pub genome: Genome,
     /// Initial physical needs (hunger, thirst, stamina, health).
     pub physical_needs: PhysicalNeeds,
-    /// Override for the personality-derived social drive. `None` keeps the
-    /// derived value, `Some(v)` clamps it to `v` (used by tests that want
-    /// guaranteed-social agents without coupling to personality).
-    pub social_drive_override: Option<f32>,
     /// Cultural knowledge triples shared across an agent's culture. The
     /// real spawner sources this from `create_cultural_knowledge(culture)`;
     /// the test spawner uses the default culture.
@@ -131,6 +134,10 @@ fn add_person_knowledge(mind: &mut MindGraph) {
 /// `world::human::spawn_person` (real game) and
 /// `testing::spawn::spawn_test_person` (TestWorld) call this — drift here
 /// causes brain divergence between the two paths.
+///
+/// `Personality` and `PsychologicalDrives` are inserted as neutral
+/// placeholders. `develop_phenotype_system` overwrites both with
+/// genome-derived values on the first tick (triggered by `Added<Genome>`).
 pub fn build_person_logic(
     init: PersonInit,
     ontology: Ontology,
@@ -140,11 +147,6 @@ pub fn build_person_logic(
     mind.add_shared_knowledge(init.cultural_knowledge);
     for triple in init.extra_knowledge {
         mind.assert(triple);
-    }
-
-    let mut drives = PsychologicalDrives::from_personality(&init.personality.traits);
-    if let Some(social) = init.social_drive_override {
-        drives.social = social;
     }
 
     let core = PersonCoreBundle {
@@ -157,7 +159,8 @@ pub fn build_person_logic(
         target_position: TargetPosition::default(),
         movement_state: MovementState::default(),
         inventory: ItemSlots::agent_carry(),
-        personality: init.personality,
+        genome: init.genome,
+        personality: Personality::default(),
         transform: Transform::from_translation(init.position.extend(3.0)),
         global_transform: GlobalTransform::default(),
     };
@@ -177,7 +180,7 @@ pub fn build_person_logic(
         cns: CentralNervousSystem::default(),
         physical_needs: init.physical_needs,
         consciousness: Consciousness::default(),
-        drives,
+        drives: PsychologicalDrives::default(),
         active_actions: ActiveActions::default(),
         emotional: EmotionalState::default(),
         brain_history: BrainHistory::default(),
