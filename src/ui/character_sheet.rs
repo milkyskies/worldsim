@@ -514,86 +514,126 @@ fn render_needs(ui: &mut egui::Ui, world: &World, entity: Entity) {
             .map(|u| u.value)
     };
 
-    ui.heading("Physical Needs");
-    if let Some(needs) = world.get::<PhysicalNeeds>(entity) {
-        need_bar(
-            ui,
-            "Stomach",
-            needs.metabolism.stomach_fullness(),
-            crate::agent::body::metabolism::STOMACH_CAPACITY,
-            None,
-        );
-        need_bar(
-            ui,
-            "Glucose",
-            needs.metabolism.glucose,
-            crate::agent::body::metabolism::GLUCOSE_MAX,
-            urgency_for(UrgencySource::Hunger),
-        );
-        need_bar(
-            ui,
-            "Reserves",
-            needs.metabolism.reserves,
-            crate::agent::body::metabolism::RESERVES_MAX,
-            None,
-        );
-        need_bar(
-            ui,
-            "Thirst",
-            needs.thirst,
-            100.0,
-            urgency_for(UrgencySource::Thirst),
-        );
-        need_bar(
-            ui,
-            "Aerobic",
-            needs.stamina.aerobic,
-            needs.stamina.aerobic_max,
-            urgency_for(UrgencySource::Stamina),
-        );
-        need_bar(
-            ui,
-            "Anaerobic",
-            needs.stamina.anaerobic,
-            needs.stamina.anaerobic_max,
-            None,
-        );
-        need_bar(ui, "Health", needs.health, 100.0, None);
-    }
+    let needs = world.get::<PhysicalNeeds>(entity);
+    let consc = world.get::<Consciousness>(entity);
+    let drives = world.get::<PsychologicalDrives>(entity);
 
-    if let Some(consc) = world.get::<Consciousness>(entity) {
-        ui.separator();
-        ui.horizontal(|ui| {
-            ui.label("Alertness");
-            ui.add(
-                egui::ProgressBar::new(consc.alertness)
-                    .desired_width(200.0)
-                    .text(format!("{:.2}", consc.alertness)),
-            );
+    // ── Stomach / metabolism ────────────────────────────────────────────
+    // Everything tied to food and fuel: stomach content, short-term
+    // glucose, long-term reserves. Hunger urgency surfaces under Glucose
+    // because that's the primary pool the brain's hunger drive watches.
+    egui::CollapsingHeader::new("Stomach")
+        .default_open(true)
+        .show(ui, |ui| {
+            if let Some(needs) = needs {
+                need_bar(
+                    ui,
+                    "Stomach",
+                    needs.metabolism.stomach_fullness(),
+                    crate::agent::body::metabolism::STOMACH_CAPACITY,
+                    None,
+                );
+                need_bar(
+                    ui,
+                    "Glucose",
+                    needs.metabolism.glucose,
+                    crate::agent::body::metabolism::GLUCOSE_MAX,
+                    urgency_for(UrgencySource::Hunger),
+                );
+                need_bar(
+                    ui,
+                    "Reserves",
+                    needs.metabolism.reserves,
+                    crate::agent::body::metabolism::RESERVES_MAX,
+                    None,
+                );
+            }
         });
-    }
 
-    if let Some(drives) = world.get::<PsychologicalDrives>(entity) {
-        ui.separator();
-        ui.heading("Psychological Drives");
-        drive_bar(
-            ui,
-            "Social",
-            drives.social,
-            urgency_for(UrgencySource::Social),
-        );
-        drive_bar(ui, "Fun", drives.fun, urgency_for(UrgencySource::Fun));
-        drive_bar(ui, "Curiosity", drives.curiosity, None);
-        drive_bar(ui, "Status", drives.status, None);
-        drive_bar(ui, "Security", drives.security, None);
-        drive_bar(ui, "Autonomy", drives.autonomy, None);
-        drive_bar(
-            ui,
-            "Territoriality",
-            drives.territoriality,
-            urgency_for(UrgencySource::Territoriality),
-        );
-    }
+    // ── Body ────────────────────────────────────────────────────────────
+    // Physical condition: fluids (thirst), stamina pools, health.
+    // Thirst urgency surfaces here next to the raw thirst value.
+    egui::CollapsingHeader::new("Body")
+        .default_open(true)
+        .show(ui, |ui| {
+            if let Some(needs) = needs {
+                need_bar(
+                    ui,
+                    "Thirst",
+                    needs.thirst,
+                    100.0,
+                    urgency_for(UrgencySource::Thirst),
+                );
+                need_bar(
+                    ui,
+                    "Aerobic",
+                    needs.stamina.aerobic,
+                    needs.stamina.aerobic_max,
+                    urgency_for(UrgencySource::Stamina),
+                );
+                need_bar(
+                    ui,
+                    "Anaerobic",
+                    needs.stamina.anaerobic,
+                    needs.stamina.anaerobic_max,
+                    None,
+                );
+                need_bar(ui, "Health", needs.health, 100.0, None);
+            }
+        });
+
+    // ── Mind ────────────────────────────────────────────────────────────
+    // Cognitive state and individual-facing drives: alertness is how
+    // clear-headed the agent is right now, curiosity and fun are the
+    // internal pressures toward novelty and play.
+    egui::CollapsingHeader::new("Mind")
+        .default_open(true)
+        .show(ui, |ui| {
+            if let Some(consc) = consc {
+                ui.horizontal(|ui| {
+                    ui.label(egui::RichText::new("Alertness").strong());
+                    ui.add(
+                        egui::ProgressBar::new(consc.alertness)
+                            .desired_width(180.0)
+                            .text(format!("{:.2}", consc.alertness)),
+                    );
+                });
+            }
+            if let Some(drives) = drives {
+                drive_bar(
+                    ui,
+                    "Curiosity",
+                    drives.curiosity,
+                    urgency_for(UrgencySource::Curiosity),
+                );
+                drive_bar(ui, "Fun", drives.fun, urgency_for(UrgencySource::Fun));
+                drive_bar(ui, "Autonomy", drives.autonomy, None);
+            }
+        });
+
+    // ── Social ──────────────────────────────────────────────────────────
+    // Outward-facing drives: being with others, standing in the group,
+    // holding territory. Social urgency surfaces under Social drive.
+    egui::CollapsingHeader::new("Social")
+        .default_open(true)
+        .show(ui, |ui| {
+            if let Some(drives) = drives {
+                drive_bar(
+                    ui,
+                    "Social",
+                    drives.social,
+                    urgency_for(UrgencySource::Social),
+                );
+                drive_bar(ui, "Status", drives.status, None);
+                drive_bar(ui, "Security", drives.security, None);
+                drive_bar(
+                    ui,
+                    "Territoriality",
+                    drives.territoriality,
+                    urgency_for(UrgencySource::Territoriality),
+                );
+            }
+        });
 }
 
 /// Draws a need bar with the raw need value (e.g. hunger 0..100). When the

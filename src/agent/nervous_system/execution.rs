@@ -739,6 +739,18 @@ pub fn apply_action_effects(
                 }
             }
         }
+
+        // Second mobilization pass (#397). The per-action glucose drain
+        // above bypasses `Metabolism::tick_with_mods` and can push glucose
+        // below `GLUCOSE_MOBILIZE_THRESHOLD` faster than the single
+        // `apply_activity_effects` mobilization pass can refill it — so
+        // an agent with multiple high-drain actions ends up stranded at
+        // `glucose = 0, reserves > 0`. Running mobilization again after
+        // the action drains closes that loop: the fasting/reserve path
+        // gets a chance to respond to action-level cost every frame,
+        // not just the activity-level cost.
+        let liver = body.map(|b| b.organ_mods().liver).unwrap_or(1.0);
+        physical.metabolism.mobilize_reserves(dt, liver);
     }
 }
 

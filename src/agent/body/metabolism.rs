@@ -338,14 +338,7 @@ impl Metabolism {
         // 5. Mobilization: below the mobilize threshold, reserves top up
         //    glucose. Liver damage slows this direction too — a critical
         //    symptom of real-world liver failure is impaired fasting glucose.
-        if self.glucose < GLUCOSE_MOBILIZE_THRESHOLD && self.reserves > 0.0 {
-            let deficit = GLUCOSE_MOBILIZE_THRESHOLD - self.glucose;
-            let mobilized = (RESERVE_MOBILIZE_RATE * mods.liver * dt)
-                .min(deficit)
-                .min(self.reserves);
-            self.reserves -= mobilized;
-            self.glucose += mobilized;
-        }
+        self.mobilize_reserves(dt, mods.liver);
 
         // Clamp all pools.
         self.stomach_carbs = self.stomach_carbs.max(0.0);
@@ -353,11 +346,104 @@ impl Metabolism {
         self.glucose = self.glucose.clamp(0.0, GLUCOSE_MAX);
         self.reserves = self.reserves.clamp(0.0, RESERVES_MAX);
     }
+
+    /// Top up glucose from reserves when glucose is below the mobilize
+    /// threshold. Safe to call multiple times per frame — each call
+    /// advances mobilization by up to `RESERVE_MOBILIZE_RATE × liver × dt`
+    /// and short-circuits when glucose is already above the threshold or
+    /// reserves are empty.
+    ///
+    /// Public because `execution::apply_action_effects` drains glucose
+    /// directly (outside `tick_with_mods`) and would otherwise strand
+    /// agents at `glucose = 0, reserves > 0` whenever the per-tick
+    /// action drain exceeded the single mobilization pass from the
+    /// activity system (#397).
+    pub fn mobilize_reserves(&mut self, dt: f32, liver: f32) {
+        if self.glucose >= GLUCOSE_MOBILIZE_THRESHOLD || self.reserves <= 0.0 {
+            return;
+        }
+        let deficit = GLUCOSE_MOBILIZE_THRESHOLD - self.glucose;
+        let mobilized = (RESERVE_MOBILIZE_RATE * liver * dt)
+            .min(deficit)
+            .min(self.reserves);
+        self.reserves -= mobilized;
+        self.glucose += mobilized;
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn mobilize_reserves_tops_up_glucose_below_threshold() {
+        // #397: glucose drained to 0 while reserves are plenty.
+        // Calling mobilize_reserves directly (the path
+        // apply_action_effects uses) must advance glucose up.
+        let mut m = Metabolism {
+            stomach_carbs: 0.0,
+            stomach_fat: 0.0,
+            glucose: 0.0,
+            reserves: 500.0,
+        };
+        let glucose_before = m.glucose;
+        let reserves_before = m.reserves;
+
+        m.mobilize_reserves(1.0, 1.0); // 1 sec, intact liver
+
+        assert!(
+            m.glucose > glucose_before,
+            "glucose should have risen from mobilization, got {}",
+            m.glucose
+        );
+        assert!(
+            m.reserves < reserves_before,
+            "reserves should have been spent, got {}",
+            m.reserves
+        );
+        // One second of mobilization at RESERVE_MOBILIZE_RATE should
+        // equal exactly that rate (capped by deficit).
+        let expected = RESERVE_MOBILIZE_RATE.min(GLUCOSE_MOBILIZE_THRESHOLD);
+        assert!(
+            (m.glucose - expected).abs() < 1e-4,
+            "mobilized amount should be {expected}, got {}",
+            m.glucose
+        );
+    }
+
+    #[test]
+    fn mobilize_reserves_noops_when_glucose_above_threshold() {
+        let mut m = Metabolism {
+            stomach_carbs: 0.0,
+            stomach_fat: 0.0,
+            glucose: 80.0, // above GLUCOSE_MOBILIZE_THRESHOLD 50
+            reserves: 500.0,
+        };
+        m.mobilize_reserves(1.0, 1.0);
+        assert_eq!(
+            m.glucose, 80.0,
+            "mobilization must not fire above the threshold"
+        );
+        assert_eq!(
+            m.reserves, 500.0,
+            "reserves must not be spent when mobilization is inactive"
+        );
+    }
+
+    #[test]
+    fn mobilize_reserves_noops_when_reserves_empty() {
+        let mut m = Metabolism {
+            stomach_carbs: 0.0,
+            stomach_fat: 0.0,
+            glucose: 0.0,
+            reserves: 0.0,
+        };
+        m.mobilize_reserves(1.0, 1.0);
+        assert_eq!(
+            m.glucose, 0.0,
+            "cannot mobilize from empty reserves (starvation)"
+        );
+    }
 
     /// A well-fed agent reports low hunger urgency.
     #[test]
