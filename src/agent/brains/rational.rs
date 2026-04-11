@@ -1,10 +1,11 @@
 //! Rational brain: deliberate goal-directed planning via GOAP.
 //!
-//! Reads: RationalBrain, Consciousness, ItemSlots, MindGraph, VisibleObjects, CentralNervousSystem
-//! Writes: RationalBrain (plan/goal), BrainProposal
+//! Reads: RationalBrain, Consciousness, ItemSlots, MindGraph, VisibleObjects, CentralNervousSystem, Commitments
+//! Writes: RationalBrain (plan/goal/commitment), BrainProposal
 //! Upstream: cns (current_goal), planner (regressive_plan), mind (MindGraph)
 //! Downstream: brains::proposal (winner selection)
 
+use crate::agent::Agent;
 use crate::agent::actions::ActionType;
 use crate::agent::actions::channel::{ChannelCapacities, ChannelLoad};
 use crate::agent::biology::body::Body;
@@ -12,6 +13,7 @@ use crate::agent::body::needs::{Consciousness, PhysicalNeeds};
 use crate::agent::brains::proposal::{BrainProposal, BrainType, Intent};
 use crate::agent::brains::target_enumeration::enumerate_targets;
 use crate::agent::brains::thinking::{ActionTemplate, Goal, TriplePattern};
+use crate::agent::commitment::Commitments;
 use crate::agent::item_slots::ItemSlots;
 use crate::agent::mind::knowledge::{MindGraph, Predicate, Value};
 use crate::agent::mind::perception::VisibleObjects;
@@ -22,6 +24,70 @@ use crate::constants::brains::rational::{
 use crate::world::map::WorldMap;
 use bevy::prelude::*;
 
+// Plan commitment — continuous value gating plan execution.
+//
+// `commitment_tick_delta` + `compute_commit_threshold` run on the rational
+// brain's considered plans. Kept deliberately separate from
+// `ActivePlanEntry::commitment_strength` in `active_plan.rs`, which tracks
+// *post*-execution inertia (a different lifecycle phase — decays when a
+// running plan stalls instead of accumulating toward a gate).
+
+/// Baseline per-tick accumulation — exposed so integration tests can reason
+/// about how many ticks an agent takes to cross threshold under various
+/// personality mixes.
+pub const COMMITMENT_BASELINE_PER_TICK: f32 = 0.05;
+const COMMITMENT_URGENCY_WEIGHT: f32 = 0.2;
+const COMMITMENT_ALONE_BONUS: f32 = 0.3;
+const COMMITMENT_ANNOUNCEMENT_BONUS: f32 = 0.5;
+const COMMITMENT_NEUROTICISM_PENALTY: f32 = 0.05;
+const COMMITMENT_CONSCIENTIOUSNESS_BONUS: f32 = 0.05;
+const COMMIT_THRESHOLD_COST_DIVISOR: f32 = 100.0;
+const COMMIT_THRESHOLD_MIN: f32 = 0.5;
+const COMMIT_THRESHOLD_MAX: f32 = 5.0;
+const COMMIT_THRESHOLD_CONSCIENTIOUSNESS_DISCOUNT: f32 = 0.3;
+
+/// Inputs for a single commitment tick. Packaged so the pure function is
+/// easy to unit-test without wiring real ECS state.
+pub struct CommitmentTickInputs {
+    pub urgency: f32,
+    pub alone: bool,
+    pub announcement_made: bool,
+    pub neuroticism: f32,
+    pub conscientiousness: f32,
+}
+
+/// Pure per-tick commitment delta — no side effects, no ECS access.
+pub fn commitment_tick_delta(inputs: &CommitmentTickInputs) -> f32 {
+    let alone = if inputs.alone {
+        COMMITMENT_ALONE_BONUS
+    } else {
+        0.0
+    };
+    let announcement = if inputs.announcement_made {
+        COMMITMENT_ANNOUNCEMENT_BONUS
+    } else {
+        0.0
+    };
+    COMMITMENT_BASELINE_PER_TICK
+        + inputs.urgency.clamp(0.0, 1.0) * COMMITMENT_URGENCY_WEIGHT
+        + alone
+        + announcement
+        - inputs.neuroticism.clamp(0.0, 1.0) * COMMITMENT_NEUROTICISM_PENALTY
+        + inputs.conscientiousness.clamp(0.0, 1.0) * COMMITMENT_CONSCIENTIOUSNESS_BONUS
+}
+
+/// Derive the commit threshold from the plan's subjective cost and the
+/// agent's conscientiousness. Expensive plans need more commitment;
+/// conscientious agents have lower thresholds (they commit more readily
+/// once they've decided).
+pub fn compute_commit_threshold(subjective_cost: f32, conscientiousness: f32) -> f32 {
+    let cost_threshold = (subjective_cost / COMMIT_THRESHOLD_COST_DIVISOR)
+        .clamp(COMMIT_THRESHOLD_MIN, COMMIT_THRESHOLD_MAX);
+    let personality_modifier =
+        1.0 - conscientiousness.clamp(0.0, 1.0) * COMMIT_THRESHOLD_CONSCIENTIOUSNESS_DISCOUNT;
+    cost_threshold * personality_modifier
+}
+
 #[derive(Component, Debug, Clone, Reflect, Default)]
 #[reflect(Component)]
 pub struct RationalBrain {
@@ -31,6 +97,28 @@ pub struct RationalBrain {
     pub current_goal: Option<Goal>,
     #[reflect(ignore)]
     pub plan_index: usize,
+    /// Continuous commitment accumulated while considering the current plan.
+    /// Crosses `compute_commit_threshold` to gate execution.
+    pub commitment: f32,
+    /// Subjective cost of the current plan — feeds the commit threshold.
+    pub subjective_cost: f32,
+    /// Tick when the current plan was generated. `None` when no plan.
+    pub plan_started_at: Option<u64>,
+    /// True once commitment crosses threshold. Stays true until plan clears.
+    pub plan_committed: bool,
+}
+
+impl RationalBrain {
+    /// Reset all plan + commitment state. Called when a plan clears for any
+    /// reason (finished, invalidated, goal changed).
+    pub fn clear_plan(&mut self) {
+        self.current_plan = None;
+        self.plan_index = 0;
+        self.commitment = 0.0;
+        self.subjective_cost = 0.0;
+        self.plan_started_at = None;
+        self.plan_committed = false;
+    }
 }
 
 /// True when the agent's anatomy can perform an action — every required
@@ -110,6 +198,7 @@ pub fn update_rational_brain(
         Option<&Body>,
         &PhysicalNeeds,
         &crate::agent::psyche::personality::Personality,
+        Option<&Commitments>,
     )>,
     tick: Res<crate::core::tick::TickCount>,
     ns_config: Res<crate::agent::nervous_system::config::NervousSystemConfig>,
@@ -120,6 +209,7 @@ pub fn update_rational_brain(
         &GlobalTransform,
         Option<&crate::agent::affordance::Affordance>,
     )>,
+    agents: Query<(), With<Agent>>,
 ) {
     let perf_logging = game_log.is_enabled(crate::core::log::LogCategory::Performance);
     let start_time = if perf_logging {
@@ -135,13 +225,14 @@ pub fn update_rational_brain(
         mut brain_state,
         mut consciousness,
         _inventory,
-        _transform,
-        _visible,
+        transform,
+        visible,
         cns,
         mind,
         body,
         physical,
         personality,
+        commitments,
     ) in query.iter_mut()
     {
         let capacities = ChannelCapacities::compute(body, Some(physical));
@@ -191,21 +282,56 @@ pub fn update_rational_brain(
         }
 
         if explore_found_resources {
-            brain.current_plan = None;
-            brain.plan_index = 0;
+            brain.clear_plan();
         } else if plan_finished || plan_invalid {
-            brain.current_plan = None;
-            brain.current_goal = if plan_invalid {
-                None
-            } else {
-                brain.current_goal.take()
-            };
             if plan_invalid {
+                brain.current_goal = None;
                 // update_rational_brain runs before start_actions (data-conflict ordering).
                 // Clearing chosen_actions here prevents start_actions from re-starting the
                 // stale action this tick and on subsequent ticks until three_brains_system
                 // next fires and re-populates the list with a valid proposal.
                 brain_state.chosen_actions.clear();
+            }
+            brain.clear_plan();
+        }
+
+        // Commitment runs every frame so the gate stays responsive to
+        // conditions that flip between thinking cycles (becoming alone,
+        // sharing the plan in conversation). Positioned before the
+        // `should_replan` gate so non-thinking ticks still accumulate.
+        if brain.current_plan.is_some() && !brain.plan_committed {
+            let urgency = cns
+                .current_goal
+                .as_ref()
+                .map(|g| g.priority.clamp(0.0, 1.0))
+                .unwrap_or(0.0);
+            let alone = visible.entities.iter().all(|e| agents.get(*e).is_err());
+            // Credit an announcement only when the agent has verbally
+            // committed to *this plan's* concept since the plan started —
+            // matching on the concept avoids spurious credit from unrelated
+            // chit-chat about standing commitments.
+            let plan_goal_concept = brain.current_goal.as_ref().and_then(Goal::target_concept);
+            let announcement_made = match (commitments, plan_goal_concept, brain.plan_started_at) {
+                (Some(c), Some(concept), Some(started)) => c
+                    .active
+                    .iter()
+                    .any(|entry| entry.goal == concept && entry.committed_at >= started),
+                _ => false,
+            };
+            let delta = commitment_tick_delta(&CommitmentTickInputs {
+                urgency,
+                alone,
+                announcement_made,
+                neuroticism: personality.traits.neuroticism,
+                conscientiousness: personality.traits.conscientiousness,
+            });
+            brain.commitment = (brain.commitment + delta).max(0.0);
+            let threshold = compute_commit_threshold(
+                brain.subjective_cost,
+                personality.traits.conscientiousness,
+            );
+            if brain.commitment >= threshold {
+                brain.plan_committed = true;
             }
         }
 
@@ -224,13 +350,11 @@ pub fn update_rational_brain(
             let new_goal = convert_cns_goal(cns_goal);
             if brain.current_goal.as_ref() != Some(&new_goal) {
                 brain.current_goal = Some(new_goal);
-                brain.current_plan = None;
-                brain.plan_index = 0;
+                brain.clear_plan();
             }
         } else if brain.current_goal.is_some() {
             brain.current_goal = None;
-            brain.current_plan = None;
-            brain.plan_index = 0;
+            brain.clear_plan();
         }
 
         let plan_valid = brain
@@ -239,8 +363,7 @@ pub fn update_rational_brain(
             .is_some_and(|p| brain.plan_index < p.len());
 
         if !plan_valid {
-            brain.current_plan = None;
-            brain.plan_index = 0;
+            brain.clear_plan();
         }
 
         // 3. Form Plan
@@ -286,8 +409,16 @@ pub fn update_rational_brain(
             if let Some(plan) =
                 crate::agent::brains::planner::regressive_plan(mind, goal, &actions, &cost_ctx)
             {
+                let agent_pos = transform.translation.truncate();
+                let cost = crate::agent::brains::planner::estimate_plan_cost(
+                    &plan, agent_pos, &cost_ctx, mind,
+                );
                 brain.current_plan = Some(plan);
                 brain.plan_index = 0;
+                brain.commitment = 0.0;
+                brain.subjective_cost = cost;
+                brain.plan_started_at = Some(tick.current);
+                brain.plan_committed = false;
             }
         }
     }
@@ -340,6 +471,10 @@ pub fn rational_brain_propose(
         let action = &plan[brain.plan_index];
         // Re-verify preconditions before proposing (e.g., still have food to eat?)
         if are_preconditions_met(action, mind) {
+            // Uncommitted plans defer so other brains can win arbitration.
+            if !brain.plan_committed {
+                return None;
+            }
             // Plan continuation urgency tracks the goal that drove the plan, so it
             // sits on the same scale as Survival's `urgency * 100` proposals. The
             // constant fallback only kicks in if the goal cleared mid-plan.
@@ -536,10 +671,13 @@ mod tests {
     }
 
     fn brain_with_plan(goal: Option<Goal>) -> RationalBrain {
+        // `plan_committed: true` so the continuation path proposes — the
+        // commitment deferral gate would otherwise short-circuit to `None`.
         RationalBrain {
             current_plan: Some(vec![template("FakeStep", ActionType::Idle)]),
             current_goal: goal,
-            plan_index: 0,
+            plan_committed: true,
+            ..Default::default()
         }
     }
 
@@ -674,7 +812,7 @@ mod tests {
         let brain = RationalBrain {
             current_plan: None,
             current_goal: Some(unsatisfiable),
-            plan_index: 0,
+            ..Default::default()
         };
 
         let proposal = propose(&brain, &cns);
@@ -711,7 +849,7 @@ mod tests {
         let brain = RationalBrain {
             current_plan: None,
             current_goal: Some(unsatisfiable),
-            plan_index: 0,
+            ..Default::default()
         };
 
         // Build the same setup as `propose()` but tolerate `None`.
@@ -752,6 +890,183 @@ mod tests {
             proposal.is_none(),
             "rational must defer (not propose Explore) when the goal can't be \
              satisfied by exploration; got: {proposal:?}"
+        );
+    }
+
+    // ─── Plan commitment ──────────────────────────────────────────────────────
+
+    fn neutral_inputs() -> CommitmentTickInputs {
+        CommitmentTickInputs {
+            urgency: 0.0,
+            alone: false,
+            announcement_made: false,
+            neuroticism: 0.5,
+            conscientiousness: 0.5,
+        }
+    }
+
+    #[test]
+    fn commitment_tick_baseline_contributes_slowly() {
+        let mut inputs = neutral_inputs();
+        inputs.neuroticism = 0.5;
+        inputs.conscientiousness = 0.5;
+        let delta = commitment_tick_delta(&inputs);
+        // baseline 0.05 + 0.5 * 0.05 (consci) - 0.5 * 0.05 (neuro) = 0.05
+        assert!(
+            (delta - 0.05).abs() < 1e-5,
+            "neutral personality + no urgency + not alone → baseline 0.05, got {delta}"
+        );
+    }
+
+    #[test]
+    fn commitment_tick_alone_agent_contributes_more_than_accompanied() {
+        let alone = CommitmentTickInputs {
+            alone: true,
+            ..neutral_inputs()
+        };
+        let company = CommitmentTickInputs {
+            alone: false,
+            ..neutral_inputs()
+        };
+        assert!(
+            commitment_tick_delta(&alone) > commitment_tick_delta(&company),
+            "solo agent should commit faster than one with company"
+        );
+    }
+
+    #[test]
+    fn commitment_tick_neurotic_commits_slower_than_stoic() {
+        let stoic = CommitmentTickInputs {
+            neuroticism: 0.0,
+            ..neutral_inputs()
+        };
+        let neurotic = CommitmentTickInputs {
+            neuroticism: 1.0,
+            ..neutral_inputs()
+        };
+        assert!(
+            commitment_tick_delta(&stoic) > commitment_tick_delta(&neurotic),
+            "stoic agent should accumulate commitment faster than neurotic one"
+        );
+    }
+
+    #[test]
+    fn commitment_tick_urgent_plan_commits_fast() {
+        let urgent = CommitmentTickInputs {
+            urgency: 1.0,
+            ..neutral_inputs()
+        };
+        let calm = CommitmentTickInputs {
+            urgency: 0.0,
+            ..neutral_inputs()
+        };
+        assert!(
+            commitment_tick_delta(&urgent) > commitment_tick_delta(&calm) + 0.15,
+            "full urgency should add at least 0.15 per tick over calm baseline"
+        );
+    }
+
+    #[test]
+    fn commitment_tick_announcement_adds_chunk() {
+        let silent = neutral_inputs();
+        let announced = CommitmentTickInputs {
+            announcement_made: true,
+            ..neutral_inputs()
+        };
+        let bonus = commitment_tick_delta(&announced) - commitment_tick_delta(&silent);
+        assert!(
+            (bonus - COMMITMENT_ANNOUNCEMENT_BONUS).abs() < 1e-5,
+            "announcing should add exactly COMMITMENT_ANNOUNCEMENT_BONUS ({}), got {bonus}",
+            COMMITMENT_ANNOUNCEMENT_BONUS
+        );
+    }
+
+    #[test]
+    fn commit_threshold_clamps_cheap_plans_to_minimum() {
+        let t = compute_commit_threshold(0.0, 0.5);
+        assert!(
+            t >= COMMIT_THRESHOLD_MIN * 0.7,
+            "cheap-plan threshold must honor the floor (got {t})"
+        );
+    }
+
+    #[test]
+    fn commit_threshold_clamps_expensive_plans_to_maximum() {
+        let t = compute_commit_threshold(10_000.0, 0.0);
+        assert!(
+            t <= COMMIT_THRESHOLD_MAX,
+            "expensive-plan threshold must honor the ceiling (got {t})"
+        );
+    }
+
+    #[test]
+    fn commit_threshold_scales_with_cost() {
+        let cheap = compute_commit_threshold(50.0, 0.5);
+        let expensive = compute_commit_threshold(400.0, 0.5);
+        assert!(
+            expensive > cheap,
+            "expensive plans should require more commitment to execute ({cheap} vs {expensive})"
+        );
+    }
+
+    #[test]
+    fn commit_threshold_conscientious_agent_lower_than_spontaneous() {
+        let disciplined = compute_commit_threshold(200.0, 1.0);
+        let spontaneous = compute_commit_threshold(200.0, 0.0);
+        assert!(
+            disciplined < spontaneous,
+            "conscientious agent should have a lower threshold ({disciplined} vs {spontaneous})"
+        );
+    }
+
+    #[test]
+    fn rational_propose_defers_when_plan_uncommitted() {
+        let cns = cns_with_goal(1.0, UrgencySource::Hunger);
+        let brain = RationalBrain {
+            current_plan: Some(vec![template("WalkStep", ActionType::Walk)]),
+            current_goal: cns.current_goal.clone(),
+            plan_index: 0,
+            plan_committed: false,
+            ..Default::default()
+        };
+
+        // Build the full propose setup by hand so we can tolerate `None`.
+        let mut world = World::new();
+        let mut state: SystemState<
+            Query<(
+                &GlobalTransform,
+                Option<&crate::agent::affordance::Affordance>,
+            )>,
+        > = SystemState::new(&mut world);
+        let affordances = state.get(&world);
+        let mut registry = ActionRegistry::default();
+        registry.register(crate::agent::actions::action::WanderAction);
+        registry.register(crate::agent::actions::action::ExploreAction);
+        let inventory = ItemSlots::agent_carry();
+        let transform = Transform::default();
+        let mind = MindGraph::default();
+        let visible = crate::agent::mind::perception::VisibleObjects::default();
+        let world_map = WorldMap::new(64, 64);
+        let capacities = ChannelCapacities::full();
+        let cost_ctx = crate::agent::brains::planner::PlanCostContext::neutral();
+
+        let proposal = rational_brain_propose(
+            &brain,
+            &cns,
+            &inventory,
+            &transform,
+            &mind,
+            &visible,
+            &world_map,
+            &registry,
+            &affordances,
+            &capacities,
+            &cost_ctx,
+        );
+
+        assert!(
+            proposal.is_none(),
+            "uncommitted plan must not propose — got {proposal:?}"
         );
     }
 

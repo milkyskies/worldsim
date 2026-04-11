@@ -107,7 +107,8 @@ fn sim_event_tick(event: &SimEvent) -> u64 {
         | SimEvent::TheoryOfMindUpdated { tick, .. }
         | SimEvent::ItemSpoiled { tick, .. }
         | SimEvent::EffectApplied { tick, .. }
-        | SimEvent::LaborContributed { tick, .. } => *tick,
+        | SimEvent::LaborContributed { tick, .. }
+        | SimEvent::SkillChanged { tick, .. } => *tick,
     }
 }
 
@@ -155,7 +156,8 @@ fn sim_event_involves(event: &SimEvent, agent: Entity) -> bool {
 
         SimEvent::ItemSpoiled { agent: a, .. }
         | SimEvent::EffectApplied { agent: a, .. }
-        | SimEvent::LaborContributed { agent: a, .. } => *a == agent,
+        | SimEvent::LaborContributed { agent: a, .. }
+        | SimEvent::SkillChanged { agent: a, .. } => *a == agent,
     }
 }
 
@@ -375,6 +377,19 @@ fn format_sim_event(event: &SimEvent) -> String {
 
         SimEvent::LaborContributed { agent, tick, site } => {
             format!("[t{tick}] LaborContributed  agent={agent:?} site={site:?}")
+        }
+
+        SimEvent::SkillChanged {
+            agent,
+            tick,
+            skill,
+            old_value,
+            new_value,
+        } => {
+            format!(
+                "[t{tick}] SkillChanged      agent={agent:?} skill={skill:?} \
+                 {old_value:.3}->{new_value:.3}"
+            )
         }
     }
 }

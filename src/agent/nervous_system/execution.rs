@@ -1,6 +1,6 @@
 //! Parallel action execution - ticks every running action independently.
 //!
-//! Reads: BrainState (chosen actions), PhysicalNeeds, Inventory, WorldMap, Body
+//! Reads: BrainState (chosen actions), PhysicalNeeds, Inventory, WorldMap, Body, Skills
 //! Writes: ActiveActions, PhysicalNeeds, Inventory, TargetPosition, ActionOutcomeEvent, SimEvent
 //! Upstream: brains::arbitration (BrainState), actions::registry (Action definitions)
 //! Downstream: mind::belief_updater (ActionOutcomeEvent), ui (GameLog), SimEvent consumers
@@ -303,6 +303,7 @@ pub fn tick_actions(
         Option<&mut crate::agent::body::needs::PsychologicalDrives>,
         Option<&Body>,
         &crate::agent::mind::knowledge::MindGraph,
+        Option<&crate::agent::skills::Skills>,
     )>,
     mut target_inventories: Query<&mut ItemSlots, Without<PhysicalNeeds>>,
     living_entities: Query<()>,
@@ -320,6 +321,7 @@ pub fn tick_actions(
         mut drives,
         body,
         mind,
+        skills,
     ) in agents.iter_mut()
     {
         // Snapshot the load and capacities at the start of the tick. Capacities
@@ -469,6 +471,7 @@ pub fn tick_actions(
                 inventory: &mut inventory,
                 drives: drives.as_deref_mut(),
                 mind,
+                skills,
                 target_inventory: target_inv_ptr,
                 target_entity: snapshot.target_entity,
                 tick: current_tick,
@@ -971,20 +974,17 @@ mod tests {
     }
 
     #[test]
-    fn sleep_vs_flee_still_hard_conflicts_via_full_body() {
-        // The one channel-level guarantee Sleep still provides: two
-        // whole-body actions can't coexist. Flee declares FullBody(0.5)
-        // alongside its Locomotion(1.0); starting Flee while Sleep is
-        // already running projects FullBody at 1.5, above the 1.4 hard
-        // threshold, so Sleep (interruptible is false, but Flee preempts
-        // via channel saturation — `preempt_to_make_room` will refuse and
-        // return false).
+    fn flee_preempts_sleep_via_full_body_channel() {
+        // Sleep is interruptible, so Flee's FullBody(0.5) collides with
+        // Sleep's FullBody(1.0) and evicts it through normal preemption.
+        // Casual admission of other actions while asleep is still blocked
+        // one layer up by the `start_actions` short-circuit — this test
+        // only exercises the raw channel-admission behaviour.
         use crate::agent::actions::channel::Channel;
         let registry = build_registry();
         let mut active = ActiveActions::empty();
         active.insert(ActionState::new(ActionType::Sleep, 0));
 
-        // Flee's channels would collide with Sleep's FullBody.
         let flee_channels = &[
             ChannelUsage::new(Channel::Locomotion, 1.0),
             ChannelUsage::new(Channel::FullBody, 0.5),
@@ -998,11 +998,38 @@ mod tests {
             &mut target,
         );
 
-        // Sleep is uninterruptible, so preempt_to_make_room rolls back
-        // and rejects Flee at this level. (Arbitration in practice has
-        // other tiebreakers; this is just the channel guarantee.)
-        assert!(!admitted);
-        assert!(active.contains(ActionType::Sleep));
+        assert!(admitted, "Flee should evict Sleep at the channel layer");
+        assert!(
+            !active.contains(ActionType::Sleep),
+            "Sleep should have been preempted to make room for Flee"
+        );
+    }
+
+    #[test]
+    fn wake_up_preempts_sleep_via_full_body_channel() {
+        // Regression for #352: when Sleep was marked uninterruptible,
+        // WakeUp could never free the FullBody channel and agents slept
+        // forever. WakeUp and Sleep both touch FullBody, so admitting
+        // WakeUp must preempt Sleep through the normal channel pass.
+        let registry = build_registry();
+        let mut active = ActiveActions::empty();
+        active.insert(ActionState::new(ActionType::Sleep, 0));
+
+        let wake_def = registry.get(ActionType::WakeUp).unwrap();
+        let mut target = TargetPosition::default();
+        let admitted = preempt_to_make_room(
+            &mut active,
+            &registry,
+            wake_def.body_channels(),
+            &ChannelCapacities::full(),
+            &mut target,
+        );
+
+        assert!(admitted, "WakeUp must be admissible while Sleep is active");
+        assert!(
+            !active.contains(ActionType::Sleep),
+            "Sleep should be preempted when WakeUp takes its FullBody slot"
+        );
     }
 
     #[test]

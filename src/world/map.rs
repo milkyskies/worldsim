@@ -1,3 +1,4 @@
+use crate::world::environment::BaseColor;
 use bevy::prelude::*;
 use noise::{NoiseFn, Simplex};
 use std::collections::HashMap;
@@ -660,13 +661,15 @@ pub fn setup_map(mut commands: Commands, mut map_resource: ResMut<WorldMap>) {
                             // below the lifted top. Makes the tile read as a
                             // block sticking up from the ground.
                             if lift > 0.0 {
+                                let side_color = darken(color, 0.5);
                                 parent.spawn((
                                     Name::new(format!("TileSide ({},{})", x, y)),
                                     Sprite {
-                                        color: darken(color, 0.5),
+                                        color: side_color,
                                         custom_size: Some(Vec2::new(TILE_SIZE, lift)),
                                         ..default()
                                     },
+                                    BaseColor(side_color),
                                     Transform::from_translation(Vec3::new(
                                         x as f32 * TILE_SIZE,
                                         screen_y - TILE_SIZE * 0.5 - lift * 0.5,
@@ -688,6 +691,7 @@ pub fn setup_map(mut commands: Commands, mut map_resource: ResMut<WorldMap>) {
                                     custom_size: Some(Vec2::new(TILE_SIZE, TILE_SIZE)),
                                     ..default()
                                 },
+                                BaseColor(color),
                                 Transform::from_translation(Vec3::new(
                                     x as f32 * TILE_SIZE,
                                     screen_y,

@@ -10,6 +10,7 @@ use crate::agent::brains::thinking::TriplePattern;
 use crate::agent::events::FailureReason;
 use crate::agent::item_slots::{Thing, perishable_decay_rate};
 use crate::agent::mind::knowledge::{Concept, MindGraph, Node, Predicate, Triple, Value};
+use crate::agent::skills::SkillKind;
 use crate::constants::actions::harvest::{DURATION_TICKS, GLUCOSE_DRAIN_PER_SEC, STAMINA_PER_SEC};
 
 pub struct HarvestAction;
@@ -131,22 +132,39 @@ impl Action for HarvestAction {
 
     // Execution: What happens when harvest completes
     fn on_complete(&self, ctx: &mut CompletionContext) {
-        // Transfer item from target's inventory to agent's inventory.
-        // Perishable items get freshness = 1.0 and created_at stamped at harvest time.
+        // Transfer items from target's inventory to agent's inventory.
+        // Perishable items get freshness = 1.0 and created_at stamped at
+        // harvest time. A skilled harvester pulls more per action — novices
+        // extract one item, masters extract up to three — bounded by what
+        // the target actually has in stock.
         let Some(target_inv) = &mut ctx.target_inventory else {
             return;
         };
-        let concept = target_inv.all_items().next().map(|t| t.concept);
-        let Some(concept) = concept else { return };
-
-        target_inv.remove(concept, 1);
-
-        let thing = if perishable_decay_rate(concept).is_some() {
-            Thing::fresh(concept, ctx.tick)
-        } else {
-            Thing::new(concept)
+        let Some(concept) = target_inv.all_items().next().map(|t| t.concept) else {
+            return;
         };
-        ctx.inventory.add_thing(thing);
+
+        let skill_level = ctx
+            .skills
+            .map(|s| s.level(SkillKind::Harvesting))
+            .unwrap_or(0.0);
+        // 1 at skill 0.0, 2 by ~0.5, 3 at 1.0. Floor so the progression
+        // is predictable and replay-friendly.
+        let desired = 1 + (skill_level * 2.0).floor() as u32;
+        let available = target_inv.count(concept);
+        let actual = desired.min(available);
+
+        for _ in 0..actual {
+            if !target_inv.remove(concept, 1) {
+                break;
+            }
+            let thing = if perishable_decay_rate(concept).is_some() {
+                Thing::fresh(concept, ctx.tick)
+            } else {
+                Thing::new(concept)
+            };
+            ctx.inventory.add_thing(thing);
+        }
     }
 
     fn complete_log(&self) -> Option<&'static str> {

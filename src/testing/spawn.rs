@@ -26,6 +26,7 @@ use crate::agent::mind::recognition::initialize_relationship_with_affection;
 use crate::agent::movement::MovementState;
 use crate::agent::nervous_system::cns::CentralNervousSystem;
 use crate::agent::psyche::emotions::EmotionalState;
+use crate::agent::skills::Skills;
 use crate::agent::spawn_human::{PersonInit, build_person_logic};
 use crate::agent::{Agent, TargetPosition};
 use crate::testing::config::AgentConfig;
@@ -127,6 +128,7 @@ pub(super) fn spawn_test_deer(world: &mut World, ontology: Ontology, pos: Vec2) 
             // Locomotion). Pre-inserted for the same reason as humans —
             // tests shouldn't need to tick once before poking at the body.
             Body::deer(),
+            Skills::default(),
         ))
         .id()
 }
@@ -175,6 +177,7 @@ pub(super) fn spawn_test_wolf(world: &mut World, ontology: Ontology, pos: Vec2) 
             // Bite 1.0 + limited Manipulation 0.4. Pre-inserted so channel
             // lookups see it immediately.
             Body::wolf(),
+            Skills::default(),
         ))
         .id()
 }
