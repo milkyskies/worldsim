@@ -477,7 +477,13 @@ fn pause_menu_screen(
                     .add_sized(button_size, egui::Button::new("Quit"))
                     .clicked()
                 {
+                    // Route through MainMenu first so DespawnOnExit cleans
+                    // up every sim entity before the runner tears the app
+                    // down. Exiting directly from InSim left Bevy dropping
+                    // a populated world mid-shutdown on macOS, which hung
+                    // the main thread with the beach ball.
                     quit.0 = true;
+                    next_state.set(AppState::MainMenu);
                 }
             });
         });
