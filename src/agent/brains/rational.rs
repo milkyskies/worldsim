@@ -319,13 +319,18 @@ pub fn update_rational_brain(
         }
 
         // 3. State transitions: promote plans upward when commitment
-        //    crosses the cost-derived threshold. Demote Executing plans
-        //    whose current step hard-conflicts against higher-priority
-        //    Executing plans (channel conflict handling happens in
-        //    arbitration; here we just react by watching commitment
-        //    decay on plans the arbiter dropped).
+        //    crosses the cost-derived threshold. Stepless plans
+        //    (verbal commitments that don't yet have a concrete GOAP
+        //    plan) stay pinned in Background — letting them reach
+        //    Executing would trigger `is_finished` on an empty step
+        //    list and drop them immediately. The brain later
+        //    regenerates a concrete plan for the same goal when the
+        //    commitment surfaces as the current CNS goal.
         let mut transitions = Vec::new();
         for plan in plan_memory.plans.iter() {
+            if plan.steps.is_empty() {
+                continue;
+            }
             let threshold = compute_commit_threshold(
                 plan.subjective_cost,
                 personality.traits.conscientiousness,
@@ -381,11 +386,16 @@ pub fn update_rational_brain(
                 plan_memory.remove(id);
             }
 
-            // 5. Form Plan: if no held plan already targets this goal,
-            //    generate one. Plans seed with an urgency-weighted
-            //    initial commitment so high-priority goals execute
-            //    immediately rather than sitting in consideration.
-            if plan_memory.by_goal(&goal).is_none() {
+            // 5. Form Plan: if no concrete plan already targets this
+            //    goal, generate one. A stepless verbal commitment
+            //    matching the goal doesn't count as a concrete plan —
+            //    it's a reminder, not a ready-to-run sequence — so the
+            //    brain still generates real steps for it.
+            let has_concrete_plan = plan_memory
+                .plans
+                .iter()
+                .any(|p| p.goal == goal && !p.steps.is_empty());
+            if !has_concrete_plan {
                 let actions = collect_planning_actions(
                     &action_registry,
                     mind,
