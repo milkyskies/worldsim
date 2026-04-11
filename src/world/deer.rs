@@ -72,7 +72,8 @@ pub fn spawn_deer(
         .insert((
             // Brains / Systems
             crate::agent::mind::memory::WorkingMemory::default(),
-            crate::agent::brains::rational::RationalBrain::default(),
+            crate::agent::brains::rational::RationalBrain,
+            crate::agent::brains::plan_memory::PlanMemory::default(),
             crate::agent::brains::proposal::BrainState::default(),
             crate::agent::nervous_system::cns::CentralNervousSystem::default(),
             crate::agent::body::needs::PhysicalNeeds::default(),

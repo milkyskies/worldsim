@@ -4,9 +4,9 @@
 
 use bevy::prelude::*;
 use worldsim::agent::actions::ActionType;
+use worldsim::agent::brains::plan_memory::{HeldPlan, PlanMemory, PlanSource, PlanState};
 use worldsim::agent::brains::proposal::{BrainPowers, BrainState, BrainType};
-use worldsim::agent::brains::rational::RationalBrain;
-use worldsim::agent::brains::thinking::{ActionTemplate, TriplePattern};
+use worldsim::agent::brains::thinking::{ActionTemplate, Goal, TriplePattern};
 use worldsim::agent::mind::knowledge::{Node, Predicate};
 use worldsim::agent::nervous_system::config::NervousSystemConfig;
 use worldsim::testing::{AgentConfig, TestWorld};
@@ -54,16 +54,31 @@ fn plan_invalidation_clears_stale_chosen_actions_immediately() {
 
     let stale = failing_harvest_template();
 
-    // Inject a stale plan with a failing precondition and the matching stale
-    // BrainState so the execution system would otherwise re-propose Harvest.
+    // Inject a stale Executing plan with a failing precondition and the
+    // matching stale BrainState so the execution system would otherwise
+    // re-propose Harvest.
     {
         let world_mut = world.app_mut().world_mut();
 
-        let mut rb = world_mut
-            .get_mut::<RationalBrain>(agent)
-            .expect("agent should have RationalBrain");
-        rb.current_plan = Some(vec![stale.clone()]);
-        rb.plan_index = 0;
+        let mut memory = world_mut
+            .get_mut::<PlanMemory>(agent)
+            .expect("agent should have PlanMemory");
+        let id = memory.mint_plan_id();
+        memory.insert(HeldPlan {
+            id,
+            goal: Goal {
+                conditions: Vec::new(),
+                priority: 1.0,
+            },
+            steps: vec![stale.clone()],
+            state: PlanState::Executing,
+            commitment: 10.0,
+            subjective_cost: 0.0,
+            source: PlanSource::Brain(BrainType::Rational),
+            created_at: 0,
+            last_touched: 0,
+            current_step: 0,
+        });
 
         let mut bs = world_mut
             .get_mut::<BrainState>(agent)
@@ -109,12 +124,13 @@ fn plan_invalidation_clears_stale_chosen_actions_immediately() {
     let plan_cleared = world
         .app()
         .world()
-        .get::<RationalBrain>(agent)
-        .map(|rb| rb.current_plan.is_none())
+        .get::<PlanMemory>(agent)
+        .map(|memory| memory.in_state(PlanState::Executing).next().is_none())
         .unwrap_or(true);
 
     assert!(
         plan_cleared,
-        "plan should also be cleared after precondition failure"
+        "the broken Executing plan should be removed from PlanMemory \
+         after precondition failure"
     );
 }

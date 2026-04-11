@@ -766,58 +766,73 @@ fn agent_viewer_ui_for_agent(world: &mut World, entity: Entity, ui: &mut egui::U
                 ui.separator();
             }
 
-            // C. Rational Brain (The Planner)
-            if let Some(brain) = world.get::<crate::agent::brains::rational::RationalBrain>(entity)
+            // C. Rational Brain (The Planner) — now backed by PlanMemory.
+            if world
+                .get::<crate::agent::brains::rational::RationalBrain>(entity)
+                .is_some()
+                && let Some(memory) =
+                    world.get::<crate::agent::brains::plan_memory::PlanMemory>(entity)
             {
+                use crate::agent::brains::plan_memory::PlanState;
                 ui.heading("Rational Brain (Planner)");
 
-                if let Some(plan) = &brain.current_plan {
-                    ui.label(format!(
-                        "Plan Status: EXECUTING (Step {}/{})",
-                        brain.plan_index + 1,
-                        plan.len()
-                    ));
-
-                    egui::ScrollArea::vertical()
-                        .max_height(150.0)
-                        .show(ui, |ui| {
-                            for (i, step) in plan.iter().enumerate() {
-                                let is_current = i == brain.plan_index;
-                                let is_done = i < brain.plan_index;
-
-                                // Build step text with target info
-                                let target_info = if let Some(target_entity) = step.target_entity {
-                                    if let Some(target_name) = world.get::<Name>(target_entity) {
-                                        format!(" → {}", target_name.as_str())
-                                    } else {
-                                        format!(" → {:?}", target_entity)
-                                    }
-                                } else if let Some(pos) = step.target_position {
-                                    format!(" → ({:.0}, {:.0})", pos.x, pos.y)
-                                } else {
-                                    String::new()
-                                };
-                                let step_text = format!("{}. {}{}", i + 1, step.name, target_info);
-
-                                ui.horizontal(|ui| {
-                                    if is_current {
-                                        ui.colored_label(Color32::YELLOW, "▶");
-                                        ui.strong(&step_text);
-                                    } else if is_done {
-                                        ui.colored_label(Color32::GRAY, "✓");
-                                        ui.label(
-                                            egui::RichText::new(&step_text)
-                                                .strikethrough()
-                                                .color(Color32::GRAY),
-                                        );
-                                    } else {
-                                        ui.label(format!("   {}", step_text));
-                                    }
-                                });
-                            }
-                        });
+                let executing: Vec<_> = memory.in_state(PlanState::Executing).collect();
+                if executing.is_empty() {
+                    ui.label("Plan Status: IDLE (no executing plan)");
                 } else {
-                    ui.label("Plan Status: IDLE (No Plan)");
+                    for plan in executing {
+                        ui.label(format!(
+                            "Plan {:?}: step {}/{}",
+                            plan.id,
+                            plan.current_step + 1,
+                            plan.steps.len()
+                        ));
+                        egui::ScrollArea::vertical()
+                            .max_height(150.0)
+                            .show(ui, |ui| {
+                                for (i, step) in plan.steps.iter().enumerate() {
+                                    let is_current = i == plan.current_step;
+                                    let is_done = i < plan.current_step;
+                                    let target_info = if let Some(target_entity) =
+                                        step.target_entity
+                                    {
+                                        if let Some(target_name) = world.get::<Name>(target_entity)
+                                        {
+                                            format!(" → {}", target_name.as_str())
+                                        } else {
+                                            format!(" → {:?}", target_entity)
+                                        }
+                                    } else if let Some(pos) = step.target_position {
+                                        format!(" → ({:.0}, {:.0})", pos.x, pos.y)
+                                    } else {
+                                        String::new()
+                                    };
+                                    let step_text =
+                                        format!("{}. {}{}", i + 1, step.name, target_info);
+                                    ui.horizontal(|ui| {
+                                        if is_current {
+                                            ui.colored_label(Color32::YELLOW, "▶");
+                                            ui.strong(&step_text);
+                                        } else if is_done {
+                                            ui.colored_label(Color32::GRAY, "✓");
+                                            ui.label(
+                                                egui::RichText::new(&step_text)
+                                                    .strikethrough()
+                                                    .color(Color32::GRAY),
+                                            );
+                                        } else {
+                                            ui.label(format!("   {}", step_text));
+                                        }
+                                    });
+                                }
+                            });
+                    }
+                }
+                let bg = memory.count_state(PlanState::Background)
+                    + memory.count_state(PlanState::Considering)
+                    + memory.count_state(PlanState::Suspended);
+                if bg > 0 {
+                    ui.label(format!("{bg} plan(s) in background"));
                 }
             }
         });

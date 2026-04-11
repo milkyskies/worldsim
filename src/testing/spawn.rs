@@ -14,6 +14,7 @@ use crate::agent::affordance::Affordance;
 use crate::agent::biology::body::Body;
 use crate::agent::body::needs::{Consciousness, PhysicalNeeds, PsychologicalDrives};
 use crate::agent::body::species::SpeciesProfile;
+use crate::agent::brains::plan_memory::PlanMemory;
 use crate::agent::brains::proposal::BrainState;
 use crate::agent::brains::rational::RationalBrain;
 use crate::agent::culture::{Culture, create_cultural_knowledge};
@@ -115,7 +116,8 @@ pub(super) fn spawn_test_deer(world: &mut World, ontology: Ontology, pos: Vec2) 
         ))
         .insert((
             WorkingMemory::default(),
-            RationalBrain::default(),
+            RationalBrain,
+            PlanMemory::default(),
             BrainState::default(),
             CentralNervousSystem::default(),
             PhysicalNeeds::default(),
@@ -165,7 +167,8 @@ pub(super) fn spawn_test_wolf(world: &mut World, ontology: Ontology, pos: Vec2) 
         ))
         .insert((
             WorkingMemory::default(),
-            RationalBrain::default(),
+            RationalBrain,
+            PlanMemory::default(),
             BrainState::default(),
             CentralNervousSystem::default(),
             PhysicalNeeds::default(),

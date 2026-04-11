@@ -1,16 +1,14 @@
 //! Three-brains orchestration: runs all brain systems and arbitrates between their proposals each tick.
 //!
-//! Reads: PhysicalNeeds, Consciousness, PsychologicalDrives, EmotionalState, Body, Personality, ItemSlots, VisibleObjects, MindGraph, ActiveActions, WorldMap, BrainHistory, ActivePlans
-//! Writes: BrainState (chosen action, winner, proposals, powers), BrainHistory (active attributions), ActivePlans (commitment tracking), SimEvent::Decision, SimEvent::PlanAbandoned
+//! Reads: PhysicalNeeds, Consciousness, PsychologicalDrives, EmotionalState, Body, Personality, ItemSlots, VisibleObjects, MindGraph, ActiveActions, WorldMap, BrainHistory, PlanMemory
+//! Writes: BrainState (chosen action, winner, proposals, powers), BrainHistory (active attributions), SimEvent::Decision
 //! Upstream: survival/emotional/rational brain modules, arbitration, perception, knowledge
 //! Downstream: nervous_system::cns (executes the chosen action), SimEvent consumers
 
-use super::active_plan::{ActivePlans, PlanOwner};
-use super::arbitration::{
-    CommitmentContext, arbitrate_parallel_with_commitment, calculate_brain_powers,
-};
+use super::arbitration::{arbitrate_parallel, calculate_brain_powers};
 use super::emotional::{emotional_brain_propose, find_most_feared_visible_entity};
 use super::history::BrainHistory;
+use super::plan_memory::{PlanMemory, PlanState};
 use super::proposal::{BrainPowers, BrainState, BrainType};
 use super::rational::rational_brain_propose;
 use super::survival::{SurvivalBrainContext, survival_brain_propose};
@@ -36,7 +34,7 @@ pub fn three_brains_system(
             &Name,
             &mut BrainState,
             // Brains
-            (&super::rational::RationalBrain, &CentralNervousSystem),
+            (&mut PlanMemory, &CentralNervousSystem),
             // Needs
             (
                 &PhysicalNeeds,
@@ -60,11 +58,14 @@ pub fn three_brains_system(
                 Option<&crate::agent::inventory::EntityType>,
             ),
         ),
-        With<crate::agent::Agent>,
+        (
+            With<crate::agent::Agent>,
+            With<super::rational::RationalBrain>,
+        ),
     >,
-    world_map: Res<WorldMap>,
+    _world_map: Res<WorldMap>,
     action_registry: Res<crate::agent::actions::ActionRegistry>,
-    affordances: Query<(
+    _affordances: Query<(
         &GlobalTransform,
         Option<&crate::agent::affordance::Affordance>,
     )>,
@@ -72,16 +73,15 @@ pub fn three_brains_system(
     ontology: Res<crate::agent::mind::knowledge::Ontology>,
     mut sim_events: MessageWriter<crate::agent::events::SimEvent>,
     mut brain_histories: Query<&mut BrainHistory>,
-    mut active_plans_query: Query<&mut ActivePlans>,
 ) {
     for (
         entity,
         name,
         mut brain_state,
-        (rational_brain, cns),
+        (mut plan_memory, cns),
         (physical, mut consciousness, drives),
         (emotions, body, personality, inventory),
-        (transform, visible, mind, active_actions, in_conversation, self_entity_type),
+        (_transform, visible, mind, active_actions, in_conversation, self_entity_type),
     ) in query.iter_mut()
     {
         // Staggered: heavy thinking runs every N ticks, offset by entity ID
@@ -131,25 +131,17 @@ pub fn three_brains_system(
             &action_registry,
         );
 
-        let capacities = crate::agent::actions::ChannelCapacities::compute(body, Some(physical));
-        let cost_ctx = crate::agent::brains::planner::PlanCostContext::from_agent(
-            physical,
-            &consciousness,
-            personality,
-            tick.current,
-        );
-        let rational_proposal = rational_brain_propose(
-            rational_brain,
+        // Rational brain now surfaces one proposal per Executing plan in
+        // `PlanMemory`, so the output is variable-length and joins the
+        // proposals list alongside survival/emotional entries. Pass the
+        // `in_conversation` flag so the idle Wander fallback is
+        // suppressed mid-conversation (1-tick flicker fix from #330).
+        let rational_proposals = rational_brain_propose(
+            &plan_memory,
             cns,
-            inventory,
-            transform,
             mind,
-            visible,
-            &world_map,
             &action_registry,
-            &affordances,
-            &capacities,
-            &cost_ctx,
+            in_conversation.is_some(),
         );
 
         // 2. Calculate brain powers, then apply history-based multiplier
@@ -164,56 +156,46 @@ pub fn three_brains_system(
             base_powers
         };
 
-        // 3. Arbitrate - greedy multi-action admission across body channels
-        //    with plan commitment inertia (#166)
-        let proposals = [survival_proposal, emotional_proposal, rational_proposal];
+        // 3. Arbitrate - greedy multi-action admission across body channels.
+        let mut proposals: Vec<Option<super::proposal::BrainProposal>> = Vec::new();
+        proposals.push(survival_proposal);
+        proposals.push(emotional_proposal);
+        proposals.extend(rational_proposals.into_iter().map(Some));
         let capacities = crate::agent::actions::ChannelCapacities::compute(body, Some(physical));
 
-        let commitment_ctx = active_plans_query
-            .get(entity)
-            .ok()
-            .map(|plans| CommitmentContext {
-                active_plans: plans,
-                conscientiousness: personality.traits.conscientiousness,
-                current_tick: tick.current,
-            });
-        let admitted = arbitrate_parallel_with_commitment(
-            &proposals,
-            &powers,
-            &capacities,
-            &action_registry,
-            commitment_ctx.as_ref(),
-        );
+        let result = arbitrate_parallel(&proposals, &powers, &capacities, &action_registry);
+        let admitted = result.admitted;
+        let rejected = result.rejected;
 
-        // 4. Update active plans: activate winning proposals, decay stalled ones
-        if let Ok(mut plans) = active_plans_query.get_mut(entity) {
-            let admitted_actions: Vec<_> = admitted.iter().map(|p| p.action.action_type).collect();
-
-            // Activate newly admitted proposals
-            for proposal in &admitted {
-                if proposal.intent != super::proposal::Intent::None {
-                    plans.activate(
-                        PlanOwner::Brain(proposal.brain),
-                        proposal.intent,
-                        proposal.action.action_type,
-                        tick.current,
-                    );
+        // 3a. Channel-conflict losers from the rational brain demote
+        // their backing Executing plan to Suspended (#338). The plan
+        // sticks around in PlanMemory; its commitment decays each tick
+        // until it drops back to Background, at which point the
+        // commitment ladder can re-promote it once channels free up.
+        for losing in &rejected {
+            if losing.brain != BrainType::Rational {
+                continue;
+            }
+            let action_type = losing.action.action_type;
+            let mut to_suspend = Vec::new();
+            for plan in plan_memory.in_state(PlanState::Executing) {
+                if plan
+                    .current()
+                    .map(|a| a.action_type == action_type)
+                    .unwrap_or(false)
+                {
+                    to_suspend.push(plan.id);
                 }
             }
-
-            // Decay stalled plans and emit PlanAbandoned events
-            let abandoned = plans.decay_stalled_plans(&admitted_actions, tick.current);
-            for (intent, action) in abandoned {
-                sim_events.write(crate::agent::events::SimEvent::PlanAbandoned {
-                    agent: entity,
-                    tick: tick.current,
-                    action,
-                    intent,
-                });
+            for id in to_suspend {
+                if let Some(plan) = plan_memory.get_mut(id) {
+                    plan.state = PlanState::Suspended;
+                    plan.last_touched = tick.current;
+                }
             }
         }
 
-        // 5. Update attribution map so outcome events can credit the right brain
+        // 4. Update attribution map so outcome events can credit the right brain
         if let Ok(mut history) = brain_histories.get_mut(entity) {
             history.active.retain(|at, _| active_actions.contains(*at));
             for proposal in &admitted {
@@ -223,7 +205,7 @@ pub fn three_brains_system(
             }
         }
 
-        // 6. Store for debugging/UI and execution
+        // 5. Store for debugging/UI and execution
         brain_state.proposals = proposals.into_iter().flatten().collect();
         brain_state.powers = powers;
 

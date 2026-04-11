@@ -15,8 +15,8 @@ use crate::agent::actions::registry::ActiveActions;
 use crate::agent::biology::body::{Body, BodyPart, InjuryType};
 use crate::agent::body::needs::{Consciousness, PhysicalNeeds, PsychologicalDrives};
 use crate::agent::body::species::SpeciesProfile;
+use crate::agent::brains::plan_memory::{PlanMemory, PlanState};
 use crate::agent::brains::proposal::{BrainState, BrainType};
-use crate::agent::brains::rational::RationalBrain;
 use crate::agent::events::ConversationTopic;
 use crate::agent::item_slots::ItemSlots;
 use crate::agent::mind::conversation::{
@@ -398,33 +398,49 @@ fn render_overview(ui: &mut egui::Ui, world: &World, entity: Entity) {
     }
     ui.separator();
 
-    // Plan steps
-    if let Some(rational) = world.get::<RationalBrain>(entity)
-        && let Some(plan) = &rational.current_plan
-        && !plan.is_empty()
-    {
-        ui.heading("Plan");
-        for (i, step) in plan.iter().enumerate() {
-            let is_current = i == rational.plan_index;
-            let is_done = i < rational.plan_index;
-            let step_text = format!("{}. {}", i + 1, step.name);
-            ui.horizontal(|ui| {
-                if is_current {
-                    ui.colored_label(Color32::YELLOW, "▶");
-                    ui.strong(&step_text);
-                } else if is_done {
-                    ui.colored_label(Color32::GRAY, "✓");
-                    ui.label(
-                        egui::RichText::new(&step_text)
-                            .strikethrough()
-                            .color(Color32::GRAY),
-                    );
-                } else {
-                    ui.label(&step_text);
+    // Plan steps — show every Executing plan's remaining steps and the
+    // top Considering / Background plan's outline so the HUD reflects
+    // the full cognitive memory instead of a single active plan.
+    if let Some(memory) = world.get::<PlanMemory>(entity) {
+        let executing: Vec<_> = memory.in_state(PlanState::Executing).collect();
+        if !executing.is_empty() {
+            ui.heading("Executing plans");
+            for plan in executing {
+                if plan.steps.is_empty() {
+                    continue;
                 }
-            });
+                for (i, step) in plan.steps.iter().enumerate() {
+                    let is_current = i == plan.current_step;
+                    let is_done = i < plan.current_step;
+                    let step_text = format!("{}. {}", i + 1, step.name);
+                    ui.horizontal(|ui| {
+                        if is_current {
+                            ui.colored_label(Color32::YELLOW, "▶");
+                            ui.strong(&step_text);
+                        } else if is_done {
+                            ui.colored_label(Color32::GRAY, "✓");
+                            ui.label(
+                                egui::RichText::new(&step_text)
+                                    .strikethrough()
+                                    .color(Color32::GRAY),
+                            );
+                        } else {
+                            ui.label(&step_text);
+                        }
+                    });
+                }
+            }
+            ui.separator();
         }
-        ui.separator();
+        let background_count = memory.count_state(PlanState::Background)
+            + memory.count_state(PlanState::Considering)
+            + memory.count_state(PlanState::Suspended);
+        if background_count > 0 {
+            ui.label(
+                egui::RichText::new(format!("{background_count} plan(s) in background")).italics(),
+            );
+            ui.separator();
+        }
     }
 
     if let Some(emotions) = world.get::<EmotionalState>(entity) {

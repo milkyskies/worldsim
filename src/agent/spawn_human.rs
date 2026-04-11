@@ -18,8 +18,8 @@ use crate::agent::actions::ActiveActions;
 use crate::agent::affordance::Affordance;
 use crate::agent::body::needs::{Consciousness, PhysicalNeeds, PsychologicalDrives};
 use crate::agent::body::species::SpeciesProfile;
-use crate::agent::brains::active_plan::ActivePlans;
 use crate::agent::brains::history::BrainHistory;
+use crate::agent::brains::plan_memory::PlanMemory;
 use crate::agent::brains::proposal::BrainState;
 use crate::agent::brains::rational::RationalBrain;
 use crate::agent::inventory::EntityType;
@@ -69,16 +69,15 @@ pub struct PersonPerceptionBundle {
 pub struct PersonBrainBundle {
     pub working_memory: WorkingMemory,
     pub rational_brain: RationalBrain,
+    pub plan_memory: PlanMemory,
     pub brain_state: BrainState,
     pub cns: CentralNervousSystem,
     pub physical_needs: PhysicalNeeds,
     pub consciousness: Consciousness,
     pub drives: PsychologicalDrives,
-    pub commitments: crate::agent::commitment::Commitments,
     pub active_actions: ActiveActions,
     pub emotional: EmotionalState,
     pub brain_history: BrainHistory,
-    pub active_plans: ActivePlans,
     pub relationships: RelationshipHistory,
     pub theory_of_mind: TheoryOfMind,
     pub skills: Skills,
@@ -172,17 +171,16 @@ pub fn build_person_logic(
 
     let brain = PersonBrainBundle {
         working_memory: WorkingMemory::default(),
-        rational_brain: RationalBrain::default(),
+        rational_brain: RationalBrain,
+        plan_memory: PlanMemory::default(),
         brain_state: BrainState::default(),
         cns: CentralNervousSystem::default(),
         physical_needs: init.physical_needs,
         consciousness: Consciousness::default(),
         drives,
-        commitments: crate::agent::commitment::Commitments::default(),
         active_actions: ActiveActions::default(),
         emotional: EmotionalState::default(),
         brain_history: BrainHistory::default(),
-        active_plans: ActivePlans::default(),
         relationships: RelationshipHistory::default(),
         theory_of_mind: TheoryOfMind::default(),
         skills: Skills::default(),

@@ -1,12 +1,11 @@
 use bevy::prelude::*;
 
-pub mod active_plan;
 pub mod arbitration;
 
 pub mod brain_system;
 pub mod emotional;
 pub mod history;
-// pub mod exploration; // REMOVED
+pub mod plan_memory;
 pub mod planner;
 pub mod proposal;
 pub mod rational;
@@ -24,11 +23,11 @@ impl Plugin for BrainPlugin {
         use crate::core::not_paused;
 
         app.register_type::<rational::RationalBrain>()
+            .register_type::<plan_memory::PlanMemory>()
             .register_type::<proposal::BrainState>()
             .register_type::<proposal::BrainType>()
             .register_type::<proposal::BrainPowers>()
             .register_type::<history::BrainHistory>()
-            .register_type::<active_plan::ActivePlans>()
             .init_resource::<trace::TraceConfig>()
             .init_resource::<trace::DecisionTraceBuffer>()
             .add_systems(
