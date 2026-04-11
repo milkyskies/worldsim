@@ -17,7 +17,7 @@
 
 use crate::agent::actions::ActionType;
 use crate::agent::actions::channel::{Channel, ChannelUsage};
-use crate::agent::actions::registry::{Action, ActionKind};
+use crate::agent::actions::registry::{Action, ActionKind, RuntimeEffects};
 
 pub struct ConverseAction;
 
@@ -45,6 +45,19 @@ impl Action for ConverseAction {
     fn interruptible(&self) -> bool {
         // Sleep / Flee / Fight should be able to preempt a conversation.
         true
+    }
+
+    fn runtime_effects(&self) -> RuntimeEffects {
+        RuntimeEffects {
+            // Being in a conversation drains both social (the whole
+            // point) and curiosity (chatting is a form of novelty
+            // exchange). Lets an active conversation satisfy both
+            // drives, which is why real social time leaves someone
+            // feeling "filled up" on both fronts.
+            social_per_sec: -0.04,
+            curiosity_per_sec: -0.02,
+            ..Default::default()
+        }
     }
 
     fn start_log(&self) -> Option<&'static str> {

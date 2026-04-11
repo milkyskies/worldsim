@@ -330,11 +330,16 @@ impl Default for NervousSystemConfig {
                     bypasses_gating: false,
                     sleep_wake_threshold: None,
                 },
-                // BOREDOM
+                // CURIOSITY — desire for novel stimulation. Wired to the
+                // real `drives.curiosity` state (rises during unstimulating
+                // activity, drains via Observe/Explore/Wander/Converse
+                // through `RuntimeEffects::curiosity_per_sec`). Replaces
+                // the old Boredom drive, which had `base_constant: 0.2`
+                // as a phantom floor and no drainable backing state.
                 DriveConfig {
-                    name: "Boredom".to_string(),
-                    source: UrgencySource::Boredom,
-                    base_constant: 0.2,
+                    name: "Curiosity".to_string(),
+                    source: UrgencySource::Curiosity,
+                    base_constant: 0.0,
                     curve: ResponseCurve::Linear,
                     sensitivity: PersonalityMod {
                         trait_type: PersonalityTrait::Openness,
@@ -342,7 +347,7 @@ impl Default for NervousSystemConfig {
                         scale: 1.0,
                     },
                     modifiers: vec![],
-                    min_threshold: 0.0,
+                    min_threshold: 0.05,
                     bypasses_gating: false,
                     sleep_wake_threshold: None,
                 },
@@ -364,7 +369,7 @@ impl Default for NervousSystemConfig {
             },
             proprioception: SensoryChannelConfig {
                 sources: vec![
-                    UrgencySource::Boredom,
+                    UrgencySource::Curiosity,
                     UrgencySource::Fun,
                     UrgencySource::Stamina,
                 ],

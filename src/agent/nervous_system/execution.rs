@@ -664,12 +664,13 @@ pub fn apply_action_effects(
         &ActiveActions,
         &mut PhysicalNeeds,
         &mut Consciousness,
+        Option<&mut crate::agent::body::needs::PsychologicalDrives>,
         Option<&Body>,
     )>,
 ) {
     let dt = tick.dt();
 
-    for (active, mut physical, mut consciousness, body) in agents.iter_mut() {
+    for (active, mut physical, mut consciousness, mut drives, body) in agents.iter_mut() {
         let load = active.channel_load(&registry);
         // Capacities freeze the start-of-tick stamina so degradation doesn't
         // compound as the loop mutates physical.stamina mid-iteration.
@@ -716,6 +717,27 @@ pub fn apply_action_effects(
             consciousness.alertness = (consciousness.alertness
                 + effects.alertness_per_sec * dt * 0.01 * degradation)
                 .clamp(0.0, 1.0);
+
+            // Psychological drive updates (#386). Every action declares
+            // its effect on social and curiosity; negative values drain
+            // the drive (satisfying it), positive values raise it
+            // (starving it). Drain-only actions like Observe and Converse
+            // close the loop on Curiosity/Social; passive actions like
+            // Idle and Sleep let the drive drift back up. This removes
+            // the old `base_constant` hack for Boredom and replaces it
+            // with a real per-tick state machine that matches how
+            // Hunger/Thirst/Stamina already work.
+            if let Some(drives) = drives.as_deref_mut() {
+                if effects.social_per_sec != 0.0 {
+                    drives.social =
+                        (drives.social + effects.social_per_sec * dt * degradation).clamp(0.0, 1.0);
+                }
+                if effects.curiosity_per_sec != 0.0 {
+                    drives.curiosity = (drives.curiosity
+                        + effects.curiosity_per_sec * dt * degradation)
+                        .clamp(0.0, 1.0);
+                }
+            }
         }
     }
 }

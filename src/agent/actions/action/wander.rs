@@ -36,6 +36,11 @@ impl Action for WanderAction {
             stamina_per_sec: STAMINA_PER_SEC,
             glucose_drain_per_sec: GLUCOSE_DRAIN_PER_SEC,
             alertness_per_sec: ALERTNESS_PER_SEC,
+            // Wandering is a mild curiosity satisfier — the agent
+            // drifts through local space and passively takes in
+            // what's around. Weaker than Explore (which actively
+            // seeks novelty) and Observe (which focuses on one thing).
+            curiosity_per_sec: -0.02,
             ..Default::default()
         }
     }

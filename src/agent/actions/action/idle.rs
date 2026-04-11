@@ -26,6 +26,11 @@ impl Action for IdleAction {
         RuntimeEffects {
             glucose_drain_per_sec: 0.1,
             alertness_per_sec: 5.0,
+            // Stillness breeds curiosity — an idle agent slowly gets
+            // the urge to look around, wander, find something new.
+            // Scaled so a fully-satisfied agent takes ~60 seconds of
+            // pure Idle to saturate from 0 → 1.
+            curiosity_per_sec: 0.015,
             ..Default::default()
         }
     }

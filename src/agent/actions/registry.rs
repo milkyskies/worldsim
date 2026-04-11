@@ -147,6 +147,15 @@ pub struct RuntimeEffects {
     /// like Graze where the animal is ingesting plant matter over time.
     pub stomach_carbs_per_sec: f32,
     pub alertness_per_sec: f32,
+    /// Delta to `drives.social` per second. Negative = satisfies the drive
+    /// (Converse, InitiateConversation). Positive = starves it (prolonged
+    /// isolation, though that path is currently covered elsewhere).
+    pub social_per_sec: f32,
+    /// Delta to `drives.curiosity` per second. Negative = satisfies the
+    /// drive (Observe, Explore, Wander, Converse — novelty-seeking or
+    /// novelty-adjacent behaviour). Positive = raises it (Idle, Sleep,
+    /// Rest, Groom — stillness breeds curiosity).
+    pub curiosity_per_sec: f32,
 }
 
 // ============================================================================
@@ -663,8 +672,9 @@ impl ActiveActions {
 
 use super::action::{
     BuildAction, ConstructAction, ConverseAction, DepositAction, DrinkAction, EatAction,
-    ExploreAction, FleeAction, GrazeAction, HarvestAction, IdleAction, InitiateConversationAction,
-    SleepAction, TakeAction, WakeUpAction, WalkAction, WanderAction,
+    ExploreAction, FleeAction, GrazeAction, GroomAction, HarvestAction, IdleAction,
+    InitiateConversationAction, ObserveAction, RestAction, SleepAction, TakeAction, WakeUpAction,
+    WalkAction, WanderAction,
 };
 
 #[derive(Resource, Default)]
@@ -693,6 +703,12 @@ impl ActionRegistry {
         registry.register(DepositAction);
         registry.register(TakeAction);
         registry.register(WanderAction);
+        // Ambient / low-drive behaviours (#386). These are the actions an
+        // agent picks when they have mild drives and no urgent plan, so
+        // the sim stays alive instead of freezing on "no proposal".
+        registry.register(RestAction);
+        registry.register(ObserveAction);
+        registry.register(GroomAction);
         // Conversation actions — owned by the CommunicationPlugin.
         registry.register(InitiateConversationAction);
         registry.register(ConverseAction);

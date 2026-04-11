@@ -42,6 +42,18 @@ pub enum ActionType {
     Explore, // Directed long-distance exploration to find resources
     #[default]
     Idle,
+    /// Sit and recover. Milder than Sleep — some stamina gain without
+    /// dropping alertness. The natural fit for mild fatigue that
+    /// doesn't justify losing consciousness.
+    Rest,
+    /// Stand still and attend to a visible target. Satisfies curiosity
+    /// without moving. A cat watching a bird, a wolf watching a deer
+    /// from a distance, a human studying a stranger.
+    Observe,
+    /// Self-grooming and low-level body tending. The natural default
+    /// when an agent has no drive pressing them toward anything.
+    /// Animals at rest groom themselves; humans fidget, preen, tidy.
+    Groom,
 
     /// Work on a construction site that requires labor to complete.
     /// Targets a world entity with a `Becomes` component whose trigger tree
@@ -128,6 +140,9 @@ impl ActionType {
             ActionType::Wander => "Wandering",
             ActionType::Explore => "Exploring",
             ActionType::Idle => "Idle",
+            ActionType::Rest => "Resting",
+            ActionType::Observe => "Watching",
+            ActionType::Groom => "Grooming",
             ActionType::Wave => "Waving at",
             ActionType::InitiateConversation => "Approaching",
             ActionType::Converse => "Talking to",

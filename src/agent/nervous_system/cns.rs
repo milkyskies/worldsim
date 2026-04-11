@@ -102,7 +102,7 @@ pub fn formulate_goals(
                     vec![TriplePattern::self_has(Predicate::Thirst, Value::Int(0))]
                 }
                 UrgencySource::Fun
-                | UrgencySource::Boredom
+                | UrgencySource::Curiosity
                 | UrgencySource::Fear
                 | UrgencySource::Territoriality => vec![],
             };

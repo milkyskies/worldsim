@@ -33,6 +33,7 @@ pub fn emotional_brain_propose(
     drives: Option<&PsychologicalDrives>,
     in_conversation: Option<&InConversation>,
     self_concept: Option<Concept>,
+    cns: &crate::agent::nervous_system::cns::CentralNervousSystem,
     action_registry: &crate::agent::actions::ActionRegistry,
 ) -> Option<BrainProposal> {
     let mut best: Option<BrainProposal> = None;
@@ -81,7 +82,162 @@ pub fn emotional_brain_propose(
         best = Some(proposal);
     }
 
+    // Ambient drives (#386). When Emotional would otherwise leave the
+    // proposal empty, check the agent's CNS urgencies for drives that
+    // don't have their own brain: Curiosity (wired to drives.curiosity,
+    // drained by Observe/Explore/Wander/Converse) and Territoriality
+    // (patrol). These are suppressed mid-conversation because their
+    // actions would ride Locomotion or Cognition and break the social
+    // turn (#330).
+    if in_conversation.is_none() {
+        if let Some(proposal) = propose_curiosity(cns, visible, mind, action_registry, best_urgency)
+        {
+            best_urgency = proposal.urgency;
+            best = Some(proposal);
+        }
+        if let Some(proposal) = propose_patrol(cns, action_registry, best_urgency) {
+            best = Some(proposal);
+        }
+    }
+
+    // Baseline idle behaviour (#386). When nothing else is pressing,
+    // Emotional proposes Groom at very low urgency — self-care as the
+    // natural default instead of "stand frozen doing nothing". Any
+    // real drive outbids this; it's purely the "alive but at rest"
+    // hum. Suppressed in conversation so agents don't idly preen
+    // mid-dialogue (which would fight for the Manipulation channel).
+    if best.is_none() && in_conversation.is_none() {
+        best = propose_groom_baseline(action_registry);
+    }
+
     best
+}
+
+/// Propose `Observe` (if an agent is visible to watch) or `Explore`
+/// (otherwise) when the agent's `Curiosity` urgency is active.
+///
+/// No thresholds. No arbitrary multipliers. `drives.curiosity` is a
+/// real drainable state: it rises during unstimulating activity
+/// (Idle/Sleep/Rest/Groom at ~+0.01/s) and drains from
+/// Observe/Explore/Wander/Converse (via `RuntimeEffects::curiosity_per_sec`).
+/// The proposal urgency follows the same `value * 40` pattern as
+/// Social — comparable in weight, so the arbitrator picks whichever
+/// drive is more pressing this moment.
+///
+/// When something interesting (another agent) is visible, Observe is
+/// the specific satisfier. Otherwise the agent falls through to
+/// Explore — go find something to look at.
+fn propose_curiosity(
+    cns: &crate::agent::nervous_system::cns::CentralNervousSystem,
+    visible: &VisibleObjects,
+    mind: &MindGraph,
+    action_registry: &crate::agent::actions::ActionRegistry,
+    min_urgency: f32,
+) -> Option<BrainProposal> {
+    use crate::agent::nervous_system::urgency::UrgencySource;
+    let u = cns
+        .urgencies
+        .iter()
+        .find(|u| matches!(u.source, UrgencySource::Curiosity | UrgencySource::Fun))?;
+    // Match Social's 40× multiplier so curiosity competes on the same
+    // scale as other psychological drives. The drive itself gates
+    // firing — once drives.curiosity drains below the drive config's
+    // `min_threshold`, no urgency is emitted and this whole path
+    // returns None on its own.
+    let urgency = u.value * 40.0;
+    if urgency <= min_urgency {
+        return None;
+    }
+
+    // Pick the most interesting visible entity: another agent beats a
+    // static object. A curious creature watches moving things, not
+    // the berry bush it's seen a thousand times. Filtering to agents
+    // also keeps the target fresh because agents themselves move.
+    let interesting_target = visible.entities.iter().find(|&&e| is_agent(mind, e));
+    if let Some(&target) = interesting_target {
+        let observe = action_registry.get(ActionType::Observe)?;
+        let mut template = observe.to_template(None);
+        template.target_entity = Some(target);
+        return Some(BrainProposal {
+            brain: BrainType::Emotional,
+            action: template,
+            urgency,
+            intent: Intent::from_urgency_source(u.source),
+            reasoning: format!("Curious — watching ({:.2})", u.value),
+        });
+    }
+    let explore = action_registry.get(ActionType::Explore)?;
+    Some(BrainProposal {
+        brain: BrainType::Emotional,
+        action: explore.to_template(None),
+        urgency,
+        intent: Intent::from_urgency_source(u.source),
+        reasoning: format!("Curious — exploring ({:.2})", u.value),
+    })
+}
+
+/// True if the MindGraph says this entity is a Person, Deer, or Wolf —
+/// i.e. another agent. Static objects (berry bushes, trees, rocks) are
+/// filtered out so a curious agent doesn't freeze staring at a stump.
+fn is_agent(mind: &MindGraph, entity: Entity) -> bool {
+    const AGENT_CONCEPTS: &[Concept] = &[Concept::Person, Concept::Deer, Concept::Wolf];
+    for concept in AGENT_CONCEPTS {
+        if !mind
+            .query(
+                Some(&Node::Entity(entity)),
+                Some(Predicate::IsA),
+                Some(&Value::Concept(*concept)),
+            )
+            .is_empty()
+        {
+            return true;
+        }
+    }
+    false
+}
+
+/// Propose `Wander` for Territoriality urgency. The agent paces a
+/// short local loop to watch over familiar ground. Wander's random-
+/// walkable-target picker already keeps movement local, so the effect
+/// reads as patrolling without needing a dedicated patrol action.
+fn propose_patrol(
+    cns: &crate::agent::nervous_system::cns::CentralNervousSystem,
+    action_registry: &crate::agent::actions::ActionRegistry,
+    min_urgency: f32,
+) -> Option<BrainProposal> {
+    use crate::agent::nervous_system::urgency::UrgencySource;
+    let u = cns
+        .urgencies
+        .iter()
+        .find(|u| matches!(u.source, UrgencySource::Territoriality))?;
+    let urgency = u.value * 100.0;
+    if urgency <= min_urgency {
+        return None;
+    }
+    let wander = action_registry.get(ActionType::Wander)?;
+    Some(BrainProposal {
+        brain: BrainType::Emotional,
+        action: wander.to_template(None),
+        urgency,
+        intent: Intent::SatisfyTerritoriality,
+        reasoning: format!("Patrolling territory ({:.2})", u.value),
+    })
+}
+
+/// Propose `Groom` as the zero-drive baseline. Tiny urgency so any
+/// real proposal from any brain outbids it. This is what an agent
+/// does when genuinely at peace: self-care, not empty waiting.
+fn propose_groom_baseline(
+    action_registry: &crate::agent::actions::ActionRegistry,
+) -> Option<BrainProposal> {
+    let groom = action_registry.get(ActionType::Groom)?;
+    Some(BrainProposal {
+        brain: BrainType::Emotional,
+        action: groom.to_template(None),
+        urgency: 1.0, // below IDLE_WANDER_URGENCY and any real drive
+        intent: Intent::None,
+        reasoning: "At rest — grooming".to_string(),
+    })
 }
 
 /// Propose `Walk` toward the highest-affection visible conspecific when
@@ -426,8 +582,16 @@ mod tests {
         let mut registry = crate::agent::actions::ActionRegistry::default();
         registry.register(crate::agent::actions::action::FleeAction);
 
-        let proposal =
-            emotional_brain_propose(&state, &mind, &visible, None, None, None, &registry);
+        let proposal = emotional_brain_propose(
+            &state,
+            &mind,
+            &visible,
+            None,
+            None,
+            None,
+            &Default::default(),
+            &registry,
+        );
 
         assert!(proposal.is_some());
         let prop = proposal.unwrap();
@@ -455,8 +619,16 @@ mod tests {
         let mut registry = crate::agent::actions::ActionRegistry::default();
         registry.register(crate::agent::actions::action::FleeAction);
 
-        let proposal =
-            emotional_brain_propose(&state, &mind, &visible, None, None, None, &registry);
+        let proposal = emotional_brain_propose(
+            &state,
+            &mind,
+            &visible,
+            None,
+            None,
+            None,
+            &Default::default(),
+            &registry,
+        );
 
         assert!(proposal.is_some());
         let prop = proposal.unwrap();
@@ -482,8 +654,16 @@ mod tests {
         let mut registry = crate::agent::actions::ActionRegistry::default();
         registry.register(crate::agent::actions::action::WalkAction);
 
-        let proposal =
-            emotional_brain_propose(&state, &mind, &visible, None, None, None, &registry);
+        let proposal = emotional_brain_propose(
+            &state,
+            &mind,
+            &visible,
+            None,
+            None,
+            None,
+            &Default::default(),
+            &registry,
+        );
 
         assert!(proposal.is_some());
         let prop = proposal.unwrap();
@@ -491,15 +671,60 @@ mod tests {
     }
 
     #[test]
-    fn test_emotional_no_response() {
+    fn test_emotional_no_response_returns_none_without_groom_registered() {
+        // Pre-#386, an idle agent produced no Emotional proposal. Post-#386,
+        // Emotional owns the "at rest" baseline and proposes `Groom` at tiny
+        // urgency. This test uses an empty registry (no Groom action) so
+        // the baseline path can't build its template, and Emotional still
+        // returns None — documenting that the baseline degrades gracefully
+        // when its action is unavailable.
         let state = EmotionalState::default();
         let mind = setup_mind();
         let visible = VisibleObjects::default();
 
         let registry = crate::agent::actions::ActionRegistry::default();
-        let proposal =
-            emotional_brain_propose(&state, &mind, &visible, None, None, None, &registry);
+        let proposal = emotional_brain_propose(
+            &state,
+            &mind,
+            &visible,
+            None,
+            None,
+            None,
+            &Default::default(),
+            &registry,
+        );
 
         assert!(proposal.is_none());
+    }
+
+    #[test]
+    fn test_emotional_proposes_groom_baseline_when_truly_idle() {
+        // With Groom registered, an idle agent (no visible entities, no
+        // drives, no goals, not in conversation) gets the baseline Groom
+        // proposal — the "alive but at rest" hum from #386.
+        let state = EmotionalState::default();
+        let mind = setup_mind();
+        let visible = VisibleObjects::default();
+
+        let mut registry = crate::agent::actions::ActionRegistry::default();
+        registry.register(crate::agent::actions::action::GroomAction);
+
+        let proposal = emotional_brain_propose(
+            &state,
+            &mind,
+            &visible,
+            None,
+            None,
+            None,
+            &Default::default(),
+            &registry,
+        );
+
+        let proposal = proposal.expect("Groom baseline should fire for a truly idle agent");
+        assert_eq!(proposal.action.action_type, ActionType::Groom);
+        assert!(
+            proposal.urgency < 10.0,
+            "Groom baseline must be very low urgency"
+        );
     }
 }

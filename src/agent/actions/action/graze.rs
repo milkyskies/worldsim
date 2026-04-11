@@ -69,6 +69,7 @@ impl Action for GrazeAction {
             glucose_drain_per_sec: GLUCOSE_DRAIN_PER_SEC,
             stomach_carbs_per_sec: STOMACH_CARBS_PER_SEC,
             alertness_per_sec: ALERTNESS_PER_SEC,
+            ..Default::default()
         }
     }
 
