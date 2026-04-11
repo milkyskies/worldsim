@@ -50,9 +50,14 @@ impl Action for SleepAction {
         CHANNELS
     }
 
-    fn interruptible(&self) -> bool {
-        false
-    }
+    // Sleep uses the default `interruptible = true`. WakeUp has to preempt
+    // Sleep through the normal channel-admission path (both touch FullBody),
+    // and `interruptible = false` deadlocks that: WakeUp could never free
+    // the FullBody slot. Protection against *other* actions casually
+    // evicting Sleep lives at a higher layer — the `start_actions`
+    // short-circuit in `execution.rs` rejects every non-WakeUp admission
+    // while Sleep is active, so interruptibility here only matters for the
+    // WakeUp transition itself.
 
     fn runtime_effects(&self) -> RuntimeEffects {
         RuntimeEffects {
