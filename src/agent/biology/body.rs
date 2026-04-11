@@ -17,6 +17,7 @@ use crate::agent::body::metabolism::STARVATION_DAMAGE_PER_SEC;
 use crate::agent::body::needs::PhysicalNeeds;
 use crate::agent::body::species::Species;
 use crate::agent::mind::knowledge::Concept;
+use crate::agent::Agent;
 use crate::core::GameLog;
 use crate::world::becomes::{Becomes, BecomesMode, BecomesTrigger};
 use bevy::prelude::*;
@@ -570,7 +571,7 @@ pub fn die(
 
 pub fn check_death(
     mut commands: Commands,
-    query: Query<(Entity, &PhysicalNeeds, Option<&Name>), Without<Becomes>>,
+    query: Query<(Entity, &PhysicalNeeds, Option<&Name>), (With<Agent>, Without<Becomes>)>,
     mut game_log: ResMut<GameLog>,
     tick: Res<crate::core::tick::TickCount>,
     mut sim_events: MessageWriter<crate::agent::events::SimEvent>,
