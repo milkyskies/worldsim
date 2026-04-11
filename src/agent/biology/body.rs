@@ -215,6 +215,27 @@ impl Body {
     pub fn any_vital_organ_destroyed(&self) -> bool {
         self.organs().any(|o| o.vital && o.is_destroyed())
     }
+
+    /// Derive the digestive-organ multipliers the metabolism tick consumes.
+    /// Missing organs (e.g. a future species that doesn't carry one) default
+    /// to `1.0` so the absence of data never degrades the pipeline — only
+    /// *damaged* organs slow the metabolism.
+    pub fn organ_mods(&self) -> crate::agent::body::metabolism::OrganMods {
+        crate::agent::body::metabolism::OrganMods {
+            stomach: self
+                .organ(OrganKind::Stomach)
+                .map(|o| o.condition())
+                .unwrap_or(1.0),
+            liver: self
+                .organ(OrganKind::Liver)
+                .map(|o| o.condition())
+                .unwrap_or(1.0),
+            gut: self
+                .organ(OrganKind::Gut)
+                .map(|o| o.condition())
+                .unwrap_or(1.0),
+        }
+    }
 }
 
 /// Head organ seed — brain (vital), eyes, ears, nose. Shared across every
@@ -688,5 +709,38 @@ mod organ_tests {
             let count = body.organs().count();
             assert_eq!(count, 9, "every species carries 4 head + 5 torso organs");
         }
+    }
+
+    /// A fresh body produces fully-intact organ mods (all 1.0). Degrading
+    /// stomach / liver / gut HP drops the matching mod toward zero without
+    /// touching the others. Exercises the #351 bridge from organ condition
+    /// into [`metabolism::OrganMods`].
+    #[test]
+    fn organ_mods_reflects_digestive_organ_condition() {
+        let body = Body::human();
+        let mods = body.organ_mods();
+        assert!((mods.stomach - 1.0).abs() < 1e-6);
+        assert!((mods.liver - 1.0).abs() < 1e-6);
+        assert!((mods.gut - 1.0).abs() < 1e-6);
+
+        let mut damaged = Body::human();
+        let stomach = damaged
+            .organ_mut(OrganKind::Stomach)
+            .expect("humans have a stomach");
+        stomach.hp = stomach.max_hp * 0.5;
+        let mods = damaged.organ_mods();
+        assert!(
+            (mods.stomach - 0.5).abs() < 1e-6,
+            "half-hp stomach should report ~0.5, got {}",
+            mods.stomach
+        );
+        assert!(
+            (mods.liver - 1.0).abs() < 1e-6,
+            "liver is untouched, should still report 1.0"
+        );
+        assert!(
+            (mods.gut - 1.0).abs() < 1e-6,
+            "gut is untouched, should still report 1.0"
+        );
     }
 }

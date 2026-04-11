@@ -6,6 +6,7 @@
 //! Downstream: nervous_system::urgency (reads updated needs to recalculate urgencies)
 
 use crate::agent::activity::{ActivityConfig, CurrentActivity};
+use crate::agent::biology::body::Body;
 use crate::agent::body::needs::{Consciousness, PhysicalNeeds, PsychologicalDrives};
 use crate::agent::psyche::emotions::{Emotion, EmotionalState};
 use crate::agent::psyche::personality::Personality;
@@ -24,6 +25,7 @@ pub fn apply_activity_effects(
         Option<&mut PsychologicalDrives>,
         &mut EmotionalState,
         &Personality,
+        Option<&Body>,
     )>,
 ) {
     // Pause is handled by run_if(not_paused) at the plugin level
@@ -34,7 +36,7 @@ pub fn apply_activity_effects(
     let max_stat = 100.0;
     let max_drive = 1.0;
 
-    for (activity, mut physical, mut consciousness, drives, mut emotions, personality) in
+    for (activity, mut physical, mut consciousness, drives, mut emotions, personality, body) in
         query.iter_mut()
     {
         let base_config = &activity_config.base.effects;
@@ -69,9 +71,15 @@ pub fn apply_activity_effects(
 
         // Metabolism: burn glucose at BMR (base) + activity cost, digest the
         // stomach, and spill between glucose and reserves as appropriate.
+        // Organ condition modulates digestion rate (stomach), nutrient
+        // absorption (gut), and glucose/reserves conversion (liver); agents
+        // without a Body (the rare case) get a fully-intact default.
         let bmr_drain = base_config.glucose_drain;
         let activity_drain = config.glucose_drain;
-        physical.metabolism.tick(dt, bmr_drain, activity_drain);
+        let organ_mods = body.map(Body::organ_mods).unwrap_or_default();
+        physical
+            .metabolism
+            .tick_with_mods(dt, bmr_drain, activity_drain, organ_mods);
 
         // Thirst
         let d_thirst = (base_config.thirst_change + config.thirst_change) * dt;
