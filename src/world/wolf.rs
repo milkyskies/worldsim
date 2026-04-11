@@ -6,13 +6,15 @@
 //! Downstream: agent brains (fear/flee in humans/deer, anger/attack in wolves)
 
 use crate::agent::Agent;
+use crate::agent::body::genetics::founder::random_genome;
 use crate::agent::body::needs::PsychologicalDrives;
-use crate::agent::body::species::SpeciesProfile;
+use crate::agent::body::species::{Species, SpeciesProfile};
 use crate::agent::inventory::EntityType;
 use crate::agent::item_slots::ItemSlots;
 use crate::agent::mind::knowledge::{Concept, MindGraph, Ontology};
 use crate::world::map::TILE_SIZE;
 use bevy::prelude::*;
+use rand::Rng;
 
 /// Marker component for wolf entities.
 #[derive(Component, Reflect, Default)]
@@ -20,17 +22,16 @@ use bevy::prelude::*;
 pub struct Wolf;
 
 /// Spawns a Wolf (Predator Agent)
-pub fn spawn_wolf(
+pub fn spawn_wolf<R: Rng>(
     commands: &mut Commands,
     ontology: Ontology,
     position: Vec2,
     index: usize,
+    rng: &mut R,
 ) -> Entity {
-    use crate::agent::psyche::personality::Personality;
-
     let species_profile = SpeciesProfile::wolf();
     let inventory = ItemSlots::agent_carry();
-    let personality = Personality::random();
+    let genome = random_genome(rng, Species::Wolf);
 
     let spawn_tile = (
         (position.x / TILE_SIZE) as i32,
@@ -54,14 +55,17 @@ pub fn spawn_wolf(
             crate::agent::TargetPosition::default(),
             crate::agent::movement::MovementState::default(),
             inventory,
-            personality,
+            genome,
             Transform::from_translation(position.extend(3.0)),
             GlobalTransform::default(),
         ))
         .insert((
             crate::agent::affordance::Affordance::default(),
             mind,
-            crate::agent::mind::perception::Vision { range: 120.0 },
+            // Vision range overwritten by develop_phenotype_system; placeholder = species baseline.
+            crate::agent::mind::perception::Vision {
+                range: SpeciesProfile::wolf().vision_range,
+            },
             crate::agent::mind::perception::VisibleObjects::default(),
             Visibility::default(),
             InheritedVisibility::default(),

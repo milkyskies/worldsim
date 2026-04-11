@@ -1,0 +1,95 @@
+//! Diploid Genome component: two haplotypes (maternal + paternal) of N_LOCI loci each.
+//!
+//! Reads: nothing (pure data component)
+//! Writes: Genome (set at agent spawn)
+//! Upstream: founder population generation (genetics::founder)
+//! Downstream: genetics::phenotype (develop_phenotype_system consumes locus sums)
+
+use bevy::prelude::*;
+
+/// Total number of loci per haplotype.
+///
+/// Layout: 4 loci × 4 physical traits (0..16) + 4 loci × 5 personality traits (16..36) = 36.
+pub const N_LOCI: usize = 36;
+
+/// Number of loci per trait per haplotype (4 loci × 2 haplotypes = 8 values summed per trait).
+pub const LOCI_PER_TRAIT: usize = 4;
+
+// Physical trait locus start offsets (loci 0..16)
+pub const SPEED_START: usize = 0;
+pub const VISION_START: usize = 4;
+pub const METABOLISM_START: usize = 8;
+pub const ENDURANCE_START: usize = 12;
+
+// Personality trait locus start offsets (loci 16..36)
+pub const OPENNESS_START: usize = 16;
+pub const CONSCIENTIOUSNESS_START: usize = 20;
+pub const EXTRAVERSION_START: usize = 24;
+pub const AGREEABLENESS_START: usize = 28;
+pub const NEUROTICISM_START: usize = 32;
+
+/// Diploid genome: two haplotypes of [`N_LOCI`] loci each.
+///
+/// Each locus is a continuous additive value centered near 0.0. The neutral
+/// allele (all zeros) maps to exactly the species baseline phenotype.
+/// Traits are purely additive — both chromosomes are summed across the locus
+/// range for a given trait, then normalized by `develop_phenotype_system`.
+#[derive(Component, Clone, Reflect, Debug)]
+#[reflect(Component)]
+pub struct Genome {
+    pub maternal: [f32; N_LOCI],
+    pub paternal: [f32; N_LOCI],
+}
+
+impl Default for Genome {
+    /// Neutral genome: all-zero loci produce exactly the species baseline phenotype.
+    fn default() -> Self {
+        Self {
+            maternal: [0.0; N_LOCI],
+            paternal: [0.0; N_LOCI],
+        }
+    }
+}
+
+impl Genome {
+    /// Sum both alleles across all loci for a given trait.
+    ///
+    /// `start` is the first locus index; reads `LOCI_PER_TRAIT` loci per haplotype.
+    /// A neutral genome returns 0.0 (maps to species mean in phenotype development).
+    pub fn locus_sum(&self, start: usize) -> f32 {
+        let end = (start + LOCI_PER_TRAIT).min(N_LOCI);
+        self.maternal[start..end].iter().sum::<f32>()
+            + self.paternal[start..end].iter().sum::<f32>()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn neutral_genome_locus_sum_is_zero() {
+        let g = Genome::default();
+        assert_eq!(g.locus_sum(SPEED_START), 0.0);
+        assert_eq!(g.locus_sum(OPENNESS_START), 0.0);
+    }
+
+    #[test]
+    fn locus_sum_counts_both_haplotypes() {
+        let mut g = Genome::default();
+        g.maternal[SPEED_START] = 1.0;
+        g.paternal[SPEED_START] = 0.5;
+        // Only the first locus per haplotype is set; remaining three are 0.
+        assert!((g.locus_sum(SPEED_START) - 1.5).abs() < 1e-6);
+    }
+
+    #[test]
+    fn locus_sum_does_not_read_adjacent_trait() {
+        let mut g = Genome::default();
+        // Set loci in the VISION trait (starts at index 4)
+        g.maternal[VISION_START] = 2.0;
+        // SPEED sum should not include VISION loci
+        assert_eq!(g.locus_sum(SPEED_START), 0.0);
+        assert!((g.locus_sum(VISION_START) - 2.0).abs() < 1e-6);
+    }
+}

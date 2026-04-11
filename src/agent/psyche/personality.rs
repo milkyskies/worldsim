@@ -6,27 +6,10 @@
 //! Downstream: nervous_system::urgency (trait modifiers), psyche::emotions, ui::character_sheet
 
 use bevy::prelude::*;
-use rand::Rng;
 
 #[derive(Component, Debug, Clone, Reflect, Default)]
 pub struct Personality {
     pub traits: PersonalityTraits,
-}
-
-impl Personality {
-    pub fn random() -> Self {
-        Self {
-            traits: PersonalityTraits::random(),
-        }
-    }
-
-    /// Deterministic variant — used by TestWorld and other seeded contexts
-    /// where reproducibility matters.
-    pub fn from_rng<R: Rng>(rng: &mut R) -> Self {
-        Self {
-            traits: PersonalityTraits::from_rng(rng),
-        }
-    }
 }
 
 #[derive(Debug, Clone, Reflect)]
@@ -53,34 +36,6 @@ impl Default for PersonalityTraits {
             extraversion: 0.5,
             agreeableness: 0.5,
             neuroticism: 0.5,
-        }
-    }
-}
-
-impl PersonalityTraits {
-    pub fn random() -> Self {
-        Self::from_rng(&mut rand::rng())
-    }
-
-    /// Sample traits from an explicit RNG (deterministic when caller seeds it).
-    ///
-    /// Each trait is the average of three independent uniform samples, producing
-    /// a triangle distribution centred at 0.5. This avoids the all-extreme
-    /// personalities you get with a single uniform draw while still allowing
-    /// genuine variation.
-    pub fn from_rng<R: Rng>(rng: &mut R) -> Self {
-        let avg = |r: &mut R| {
-            (r.random_range(0.0_f32..=1.0)
-                + r.random_range(0.0_f32..=1.0)
-                + r.random_range(0.0_f32..=1.0))
-                / 3.0
-        };
-        Self {
-            openness: avg(rng),
-            conscientiousness: avg(rng),
-            extraversion: avg(rng),
-            agreeableness: avg(rng),
-            neuroticism: avg(rng),
         }
     }
 }

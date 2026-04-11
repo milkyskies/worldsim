@@ -12,7 +12,10 @@ use bevy::prelude::*;
 use crate::agent::actions::{ActionType, ActiveActions};
 use crate::agent::affordance::Affordance;
 use crate::agent::biology::body::Body;
-use crate::agent::body::needs::{Consciousness, PhysicalNeeds, PsychologicalDrives};
+use crate::agent::body::genetics::genome::Genome;
+use crate::agent::body::needs::{
+    Consciousness, PhysicalNeeds, PsychologicalDrives, SocialDriveOverride,
+};
 use crate::agent::body::species::SpeciesProfile;
 use crate::agent::brains::plan_memory::PlanMemory;
 use crate::agent::brains::proposal::BrainState;
@@ -54,11 +57,13 @@ pub(super) fn spawn_test_person(
 
     let cultural_knowledge = Arc::new(create_cultural_knowledge(Culture::default()));
 
+    let social_drive_override = config.social_drive;
+
     let (core, perception, brain) = build_person_logic(
         PersonInit {
             name: display_name,
             position: config.pos,
-            personality: config.personality,
+            genome: config.genome,
             physical_needs: PhysicalNeeds {
                 metabolism: config.metabolism.clone(),
                 thirst: config.thirst,
@@ -68,7 +73,6 @@ pub(super) fn spawn_test_person(
                 },
                 health: 100.0,
             },
-            social_drive_override: config.social_drive,
             cultural_knowledge,
             extra_knowledge: config.knowledge,
         },
@@ -78,17 +82,34 @@ pub(super) fn spawn_test_person(
     // Body is normally added by `setup_biology` on the next Update;
     // pre-insert it so brain queries that read `Option<&Body>` see it
     // immediately and tests can inspect injuries without an extra tick.
-    world
+    let entity = world
         .spawn(core)
         .insert(perception)
         .insert(brain)
         .insert(Body::human())
-        .id()
+        .id();
+
+    if let Some(v) = social_drive_override {
+        world.entity_mut(entity).insert(SocialDriveOverride(v));
+    }
+
+    entity
 }
 
 /// Spawns a Deer animal agent with all logic components but no visuals.
-pub(super) fn spawn_test_deer(world: &mut World, ontology: Ontology, pos: Vec2) -> Entity {
+///
+/// `genome` controls which phenotype, personality, and drives the deer ends up
+/// with: `develop_phenotype_system` overwrites the placeholder `Personality`
+/// and `PsychologicalDrives` from it on the first tick.
+pub(super) fn spawn_test_deer(
+    world: &mut World,
+    ontology: Ontology,
+    pos: Vec2,
+    genome: Genome,
+) -> Entity {
     use crate::agent::psyche::personality::Personality;
+
+    let species = SpeciesProfile::deer();
 
     let mut mind = MindGraph::new(ontology);
     crate::world::deer::add_deer_knowledge(&mut mind);
@@ -99,19 +120,22 @@ pub(super) fn spawn_test_deer(world: &mut World, ontology: Ontology, pos: Vec2) 
             Agent,
             Deer,
             EntityType(Concept::Deer),
-            SpeciesProfile::deer(),
+            species,
             Physical,
             TargetPosition::default(),
             MovementState::default(),
             ItemSlots::agent_carry(),
             Personality::default(),
+            genome,
             Transform::from_translation(pos.extend(3.0)),
             GlobalTransform::default(),
         ))
         .insert((
             Affordance::default(),
             mind,
-            Vision { range: 128.0 },
+            Vision {
+                range: SpeciesProfile::deer().vision_range,
+            },
             VisibleObjects::default(),
         ))
         .insert((
@@ -136,7 +160,12 @@ pub(super) fn spawn_test_deer(world: &mut World, ontology: Ontology, pos: Vec2) 
 }
 
 /// Spawns a Wolf predator agent with all logic components but no visuals.
-pub(super) fn spawn_test_wolf(world: &mut World, ontology: Ontology, pos: Vec2) -> Entity {
+pub(super) fn spawn_test_wolf(
+    world: &mut World,
+    ontology: Ontology,
+    pos: Vec2,
+    genome: Genome,
+) -> Entity {
     use crate::agent::psyche::personality::Personality;
     use crate::world::map::TILE_SIZE;
 
@@ -156,13 +185,16 @@ pub(super) fn spawn_test_wolf(world: &mut World, ontology: Ontology, pos: Vec2) 
             MovementState::default(),
             ItemSlots::agent_carry(),
             Personality::default(),
+            genome,
             Transform::from_translation(pos.extend(3.0)),
             GlobalTransform::default(),
         ))
         .insert((
             Affordance::default(),
             mind,
-            Vision { range: 120.0 },
+            Vision {
+                range: SpeciesProfile::wolf().vision_range,
+            },
             VisibleObjects::default(),
         ))
         .insert((

@@ -108,7 +108,8 @@ fn sim_event_tick(event: &SimEvent) -> u64 {
         | SimEvent::ItemSpoiled { tick, .. }
         | SimEvent::EffectApplied { tick, .. }
         | SimEvent::LaborContributed { tick, .. }
-        | SimEvent::SkillChanged { tick, .. } => *tick,
+        | SimEvent::SkillChanged { tick, .. }
+        | SimEvent::PhenotypeDeveloped { tick, .. } => *tick,
     }
 }
 
@@ -157,7 +158,8 @@ fn sim_event_involves(event: &SimEvent, agent: Entity) -> bool {
         SimEvent::ItemSpoiled { agent: a, .. }
         | SimEvent::EffectApplied { agent: a, .. }
         | SimEvent::LaborContributed { agent: a, .. }
-        | SimEvent::SkillChanged { agent: a, .. } => *a == agent,
+        | SimEvent::SkillChanged { agent: a, .. }
+        | SimEvent::PhenotypeDeveloped { agent: a, .. } => *a == agent,
     }
 }
 
@@ -391,6 +393,20 @@ fn format_sim_event(event: &SimEvent) -> String {
                  {old_value:.3}->{new_value:.3}"
             )
         }
+
+        SimEvent::PhenotypeDeveloped {
+            agent,
+            tick,
+            speed,
+            vision,
+            metabolism,
+            endurance,
+        } => {
+            format!(
+                "[t{tick}] PhenotypeDeveloped agent={agent:?} speed={speed:.3} \
+                 vision={vision:.3} metabolism={metabolism:.3} endurance={endurance:.3}"
+            )
+        }
     }
 }
 
@@ -596,16 +612,40 @@ impl TestWorld {
         entities
     }
 
-    /// Spawns a deer (animal agent) at the given position.
+    /// Spawns a deer (animal agent) with the species-baseline genome.
     pub fn spawn_deer(&mut self, pos: Vec2) -> Entity {
-        let ontology = self.app.world().resource::<Ontology>().clone();
-        spawn_test_deer(self.app.world_mut(), ontology, pos)
+        self.spawn_deer_with(pos, crate::agent::body::genetics::genome::Genome::default())
     }
 
-    /// Spawns a Wolf predator at the given position with full logic components.
-    pub fn spawn_wolf(&mut self, pos: Vec2) -> Entity {
+    /// Spawns a deer with a caller-provided genome (or builder).
+    ///
+    /// Accepts any `Into<Genome>` — typically a fluent builder:
+    /// ```ignore
+    /// world.spawn_deer_with(pos, physical().speed(1.3));
+    /// world.spawn_deer_with(pos, personality().openness(0.75));
+    /// ```
+    pub fn spawn_deer_with(
+        &mut self,
+        pos: Vec2,
+        genome: impl Into<crate::agent::body::genetics::genome::Genome>,
+    ) -> Entity {
         let ontology = self.app.world().resource::<Ontology>().clone();
-        spawn_test_wolf(self.app.world_mut(), ontology, pos)
+        spawn_test_deer(self.app.world_mut(), ontology, pos, genome.into())
+    }
+
+    /// Spawns a wolf at the given position with the species-baseline genome.
+    pub fn spawn_wolf(&mut self, pos: Vec2) -> Entity {
+        self.spawn_wolf_with(pos, crate::agent::body::genetics::genome::Genome::default())
+    }
+
+    /// Spawns a wolf with a caller-provided genome (or builder).
+    pub fn spawn_wolf_with(
+        &mut self,
+        pos: Vec2,
+        genome: impl Into<crate::agent::body::genetics::genome::Genome>,
+    ) -> Entity {
+        let ontology = self.app.world().resource::<Ontology>().clone();
+        spawn_test_wolf(self.app.world_mut(), ontology, pos, genome.into())
     }
 
     /// Spawns a pack of wolves at the given positions and sets up mutual pack bonds.
@@ -613,12 +653,20 @@ impl TestWorld {
     /// All wolves in the returned list know each other as high-trust friends,
     /// mirroring the bonds established by `setup_wolf_pack_bonds` in the real game.
     pub fn spawn_wolf_pack(&mut self, positions: &[Vec2]) -> Vec<Entity> {
+        use crate::agent::body::genetics::genome::Genome;
         use crate::agent::mind::knowledge::{Concept, Metadata, Node, Predicate, Triple, Value};
 
         let ontology = self.app.world().resource::<Ontology>().clone();
         let entities: Vec<Entity> = positions
             .iter()
-            .map(|&pos| spawn_test_wolf(self.app.world_mut(), ontology.clone(), pos))
+            .map(|&pos| {
+                spawn_test_wolf(
+                    self.app.world_mut(),
+                    ontology.clone(),
+                    pos,
+                    Genome::default(),
+                )
+            })
             .collect();
 
         let meta = Metadata::default();
@@ -702,25 +750,16 @@ impl TestWorld {
     /// no-visuals) spawners. Counterpart to [`crate::world::spawner::apply_layout`]
     /// which uses the full visual spawners.
     ///
-    /// Personalities are sampled from a deterministic RNG seeded by `self.seed`
-    /// so spawned humans match the variety of the real spawner without
-    /// sacrificing reproducibility.
+    /// Spawns all entities from a layout using the test-compatible (logic-only,
+    /// no-visuals) spawners. Human personalities are left at the neutral default
+    /// (0.5 on all traits); genome-derived variation only applies after a tick
+    /// once `develop_phenotype_system` runs.
     pub fn apply_spawn_layout(&mut self, layout: &SpawnLayout) {
-        use rand::SeedableRng;
-        use rand_chacha::ChaCha8Rng;
-        let mut personality_rng = ChaCha8Rng::seed_from_u64(self.seed);
-        let random_personality =
-            |rng: &mut ChaCha8Rng| crate::agent::psyche::personality::Personality::from_rng(rng);
-
         for &pos in &layout.human_positions {
-            let mut config = AgentConfig::at(pos);
-            config.personality = random_personality(&mut personality_rng);
-            self.spawn_agent(config);
+            self.spawn_agent(AgentConfig::at(pos));
         }
         for &pos in &layout.second_human_positions {
-            let mut config = AgentConfig::at(pos);
-            config.personality = random_personality(&mut personality_rng);
-            self.spawn_agent(config);
+            self.spawn_agent(AgentConfig::at(pos));
         }
         for herd in &layout.deer_herds {
             let members: Vec<Entity> = herd.iter().map(|&pos| self.spawn_deer(pos)).collect();
@@ -1921,6 +1960,113 @@ mod tests {
         assert!(
             !triples.is_empty(),
             "wolf should mark its spawn tile as territory"
+        );
+    }
+
+    // ─── Genetics tests ────────────────────────────────────────────────────────
+
+    #[test]
+    fn deer_has_genome_at_spawn_and_phenotype_after_tick() {
+        use crate::agent::body::genetics::genome::Genome;
+        use crate::agent::body::genetics::phenotype::Phenotype;
+
+        let mut world = TestWorld::with_seed(42);
+        let deer = world.spawn_deer(Vec2::new(40.0, 40.0));
+
+        // Genome is present at spawn time.
+        assert!(
+            world.app().world().get::<Genome>(deer).is_some(),
+            "spawned deer should have Genome component"
+        );
+
+        // Phenotype is computed by develop_phenotype_system on the first tick.
+        world.tick(1);
+        assert!(
+            world.app().world().get::<Phenotype>(deer).is_some(),
+            "deer should have Phenotype after the first tick"
+        );
+    }
+
+    #[test]
+    fn neutral_genome_produces_baseline_phenotype_on_tick() {
+        use crate::agent::body::genetics::phenotype::Phenotype;
+
+        let mut world = TestWorld::with_seed(42);
+        let deer = world.spawn_deer(Vec2::new(40.0, 40.0));
+
+        // Neutral (default) genome → develop_phenotype_system writes the
+        // species-baseline phenotype on tick 1.
+        world.tick(1);
+
+        let phenotype = world.get::<Phenotype>(deer);
+        assert!(
+            (phenotype.speed - 1.0).abs() < 1e-5,
+            "neutral genome should produce speed=1.0, got {}",
+            phenotype.speed
+        );
+        assert!(
+            (phenotype.vision - 1.0).abs() < 1e-5,
+            "neutral genome should produce vision=1.0, got {}",
+            phenotype.vision
+        );
+    }
+
+    #[test]
+    fn positive_speed_genome_makes_deer_faster_than_baseline() {
+        use crate::agent::body::genetics::builder::physical;
+        use crate::agent::body::genetics::phenotype::Phenotype;
+
+        let mut world = TestWorld::with_seed(42);
+
+        let slow_deer = world.spawn_deer(Vec2::new(40.0, 40.0));
+        let fast_deer = world.spawn_deer_with(Vec2::new(60.0, 60.0), physical().speed(1.3));
+
+        world.tick(1);
+
+        let fast_phenotype = world.get::<Phenotype>(fast_deer);
+        let slow_phenotype = world.get::<Phenotype>(slow_deer);
+
+        assert!(
+            fast_phenotype.speed > slow_phenotype.speed,
+            "fast deer (speed={}) should be faster than slow deer (speed={})",
+            fast_phenotype.speed,
+            slow_phenotype.speed
+        );
+    }
+
+    #[test]
+    fn personality_is_derived_from_genome_after_tick() {
+        use crate::agent::body::genetics::builder::personality;
+        use crate::agent::psyche::personality::Personality;
+
+        let mut world = TestWorld::with_seed(42);
+
+        let deer = world.spawn_deer_with(Vec2::new(40.0, 40.0), personality().openness(0.75));
+        world.tick(1);
+
+        let p = world.get::<Personality>(deer);
+        assert!(
+            p.traits.openness > 0.6,
+            "high openness genome should produce openness > 0.6, got {}",
+            p.traits.openness
+        );
+    }
+
+    #[test]
+    fn drives_are_derived_from_genome_personality() {
+        use crate::agent::body::genetics::builder::personality;
+        use crate::agent::body::needs::PsychologicalDrives;
+
+        let mut world = TestWorld::with_seed(42);
+
+        let deer = world.spawn_deer_with(Vec2::new(40.0, 40.0), personality().extraversion(0.75));
+        world.tick(1);
+
+        let drives = world.get::<PsychologicalDrives>(deer);
+        assert!(
+            drives.social > 0.6,
+            "extrovert genome should yield high social drive, got {}",
+            drives.social
         );
     }
 

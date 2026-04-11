@@ -10,6 +10,12 @@ pub(crate) mod scenario;
 mod spawn;
 mod world;
 
+// Re-export the fluent genome builders from their real home so test files
+// can `use worldsim::testing::{personality, physical, genome};` without
+// knowing where they live in the genetics module.
+pub use crate::agent::body::genetics::builder::{
+    GenomeBuilder, PersonalityBuilder, PhysicalBuilder, genome, personality, physical,
+};
 pub use config::AgentConfig;
-pub use scenario::{PersonalityBuilder, RelBuilder, ScenarioBuilder, ScenarioEntities};
+pub use scenario::{RelBuilder, ScenarioBuilder, ScenarioEntities};
 pub use world::{SimEventLog, TestWorld};

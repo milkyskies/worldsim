@@ -54,9 +54,12 @@ impl Plugin for AgentPlugin {
             .register_type::<inventory::EntityType>()
             .register_type::<psyche::personality::Personality>()
             .register_type::<body::species::SpeciesProfile>()
+            .register_type::<body::genetics::genome::Genome>()
+            .register_type::<body::genetics::phenotype::Phenotype>()
             .register_type::<body::needs::PhysicalNeeds>()
             .register_type::<body::needs::Consciousness>()
             .register_type::<body::needs::PsychologicalDrives>()
+            .register_type::<body::needs::SocialDriveOverride>()
             .register_type::<activity::CurrentActivity>()
             .register_type::<mind::memory::WorkingMemory>()
             .register_type::<psyche::emotions::EmotionalState>()
@@ -182,6 +185,12 @@ impl Plugin for AgentPlugin {
                     .run_if(every_n_ticks(100))
                     .run_if(not_paused),
             )
-            .init_resource::<psyche::relationships::RelationshipConfig>();
+            .init_resource::<psyche::relationships::RelationshipConfig>()
+            // Genetics: develop phenotype from genome once at spawn, before any
+            // brain or personality system reads the derived traits.
+            .add_systems(
+                PreUpdate,
+                body::genetics::phenotype::develop_phenotype_system,
+            );
     }
 }
