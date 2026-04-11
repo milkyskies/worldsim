@@ -132,6 +132,11 @@ pub fn three_brains_system(
         );
 
         let capacities = crate::agent::actions::ChannelCapacities::compute(body, Some(physical));
+        let cost_ctx = crate::agent::brains::planner::PlanCostContext::from_agent(
+            physical,
+            &consciousness,
+            personality,
+        );
         let rational_proposal = rational_brain_propose(
             rational_brain,
             cns,
@@ -143,6 +148,7 @@ pub fn three_brains_system(
             &action_registry,
             &affordances,
             &capacities,
+            &cost_ctx,
         );
 
         // 2. Calculate brain powers, then apply history-based multiplier

@@ -278,7 +278,13 @@ pub fn update_rational_brain(
                 * interval_scale;
             consciousness.alertness = (consciousness.alertness - plan_drain).max(0.0);
 
-            if let Some(plan) = crate::agent::brains::planner::regressive_plan(mind, goal, &actions)
+            let cost_ctx = crate::agent::brains::planner::PlanCostContext::from_agent(
+                physical,
+                &consciousness,
+                personality,
+            );
+            if let Some(plan) =
+                crate::agent::brains::planner::regressive_plan(mind, goal, &actions, &cost_ctx)
             {
                 brain.current_plan = Some(plan);
                 brain.plan_index = 0;
@@ -317,6 +323,7 @@ pub fn rational_brain_propose(
         Option<&crate::agent::affordance::Affordance>,
     )>,
     capacities: &ChannelCapacities,
+    cost_ctx: &crate::agent::brains::planner::PlanCostContext,
 ) -> Option<BrainProposal> {
     // The intent for any goal-directed rational proposal is derived from the
     // top urgency source that drove goal formulation. If no urgency, this is
@@ -370,7 +377,9 @@ pub fn rational_brain_propose(
             }
         }
 
-        if let Some(plan) = crate::agent::brains::planner::regressive_plan(mind, goal, &actions) {
+        if let Some(plan) =
+            crate::agent::brains::planner::regressive_plan(mind, goal, &actions, cost_ctx)
+        {
             if let Some(first_action) = plan.first() {
                 return Some(BrainProposal {
                     brain: BrainType::Rational,
@@ -559,6 +568,7 @@ mod tests {
         let world_map = WorldMap::new(64, 64);
 
         let capacities = ChannelCapacities::full();
+        let cost_ctx = crate::agent::brains::planner::PlanCostContext::neutral();
         rational_brain_propose(
             brain,
             cns,
@@ -570,6 +580,7 @@ mod tests {
             &registry,
             &affordances,
             &capacities,
+            &cost_ctx,
         )
         .expect("rational brain should always produce a proposal")
     }
@@ -722,6 +733,7 @@ mod tests {
         let world_map = WorldMap::new(64, 64);
 
         let capacities = ChannelCapacities::full();
+        let cost_ctx = crate::agent::brains::planner::PlanCostContext::neutral();
         let proposal = rational_brain_propose(
             &brain,
             &cns,
@@ -733,6 +745,7 @@ mod tests {
             &registry,
             &affordances,
             &capacities,
+            &cost_ctx,
         );
 
         assert!(

@@ -7,7 +7,11 @@
 
 use super::thinking::{ActionTemplate, Goal, TriplePattern};
 use crate::agent::actions::ActionType;
-use crate::agent::mind::knowledge::{MindGraph, Node as MindNode, Predicate, Triple, Value};
+use crate::agent::body::needs::{Consciousness, PhysicalNeeds};
+use crate::agent::mind::knowledge::{
+    Concept, MindGraph, Node as MindNode, Predicate, Triple, Value,
+};
+use crate::agent::psyche::personality::Personality;
 use crate::constants::actions::walk as walk_const;
 use crate::constants::brains::survival::EXHAUSTION_TRIGGER;
 use crate::world::map::TILE_SIZE;
@@ -15,6 +19,249 @@ use bevy::prelude::*;
 use std::cmp::Ordering;
 use std::collections::{BinaryHeap, HashMap};
 use std::hash::Hash;
+
+// ═══════════════════════════════════════════════════════════════════════════
+// SUBJECTIVE PLAN COST — factors the planner uses to evaluate action costs
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// Action cost is no longer `base_cost + euclidean_distance`. It's a product of
+// independent factors that reflect how the *specific* agent perceives the
+// plan:
+//
+//   stamina × alertness × uncertainty × skill × risk × personality
+//
+// Each factor defaults to 1.0 when its data isn't available so the planner
+// still runs (and degrades to the old behaviour) when state is missing.
+
+/// Neuroticism inflation at max anxiety (~30% cost premium).
+const PERSONALITY_COST_SCALE: f32 = 0.3;
+/// Tiles within which a known danger contributes to risk.
+const RISK_RADIUS_TILES: f32 = 10.0;
+/// Base weight for risk inflation before neuroticism modulation.
+const RISK_BASE_WEIGHT: f32 = 0.5;
+
+/// Inputs the planner uses to compute subjective action costs. Neutral by
+/// default so the planner still runs when no agent state has been threaded
+/// through.
+#[derive(Debug, Clone)]
+pub struct PlanCostContext {
+    /// Aerobic stamina fill fraction in [0, 1]. 1.0 = rested.
+    pub stamina_aerobic: f32,
+    /// Cognitive alertness in [0, 1]. 1.0 = fully alert.
+    pub alertness: f32,
+    /// Big Five neuroticism in [0, 1]. Higher = anxious, inflates cost.
+    pub neuroticism: f32,
+}
+
+impl PlanCostContext {
+    /// All factors neutral — used in tests and as a fallback when no agent
+    /// state is supplied. Reproduces the original base-cost behaviour.
+    pub fn neutral() -> Self {
+        Self {
+            stamina_aerobic: 1.0,
+            alertness: 1.0,
+            neuroticism: 0.0,
+        }
+    }
+
+    /// Build a cost context from the agent's live components.
+    pub fn from_agent(
+        physical: &PhysicalNeeds,
+        consciousness: &Consciousness,
+        personality: &Personality,
+    ) -> Self {
+        Self {
+            stamina_aerobic: physical.stamina.aerobic_fraction().clamp(0.0, 1.0),
+            alertness: consciousness.alertness.clamp(0.0, 1.0),
+            neuroticism: personality.traits.neuroticism.clamp(0.0, 1.0),
+        }
+    }
+
+    fn stamina_factor(&self) -> f32 {
+        quadratic_depletion(self.stamina_aerobic)
+    }
+
+    fn alertness_factor(&self) -> f32 {
+        quadratic_depletion(self.alertness)
+    }
+
+    fn fatigue_factor(&self, profile: CostProfile) -> f32 {
+        match profile {
+            CostProfile::Physical => self.stamina_factor(),
+            CostProfile::Cognitive => self.alertness_factor(),
+            CostProfile::Mixed => (self.stamina_factor() * self.alertness_factor()).sqrt(),
+        }
+    }
+
+    fn personality_factor(&self) -> f32 {
+        1.0 + self.neuroticism * PERSONALITY_COST_SCALE
+    }
+}
+
+/// Quadratic inflation curve shared by both fatigue channels: a full reserve
+/// returns 1.0, an empty reserve returns 2.0, and the growth is smooth so a
+/// half-empty reserve only inflates by 25%.
+fn quadratic_depletion(fill: f32) -> f32 {
+    let depletion = (1.0 - fill).clamp(0.0, 1.0);
+    1.0 + depletion * depletion
+}
+
+/// Classifies an action by which fatigue resource dominates its cost.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CostProfile {
+    /// Stamina-bound.
+    Physical,
+    /// Alertness-bound.
+    Cognitive,
+    /// Both matter.
+    Mixed,
+}
+
+/// Exhaustive classifier. Adding a new `ActionType` intentionally triggers a
+/// compile error so the reviewer picks a profile instead of inheriting
+/// `Physical` by accident.
+fn cost_profile_for(action_type: ActionType) -> CostProfile {
+    match action_type {
+        ActionType::Eat
+        | ActionType::Drink
+        | ActionType::Graze
+        | ActionType::Sleep
+        | ActionType::WakeUp
+        | ActionType::Idle
+        | ActionType::Wander
+        | ActionType::Harvest
+        | ActionType::Pickup
+        | ActionType::Drop
+        | ActionType::Build
+        | ActionType::Deposit
+        | ActionType::Take
+        | ActionType::Walk
+        | ActionType::Construct
+        | ActionType::Attack
+        | ActionType::Bite
+        | ActionType::Flee => CostProfile::Physical,
+
+        ActionType::Converse => CostProfile::Cognitive,
+
+        ActionType::InitiateConversation | ActionType::Wave | ActionType::Explore => {
+            CostProfile::Mixed
+        }
+    }
+}
+
+/// Per-plan cache sitting alongside the cost context. Built once at the top
+/// of `regressive_plan` so `MindGraph` queries that never change mid-plan
+/// (the danger list in particular) don't fire from every action cost call.
+struct PlanCostCache<'a> {
+    ctx: &'a PlanCostContext,
+    dangers: Vec<(i32, i32)>,
+}
+
+impl<'a> PlanCostCache<'a> {
+    fn new(ctx: &'a PlanCostContext, mind: &MindGraph) -> Self {
+        let mut dangers = Vec::new();
+        for triple in mind.query(
+            None,
+            Some(Predicate::HasTrait),
+            Some(&Value::Concept(Concept::Dangerous)),
+        ) {
+            let MindNode::Entity(entity) = &triple.subject else {
+                continue;
+            };
+            let Some(Value::Tile(tile)) =
+                mind.get(&MindNode::Entity(*entity), Predicate::LocatedAt)
+            else {
+                continue;
+            };
+            dangers.push(*tile);
+        }
+        Self { ctx, dangers }
+    }
+}
+
+/// Uncertainty factor for an explicit action. Grades the planner's confidence
+/// that the target still holds the item the action expects to produce.
+/// Returns 1.0 when no confidence can be graded.
+fn uncertainty_factor(action: &ActionTemplate, mind: &MindGraph) -> f32 {
+    let Some(target) = action.target_entity else {
+        return 1.0;
+    };
+    for effect in &action.effects {
+        if effect.predicate == Predicate::Contains
+            && let Value::Item(concept, _qty) = &effect.object
+        {
+            let confidence = mind.confidence_of(&MindNode::Entity(target), *concept);
+            if confidence > 0.0 {
+                return 2.0 - confidence;
+            }
+        }
+    }
+    1.0
+}
+
+/// Risk inflation for a tile. Walks the cached danger tiles and sums a
+/// proximity-weighted contribution. Neuroticism amplifies perceived risk.
+fn tile_risk_factor(tile: (i32, i32), cache: &PlanCostCache) -> f32 {
+    let mut risk = 0.0_f32;
+    let radius_sq = RISK_RADIUS_TILES * RISK_RADIUS_TILES;
+    for (dx, dy) in &cache.dangers {
+        let d2 = ((tile.0 - *dx).pow(2) + (tile.1 - *dy).pow(2)) as f32;
+        if d2 >= radius_sq {
+            continue;
+        }
+        let dist = d2.sqrt();
+        risk += (RISK_RADIUS_TILES - dist) / RISK_RADIUS_TILES;
+    }
+    if risk == 0.0 {
+        return 1.0;
+    }
+    1.0 + risk * RISK_BASE_WEIGHT * (1.0 + cache.ctx.neuroticism)
+}
+
+/// Risk factor for an explicit action. Uses the action's target tile when
+/// known; otherwise infers it from the target entity's LocatedAt; falls back
+/// to neutral when neither is available.
+fn action_risk_factor(action: &ActionTemplate, mind: &MindGraph, cache: &PlanCostCache) -> f32 {
+    if cache.dangers.is_empty() {
+        return 1.0;
+    }
+    if let Some(pos) = action.target_position {
+        let tile = (
+            (pos.x / TILE_SIZE).floor() as i32,
+            (pos.y / TILE_SIZE).floor() as i32,
+        );
+        return tile_risk_factor(tile, cache);
+    }
+    if let Some(target) = action.target_entity
+        && let Some(Value::Tile(tile)) = mind.get(&MindNode::Entity(target), Predicate::LocatedAt)
+    {
+        return tile_risk_factor(*tile, cache);
+    }
+    1.0
+}
+
+/// Subjective cost for an explicit action. Defaults to `base_cost` under a
+/// neutral context with no risk data.
+fn subjective_action_cost(action: &ActionTemplate, cache: &PlanCostCache, mind: &MindGraph) -> f32 {
+    let profile = cost_profile_for(action.action_type);
+    let fatigue = cache.ctx.fatigue_factor(profile);
+    let uncertainty = uncertainty_factor(action, mind);
+    let risk = action_risk_factor(action, mind, cache);
+    let personality = cache.ctx.personality_factor();
+    action.base_cost * fatigue * uncertainty * risk * personality
+}
+
+/// Subjective cost for an implicit walk of `dist` tiles toward `tile`.
+fn subjective_walk_cost(dist: f32, tile: (i32, i32), cache: &PlanCostCache) -> f32 {
+    let fatigue = cache.ctx.fatigue_factor(CostProfile::Physical);
+    let risk = if cache.dangers.is_empty() {
+        1.0
+    } else {
+        tile_risk_factor(tile, cache)
+    };
+    let personality = cache.ctx.personality_factor();
+    dist * fatigue * risk * personality
+}
 
 // ═══════════════════════════════════════════════════════════════════════════
 // PLANNER STATE — Snapshot of MindGraph for A* planning
@@ -327,14 +574,20 @@ impl Ord for RegressiveSearchNode {
 
 /// Backward Search: Starts from Goal, finds actions that satisfy unmet goals.
 /// Special Feature: Implicitly generates 'WalkTo' actions when satisfying `LocatedAt`.
+///
+/// `ctx` supplies the subjective-cost factors (stamina, alertness, personality,
+/// risk modulation). Use `PlanCostContext::neutral()` for callers that don't
+/// yet supply agent state — it reproduces the old base-cost behaviour.
 pub fn regressive_plan(
     mind: &MindGraph,
     goal: &Goal,
     available_actions: &[ActionTemplate],
+    ctx: &PlanCostContext,
 ) -> Option<Vec<ActionTemplate>> {
     use crate::constants::brains::planner::{HEURISTIC_MULTIPLIER, MAX_ITERATIONS};
     let start_time = std::time::Instant::now();
     let mut iterations = 0;
+    let cost_cache = PlanCostCache::new(ctx, mind);
 
     let mut open_set = BinaryHeap::new();
     let mut came_from: HashMap<RegressiveState, (ActionTemplate, RegressiveState)> = HashMap::new();
@@ -458,6 +711,7 @@ pub fn regressive_plan(
             current_g,
             mind,
             &current_state.consumed,
+            &cost_cache,
         );
         for (action, next_state, new_cost) in candidates {
             update_search_candidate(
@@ -485,6 +739,7 @@ pub fn regressive_plan(
             current_g,
             mind,
             &current_state.consumed,
+            &cost_cache,
         ) {
             update_search_candidate(
                 walk_action,
@@ -694,6 +949,7 @@ fn find_explicit_actions_for_goal(
     current_g: f32,
     mind: &MindGraph,
     current_consumed: &[TriplePattern],
+    cost_cache: &PlanCostCache,
 ) -> Vec<(ActionTemplate, RegressiveState, f32)> {
     let mut candidates = Vec::new();
 
@@ -718,7 +974,7 @@ fn find_explicit_actions_for_goal(
         next_consumed.extend(action.consumes.iter().cloned());
 
         let next_state = RegressiveState::new(new_unmet, next_consumed);
-        let new_cost = current_g + action.base_cost;
+        let new_cost = current_g + subjective_action_cost(action, cost_cache, mind);
         candidates.push((action.clone(), next_state, new_cost));
     }
 
@@ -809,6 +1065,7 @@ fn generate_implicit_walk(
     current_g: f32,
     mind: &MindGraph,
     current_consumed: &[TriplePattern],
+    cost_cache: &PlanCostCache,
 ) -> Option<(ActionTemplate, RegressiveState, f32)> {
     if target_goal.predicate != Some(Predicate::LocatedAt) {
         return None;
@@ -838,7 +1095,7 @@ fn generate_implicit_walk(
 
     let next_goals = build_walk_goals(dist, remaining_goals, mind)?;
     let next_state = RegressiveState::new(next_goals, current_consumed.to_vec());
-    let new_cost = current_g + dist;
+    let new_cost = current_g + subjective_walk_cost(dist, tile, cost_cache);
 
     Some((walk_action, next_state, new_cost))
 }
@@ -869,7 +1126,7 @@ mod tests {
     use crate::agent::actions::ActionType;
     use crate::agent::actions::registry::ActionRegistry;
     use crate::agent::mind::knowledge::{
-        Concept, Node as MindNode, Predicate, Triple, Value, setup_ontology,
+        Concept, Metadata, Node as MindNode, Predicate, Triple, Value, setup_ontology,
     };
     use bevy::prelude::Entity;
 
@@ -1005,7 +1262,7 @@ mod tests {
         let actions = vec![gather_template(tree, Concept::Apple)];
         let goal = goal_self_contains(Concept::Apple);
 
-        let plan = regressive_plan(&mind, &goal, &actions);
+        let plan = regressive_plan(&mind, &goal, &actions, &PlanCostContext::neutral());
         assert!(plan.is_some(), "single gather should produce a valid plan");
         assert!(
             plan.unwrap()
@@ -1037,7 +1294,7 @@ mod tests {
 
         // After planning the first gather (which consumes node 42), the second gather's
         // precondition `entity_contains(42)` is in consumed — so no valid plan exists.
-        let plan = regressive_plan(&mind, &goal, &actions);
+        let plan = regressive_plan(&mind, &goal, &actions, &PlanCostContext::neutral());
         if let Some(ref p) = plan {
             let gather_count = p
                 .iter()
@@ -1076,7 +1333,7 @@ mod tests {
         ];
         let goal = goal_self_contains_both(Concept::Apple, Concept::Berry);
 
-        let plan = regressive_plan(&mind, &goal, &actions);
+        let plan = regressive_plan(&mind, &goal, &actions, &PlanCostContext::neutral());
         assert!(
             plan.is_some(),
             "two independent sources should produce a valid plan"
@@ -1101,7 +1358,7 @@ mod tests {
 
         let goal = goal_self_contains(Concept::Apple);
 
-        let plan = regressive_plan(&mind, &goal, &[]);
+        let plan = regressive_plan(&mind, &goal, &[], &PlanCostContext::neutral());
         assert!(plan.is_some(), "goal already satisfied should return Some");
         assert!(
             plan.unwrap().is_empty(),
@@ -1181,7 +1438,7 @@ mod tests {
         ];
         let goal = goal_self_contains(Concept::Apple);
 
-        let plan = regressive_plan(&mind, &goal, &actions);
+        let plan = regressive_plan(&mind, &goal, &actions, &PlanCostContext::neutral());
         assert!(plan.is_some(), "should produce a valid plan");
         let plan = plan.unwrap();
 
@@ -1213,7 +1470,7 @@ mod tests {
         ];
         let goal = goal_self_contains(Concept::Apple);
 
-        let plan = regressive_plan(&mind, &goal, &actions);
+        let plan = regressive_plan(&mind, &goal, &actions, &PlanCostContext::neutral());
         assert!(
             plan.is_some(),
             "should produce a plan (Sleep makes it feasible)"
@@ -1244,7 +1501,7 @@ mod tests {
         ];
         let goal = goal_self_contains(Concept::Apple);
 
-        let plan = regressive_plan(&mind, &goal, &actions);
+        let plan = regressive_plan(&mind, &goal, &actions, &PlanCostContext::neutral());
         assert!(
             plan.is_none(),
             "planner must return None for truly infeasible walk"
@@ -1310,7 +1567,7 @@ mod tests {
             priority: 1.0,
         };
 
-        let plan = regressive_plan(&mind, &goal, &actions);
+        let plan = regressive_plan(&mind, &goal, &actions, &PlanCostContext::neutral());
         assert!(plan.is_some(), "should produce a plan for stone harvest");
         let plan = plan.unwrap();
 
@@ -1391,7 +1648,7 @@ mod tests {
             conditions: vec![TriplePattern::self_at((5, 5))],
             priority: 1.0,
         };
-        let plan = regressive_plan(&mind, &goal, &[])
+        let plan = regressive_plan(&mind, &goal, &[], &PlanCostContext::neutral())
             .expect("planner should produce a Walk plan, not an empty plan");
         assert!(
             plan.iter().any(|a| a.action_type == ActionType::Walk),
@@ -1539,7 +1796,7 @@ mod tests {
         let goal = goal_self_contains(Concept::Apple);
 
         let plan = tracing::subscriber::with_default(subscriber, || {
-            regressive_plan(&mind, &goal, &actions)
+            regressive_plan(&mind, &goal, &actions, &PlanCostContext::neutral())
         });
 
         let log_output = String::from_utf8(captured.lock().unwrap().clone()).unwrap_or_default();
@@ -1551,6 +1808,309 @@ mod tests {
         assert!(
             log_output.contains("unmet goals"),
             "must warn about remaining unmet goals; got: {log_output}"
+        );
+    }
+
+    // ─── Subjective plan cost ─────────────────────────────────────────────────
+
+    fn physical_action(target: Entity, concept: Concept, tile: (i32, i32)) -> ActionTemplate {
+        ActionTemplate {
+            name: format!("TestPhysical({:?})", concept),
+            action_type: ActionType::Harvest,
+            target_entity: Some(target),
+            target_position: None,
+            preconditions: vec![TriplePattern::entity_contains(target)],
+            effects: vec![
+                Triple::new(
+                    MindNode::Self_,
+                    Predicate::Contains,
+                    Value::Item(concept, 1),
+                ),
+                Triple::new(
+                    MindNode::Entity(target),
+                    Predicate::LocatedAt,
+                    Value::Tile(tile),
+                ),
+            ],
+            consumes: vec![TriplePattern::entity_contains(target)],
+            base_cost: 10.0,
+            locomotion_intensity: ActionType::Harvest.default_locomotion_intensity(),
+        }
+    }
+
+    fn stock_entity_at_tile(
+        mind: &mut MindGraph,
+        entity: Entity,
+        concept: Concept,
+        tile: (i32, i32),
+    ) {
+        mind.add(Triple::new(
+            MindNode::Entity(entity),
+            Predicate::LocatedAt,
+            Value::Tile(tile),
+        ));
+        mind.add(Triple::new(
+            MindNode::Entity(entity),
+            Predicate::Contains,
+            Value::Item(concept, 1),
+        ));
+    }
+
+    #[test]
+    fn neutral_context_preserves_base_cost() {
+        let tree = Entity::from_bits(1);
+        let mut mind = test_mind();
+        stock_entity_at_tile(&mut mind, tree, Concept::Apple, (3, 4));
+        let action = physical_action(tree, Concept::Apple, (3, 4));
+
+        let ctx = PlanCostContext::neutral();
+        let cache = PlanCostCache::new(&ctx, &mind);
+        let cost = subjective_action_cost(&action, &cache, &mind);
+        assert!(
+            (cost - action.base_cost).abs() < 1e-5,
+            "neutral context must reproduce base_cost, got {cost}"
+        );
+    }
+
+    #[test]
+    fn tired_agent_perceives_walk_as_more_expensive() {
+        let mind = test_mind();
+        let rested = PlanCostContext {
+            stamina_aerobic: 0.9,
+            ..PlanCostContext::neutral()
+        };
+        let tired = PlanCostContext {
+            stamina_aerobic: 0.2,
+            ..PlanCostContext::neutral()
+        };
+
+        let rested_cache = PlanCostCache::new(&rested, &mind);
+        let tired_cache = PlanCostCache::new(&tired, &mind);
+        let rested_cost = subjective_walk_cost(20.0, (20, 0), &rested_cache);
+        let tired_cost = subjective_walk_cost(20.0, (20, 0), &tired_cache);
+
+        assert!(
+            tired_cost > rested_cost,
+            "tired agent should perceive the same walk as more expensive \
+             (rested={rested_cost}, tired={tired_cost})"
+        );
+    }
+
+    #[test]
+    fn low_confidence_target_inflates_action_cost() {
+        let tree = Entity::from_bits(2);
+        let tile = (5, 5);
+
+        let mut known_mind = test_mind();
+        known_mind.add(Triple::new(
+            MindNode::Entity(tree),
+            Predicate::LocatedAt,
+            Value::Tile(tile),
+        ));
+        known_mind.add(Triple::with_meta(
+            MindNode::Entity(tree),
+            Predicate::Contains,
+            Value::Item(Concept::Apple, 1),
+            Metadata::perception_with_conf(0, 0.9),
+        ));
+
+        let mut guess_mind = test_mind();
+        guess_mind.add(Triple::new(
+            MindNode::Entity(tree),
+            Predicate::LocatedAt,
+            Value::Tile(tile),
+        ));
+        guess_mind.add(Triple::with_meta(
+            MindNode::Entity(tree),
+            Predicate::Contains,
+            Value::Item(Concept::Apple, 1),
+            Metadata::perception_with_conf(0, 0.3),
+        ));
+
+        let action = physical_action(tree, Concept::Apple, tile);
+        let ctx = PlanCostContext::neutral();
+        let known_cache = PlanCostCache::new(&ctx, &known_mind);
+        let guess_cache = PlanCostCache::new(&ctx, &guess_mind);
+        let known = subjective_action_cost(&action, &known_cache, &known_mind);
+        let guess = subjective_action_cost(&action, &guess_cache, &guess_mind);
+
+        assert!(
+            guess > known,
+            "low-confidence target should cost more (known={known}, guess={guess})"
+        );
+    }
+
+    #[test]
+    fn dangerous_area_inflates_walk_cost() {
+        let mut safe_mind = test_mind();
+        safe_mind.add(Triple::new(
+            MindNode::Self_,
+            Predicate::LocatedAt,
+            Value::Tile((0, 0)),
+        ));
+        let mut danger_mind = test_mind();
+        danger_mind.add(Triple::new(
+            MindNode::Self_,
+            Predicate::LocatedAt,
+            Value::Tile((0, 0)),
+        ));
+        // Wolf lives right next to the destination tile.
+        let wolf = Entity::from_bits(99);
+        danger_mind.add(Triple::new(
+            MindNode::Entity(wolf),
+            Predicate::LocatedAt,
+            Value::Tile((10, 0)),
+        ));
+        danger_mind.add(Triple::new(
+            MindNode::Entity(wolf),
+            Predicate::HasTrait,
+            Value::Concept(Concept::Dangerous),
+        ));
+
+        let ctx = PlanCostContext::neutral();
+        let safe_cache = PlanCostCache::new(&ctx, &safe_mind);
+        let danger_cache = PlanCostCache::new(&ctx, &danger_mind);
+        let safe_cost = subjective_walk_cost(10.0, (10, 0), &safe_cache);
+        let risky_cost = subjective_walk_cost(10.0, (10, 0), &danger_cache);
+
+        assert!(
+            risky_cost > safe_cost,
+            "walk toward danger must cost more (safe={safe_cost}, risky={risky_cost})"
+        );
+    }
+
+    #[test]
+    fn neurotic_agent_perceives_plan_as_more_costly_than_stoic() {
+        let tree = Entity::from_bits(3);
+        let mut mind = test_mind();
+        stock_entity_at_tile(&mut mind, tree, Concept::Apple, (2, 0));
+        let action = physical_action(tree, Concept::Apple, (2, 0));
+
+        let stoic = PlanCostContext {
+            neuroticism: 0.0,
+            ..PlanCostContext::neutral()
+        };
+        let anxious = PlanCostContext {
+            neuroticism: 1.0,
+            ..PlanCostContext::neutral()
+        };
+
+        let stoic_cache = PlanCostCache::new(&stoic, &mind);
+        let anxious_cache = PlanCostCache::new(&anxious, &mind);
+        let stoic_cost = subjective_action_cost(&action, &stoic_cache, &mind);
+        let anxious_cost = subjective_action_cost(&action, &anxious_cache, &mind);
+
+        assert!(
+            anxious_cost > stoic_cost,
+            "neurotic agent must perceive the same action as more costly \
+             (stoic={stoic_cost}, anxious={anxious_cost})"
+        );
+    }
+
+    #[test]
+    fn drained_alertness_inflates_cognitive_action_cost() {
+        let mind = test_mind();
+        let action = ActionTemplate {
+            name: "TalkToFriend".to_string(),
+            action_type: ActionType::Converse,
+            target_entity: None,
+            target_position: None,
+            preconditions: Vec::new(),
+            effects: Vec::new(),
+            consumes: Vec::new(),
+            base_cost: 8.0,
+            locomotion_intensity: ActionType::Converse.default_locomotion_intensity(),
+        };
+
+        let alert = PlanCostContext {
+            alertness: 0.9,
+            ..PlanCostContext::neutral()
+        };
+        let foggy = PlanCostContext {
+            alertness: 0.2,
+            ..PlanCostContext::neutral()
+        };
+
+        let alert_cache = PlanCostCache::new(&alert, &mind);
+        let foggy_cache = PlanCostCache::new(&foggy, &mind);
+        let alert_cost = subjective_action_cost(&action, &alert_cache, &mind);
+        let foggy_cost = subjective_action_cost(&action, &foggy_cache, &mind);
+
+        assert!(
+            foggy_cost > alert_cost,
+            "low alertness must inflate cognitive action cost \
+             (alert={alert_cost}, foggy={foggy_cost})"
+        );
+    }
+
+    #[test]
+    fn missing_data_defaults_factors_to_neutral() {
+        // An action without target_entity and an empty mind has no
+        // uncertainty / risk data — cost must equal base_cost under a
+        // neutral context.
+        let mind = test_mind();
+        let action = ActionTemplate {
+            name: "NoTarget".to_string(),
+            action_type: ActionType::Harvest,
+            target_entity: None,
+            target_position: None,
+            preconditions: Vec::new(),
+            effects: Vec::new(),
+            consumes: Vec::new(),
+            base_cost: 4.0,
+            locomotion_intensity: ActionType::Harvest.default_locomotion_intensity(),
+        };
+        let ctx = PlanCostContext::neutral();
+        let cache = PlanCostCache::new(&ctx, &mind);
+        let cost = subjective_action_cost(&action, &cache, &mind);
+        assert!(
+            (cost - action.base_cost).abs() < 1e-5,
+            "missing data under neutral context must preserve base_cost, got {cost}"
+        );
+    }
+
+    #[test]
+    fn tired_agent_prefers_closer_resource() {
+        // Two apple trees, one 3 tiles away and one 30 tiles away. A tired
+        // agent should plan against the closer one because the distance
+        // cost is inflated by the stamina factor and personality.
+        let near = Entity::from_bits(10);
+        let far = Entity::from_bits(11);
+        let near_tile = (3i32, 0i32);
+        let far_tile = (30i32, 0i32);
+
+        let mut mind = test_mind();
+        mind.add(Triple::new(
+            MindNode::Self_,
+            Predicate::LocatedAt,
+            Value::Tile((0, 0)),
+        ));
+        mind.add(Triple::new(
+            MindNode::Self_,
+            Predicate::Stamina,
+            Value::Int(100),
+        ));
+        stock_entity_at_tile(&mut mind, near, Concept::Apple, near_tile);
+        stock_entity_at_tile(&mut mind, far, Concept::Apple, far_tile);
+
+        let actions = vec![
+            harvest_at_tile(near, Concept::Apple, near_tile),
+            harvest_at_tile(far, Concept::Apple, far_tile),
+        ];
+        let goal = goal_self_contains(Concept::Apple);
+
+        let plan = regressive_plan(&mind, &goal, &actions, &PlanCostContext::neutral())
+            .expect("plan should exist");
+
+        // Find which harvest target was chosen.
+        let chosen_target = plan
+            .iter()
+            .find(|a| a.action_type == ActionType::Harvest)
+            .and_then(|a| a.target_entity)
+            .expect("plan must harvest something");
+        assert_eq!(
+            chosen_target, near,
+            "planner should prefer the closer apple tree"
         );
     }
 }
