@@ -382,14 +382,15 @@ pub fn update_rational_brain(
             }
 
             // 5. Form Plan: if no held plan already targets this goal,
-            //    generate one and insert it in Background state so
-            //    commitment can accumulate before execution.
+            //    generate one. Plans seed with an urgency-weighted
+            //    initial commitment so high-priority goals execute
+            //    immediately rather than sitting in consideration.
             if plan_memory.by_goal(&goal).is_none() {
                 let actions = collect_planning_actions(
                     &action_registry,
                     mind,
                     &affordances,
-                    PlanningMode::Replan,
+                    PlanningMode::Generate,
                     &capacities,
                 );
 
@@ -429,12 +430,31 @@ pub fn update_rational_brain(
                         &steps, agent_pos, &cost_ctx, mind,
                     );
                     let id = plan_memory.mint_plan_id();
+                    // Self-generated goal-directed plans have their urgency
+                    // and cost folded into the initial commitment so the
+                    // plan's starting state reflects how quickly it should
+                    // begin running. Background is reserved for passively
+                    // held plans (verbal commitments etc.); goal-directed
+                    // plans skip straight into Considering or Executing
+                    // depending on how strongly the goal drives them.
+                    let threshold =
+                        compute_commit_threshold(cost, personality.traits.conscientiousness);
+                    // Seed commitment with urgency-weighted boost so urgent
+                    // plans cross the threshold immediately and non-urgent
+                    // ones still get a head start — matches the pre-#338
+                    // "commit same tick" behaviour for hunger/thirst.
+                    let initial_commitment = threshold * (0.5 + goal.priority.clamp(0.0, 1.0));
+                    let initial_state = if initial_commitment >= threshold {
+                        PlanState::Executing
+                    } else {
+                        PlanState::Considering
+                    };
                     plan_memory.insert(HeldPlan {
                         id,
                         goal,
                         steps,
-                        state: PlanState::Background,
-                        commitment: 0.0,
+                        state: initial_state,
+                        commitment: initial_commitment,
                         subjective_cost: cost,
                         source: PlanSource::Brain(BrainType::Rational),
                         created_at: current_tick,
@@ -571,13 +591,16 @@ pub fn rational_brain_propose(
     }]
 }
 
-/// Gating policy used by `collect_planning_actions`. Only `Replan` is
-/// reachable today — the rational brain generates plans on the slower
-/// `thinking_interval` and the proposal path reads pre-generated plans
-/// from `PlanMemory`.
+/// Gating policy used by `collect_planning_actions`. Unifies the old
+/// belief-confidence filter with each action's own `is_plan_valid`:
+/// a candidate is kept if *either* check is satisfied. The
+/// belief-confidence path keeps foraging (the agent has a rumour of
+/// apples on a tree, confidence 0.3) alive; the is_plan_valid path
+/// keeps non-container targets (hunting a deer that doesn't
+/// `Contains` anything) alive.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum PlanningMode {
-    Replan,
+    Generate,
 }
 
 /// Walk every action in the registry, ask `enumerate_targets` for its
@@ -609,9 +632,18 @@ fn collect_planning_actions(
         let source = action.target_source();
         for candidate in enumerate_targets(&source, action.action_type(), mind, affordances) {
             let keep = match mode {
-                PlanningMode::Replan => candidate.as_entity().is_none_or(|entity| {
-                    belief_state.pattern_confidence(&TriplePattern::entity_contains(entity)) > 0.1
-                }),
+                PlanningMode::Generate => {
+                    // Keep if either the action's own validity check
+                    // passes (covers non-container targets like prey
+                    // animals) OR the agent has any non-trivial belief
+                    // that the target contains something (covers
+                    // rumoured foraging sources).
+                    action.is_plan_valid(&candidate, mind)
+                        || candidate.as_entity().is_some_and(|entity| {
+                            belief_state.pattern_confidence(&TriplePattern::entity_contains(entity))
+                                > 0.1
+                        })
+                }
             };
             if !keep {
                 continue;
