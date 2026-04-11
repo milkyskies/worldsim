@@ -39,7 +39,7 @@ fn test_world_with_collector() -> TestWorld {
 fn systems_run_without_panic_when_no_sim_event_reader_exists() {
     let mut world = TestWorld::with_seed(42);
     world.spawn_agent(AgentConfig {
-        hunger: 50.0,
+        metabolism: worldsim::agent::body::metabolism::Metabolism::at_urgency(0.5),
         ..Default::default()
     });
     world.spawn_berry_bush(Vec2::new(20.0, 20.0), 5);
@@ -101,7 +101,7 @@ fn brain_and_action_lifecycle_events_emitted() {
     // Hungry agent with food already in inventory — will eat without needing to
     // walk or harvest, guaranteeing a short Eat action (20 ticks) completes.
     let agent = world.spawn_agent(AgentConfig {
-        hunger: 90.0,
+        metabolism: worldsim::agent::body::metabolism::Metabolism::at_urgency(0.9),
         pos: Vec2::new(20.0, 20.0),
         ..Default::default()
     });

@@ -24,7 +24,7 @@ impl Action for IdleAction {
 
     fn runtime_effects(&self) -> RuntimeEffects {
         RuntimeEffects {
-            hunger_per_sec: 0.5,
+            glucose_drain_per_sec: 0.1,
             alertness_per_sec: 5.0,
             ..Default::default()
         }

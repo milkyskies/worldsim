@@ -86,7 +86,7 @@ fn hungry_deer_on_grass_grazes_and_reduces_hunger() {
     // Make the deer hungry enough that hunger urgency dominates.
     {
         let mut needs = world.get_mut::<PhysicalNeeds>(deer);
-        needs.hunger = 80.0;
+        needs.metabolism = worldsim::agent::body::metabolism::Metabolism::at_urgency(0.8);
     }
     let start_hunger = world.agent_hunger(deer);
 
@@ -113,7 +113,7 @@ fn hungry_deer_on_grass_enters_graze_action() {
 
     {
         let mut needs = world.get_mut::<PhysicalNeeds>(deer);
-        needs.hunger = 80.0;
+        needs.metabolism = worldsim::agent::body::metabolism::Metabolism::at_urgency(0.8);
     }
 
     world.tick(400);

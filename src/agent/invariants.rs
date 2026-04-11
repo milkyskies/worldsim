@@ -57,7 +57,34 @@ fn check_components(world: &mut World) {
 
     for (entity, needs, consciousness, drives, emotions, body) in query.iter(world) {
         if let Some(n) = needs {
-            assert_in_range(entity, "hunger", n.hunger, 0.0, 100.0);
+            assert_in_range(
+                entity,
+                "metabolism.stomach_carbs",
+                n.metabolism.stomach_carbs,
+                0.0,
+                crate::agent::body::metabolism::STOMACH_CAPACITY,
+            );
+            assert_in_range(
+                entity,
+                "metabolism.stomach_fat",
+                n.metabolism.stomach_fat,
+                0.0,
+                crate::agent::body::metabolism::STOMACH_CAPACITY,
+            );
+            assert_in_range(
+                entity,
+                "metabolism.glucose",
+                n.metabolism.glucose,
+                0.0,
+                crate::agent::body::metabolism::GLUCOSE_MAX,
+            );
+            assert_in_range(
+                entity,
+                "metabolism.reserves",
+                n.metabolism.reserves,
+                0.0,
+                crate::agent::body::metabolism::RESERVES_MAX,
+            );
             assert_in_range(entity, "thirst", n.thirst, 0.0, 100.0);
             assert_in_range(
                 entity,
@@ -184,7 +211,7 @@ mod tests {
     fn ticking_many_times_does_not_violate_invariants() {
         let mut world = TestWorld::new();
         world.spawn_agent(AgentConfig {
-            hunger: 50.0,
+            metabolism: crate::agent::body::metabolism::Metabolism::at_urgency(0.5),
             ..Default::default()
         });
         world.spawn_apple_tree(Vec2::new(20.0, 20.0), 10);
@@ -193,11 +220,11 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "hunger out of range")]
-    fn out_of_range_hunger_is_caught() {
+    #[should_panic(expected = "metabolism.glucose out of range")]
+    fn out_of_range_glucose_is_caught() {
         let mut world = TestWorld::new();
         let agent = world.spawn_agent(AgentConfig::default());
-        world.get_mut::<PhysicalNeeds>(agent).hunger = 150.0;
+        world.get_mut::<PhysicalNeeds>(agent).metabolism.glucose = 1_000.0;
         assert_invariants(world.app_mut().world_mut());
     }
 

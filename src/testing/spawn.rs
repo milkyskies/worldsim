@@ -58,7 +58,7 @@ pub(super) fn spawn_test_person(
             position: config.pos,
             personality: config.personality,
             physical_needs: PhysicalNeeds {
-                hunger: config.hunger,
+                metabolism: config.metabolism.clone(),
                 thirst: config.thirst,
                 stamina: crate::agent::body::needs::Stamina {
                     aerobic: config.stamina,

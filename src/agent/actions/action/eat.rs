@@ -3,10 +3,17 @@
 use crate::agent::actions::ActionType;
 use crate::agent::actions::channel::{Channel, ChannelUsage};
 use crate::agent::actions::registry::{Action, ActionContext, ActionKind, CompletionContext};
+use crate::agent::body::metabolism::{FoodMacros, food_macros};
 use crate::agent::brains::thinking::TriplePattern;
 use crate::agent::events::FailureReason;
 use crate::agent::mind::knowledge::{Node, Predicate, Triple, Value};
-use crate::constants::actions::eat::{DURATION_TICKS, HUNGER_REDUCTION, STAMINA_GAIN};
+use crate::constants::actions::eat::{DURATION_TICKS, STAMINA_GAIN};
+
+/// Fallback macros for edible items that don't yet have an entry in the
+/// `food_macros` lookup table. Tuned to match the legacy "eat grants 50
+/// hunger reduction" feel — 30 carbs + 10 fat is a medium meal that digests
+/// into a full glucose top-up plus a small reserve contribution.
+const FALLBACK_MEAL: FoodMacros = FoodMacros::new(30.0, 10.0);
 
 pub struct EatAction;
 
@@ -56,17 +63,18 @@ impl Action for EatAction {
 
     // Execution: What happens when we finish eating
     fn on_complete(&self, ctx: &mut CompletionContext) {
-        // Reduce hunger
-        ctx.physical.hunger = (ctx.physical.hunger - HUNGER_REDUCTION).max(0.0);
-
-        // Gain stamina
-        ctx.physical.stamina.adjust_aerobic(STAMINA_GAIN);
-
-        // Consume first item from inventory
+        // Identify what's being eaten and look up its macros. Unknown edibles
+        // fall back to a generic meal so the action always produces *some*
+        // satiety (prevents silently eating junk that does nothing).
         let concept = ctx.inventory.all_items().next().map(|t| t.concept);
         if let Some(concept) = concept {
+            let macros = food_macros(concept).unwrap_or(FALLBACK_MEAL);
+            ctx.physical.metabolism.eat(macros);
             ctx.inventory.remove(concept, 1);
         }
+
+        // Meals still grant a small stamina boost (fast glucose bolt).
+        ctx.physical.stamina.adjust_aerobic(STAMINA_GAIN);
     }
 
     fn complete_log(&self) -> Option<&'static str> {

@@ -67,9 +67,11 @@ pub fn apply_activity_effects(
                 .min(physical.stamina.anaerobic_max);
         }
 
-        // Hunger
-        let d_hunger = (base_config.hunger_change + config.hunger_change) * dt;
-        physical.hunger = (physical.hunger + d_hunger).clamp(0.0, max_stat);
+        // Metabolism: burn glucose at BMR (base) + activity cost, digest the
+        // stomach, and spill between glucose and reserves as appropriate.
+        let bmr_drain = base_config.glucose_drain;
+        let activity_drain = config.glucose_drain;
+        physical.metabolism.tick(dt, bmr_drain, activity_drain);
 
         // Thirst
         let d_thirst = (base_config.thirst_change + config.thirst_change) * dt;

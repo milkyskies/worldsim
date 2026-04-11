@@ -103,7 +103,7 @@ pub struct DriveConfig {
 
     // --- INPUT ---
     // Input is now implicitly defined by the source type in urgency.rs
-    // e.g. Hunger source always reads PhysicalNeeds.hunger
+    // e.g. Hunger source always reads PhysicalNeeds::hunger_urgency()
     /// Constant base value if no dynamic input is available
     pub base_constant: f32,
 

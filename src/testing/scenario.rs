@@ -101,7 +101,7 @@ struct AgentSpec {
     name: String,
     pos: Option<Vec2>,
     personality: Option<Personality>,
-    hunger: Option<f32>,
+    metabolism: Option<crate::agent::body::metabolism::Metabolism>,
     stamina: Option<f32>,
     social_drive: Option<f32>,
     group: Option<String>,
@@ -113,7 +113,7 @@ struct GroupSpec {
     agent_count: usize,
     near: Option<Vec2>,
     personality: Option<Personality>,
-    hunger: Option<f32>,
+    metabolism: Option<crate::agent::body::metabolism::Metabolism>,
     stamina: Option<f32>,
     knows_each_other: bool,
 }
@@ -165,9 +165,16 @@ impl AgentBuilder {
         self
     }
 
-    /// Hunger value (0.0 = full, 100.0 = starving).
-    pub fn hunger(mut self, v: f32) -> Self {
-        self.spec.hunger = Some(v);
+    /// Hunger urgency 0..1. Internally constructs a `Metabolism` at the
+    /// given urgency. Prefer `.metabolism(..)` for explicit control.
+    pub fn hunger_urgency(mut self, u: f32) -> Self {
+        self.spec.metabolism = Some(crate::agent::body::metabolism::Metabolism::at_urgency(u));
+        self
+    }
+
+    /// Explicit metabolism state.
+    pub fn metabolism(mut self, m: crate::agent::body::metabolism::Metabolism) -> Self {
+        self.spec.metabolism = Some(m);
         self
     }
 
@@ -230,9 +237,15 @@ impl GroupBuilder {
         self
     }
 
-    /// Hunger value applied to all agents in the group.
-    pub fn hunger(mut self, v: f32) -> Self {
-        self.spec.hunger = Some(v);
+    /// Hunger urgency 0..1 applied to every agent in the group.
+    pub fn hunger_urgency(mut self, u: f32) -> Self {
+        self.spec.metabolism = Some(crate::agent::body::metabolism::Metabolism::at_urgency(u));
+        self
+    }
+
+    /// Explicit metabolism state applied to every agent in the group.
+    pub fn metabolism(mut self, m: crate::agent::body::metabolism::Metabolism) -> Self {
+        self.spec.metabolism = Some(m);
         self
     }
 
@@ -329,7 +342,7 @@ impl ScenarioBuilder {
                 agent_count: 1,
                 near: None,
                 personality: None,
-                hunger: None,
+                metabolism: None,
                 stamina: None,
                 knows_each_other: false,
             },
@@ -347,7 +360,7 @@ impl ScenarioBuilder {
                 name: name.to_string(),
                 pos: None,
                 personality: None,
-                hunger: None,
+                metabolism: None,
                 stamina: None,
                 social_drive: None,
                 group: None,
@@ -541,7 +554,10 @@ fn spawn_group(world: &mut TestWorld, spec: &GroupSpec) -> Vec<Entity> {
         let config = AgentConfig {
             pos,
             name: Some(format!("{}_agent_{}", spec.name, i)),
-            hunger: spec.hunger.unwrap_or(0.0),
+            metabolism: spec
+                .metabolism
+                .clone()
+                .unwrap_or_else(crate::agent::body::metabolism::Metabolism::well_fed),
             stamina: spec.stamina.unwrap_or(100.0),
             personality: spec.personality.clone().unwrap_or_default(),
             ..Default::default()
@@ -556,7 +572,10 @@ fn spawn_named_agent(world: &mut TestWorld, spec: &AgentSpec) -> Entity {
     let config = AgentConfig {
         pos: spec.pos.unwrap_or(Vec2::ZERO),
         name: Some(spec.name.clone()),
-        hunger: spec.hunger.unwrap_or(0.0),
+        metabolism: spec
+            .metabolism
+            .clone()
+            .unwrap_or_else(crate::agent::body::metabolism::Metabolism::well_fed),
         stamina: spec.stamina.unwrap_or(100.0),
         social_drive: spec.social_drive,
         personality: spec.personality.clone().unwrap_or_default(),
@@ -675,11 +694,11 @@ mod tests {
             .noise_biomes(false)
             .agent("bob")
             .pos(Vec2::new(10.0, 10.0))
-            .hunger(75.0)
+            .hunger_urgency(0.75)
             .done()
             .build();
 
-        assert!((world.agent_hunger(agents["bob"]) - 75.0).abs() < 0.01);
+        assert!((world.agent_hunger(agents["bob"]) - 0.75).abs() < 0.01);
     }
 
     #[test]

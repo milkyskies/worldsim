@@ -24,8 +24,8 @@ const FEAR_THRESHOLD: f32 = 0.5;
 /// Mood value above which the happy icon is shown.
 const MOOD_HAPPY_THRESHOLD: f32 = 0.5;
 
-/// Hunger level above which the hungry icon is shown (when not eating).
-const HUNGER_THRESHOLD: f32 = 80.0;
+/// Hunger urgency (0..1) above which the hungry icon is shown (when not eating).
+const HUNGER_THRESHOLD: f32 = 0.8;
 
 pub struct StatusIconPlugin;
 
@@ -154,7 +154,7 @@ pub fn status_icon(
     if actions.contains(ActionType::Build) {
         return ICON_BUILDING;
     }
-    if needs.hunger > HUNGER_THRESHOLD {
+    if needs.hunger_urgency() > HUNGER_THRESHOLD {
         return ICON_HUNGRY;
     }
     if emotions.current_mood > MOOD_HAPPY_THRESHOLD {
@@ -248,7 +248,7 @@ mod tests {
     #[test]
     fn hungry_agent_shows_warning() {
         let mut needs = normal_needs();
-        needs.hunger = 85.0;
+        needs.metabolism = crate::agent::body::metabolism::Metabolism::at_urgency(0.85);
         assert_eq!(
             status_icon(&idle_actions(), &neutral_emotions(), &needs, None),
             ICON_HUNGRY
@@ -260,7 +260,7 @@ mod tests {
         let mut actions = no_actions();
         actions.insert(ActionState::new(ActionType::Eat, 0));
         let mut needs = normal_needs();
-        needs.hunger = 85.0;
+        needs.metabolism = crate::agent::body::metabolism::Metabolism::at_urgency(0.85);
         // Eating takes priority over hungry
         assert_eq!(
             status_icon(&actions, &neutral_emotions(), &needs, None),

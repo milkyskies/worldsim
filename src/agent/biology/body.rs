@@ -6,16 +6,19 @@
 //! Consumption + Bite while a human's arm offers Manipulation + Carry, without
 //! the action system knowing anything about species.
 //!
-//! Reads: PhysicalNeeds (for healing boost)
+//! Reads: PhysicalNeeds (for healing boost + starvation gradient)
 //! Writes: Body (healing/scarring), PhysicalNeeds (starvation damage)
 //! Upstream: BiologyPlugin (auto-spawn), per-species spawners
 //! Downstream: channel::ChannelCapacities (capability queries),
 //!             movement::calculate_speed (injury penalty), UI/debug
 
 use crate::agent::actions::channel::Channel;
+use crate::agent::body::metabolism::STARVATION_DAMAGE_PER_SEC;
 use crate::agent::body::needs::PhysicalNeeds;
 use crate::agent::body::species::Species;
+use crate::agent::mind::knowledge::Concept;
 use crate::core::GameLog;
+use crate::world::becomes::{Becomes, BecomesMode, BecomesTrigger};
 use bevy::prelude::*;
 
 /// A collection of anatomical parts. The shape is species-defined — a human
@@ -307,7 +310,14 @@ pub fn process_healing(
     }
 }
 
-/// Starvation and dehydration system - applies damage if hunger or thirst is critical
+/// Starvation and dehydration: gradient damage when the metabolism has nothing
+/// left to burn, or thirst is at the critical threshold. Ticks glucose / fat
+/// / stomach flow lives in `activity_effects` — this system only applies the
+/// *consequences* of a depleted metabolism (HP damage).
+///
+/// The gradient: reserves mobilize to cover low glucose as a first line of
+/// defense. Once reserves are empty AND glucose stays critical, HP damage
+/// begins. Well-fed agents can fast for days; lean agents die faster.
 pub fn process_starvation(
     tick: Res<crate::core::tick::TickCount>,
     mut query: Query<&mut PhysicalNeeds>,
@@ -315,8 +325,8 @@ pub fn process_starvation(
     let dt = tick.dt();
 
     for mut physical in query.iter_mut() {
-        if physical.hunger >= 90.0 {
-            let health_damage = dt * 0.2;
+        if physical.metabolism.is_starving() {
+            let health_damage = dt * STARVATION_DAMAGE_PER_SEC;
             physical.health = (physical.health - health_damage).clamp(0.0, 100.0);
         }
 
@@ -327,26 +337,60 @@ pub fn process_starvation(
     }
 }
 
+/// Unified death path.
+///
+/// Every cause of death — starvation, combat, future disease / drowning / old
+/// age — routes through this helper so corpses spawn via the same `Becomes
+/// InPlace Corpse` substrate. Previously `check_death` called `despawn()`
+/// directly, which skipped corpse spawning entirely (the bug that #356 was
+/// supposed to fix but never did).
+///
+/// The `Becomes` component with `AfterTicks(0)` fires on the next tick of the
+/// becomes system, which morphs the entity into a Corpse in place — preserving
+/// entity ID, MindGraph, Body, and relationship references.
+pub fn die(
+    commands: &mut Commands,
+    entity: Entity,
+    cause: impl Into<String>,
+    current_tick: u64,
+    game_log: &mut GameLog,
+    sim_events: &mut MessageWriter<crate::agent::events::SimEvent>,
+    name: Option<&Name>,
+) {
+    let cause = cause.into();
+    let name_str = name.map(|n| n.as_str()).unwrap_or("Unknown Entity");
+    game_log.event(&format!("{} died of {}!", name_str, cause));
+    sim_events.write(crate::agent::events::SimEvent::Death {
+        agent: entity,
+        tick: current_tick,
+        cause: cause.clone(),
+    });
+    commands.entity(entity).insert(Becomes {
+        target: Concept::Corpse,
+        trigger: BecomesTrigger::AfterTicks(0),
+        started_tick: current_tick,
+        mode: BecomesMode::InPlace,
+    });
+}
+
 pub fn check_death(
     mut commands: Commands,
-    query: Query<(Entity, &PhysicalNeeds, Option<&Name>)>,
+    query: Query<(Entity, &PhysicalNeeds, Option<&Name>), Without<Becomes>>,
     mut game_log: ResMut<GameLog>,
     tick: Res<crate::core::tick::TickCount>,
     mut sim_events: MessageWriter<crate::agent::events::SimEvent>,
 ) {
     for (entity, physical, name) in query.iter() {
         if physical.health <= 0.0 {
-            let name_str = name.map(|n| n.as_str()).unwrap_or("Unknown Entity");
-            game_log.event(&format!(
-                "{} died of starvation/dehydration/injury!",
-                name_str
-            ));
-            sim_events.write(crate::agent::events::SimEvent::Death {
-                agent: entity,
-                tick: tick.current,
-                cause: "starvation/dehydration/injury".to_string(),
-            });
-            commands.entity(entity).despawn();
+            die(
+                &mut commands,
+                entity,
+                "starvation/dehydration/injury",
+                tick.current,
+                &mut game_log,
+                &mut sim_events,
+                name,
+            );
         }
     }
 }
