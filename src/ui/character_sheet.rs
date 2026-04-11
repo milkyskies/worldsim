@@ -502,10 +502,24 @@ fn render_needs(ui: &mut egui::Ui, world: &World, entity: Entity) {
     if let Some(needs) = world.get::<PhysicalNeeds>(entity) {
         need_bar(
             ui,
-            "Hunger",
-            needs.hunger,
-            100.0,
+            "Stomach",
+            needs.metabolism.stomach_fullness(),
+            crate::agent::body::metabolism::STOMACH_CAPACITY,
+            None,
+        );
+        need_bar(
+            ui,
+            "Glucose",
+            needs.metabolism.glucose,
+            crate::agent::body::metabolism::GLUCOSE_MAX,
             urgency_for(UrgencySource::Hunger),
+        );
+        need_bar(
+            ui,
+            "Reserves",
+            needs.metabolism.reserves,
+            crate::agent::body::metabolism::RESERVES_MAX,
+            None,
         );
         need_bar(
             ui,

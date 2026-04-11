@@ -140,7 +140,12 @@ pub enum ActionKind {
 #[derive(Debug, Clone, Default)]
 pub struct RuntimeEffects {
     pub stamina_per_sec: f32,
-    pub hunger_per_sec: f32,
+    /// Glucose burned per second while the action is active. Positive drain,
+    /// applied on top of the activity-level BMR drain.
+    pub glucose_drain_per_sec: f32,
+    /// Carbs added to the stomach per second. Used by continuous-feed actions
+    /// like Graze where the animal is ingesting plant matter over time.
+    pub stomach_carbs_per_sec: f32,
     pub alertness_per_sec: f32,
 }
 

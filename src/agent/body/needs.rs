@@ -8,6 +8,7 @@
 use bevy::prelude::*;
 
 use crate::agent::actions::ActionType;
+use crate::agent::body::metabolism::Metabolism;
 
 /// Physical fatigue with two biologically-inspired sub-pools.
 ///
@@ -162,7 +163,9 @@ impl Stamina {
 #[derive(Component, Reflect, Debug, Clone)]
 #[reflect(Component)]
 pub struct PhysicalNeeds {
-    pub hunger: f32,      // 0-100, increases over time
+    /// Nutrient / energy loop: stomach (carbs+fat) -> glucose -> reserves.
+    /// Replaces the flat `hunger` scalar; see `metabolism.rs` for the model.
+    pub metabolism: Metabolism,
     pub thirst: f32,      // 0-100, increases over time
     pub stamina: Stamina, // two-pool physical fatigue (anaerobic + aerobic)
     pub health: f32,      // 0-100, damaged by starvation/injuries
@@ -171,11 +174,20 @@ pub struct PhysicalNeeds {
 impl Default for PhysicalNeeds {
     fn default() -> Self {
         Self {
-            hunger: 0.0,
+            metabolism: Metabolism::default(),
             thirst: 0.0,
             stamina: Stamina::default(),
             health: 100.0,
         }
+    }
+}
+
+impl PhysicalNeeds {
+    /// 0..1 hunger urgency derived from the three metabolism pools. Every
+    /// consumer of "how hungry is this agent" reads through this accessor so
+    /// the underlying pool weights stay in one place (`Metabolism::hunger_urgency`).
+    pub fn hunger_urgency(&self) -> f32 {
+        self.metabolism.hunger_urgency()
     }
 }
 
@@ -567,7 +579,13 @@ impl StateDisplay for PhysicalNeeds {
     }
     fn get_values(&self) -> Vec<(&'static str, f32, Scale)> {
         vec![
-            ("Hunger", self.hunger, Scale::Percentage),
+            (
+                "Stomach",
+                self.metabolism.stomach_fullness(),
+                Scale::Percentage,
+            ),
+            ("Glucose", self.metabolism.glucose, Scale::Percentage),
+            ("Reserves", self.metabolism.reserves, Scale::Percentage),
             ("Thirst", self.thirst, Scale::Percentage),
             ("Aerobic", self.stamina.aerobic, Scale::Percentage),
             ("Anaerobic", self.stamina.anaerobic, Scale::Percentage),

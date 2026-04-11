@@ -46,7 +46,7 @@ fn agent_with_unreachable_target_marks_it_and_replans() {
         .fill_rect(wall_tile_x, 0, 1, 32, TileType::Water)
         .agent("starver")
         .pos(Vec2::new(50.0, 50.0))
-        .hunger(85.0)
+        .hunger_urgency(0.85)
         .done()
         .berry_bushes(1, Vec2::new(200.0, 50.0))
         .build();

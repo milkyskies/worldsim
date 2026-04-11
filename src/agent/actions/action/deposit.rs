@@ -15,7 +15,7 @@ use crate::agent::actions::registry::{
 use crate::agent::brains::thinking::TriplePattern;
 use crate::agent::events::FailureReason;
 use crate::agent::mind::knowledge::{Concept, MindGraph, Node, Predicate, Triple, Value};
-use crate::constants::actions::deposit::{DURATION_TICKS, HUNGER_PER_SEC, STAMINA_PER_SEC};
+use crate::constants::actions::deposit::{DURATION_TICKS, GLUCOSE_DRAIN_PER_SEC, STAMINA_PER_SEC};
 
 pub struct DepositAction;
 
@@ -140,7 +140,7 @@ impl Action for DepositAction {
     fn runtime_effects(&self) -> RuntimeEffects {
         RuntimeEffects {
             stamina_per_sec: STAMINA_PER_SEC,
-            hunger_per_sec: HUNGER_PER_SEC,
+            glucose_drain_per_sec: GLUCOSE_DRAIN_PER_SEC,
             ..Default::default()
         }
     }

@@ -471,7 +471,10 @@ pub fn tick_actions(
             let target_inv_ptr = target_inv.as_deref_mut();
 
             // Snapshot needs before on_complete so we can compute the delta.
-            let pre_hunger = physical.hunger;
+            // Hunger is derived from the metabolism pools rather than a raw
+            // field, so we snapshot the urgency (0..1) as "pre_hunger" on a
+            // 0..100 scale to preserve the outcome event semantics.
+            let pre_hunger = physical.metabolism.hunger_urgency() * 100.0;
             let pre_thirst = physical.thirst;
             let pre_aerobic = physical.stamina.aerobic;
 
@@ -549,7 +552,8 @@ pub fn tick_actions(
 
             // Only emit a success outcome when something observable changed.
             // Walk/Idle/Wander complete with no effects — skip the allocation.
-            let hunger_reduced = pre_hunger - physical.hunger;
+            let post_hunger = physical.metabolism.hunger_urgency() * 100.0;
+            let hunger_reduced = pre_hunger - post_hunger;
             let thirst_reduced = pre_thirst - physical.thirst;
             let stamina_gained = physical.stamina.aerobic - pre_aerobic;
             if hunger_reduced > 0.0 || thirst_reduced > 0.0 || stamina_gained > 0.0 {
@@ -690,8 +694,27 @@ pub fn apply_action_effects(
                     .stamina
                     .adjust_aerobic(effects.stamina_per_sec * dt * degradation);
             }
-            physical.hunger =
-                (physical.hunger + effects.hunger_per_sec * dt * degradation).clamp(0.0, 100.0);
+
+            // Action-level glucose drain stacks on top of the activity-level
+            // BMR drain handled by `apply_activity_effects`. Each drain pushes
+            // through `Metabolism::tick`-equivalent accounting: we deduct the
+            // glucose directly because the overflow/mobilize pass already ran
+            // this tick via the activity system. Stomach fill (grazing, etc.)
+            // adds raw carbs that `activity_effects.tick` will digest next tick.
+            let drain = effects.glucose_drain_per_sec * dt * degradation;
+            if drain != 0.0 {
+                physical.metabolism.glucose = (physical.metabolism.glucose - drain)
+                    .clamp(0.0, crate::agent::body::metabolism::GLUCOSE_MAX);
+            }
+            let carbs_fill = effects.stomach_carbs_per_sec * dt * degradation;
+            if carbs_fill > 0.0 {
+                physical
+                    .metabolism
+                    .eat(crate::agent::body::metabolism::FoodMacros::new(
+                        carbs_fill, 0.0,
+                    ));
+            }
+
             consciousness.alertness = (consciousness.alertness
                 + effects.alertness_per_sec * dt * 0.01 * degradation)
                 .clamp(0.0, 1.0);

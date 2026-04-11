@@ -75,7 +75,7 @@ fn hungry_hunter_kills_and_eats_nearby_deer() {
 
     let hunter = world.spawn_agent(AgentConfig {
         pos: Vec2::new(50.0, 50.0),
-        hunger: 95.0,
+        metabolism: worldsim::agent::body::metabolism::Metabolism::at_urgency(0.95),
         knowledge: create_cultural_knowledge(Culture::Hunter),
         ..Default::default()
     });
@@ -97,7 +97,7 @@ fn hungry_hunter_kills_and_eats_nearby_deer() {
         "hunter should have eaten the meat"
     );
     assert!(
-        final_hunger < 95.0,
+        final_hunger < 0.95,
         "hunter hunger should drop after eating meat (got {final_hunger})"
     );
 
@@ -140,7 +140,7 @@ fn hungry_wolf_kills_and_eats_nearby_deer() {
             .world_mut()
             .get_mut::<PhysicalNeeds>(wolf)
             .expect("wolf should have PhysicalNeeds");
-        needs.hunger = 95.0;
+        needs.metabolism = worldsim::agent::body::metabolism::Metabolism::at_urgency(0.95);
     }
 
     world.tick(3000);
@@ -150,7 +150,7 @@ fn hungry_wolf_kills_and_eats_nearby_deer() {
         .world()
         .get::<PhysicalNeeds>(wolf)
         .expect("wolf still has needs")
-        .hunger;
+        .hunger_urgency();
 
     assert!(
         agent_started_action(&world, wolf, ActionType::Walk),
@@ -165,7 +165,7 @@ fn hungry_wolf_kills_and_eats_nearby_deer() {
         "wolf should have eaten the meat"
     );
     assert!(
-        final_hunger < 95.0,
+        final_hunger < 0.95,
         "wolf hunger should drop after eating meat (got {final_hunger})"
     );
     assert!(

@@ -10,7 +10,7 @@ use crate::agent::brains::thinking::TriplePattern;
 use crate::agent::events::FailureReason;
 use crate::agent::mind::knowledge::{Concept, MindGraph, Node, Predicate, Triple, Value};
 use crate::constants::actions::build::{
-    CAMPFIRE_DURATION_TICKS, CAMPFIRE_WOOD_REQUIRED, HUNGER_PER_SEC, STAMINA_PER_SEC,
+    CAMPFIRE_DURATION_TICKS, CAMPFIRE_WOOD_REQUIRED, GLUCOSE_DRAIN_PER_SEC, STAMINA_PER_SEC,
 };
 
 pub struct BuildAction;
@@ -117,7 +117,7 @@ impl Action for BuildAction {
     fn runtime_effects(&self) -> RuntimeEffects {
         RuntimeEffects {
             stamina_per_sec: STAMINA_PER_SEC,
-            hunger_per_sec: HUNGER_PER_SEC,
+            glucose_drain_per_sec: GLUCOSE_DRAIN_PER_SEC,
             ..Default::default()
         }
     }

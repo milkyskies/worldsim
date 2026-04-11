@@ -5,6 +5,7 @@
 //! Upstream: nothing
 //! Downstream: testing::world::TestWorld::spawn_agent
 
+use crate::agent::body::metabolism::Metabolism;
 use crate::agent::mind::knowledge::Triple;
 use crate::agent::psyche::personality::Personality;
 use bevy::math::Vec2;
@@ -17,8 +18,10 @@ pub struct AgentConfig {
     pub pos: Vec2,
     /// Optional display name for the agent. Defaults to "TestPerson" if `None`.
     pub name: Option<String>,
-    /// Hunger value (0.0 = full, 100.0 = starving).
-    pub hunger: f32,
+    /// Metabolism state at spawn. Defaults to `Metabolism::well_fed()`.
+    /// Tests that need a hungry agent use `Metabolism::at_urgency(0.8)` or
+    /// `Metabolism::empty()` for full-on starvation.
+    pub metabolism: Metabolism,
     /// Thirst value (0.0 = hydrated, 100.0 = dehydrated).
     pub thirst: f32,
     /// Stamina value (0.0 = exhausted, 100.0 = fully rested).
@@ -38,7 +41,7 @@ impl Default for AgentConfig {
         Self {
             pos: Vec2::ZERO,
             name: None,
-            hunger: 0.0,
+            metabolism: Metabolism::well_fed(),
             thirst: 0.0,
             stamina: 100.0,
             social_drive: None,

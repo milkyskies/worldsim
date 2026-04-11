@@ -39,7 +39,7 @@ fn winning_proposal_registers_as_active_plan() {
     let mut world = TestWorld::with_seed(42);
     let agent = world.spawn_agent(AgentConfig {
         pos: Vec2::new(50.0, 50.0),
-        hunger: 80.0, // high hunger to trigger Walk plan
+        metabolism: worldsim::agent::body::metabolism::Metabolism::at_urgency(0.8),
         ..Default::default()
     });
 

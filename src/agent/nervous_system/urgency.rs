@@ -83,7 +83,7 @@ pub fn generate_urgency(
         // This maps the Source (Hunger, Stamina) to the underlying Component Field.
         let get_source_value = |source: UrgencySource| -> f32 {
             match source {
-                UrgencySource::Hunger => (physical.hunger / 100.0).clamp(0.0, 1.0),
+                UrgencySource::Hunger => physical.hunger_urgency(),
                 UrgencySource::Thirst => (physical.thirst / 100.0).clamp(0.0, 1.0),
                 UrgencySource::Stamina => physical.stamina.aerobic_fraction(),
 

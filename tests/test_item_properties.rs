@@ -137,7 +137,7 @@ fn harvested_apple_has_freshness_one_and_created_at() {
         .noise_biomes(false)
         .agent("alice")
         .pos(Vec2::new(50.0, 50.0))
-        .hunger(85.0)
+        .hunger_urgency(0.85)
         .done()
         .apple_trees(1, Vec2::new(60.0, 50.0))
         .build();
