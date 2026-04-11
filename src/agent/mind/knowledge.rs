@@ -1354,6 +1354,16 @@ pub fn setup_ontology() -> Ontology {
     add(c(Berry), IsA, v(Resource));
     add(c(Berry), IsA, v(Plant));
 
+    // Spoiled fruit is still food — calorie-poor and unappetizing, but
+    // a desperate agent will eat it rather than starve. Without these
+    // IsA edges, freshness decay turned every uneaten berry/apple into
+    // dead inventory weight: agents harvested faster than they ate, the
+    // stack rotted, and `Eat.can_start` rejected the inventory because
+    // RottenBerry wasn't `IsA Food`. Result was full-inventory starvation
+    // (#416).
+    add(c(RottenApple), IsA, v(Food));
+    add(c(RottenBerry), IsA, v(Food));
+
     add(c(Meat), IsA, v(Food));
     add(c(Meat), IsA, v(Resource));
 

@@ -9,6 +9,7 @@
 use crate::agent::body::genetics::founder::random_genome;
 use crate::agent::body::species::{Species, SpeciesProfile};
 use crate::agent::mind::knowledge::{Concept, MindGraph, Ontology};
+use crate::agent::naming::deer_name;
 use crate::agent::{Agent, inventory::EntityType, item_slots::ItemSlots};
 use bevy::prelude::*;
 use rand::Rng;
@@ -42,7 +43,7 @@ pub fn spawn_deer<R: Rng>(
 
     let entity = commands
         .spawn((
-            Name::new(format!("Deer {}", index)),
+            Name::new(deer_name(index)),
             Agent, // All thinking entities have this
             Deer,  // Deer-specific marker
             EntityType(Concept::Deer),
@@ -154,7 +155,7 @@ pub fn spawn_deer<R: Rng>(
 
         // NAME TAG — direct child of root, stays still
         parent.spawn((
-            Text2d::new(format!("Deer {}", index)),
+            Text2d::new(deer_name(index)),
             TextFont {
                 font_size: 8.0,
                 ..default()

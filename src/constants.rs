@@ -81,7 +81,14 @@ pub mod actions {
     pub mod harvest {
         pub const DURATION_TICKS: u32 = 30;
         pub const STAMINA_PER_SEC: f32 = -0.2;
-        pub const GLUCOSE_DRAIN_PER_SEC: f32 = 2.0;
+        // Halved from 2.0 in #416. Original rate was tuned for an
+        // implicit world where `apply_activity_effects` was also
+        // burning BMR every tick — but that system silently no-op'd
+        // because it required `CurrentActivity` which agents don't
+        // carry, so action drains were the *only* drains. With BMR
+        // re-enabled via `tick_metabolism`, the original 2.0 + 0.2
+        // BMR put agents into starvation faster than they could eat.
+        pub const GLUCOSE_DRAIN_PER_SEC: f32 = 1.0;
     }
 
     pub mod deposit {
@@ -157,14 +164,17 @@ pub mod actions {
     pub mod explore {
         pub const BASE_COST: f32 = 3.0;
         pub const STAMINA_PER_SEC: f32 = -0.25;
-        pub const GLUCOSE_DRAIN_PER_SEC: f32 = 2.5;
+        // Halved from 2.5 in #416 (see `harvest::GLUCOSE_DRAIN_PER_SEC`
+        // for the BMR-double-drain story).
+        pub const GLUCOSE_DRAIN_PER_SEC: f32 = 1.25;
         pub const ALERTNESS_PER_SEC: f32 = 5.0;
     }
 
     pub mod wander {
         pub const BASE_COST: f32 = 5.0;
         pub const STAMINA_PER_SEC: f32 = -0.2;
-        pub const GLUCOSE_DRAIN_PER_SEC: f32 = 2.0;
+        // Halved from 2.0 in #416 (see `harvest::GLUCOSE_DRAIN_PER_SEC`).
+        pub const GLUCOSE_DRAIN_PER_SEC: f32 = 1.0;
         pub const ALERTNESS_PER_SEC: f32 = 5.0;
     }
 
@@ -191,7 +201,10 @@ pub mod actions {
     pub mod flee {
         pub const BASE_COST: f32 = 1.0;
         pub const STAMINA_PER_SEC: f32 = -0.5;
-        pub const GLUCOSE_DRAIN_PER_SEC: f32 = 3.0;
+        // Halved from 3.0 in #416 (see `harvest::GLUCOSE_DRAIN_PER_SEC`).
+        // Flee stays the highest-cost action, just at a reasonable
+        // multiple of BMR.
+        pub const GLUCOSE_DRAIN_PER_SEC: f32 = 1.5;
         pub const ALERTNESS_PER_SEC: f32 = 20.0;
     }
 

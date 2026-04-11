@@ -686,17 +686,20 @@ pub fn process_starvation(
     tick: Res<crate::core::tick::TickCount>,
     mut query: Query<&mut PhysicalNeeds>,
 ) {
+    use crate::agent::body::needs::HealthDamageSource;
     let dt = tick.dt();
 
     for mut physical in query.iter_mut() {
         if physical.metabolism.is_starving() {
             let health_damage = dt * STARVATION_DAMAGE_PER_SEC;
             physical.health = (physical.health - health_damage).clamp(0.0, 100.0);
+            physical.last_health_damage = Some(HealthDamageSource::Starvation);
         }
 
         if physical.thirst >= 90.0 {
             let health_damage = dt * 0.3;
             physical.health = (physical.health - health_damage).clamp(0.0, 100.0);
+            physical.last_health_damage = Some(HealthDamageSource::Dehydration);
         }
     }
 }
@@ -746,10 +749,18 @@ pub fn check_death(
 ) {
     for (entity, physical, name) in query.iter() {
         if physical.health <= 0.0 {
+            // Read the source that was damaging health when it hit zero.
+            // `None` shouldn't happen in practice — health only drops via
+            // the systems that stamp it — but fall back to a neutral label
+            // if some future system drains health without marking why.
+            let cause = physical
+                .last_health_damage
+                .map(|s| s.as_cause())
+                .unwrap_or("unknown health drain");
             die(
                 &mut commands,
                 entity,
-                "starvation/dehydration/injury",
+                cause,
                 tick.current,
                 &mut game_log,
                 &mut sim_events,

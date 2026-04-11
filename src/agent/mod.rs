@@ -12,6 +12,7 @@ pub mod inventory;
 pub mod item_slots;
 pub mod mind;
 pub mod movement;
+pub mod naming;
 pub mod nervous_system;
 pub mod psyche;
 pub mod skills;
@@ -74,6 +75,7 @@ impl Plugin for AgentPlugin {
             .register_type::<actions::ActiveActions>()
             .insert_resource(actions::ActionRegistry::new())
             .init_resource::<crate::core::SimRng>()
+            .init_resource::<naming::NameCounters>()
             .add_message::<events::GameEvent>()
             .add_message::<events::ActionOutcomeEvent>()
             .add_message::<events::SimEvent>()

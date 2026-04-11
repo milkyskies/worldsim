@@ -750,6 +750,7 @@ mod threat_tests {
             thirst: 0.0,
             stamina: Stamina::default(),
             health: 100.0,
+            last_health_damage: None,
         }
     }
 
@@ -843,6 +844,7 @@ mod threat_tests {
             thirst: 0.0,
             stamina: Stamina::default(),
             health: 0.0,
+            last_health_damage: None,
         };
         let score = assess_threat(&personality, &needs, None);
         assert!(score <= 1.0, "score {score} should be clamped to ≤1.0");

@@ -106,7 +106,16 @@ impl Default for ActivityConfig {
                 name: "Base Metabolism".to_string(),
                 effects: ActivityEffects {
                     stamina_change: -0.15,
-                    glucose_drain: 0.2,
+                    // BMR — basal metabolic rate, drained every tick by
+                    // `tick_metabolism` for every agent regardless of what
+                    // they're doing. Halved from 0.2 in #416 to slow the
+                    // background march toward starvation: at 0.2 a fully-
+                    // stocked agent with 700 fuel units burns through their
+                    // reserves in ~58 minutes (real-world wallclock at 60
+                    // tps), leaving very little margin for slow eating
+                    // cadences. 0.1 doubles that runway and matches the
+                    // "agents should be able to nap and not die" feel.
+                    glucose_drain: 0.1,
                     ..Default::default()
                 },
             },

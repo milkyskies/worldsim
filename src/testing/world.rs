@@ -546,6 +546,18 @@ impl TestWorld {
         // MinimalPlugins gives us TaskPool, Time, ScheduleRunner — no rendering.
         app.add_plugins(MinimalPlugins);
 
+        // TransformPlugin runs `propagate_transforms` in PostUpdate so that
+        // `GlobalTransform` tracks `Transform`. Without this, every entity's
+        // `GlobalTransform` is stuck at the identity (origin) forever and any
+        // system that reads `GlobalTransform` for a world position sees
+        // `(0, 0, 0)` — which is how the brain's target enumeration reported
+        // every harvestable resource as being at tile `(0, 0)`, turning every
+        // Harvest plan into a `Walk → PathBlocked { target_tile: (0, 0) }`
+        // loop that ultimately starved the default sim (#416). Agents
+        // navigate on `Transform` so they *appear* to move; only systems
+        // reading `GlobalTransform` saw the bug.
+        app.add_plugins(bevy::transform::TransformPlugin);
+
         // Resources normally provided by plugins we deliberately exclude:
         // - SpawnerPlugin (Ontology, plus startup population we don't want)
         // - MapPlugin (WorldMap, plus tile sprite spawning)
@@ -931,6 +943,26 @@ impl TestWorld {
             .map(|(e, _)| e)
     }
 
+    /// Finds an agent entity by its Bevy entity-id string (e.g. `"0v0"`,
+    /// `"19v0"`). This format matches `format!("{entity:?}")` so it lines up
+    /// with the `agent_id` field in the JSONL event log. Returns `None` if
+    /// no agent with that id exists.
+    pub fn find_agent_by_entity_id(&mut self, id: &str) -> Option<Entity> {
+        let world = self.app.world_mut();
+        let mut query = world.query_filtered::<Entity, With<Agent>>();
+        query
+            .iter(world)
+            .find(|e| format!("{e:?}").eq_ignore_ascii_case(id))
+    }
+
+    /// Convenience: try entity-id lookup first (fast, exact), then fall back
+    /// to name lookup. Used by all inspection CLI commands so users can pass
+    /// either form and get the same behavior.
+    pub fn find_agent(&mut self, selector: &str) -> Option<Entity> {
+        self.find_agent_by_entity_id(selector)
+            .or_else(|| self.find_agent_by_name(selector))
+    }
+
     // ─── Convenience queries ───────────────────────────────────────────────
 
     /// True if `agent` has at least one Knows triple about `other`.
@@ -1085,16 +1117,43 @@ impl TestWorld {
             );
         }
 
-        // Physical needs
+        // Physical needs — show the underlying metabolism pools, not just
+        // the abstract hunger_urgency() roll-up. The roll-up hides whether
+        // an agent is actually starving (low glucose+reserves) vs just
+        // running on an empty stomach with full backup.
         if let Some(needs) = world.get::<PhysicalNeeds>(agent) {
+            let m = &needs.metabolism;
+            let starving = if m.is_starving() { "  STARVING" } else { "" };
             eprintln!(
-                "  Needs:     hunger={:.2}  thirst={:.1}  aerobic={:.1}  anaerobic={:.1}  health={:.1}",
-                needs.hunger_urgency(),
-                needs.thirst,
-                needs.stamina.aerobic,
-                needs.stamina.anaerobic,
-                needs.health
+                "  Vitals:    health={:.1}  thirst={:.1}  stamina(a/an)={:.1}/{:.1}",
+                needs.health, needs.thirst, needs.stamina.aerobic, needs.stamina.anaerobic
             );
+            eprintln!(
+                "  Metabolism: stomach(c/f)={:.1}/{:.1}  glucose={:.1}/100  reserves={:.0}/500  hunger={:.2}{}",
+                m.stomach_carbs,
+                m.stomach_fat,
+                m.glucose,
+                m.reserves,
+                needs.hunger_urgency(),
+                starving
+            );
+            if let Some(src) = needs.last_health_damage {
+                eprintln!("  Last damage: {:?}", src);
+            }
+        }
+
+        // Inventory
+        if let Some(inv) = world.get::<crate::agent::item_slots::ItemSlots>(agent) {
+            let items: Vec<String> = inv
+                .group_by_concept()
+                .into_iter()
+                .map(|(c, q)| format!("{c:?}×{q}"))
+                .collect();
+            if items.is_empty() {
+                eprintln!("  Inventory: (empty)");
+            } else {
+                eprintln!("  Inventory: [{}]", items.join(", "));
+            }
         }
 
         // Consciousness

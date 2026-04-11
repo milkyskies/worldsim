@@ -25,7 +25,15 @@ impl Plugin for NervousSystemPlugin {
             .add_systems(
                 Update,
                 (
-                    activity_effects::apply_activity_effects,
+                    // BMR drain + stomach digestion + glucose/reserves
+                    // overflow runs every tick for every agent with
+                    // PhysicalNeeds. Lives separately from
+                    // apply_activity_effects so agents that don't carry
+                    // the legacy `CurrentActivity` component still
+                    // metabolize (#416).
+                    activity_effects::tick_metabolism,
+                    activity_effects::apply_activity_effects
+                        .after(activity_effects::tick_metabolism),
                     // Territoriality reads MindGraph, which is written by
                     // write_perceptions_to_mind. Without this explicit edge Bevy
                     // may schedule the goals chain before perception, producing

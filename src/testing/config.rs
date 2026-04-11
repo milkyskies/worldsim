@@ -16,7 +16,9 @@ use bevy::math::Vec2;
 pub struct AgentConfig {
     /// World position the agent spawns at.
     pub pos: Vec2,
-    /// Optional display name for the agent. Defaults to "TestPerson" if `None`.
+    /// Optional display name override. When `None`, the agent is assigned a
+    /// unique name from the shared `NameCounters` resource (see
+    /// `crate::agent::naming`).
     pub name: Option<String>,
     /// Metabolism state at spawn. Defaults to `Metabolism::well_fed()`.
     /// Tests that need a hungry agent use `Metabolism::at_urgency(0.8)` or

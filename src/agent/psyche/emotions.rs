@@ -731,6 +731,7 @@ mod tests {
             thirst: 0.0,
             stamina: Stamina::default(),
             health: 100.0,
+            last_health_damage: None,
         }
     }
 

@@ -28,6 +28,7 @@ use crate::agent::mind::memory::WorkingMemory;
 use crate::agent::mind::perception::{VisibleObjects, Vision};
 use crate::agent::mind::recognition::initialize_relationship_with_affection;
 use crate::agent::movement::MovementState;
+use crate::agent::naming::NameCounters;
 use crate::agent::nervous_system::cns::CentralNervousSystem;
 use crate::agent::psyche::emotions::EmotionalState;
 use crate::agent::skills::Skills;
@@ -53,7 +54,7 @@ pub(super) fn spawn_test_person(
     let display_name = config
         .name
         .clone()
-        .unwrap_or_else(|| "TestPerson".to_string());
+        .unwrap_or_else(|| world.resource_mut::<NameCounters>().next_human());
 
     let cultural_knowledge = Arc::new(create_cultural_knowledge(Culture::default()));
 
@@ -72,6 +73,7 @@ pub(super) fn spawn_test_person(
                     ..Default::default()
                 },
                 health: 100.0,
+                last_health_damage: None,
             },
             cultural_knowledge,
             extra_knowledge: config.knowledge,
@@ -114,9 +116,10 @@ pub(super) fn spawn_test_deer(
     let mut mind = MindGraph::new(ontology);
     crate::world::deer::add_deer_knowledge(&mut mind);
 
+    let display_name = world.resource_mut::<NameCounters>().next_deer();
     world
         .spawn((
-            Name::new("TestDeer"),
+            Name::new(display_name),
             Agent,
             Deer,
             EntityType(Concept::Deer),
@@ -173,9 +176,10 @@ pub(super) fn spawn_test_wolf(
     let mut mind = MindGraph::new(ontology);
     crate::world::wolf::add_wolf_knowledge(&mut mind, spawn_tile);
 
+    let display_name = world.resource_mut::<NameCounters>().next_wolf();
     world
         .spawn((
-            Name::new("TestWolf"),
+            Name::new(display_name),
             Agent,
             Wolf,
             EntityType(Concept::Wolf),

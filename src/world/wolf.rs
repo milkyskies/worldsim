@@ -12,6 +12,7 @@ use crate::agent::body::species::{Species, SpeciesProfile};
 use crate::agent::inventory::EntityType;
 use crate::agent::item_slots::ItemSlots;
 use crate::agent::mind::knowledge::{Concept, MindGraph, Ontology};
+use crate::agent::naming::wolf_name;
 use crate::world::map::TILE_SIZE;
 use bevy::prelude::*;
 use rand::Rng;
@@ -46,7 +47,7 @@ pub fn spawn_wolf<R: Rng>(
 
     let entity = commands
         .spawn((
-            Name::new(format!("Wolf {}", index)),
+            Name::new(wolf_name(index)),
             Agent,
             Wolf,
             EntityType(Concept::Wolf),
@@ -181,7 +182,7 @@ pub fn spawn_wolf<R: Rng>(
 
         // Name tag — direct child of root, stays still
         parent.spawn((
-            Text2d::new(format!("Wolf {}", index)),
+            Text2d::new(wolf_name(index)),
             TextFont {
                 font_size: 8.0,
                 ..default()

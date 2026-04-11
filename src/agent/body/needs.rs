@@ -158,6 +158,28 @@ impl Stamina {
     }
 }
 
+/// What damaged the agent's `health` most recently. Stamped by any system
+/// that writes a negative delta into `PhysicalNeeds.health`; read by
+/// `check_death` to label the corresponding `SimEvent::Death.cause`.
+/// This is the one-hop "what killed you" signal — no duplicate threshold
+/// logic at the death site, no drift if damage rules change. (#416)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Reflect)]
+pub enum HealthDamageSource {
+    Starvation,
+    Dehydration,
+    Exertion,
+}
+
+impl HealthDamageSource {
+    pub fn as_cause(self) -> &'static str {
+        match self {
+            HealthDamageSource::Starvation => "starvation",
+            HealthDamageSource::Dehydration => "dehydration",
+            HealthDamageSource::Exertion => "exhaustion",
+        }
+    }
+}
+
 /// Physical needs - THE source of truth for survival needs
 /// All agents have this
 #[derive(Component, Reflect, Debug, Clone)]
@@ -169,6 +191,12 @@ pub struct PhysicalNeeds {
     pub thirst: f32,      // 0-100, increases over time
     pub stamina: Stamina, // two-pool physical fatigue (anaerobic + aerobic)
     pub health: f32,      // 0-100, damaged by starvation/injuries
+    /// Most recent non-combat source that damaged `health`. `None` until
+    /// anything ticks health down. Injury / combat deaths skip
+    /// `check_death` entirely (combat.rs emits `SimEvent::Death`
+    /// directly) so this field only tracks the drain-style killers.
+    #[reflect(ignore)]
+    pub last_health_damage: Option<HealthDamageSource>,
 }
 
 impl Default for PhysicalNeeds {
@@ -178,6 +206,7 @@ impl Default for PhysicalNeeds {
             thirst: 0.0,
             stamina: Stamina::default(),
             health: 100.0,
+            last_health_damage: None,
         }
     }
 }

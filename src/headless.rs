@@ -212,32 +212,37 @@ pub fn run_headless(config: HeadlessConfig) -> HeadlessReport {
 }
 
 /// Execute all inspection commands against the current world state.
+///
+/// Selector strings accept either a display `Name` (case-insensitive) or a
+/// Bevy entity-id string like `"0v0"` / `"19v0"` — the latter matches the
+/// `agent_id` field in the JSONL event log so you can round-trip from a
+/// filtered log line straight to `--inspect`.
 fn run_inspection(world: &mut TestWorld, inspect: &InspectConfig) {
-    for agent_name in &inspect.inspect_agents {
-        match world.find_agent_by_name(agent_name) {
+    for selector in &inspect.inspect_agents {
+        match world.find_agent(selector) {
             Some(entity) => {
                 world.print_agent_state(entity);
                 world.print_brain_decision(entity);
             }
             None => {
-                eprintln!("inspect: no agent named {agent_name:?} found");
+                eprintln!("inspect: no agent matching {selector:?} found");
             }
         }
     }
 
-    for agent_name in &inspect.dump_mind_agents {
-        match world.find_agent_by_name(agent_name) {
+    for selector in &inspect.dump_mind_agents {
+        match world.find_agent(selector) {
             Some(entity) => {
                 world.print_mind_graph(entity);
             }
             None => {
-                eprintln!("dump-mind: no agent named {agent_name:?} found");
+                eprintln!("dump-mind: no agent matching {selector:?} found");
             }
         }
     }
 
     for q in &inspect.queries {
-        match world.find_agent_by_name(&q.agent) {
+        match world.find_agent(&q.agent) {
             Some(entity) => {
                 let results = world.query_knowledge(entity, &q.text);
                 eprintln!(
@@ -251,7 +256,7 @@ fn run_inspection(world: &mut TestWorld, inspect: &InspectConfig) {
                 }
             }
             None => {
-                eprintln!("query: no agent named {:?} found", q.agent);
+                eprintln!("query: no agent matching {:?} found", q.agent);
             }
         }
     }

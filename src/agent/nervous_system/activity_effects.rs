@@ -13,6 +13,40 @@ use crate::agent::psyche::personality::Personality;
 use crate::core::TickCount;
 use bevy::prelude::*;
 
+/// Per-tick metabolism update for **all** agents with `PhysicalNeeds`,
+/// regardless of whether they carry a `CurrentActivity` component.
+///
+/// `apply_activity_effects` below requires `&CurrentActivity`, but real
+/// agents in this codebase don't actually carry that component — it's a
+/// legacy single-action marker that the multi-action `ActiveActions`
+/// system replaced. Without this system, `Metabolism::tick_with_mods`
+/// was never called on any spawned agent: stomachs never digested,
+/// reserves never refilled from food, and agents starved with full
+/// stomachs (#416). Action-level glucose drain in
+/// `execution::tick_actions` was running fine, but the missing
+/// digestion + reserve mobilization left the metabolism stuck.
+///
+/// This system runs at the BMR baseline only — activity drain stays in
+/// `tick_actions` where the action's per-tick costs already live, and
+/// activity-specific stat drift (mood etc.) stays in
+/// `apply_activity_effects` for the rare entities that do carry
+/// `CurrentActivity`. The mobilization pass at the end of
+/// `tick_actions` still runs.
+pub fn tick_metabolism(
+    activity_config: Res<ActivityConfig>,
+    tick: Res<TickCount>,
+    mut query: Query<(&mut PhysicalNeeds, Option<&Body>)>,
+) {
+    let dt = tick.dt();
+    let bmr_drain = activity_config.base.effects.glucose_drain;
+    for (mut physical, body) in query.iter_mut() {
+        let organ_mods = body.map(Body::organ_mods).unwrap_or_default();
+        physical
+            .metabolism
+            .tick_with_mods(dt, bmr_drain, 0.0, organ_mods);
+    }
+}
+
 /// System to apply activity effects to agent state each tick
 /// Effects are scaled to per-second rates but applied per-tick
 pub fn apply_activity_effects(
@@ -93,6 +127,10 @@ pub fn apply_activity_effects(
         // Health
         let d_health = (base_config.health_change + config.health_change) * dt;
         physical.health = (physical.health + d_health).clamp(0.0, max_stat);
+        if d_health < 0.0 {
+            physical.last_health_damage =
+                Some(crate::agent::body::needs::HealthDamageSource::Exertion);
+        }
 
         // --- CONSCIOUSNESS (0-1) ---
         let d_alertness = (base_config.alertness_change + config.alertness_change) * (dt * 0.01); // 0-100 rate to 0-1

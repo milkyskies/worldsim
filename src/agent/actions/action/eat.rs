@@ -85,8 +85,15 @@ impl Action for EatAction {
             .map(|t| t.concept);
         if let Some(concept) = concept {
             let macros = food_macros(concept).unwrap_or(FALLBACK_MEAL);
-            ctx.physical.metabolism.eat(macros);
-            ctx.inventory.remove(concept, 1);
+            // Only consume the inventory item if the metabolism actually
+            // accepted the food. A full stomach returns false from
+            // `eat()` and the item stays put, ready for when the agent
+            // has digested enough to make room. Without this guard a
+            // hungry-but-already-full agent silently threw away one
+            // berry per Eat tick (#416).
+            if ctx.physical.metabolism.eat(macros) {
+                ctx.inventory.remove(concept, 1);
+            }
         }
 
         // Meals still grant a small stamina boost (fast glucose bolt).

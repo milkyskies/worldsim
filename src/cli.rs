@@ -76,9 +76,13 @@ pub struct CliArgs {
     pub wolves: Option<usize>,
 
     /// Enable decision trace logging. Use "all" to trace all agents or
-    /// "agent:<name>" (e.g. "agent:alice") to trace a specific agent.
-    /// Trace output is written to stderr (text) or the file set by
-    /// --trace-file (JSONL). Only meaningful in --headless mode.
+    /// "agent:<selector>" (e.g. "agent:alice" or "agent:0v0") to trace a
+    /// specific agent. The selector accepts either a display name
+    /// (case-insensitive) or a Bevy entity-id string — the latter matches
+    /// the `agent_id` field in the JSONL event log so you can copy an id
+    /// straight from a log line. Trace output is written to stderr (text)
+    /// or the file set by --trace-file (JSONL). Only meaningful in
+    /// --headless mode.
     #[arg(long)]
     pub trace: Option<String>,
 
@@ -103,23 +107,29 @@ pub struct CliArgs {
     pub log: Option<String>,
 
     /// Filter events written to --log. Can be repeated; all filters must pass.
-    /// Formats: agent:<name>  type:<T1,T2>  tick:<start>-<end>
+    /// Formats:
+    ///   agent:<selector>   (display name or entity id, e.g. "alice", "0v0")
+    ///   type:<T1,T2>
+    ///   tick:<start>-<end>
     #[arg(long = "log-filter")]
     pub log_filter: Vec<String>,
 
-    /// Print a full agent state snapshot at --at-tick. Format: agent:<name>.
-    /// Can be repeated to inspect multiple agents.
+    /// Print a full agent state snapshot at --at-tick. Format:
+    /// `agent:<selector>` where selector is a display name or entity id
+    /// (e.g. `agent:alice`, `agent:0v0`). Can be repeated to inspect
+    /// multiple agents.
     #[arg(long)]
     pub inspect: Vec<String>,
 
-    /// Print an agent's full MindGraph at --at-tick. Format: agent:<name>.
-    /// Can be repeated.
+    /// Print an agent's full MindGraph at --at-tick. Format:
+    /// `agent:<selector>` — see `--inspect` for selector rules. Can be
+    /// repeated.
     #[arg(long = "dump-mind")]
     pub dump_mind: Vec<String>,
 
     /// Search an agent's MindGraph by text at --at-tick.
-    /// Format: "<agent-name> <query-text>" (first word is the agent name).
-    /// Can be repeated.
+    /// Format: "<selector> <query-text>" where selector is a display name or
+    /// entity id (the first whitespace-separated token). Can be repeated.
     #[arg(long)]
     pub query: Vec<String>,
 

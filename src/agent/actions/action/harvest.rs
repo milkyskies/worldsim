@@ -98,30 +98,54 @@ impl Action for HarvestAction {
             return false;
         };
 
-        // 1. Do we know it produces anything?
-        // Query: (Target, Produces, ?Item)
-        let produced_items = mind.query(
-            Some(&Node::Entity(target_entity)),
-            Some(Predicate::Produces),
-            None,
-        );
+        // 1. Collect everything we believe the target produces — first
+        //    the direct entity-level facts (e.g. "this specific bush has
+        //    berries, I just saw them") and then the type-level fallback
+        //    via IsA (e.g. "this is a BerryBush, and all BerryBushes
+        //    produce berries"). The type-level path is what lets agents
+        //    act on a freshly-perceived entity before they've actually
+        //    observed its inventory. (#416)
+        let mut produced: Vec<Value> = mind
+            .query(
+                Some(&Node::Entity(target_entity)),
+                Some(Predicate::Produces),
+                None,
+            )
+            .into_iter()
+            .map(|t| t.object.clone())
+            .collect();
 
-        if produced_items.is_empty() {
+        if produced.is_empty() {
+            let type_triples = mind.query(
+                Some(&Node::Entity(target_entity)),
+                Some(Predicate::IsA),
+                None,
+            );
+            for triple in type_triples {
+                if let Value::Concept(concept) = triple.object {
+                    let type_produced = mind.query(
+                        Some(&Node::Concept(concept)),
+                        Some(Predicate::Produces),
+                        None,
+                    );
+                    produced.extend(type_produced.into_iter().map(|t| t.object.clone()));
+                }
+            }
+        }
+
+        if produced.is_empty() {
             return false; // Don't know it produces anything
         }
 
         // 2. Is any produced item useful (Food or Resource)?
-        // We verify if the produced Concept IsA Food or Resource
-        for triple in produced_items {
-            if let Value::Item(concept, _) = triple.object
-                && (mind.is_a(&Node::Concept(concept), Concept::Food)
-                    || mind.is_a(&Node::Concept(concept), Concept::Resource))
-            {
-                return true;
+        produced.iter().any(|value| {
+            if let Value::Item(concept, _) = value {
+                mind.is_a(&Node::Concept(*concept), Concept::Food)
+                    || mind.is_a(&Node::Concept(*concept), Concept::Resource)
+            } else {
+                false
             }
-        }
-
-        false
+        })
     }
 
     // Per-tick effects while harvesting
