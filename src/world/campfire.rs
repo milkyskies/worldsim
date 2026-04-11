@@ -9,6 +9,7 @@ use crate::agent::inventory::EntityType;
 use crate::agent::item_slots::{ItemSlots, Slot, Thing};
 use crate::agent::mind::knowledge::Concept;
 use crate::world::emits_effect::{EffectKind, EmitsEffect};
+use crate::world::environment::CampfireGlowSprite;
 use crate::world::map::TILE_SIZE;
 use crate::world::property::{FuelConsumer, HeatSource, LightSource};
 use bevy::prelude::*;
@@ -114,6 +115,19 @@ pub fn spawn_campfire(commands: &mut Commands, position: Vec2) -> Entity {
                     ..default()
                 },
                 Transform::from_translation(Vec3::new(0.0, 0.0, 0.1)),
+            ));
+
+            // Night glow — large warm circle that brightens the area at night.
+            // Alpha is driven by CampfireGlowSprite system; starts at 0 (daytime).
+            // Size matches the LightSource radius defined in campfire_components.
+            parent.spawn((
+                CampfireGlowSprite,
+                Sprite {
+                    color: Color::srgba(1.0, 0.6, 0.2, 0.0),
+                    custom_size: Some(Vec2::splat(160.0)), // 2× LightSource radius (80.0)
+                    ..default()
+                },
+                Transform::from_translation(Vec3::new(0.0, 0.0, -0.1)),
             ));
         })
         .id()

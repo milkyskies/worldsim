@@ -3,6 +3,7 @@
 use crate::agent::body::needs::PhysicalNeeds;
 use crate::agent::mind::knowledge::Ontology;
 use crate::agent::spawn_human::{PersonInit, build_person_logic};
+use crate::world::environment::{AgentBodySprite, BaseColor};
 use bevy::prelude::*;
 
 /// Spawns a Person (Human Agent)
@@ -89,6 +90,8 @@ pub fn spawn_person(
                         custom_size: Some(Vec2::new(10.0, 12.0)),
                         ..default()
                     },
+                    BaseColor(skin_color),
+                    AgentBodySprite,
                     Transform::from_translation(Vec3::new(0.0, -2.0, 0.0)),
                 ));
 
@@ -99,6 +102,8 @@ pub fn spawn_person(
                         custom_size: Some(Vec2::new(10.0, 10.0)),
                         ..default()
                     },
+                    BaseColor(skin_color),
+                    AgentBodySprite,
                     Transform::from_translation(Vec3::new(0.0, 9.0, 0.1)),
                 ))
                 .with_children(|head| {
