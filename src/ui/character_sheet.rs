@@ -237,7 +237,7 @@ fn character_sheet_system(world: &mut World) {
             ui.separator();
 
             // Tab content
-            egui::ScrollArea::vertical()
+            egui::ScrollArea::both()
                 .auto_shrink([false, false])
                 .show(ui, |ui| match new_tab {
                     CharSheetTab::Overview => render_overview(ui, world, entity),
