@@ -187,16 +187,23 @@ fn apply_strike(
 
     let mut vital_organ_destroyed: Option<OrganKind> = None;
     if let Some(part) = defender_body.part_mut(part_kind) {
-        let severity = (damage / part.max_hp).clamp(0.0, 1.0);
+        // Combat applies damage directly to current_hp. The existing
+        // `BodyPart::add_injury` path uses a severity-scaled drop
+        // (`severity * 20`) which was designed before a damage layer
+        // existed - routing through it would cap each hit at a 20x
+        // fraction of its real damage, and a deer would never die.
+        part.current_hp = (part.current_hp - damage).max(0.0);
+        let severity = (damage / part.max_hp.max(1.0)).clamp(0.0, 1.0);
         let pain = severity * PAIN_PER_SEVERITY;
         let bleed_rate = severity * bleed_coefficient(injury_type);
-        part.add_injury(Injury {
+        part.injuries.push(Injury {
             injury_type,
             severity,
             pain,
             bleed_rate,
             healed_amount: 0.0,
         });
+        part.recalculate_function();
 
         if !part.organs.is_empty() && rng.random::<f32>() < organ_chance(injury_type) {
             let idx = rng.random_range(0..part.organs.len());

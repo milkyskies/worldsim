@@ -608,6 +608,11 @@ pub fn process_healing(
                 let severity = part.injuries[*index].severity;
                 let scar_damage = severity * 2.0;
                 part.max_hp = (part.max_hp - scar_damage).max(1.0);
+                // Scarring shrinks max_hp. If regen had already refilled
+                // current_hp up to the pre-scar maximum, clamp it back
+                // down — otherwise current_hp stays stranded above the
+                // new max_hp forever and trips the body invariant.
+                part.current_hp = part.current_hp.min(part.max_hp);
 
                 part.injuries.remove(*index);
             }
