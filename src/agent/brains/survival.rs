@@ -354,8 +354,10 @@ mod tests {
     fn sleep_wake_trigger_rouses_sleeping_agent() {
         let ontology = setup_ontology();
         let physical = tired_needs();
-        let mut cns = CentralNervousSystem::default();
-        cns.sleep_wake_trigger = Some(UrgencySource::Fear);
+        let cns = CentralNervousSystem {
+            sleep_wake_trigger: Some(UrgencySource::Fear),
+            ..Default::default()
+        };
         let context = context_with_urgency(&physical, &cns);
 
         let inventory = crate::agent::item_slots::ItemSlots::agent_carry();
@@ -417,8 +419,10 @@ mod tests {
         // the ladder proposes nothing.
         let ontology = setup_ontology();
         let physical = PhysicalNeeds::default();
-        let mut cns = CentralNervousSystem::default();
-        cns.sleep_wake_trigger = Some(UrgencySource::Fear);
+        let cns = CentralNervousSystem {
+            sleep_wake_trigger: Some(UrgencySource::Fear),
+            ..Default::default()
+        };
         let context = context_with_urgency(&physical, &cns);
 
         let inventory = crate::agent::item_slots::ItemSlots::agent_carry();
