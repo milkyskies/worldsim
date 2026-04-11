@@ -49,10 +49,18 @@ use crate::world::severed_part::spawn_severed_part;
 // TUNABLES
 // ════════════════════════════════════════════════════════════════════════════
 
-const FIST_DAMAGE_MIN: f32 = 6.0;
-const FIST_DAMAGE_MAX: f32 = 12.0;
-const BITE_DAMAGE_MIN: f32 = 12.0;
-const BITE_DAMAGE_MAX: f32 = 22.0;
+// Fist damage: a punch from a human should break ribs and crack
+// skulls, not tickle. Real-world studies clock trained boxing strikes
+// at >1000 N of force; a level-0 untrained human at the low end still
+// ranges 10-20 HP per hit against a 50-80 HP body part. A four-hit
+// kill on an unarmored target is about right for an unarmed fistfight.
+const FIST_DAMAGE_MIN: f32 = 10.0;
+const FIST_DAMAGE_MAX: f32 = 20.0;
+// Bite damage: wolf jaws clamp at ~1500 PSI on prey. A single decent
+// bite should significantly injure prey; two or three from a real
+// pack kills a deer.
+const BITE_DAMAGE_MIN: f32 = 18.0;
+const BITE_DAMAGE_MAX: f32 = 32.0;
 
 /// Attacker Combat skill multiplier: level 0.0 → 0.7x, level 1.0 → 1.3x.
 const SKILL_MULT_BASE: f32 = 0.7;
