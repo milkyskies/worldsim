@@ -40,9 +40,10 @@ impl Action for GroomAction {
     }
 
     fn posture(&self) -> Option<Posture> {
-        // Grooming is a seated / standing-still behaviour — you don't
-        // preen feathers mid-flight.
-        Some(Posture::Stationary)
+        // Posture-agnostic. Dogs scratch while walking, birds preen
+        // while hopping, humans fidget with a sleeve mid-stride. The
+        // action is about self-care, not about being planted.
+        None
     }
 
     fn runtime_effects(&self) -> RuntimeEffects {

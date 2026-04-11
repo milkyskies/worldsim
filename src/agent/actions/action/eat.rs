@@ -40,8 +40,13 @@ impl Action for EatAction {
     }
 
     fn posture(&self) -> Option<Posture> {
-        // Sit-and-eat. The Moving variant is Graze, a separate action.
-        Some(Posture::Stationary)
+        // Posture-agnostic. Munching a berry while walking is normal —
+        // humans snack on the move, deer nibble a fruit mid-stride, a
+        // wolf chews a bite of meat while trotting. Graze is a separate
+        // fused walk-and-eat for grass tiles specifically (continuous
+        // consumption of a terrain resource), not the general "I have
+        // food in hand" eating path.
+        None
     }
 
     // Planning: Need to have food to eat
