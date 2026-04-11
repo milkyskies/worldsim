@@ -1108,7 +1108,11 @@ impl TestWorld {
                 };
                 eprintln!(
                     "    {:<10}  hp={:.0}/{:.0}  fn={:.2}{}",
-                    part.name, part.current_hp, part.max_hp, part.function_rate, injury_str
+                    part.name(),
+                    part.current_hp,
+                    part.max_hp,
+                    part.function_rate,
+                    injury_str
                 );
             }
         }

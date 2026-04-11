@@ -204,6 +204,7 @@ fn pain_wakes_sleeping_agent() {
                 severity: 0.1,
                 pain: 10.0,
                 healed_amount: 0.0,
+                bleed_rate: 0.0,
             });
         }
     }

@@ -9,7 +9,7 @@ use bevy::ecs::world::World;
 use bevy::prelude::*;
 
 use crate::agent::Agent;
-use crate::agent::biology::body::Body;
+use crate::agent::biology::body::{Body, BodyPartKind};
 use crate::agent::body::needs::{Consciousness, PhysicalNeeds, PsychologicalDrives};
 use crate::agent::mind::conversation::{ConversationState, InConversation};
 use crate::agent::psyche::emotions::EmotionalState;
@@ -259,7 +259,7 @@ mod tests {
         let mut world = TestWorld::new();
         let agent = world.spawn_agent(AgentConfig::default());
         let mut body = world.get_mut::<Body>(agent);
-        body.part_mut("head")
+        body.part_mut(BodyPartKind::Head)
             .expect("human body has head")
             .function_rate = 1.5;
         assert_invariants(world.app_mut().world_mut());

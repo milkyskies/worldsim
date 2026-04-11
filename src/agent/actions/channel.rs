@@ -294,7 +294,7 @@ impl ChannelLoad {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::agent::biology::body::{Injury, InjuryType};
+    use crate::agent::biology::body::{BodyPartKind, Injury, InjuryType};
 
     fn req(c: Channel, i: f32) -> ChannelUsage {
         ChannelUsage::new(c, i)
@@ -321,9 +321,13 @@ mod tests {
 
     /// Push two severe head injuries to cross the 0.2 incapacitation threshold.
     fn incapacitate(body: &mut Body) {
-        let head = body.part_mut("head").expect("human body has head");
+        let head = body
+            .part_mut(BodyPartKind::Head)
+            .expect("human body has head");
         injure(head, 1.0);
-        let head = body.part_mut("head").expect("human body has head");
+        let head = body
+            .part_mut(BodyPartKind::Head)
+            .expect("human body has head");
         injure(head, 1.0);
         assert!(body.is_incapacitated());
     }
@@ -482,7 +486,9 @@ mod tests {
     #[test]
     fn broken_leg_reduces_locomotion_capacity() {
         let mut body = Body::human();
-        let leg = body.part_mut("left leg").expect("human body has left leg");
+        let leg = body
+            .part_mut(BodyPartKind::LeftLeg)
+            .expect("human body has left leg");
         injure(leg, 1.0);
         // channel_capacity takes the best part, so the healthy right leg
         // still returns 0.5 (its provided intensity).
@@ -494,7 +500,7 @@ mod tests {
     fn broken_arm_reduces_manipulation_capacity() {
         let mut body = Body::human();
         let arm = body
-            .part_mut("right arm")
+            .part_mut(BodyPartKind::RightArm)
             .expect("human body has right arm");
         injure(arm, 1.0);
         // With additive capability, losing one arm halves Manipulation to
@@ -506,7 +512,9 @@ mod tests {
             "expected 0.5 after one broken arm, got {one_arm}"
         );
 
-        let arm = body.part_mut("left arm").expect("human body has left arm");
+        let arm = body
+            .part_mut(BodyPartKind::LeftArm)
+            .expect("human body has left arm");
         injure(arm, 1.0);
         let cap_both = Channel::Manipulation.max_capacity(Some(&body), None);
         assert!(
@@ -657,7 +665,7 @@ mod tests {
     fn channel_capacities_compute_matches_per_channel_max_capacity() {
         use crate::agent::body::needs::Stamina;
         let mut body = Body::human();
-        let leg = body.part_mut("left leg").unwrap();
+        let leg = body.part_mut(BodyPartKind::LeftLeg).unwrap();
         injure(leg, 0.5);
         let physical = PhysicalNeeds {
             stamina: Stamina {
