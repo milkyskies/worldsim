@@ -306,6 +306,7 @@ mod tests {
             severity,
             pain: 5.0,
             healed_amount: 0.0,
+            bleed_rate: 0.0,
         });
     }
 

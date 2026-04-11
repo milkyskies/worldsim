@@ -1,4 +1,5 @@
 pub mod body;
+pub mod combat;
 
 use crate::agent::Agent;
 use crate::agent::body::species::SpeciesProfile;
@@ -11,6 +12,7 @@ impl Plugin for BiologyPlugin {
     fn build(&self, app: &mut App) {
         app.register_type::<body::Body>()
             .register_type::<body::BodyPart>()
+            .register_type::<body::BodyPartKind>()
             .register_type::<body::Injury>()
             .register_type::<body::InjuryType>()
             .register_type::<body::Organ>()
@@ -21,6 +23,12 @@ impl Plugin for BiologyPlugin {
                     setup_biology,
                     (body::process_starvation, body::check_death).chain(),
                     body::process_healing,
+                    // Combat resolution runs after action execution so it
+                    // can read this frame's ActionCompleted messages.
+                    combat::resolve_combat_hits
+                        .after(crate::agent::nervous_system::execution::tick_actions),
+                    combat::bleed_system,
+                    combat::severance_system.after(combat::resolve_combat_hits),
                 ),
             );
     }

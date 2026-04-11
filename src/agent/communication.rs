@@ -418,6 +418,7 @@ fn drop_stale_initiate(
                 agent: initiator,
                 tick,
                 action: ActionType::InitiateConversation,
+                target: None,
             });
         }
         DropKind::Abandon { reason } => {

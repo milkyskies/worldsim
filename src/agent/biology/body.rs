@@ -52,24 +52,32 @@ impl Body {
     pub fn human() -> Self {
         Self {
             parts: vec![
-                BodyPart::vital("head", 50.0, vec![(Channel::Cognition, 1.0)])
+                BodyPart::vital(BodyPartKind::Head, 50.0, vec![(Channel::Cognition, 1.0)])
                     .with_organs(head_organs()),
-                BodyPart::vital("torso", 100.0, vec![(Channel::FullBody, 1.0)])
+                BodyPart::vital(BodyPartKind::Torso, 100.0, vec![(Channel::FullBody, 1.0)])
                     .with_organs(torso_organs()),
                 BodyPart::new(
-                    "left arm",
+                    BodyPartKind::LeftArm,
                     60.0,
                     vec![(Channel::Manipulation, 0.5), (Channel::Carry, 0.25)],
                 ),
                 BodyPart::new(
-                    "right arm",
+                    BodyPartKind::RightArm,
                     60.0,
                     vec![(Channel::Manipulation, 0.5), (Channel::Carry, 0.25)],
                 ),
-                BodyPart::new("left leg", 70.0, vec![(Channel::Locomotion, 0.5)]),
-                BodyPart::new("right leg", 70.0, vec![(Channel::Locomotion, 0.5)]),
                 BodyPart::new(
-                    "mouth",
+                    BodyPartKind::LeftLeg,
+                    70.0,
+                    vec![(Channel::Locomotion, 0.5)],
+                ),
+                BodyPart::new(
+                    BodyPartKind::RightLeg,
+                    70.0,
+                    vec![(Channel::Locomotion, 0.5)],
+                ),
+                BodyPart::new(
+                    BodyPartKind::Mouth,
                     30.0,
                     vec![(Channel::Consumption, 1.0), (Channel::Vocalization, 1.0)],
                 ),
@@ -84,16 +92,32 @@ impl Body {
     pub fn wolf() -> Self {
         Self {
             parts: vec![
-                BodyPart::vital("head", 50.0, vec![(Channel::Cognition, 0.6)])
+                BodyPart::vital(BodyPartKind::Head, 50.0, vec![(Channel::Cognition, 0.6)])
                     .with_organs(head_organs()),
-                BodyPart::vital("torso", 100.0, vec![(Channel::FullBody, 1.0)])
+                BodyPart::vital(BodyPartKind::Torso, 100.0, vec![(Channel::FullBody, 1.0)])
                     .with_organs(torso_organs()),
-                BodyPart::new("front left leg", 55.0, vec![(Channel::Locomotion, 0.3)]),
-                BodyPart::new("front right leg", 55.0, vec![(Channel::Locomotion, 0.3)]),
-                BodyPart::new("back left leg", 55.0, vec![(Channel::Locomotion, 0.3)]),
-                BodyPart::new("back right leg", 55.0, vec![(Channel::Locomotion, 0.3)]),
                 BodyPart::new(
-                    "jaws",
+                    BodyPartKind::LeftForeleg,
+                    55.0,
+                    vec![(Channel::Locomotion, 0.3)],
+                ),
+                BodyPart::new(
+                    BodyPartKind::RightForeleg,
+                    55.0,
+                    vec![(Channel::Locomotion, 0.3)],
+                ),
+                BodyPart::new(
+                    BodyPartKind::LeftHindleg,
+                    55.0,
+                    vec![(Channel::Locomotion, 0.3)],
+                ),
+                BodyPart::new(
+                    BodyPartKind::RightHindleg,
+                    55.0,
+                    vec![(Channel::Locomotion, 0.3)],
+                ),
+                BodyPart::new(
+                    BodyPartKind::Jaws,
                     40.0,
                     vec![
                         (Channel::Manipulation, 0.4),
@@ -112,16 +136,32 @@ impl Body {
     pub fn deer() -> Self {
         Self {
             parts: vec![
-                BodyPart::vital("head", 40.0, vec![(Channel::Cognition, 0.4)])
+                BodyPart::vital(BodyPartKind::Head, 40.0, vec![(Channel::Cognition, 0.4)])
                     .with_organs(head_organs()),
-                BodyPart::vital("torso", 80.0, vec![(Channel::FullBody, 1.0)])
+                BodyPart::vital(BodyPartKind::Torso, 80.0, vec![(Channel::FullBody, 1.0)])
                     .with_organs(torso_organs()),
-                BodyPart::new("front left leg", 50.0, vec![(Channel::Locomotion, 0.3)]),
-                BodyPart::new("front right leg", 50.0, vec![(Channel::Locomotion, 0.3)]),
-                BodyPart::new("back left leg", 50.0, vec![(Channel::Locomotion, 0.3)]),
-                BodyPart::new("back right leg", 50.0, vec![(Channel::Locomotion, 0.3)]),
                 BodyPart::new(
-                    "mouth",
+                    BodyPartKind::LeftForeleg,
+                    50.0,
+                    vec![(Channel::Locomotion, 0.3)],
+                ),
+                BodyPart::new(
+                    BodyPartKind::RightForeleg,
+                    50.0,
+                    vec![(Channel::Locomotion, 0.3)],
+                ),
+                BodyPart::new(
+                    BodyPartKind::LeftHindleg,
+                    50.0,
+                    vec![(Channel::Locomotion, 0.3)],
+                ),
+                BodyPart::new(
+                    BodyPartKind::RightHindleg,
+                    50.0,
+                    vec![(Channel::Locomotion, 0.3)],
+                ),
+                BodyPart::new(
+                    BodyPartKind::Mouth,
                     25.0,
                     vec![(Channel::Consumption, 1.0), (Channel::Vocalization, 0.3)],
                 ),
@@ -145,12 +185,12 @@ impl Body {
         self.parts.iter()
     }
 
-    pub fn part(&self, name: &str) -> Option<&BodyPart> {
-        self.parts.iter().find(|p| p.name == name)
+    pub fn part(&self, kind: BodyPartKind) -> Option<&BodyPart> {
+        self.parts.iter().find(|p| p.kind == kind)
     }
 
-    pub fn part_mut(&mut self, name: &str) -> Option<&mut BodyPart> {
-        self.parts.iter_mut().find(|p| p.name == name)
+    pub fn part_mut(&mut self, kind: BodyPartKind) -> Option<&mut BodyPart> {
+        self.parts.iter_mut().find(|p| p.kind == kind)
     }
 
     /// Sum of pain across every part, weighted by unhealed severity.
@@ -277,6 +317,52 @@ fn torso_organs() -> Vec<Organ> {
     ]
 }
 
+/// Typed identifier for every anatomical part any species can carry.
+///
+/// Using an enum instead of a `String` makes part lookups cheap, typo-free,
+/// and makes `SimEvent` variants that reference parts `Copy`-able without
+/// allocating. New parts (tail, wings, tentacles) land as new variants.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect)]
+pub enum BodyPartKind {
+    // Vital structure — every species has these.
+    Head,
+    Torso,
+    // Biped limbs.
+    LeftArm,
+    RightArm,
+    LeftLeg,
+    RightLeg,
+    // Quadruped limbs.
+    LeftForeleg,
+    RightForeleg,
+    LeftHindleg,
+    RightHindleg,
+    // Feeding / combat appendages.
+    Mouth,
+    Jaws,
+}
+
+impl BodyPartKind {
+    /// Human-readable label used by the UI and by event-log serialisation.
+    /// Kept here so every consumer renders the same words for the same part.
+    pub fn display_name(self) -> &'static str {
+        match self {
+            BodyPartKind::Head => "head",
+            BodyPartKind::Torso => "torso",
+            BodyPartKind::LeftArm => "left arm",
+            BodyPartKind::RightArm => "right arm",
+            BodyPartKind::LeftLeg => "left leg",
+            BodyPartKind::RightLeg => "right leg",
+            BodyPartKind::LeftForeleg => "front left leg",
+            BodyPartKind::RightForeleg => "front right leg",
+            BodyPartKind::LeftHindleg => "back left leg",
+            BodyPartKind::RightHindleg => "back right leg",
+            BodyPartKind::Mouth => "mouth",
+            BodyPartKind::Jaws => "jaws",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Reflect)]
 pub enum InjuryType {
     Cut,
@@ -284,6 +370,15 @@ pub enum InjuryType {
     Fracture,
     Burn,
     Infection,
+    /// Pointed weapons (arrows, spears, claws, fangs). Deep, narrow wounds
+    /// with a high chance of reaching internal organs and a heavy bleed.
+    Pierce,
+    /// Edged weapons (swords, claws, large fangs). Wide wounds with the
+    /// highest bleed rate but less organ penetration than Pierce.
+    Slash,
+    /// Blunt weapons (fists, maces, hooves, falls). Damages bone and soft
+    /// tissue without bleeding much; the main consequence is function loss.
+    Crush,
 }
 
 /// Species-agnostic organ kinds carried inside a [`BodyPart`]. Each entry is
@@ -375,11 +470,28 @@ pub struct Injury {
     pub severity: f32,      // 0.0 to 1.0 (1.0 = Max severity)
     pub pain: f32,          // 0.0 to 10.0
     pub healed_amount: f32, // 0.0 to 1.0 (1.0 = Fully healed)
+    /// Ongoing HP loss per second from open wounds. Zero for crush/bruise,
+    /// larger for slash/pierce. Decays to zero as `healed_amount` climbs so
+    /// a clotting wound stops bleeding before it fully closes.
+    pub bleed_rate: f32,
+}
+
+impl Injury {
+    /// Effective bleeding rate after accounting for clotting / healing.
+    /// Stops entirely once the wound is half-healed (a realistic crude
+    /// clotting model — platelets beat the clock on the full healing curve).
+    pub fn effective_bleed(&self) -> f32 {
+        if self.healed_amount >= 0.5 {
+            0.0
+        } else {
+            self.bleed_rate * (1.0 - self.healed_amount * 2.0)
+        }
+    }
 }
 
 #[derive(Debug, Clone, Reflect)]
 pub struct BodyPart {
-    pub name: String,
+    pub kind: BodyPartKind,
     #[reflect(ignore)]
     pub provides: Vec<(Channel, f32)>,
     /// Losing a vital part (head / torso) incapacitates the whole body.
@@ -395,9 +507,9 @@ pub struct BodyPart {
 }
 
 impl BodyPart {
-    pub fn new(name: impl Into<String>, max_hp: f32, provides: Vec<(Channel, f32)>) -> Self {
+    pub fn new(kind: BodyPartKind, max_hp: f32, provides: Vec<(Channel, f32)>) -> Self {
         Self {
-            name: name.into(),
+            kind,
             provides,
             vital: false,
             max_hp,
@@ -408,10 +520,15 @@ impl BodyPart {
         }
     }
 
-    pub fn vital(name: impl Into<String>, max_hp: f32, provides: Vec<(Channel, f32)>) -> Self {
-        let mut part = Self::new(name, max_hp, provides);
+    pub fn vital(kind: BodyPartKind, max_hp: f32, provides: Vec<(Channel, f32)>) -> Self {
+        let mut part = Self::new(kind, max_hp, provides);
         part.vital = true;
         part
+    }
+
+    /// Human-readable label for UI / logs. Shortcut for `kind.display_name()`.
+    pub fn name(&self) -> &'static str {
+        self.kind.display_name()
     }
 
     /// Builder: attach a set of organs to this part. Used in the species
@@ -630,7 +747,7 @@ mod organ_tests {
     fn human_has_expected_organs_in_head_and_torso() {
         let body = Body::human();
 
-        let head = body.part("head").expect("human has a head");
+        let head = body.part(BodyPartKind::Head).expect("human has a head");
         let head_kinds: Vec<OrganKind> = head.organs.iter().map(|o| o.kind).collect();
         assert_eq!(
             head_kinds,
@@ -642,7 +759,7 @@ mod organ_tests {
             ]
         );
 
-        let torso = body.part("torso").expect("human has a torso");
+        let torso = body.part(BodyPartKind::Torso).expect("human has a torso");
         let torso_kinds: Vec<OrganKind> = torso.organs.iter().map(|o| o.kind).collect();
         assert_eq!(
             torso_kinds,
@@ -655,7 +772,9 @@ mod organ_tests {
             ]
         );
 
-        let left_arm = body.part("left arm").expect("human has a left arm");
+        let left_arm = body
+            .part(BodyPartKind::LeftArm)
+            .expect("human has a left arm");
         assert!(
             left_arm.organs.is_empty(),
             "limbs carry no organs in MVP, got {:?}",

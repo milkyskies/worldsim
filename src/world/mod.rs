@@ -8,9 +8,11 @@ pub mod deer;
 pub mod emits_effect;
 pub mod environment;
 pub mod human;
+pub mod liquid;
 pub mod map;
 pub mod property;
 pub mod sense_sources;
+pub mod severed_part;
 pub mod spatial_index;
 pub mod spawn;
 pub mod spawn_config;
@@ -35,7 +37,9 @@ impl Plugin for WorldPlugin {
             .add_plugins(environment::EnvironmentPlugin)
             .add_plugins(spatial_index::SpatialIndexPlugin)
             .add_plugins(spawner::SpawnerPlugin)
-            .add_plugins(property::OntologyDerivationPlugin);
+            .add_plugins(property::OntologyDerivationPlugin)
+            .add_plugins(liquid::LiquidPlugin)
+            .add_plugins(severed_part::SeveredPartPlugin);
     }
 }
 

@@ -122,6 +122,7 @@ pub enum Concept {
     Stick,
     Meat,
     Corpse,
+    SeveredPart,
 
     // ─── Rotten / spoiled variants ───
     RottenApple,

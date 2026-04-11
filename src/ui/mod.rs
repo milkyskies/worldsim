@@ -910,7 +910,7 @@ fn agent_viewer_ui_for_agent(world: &mut World, entity: Entity, ui: &mut egui::U
                     ui.end_row();
 
                     for part in body.parts() {
-                        ui.label(&part.name);
+                        ui.label(part.name());
                         let hp = part.current_hp / part.max_hp;
                         let color = if hp < 0.5 {
                             Color32::RED

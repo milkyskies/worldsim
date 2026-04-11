@@ -577,6 +577,7 @@ pub fn tick_actions(
                 agent: entity,
                 tick: current_tick,
                 action: *action_type,
+                target: snapshot.target_entity,
             });
 
             if let Some(msg) = action_def.complete_log() {
