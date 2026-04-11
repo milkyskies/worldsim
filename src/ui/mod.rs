@@ -96,10 +96,10 @@ fn controls_panel_system(world: &mut World) {
 
             ui.horizontal(|ui| {
                 let pause_text = if paused { "▶" } else { "⏸" };
-                if ui.button(pause_text).clicked() {
-                    if let Some(mut tick_res) = world.get_resource_mut::<crate::core::TickCount>() {
-                        tick_res.paused = !tick_res.paused;
-                    }
+                if ui.button(pause_text).clicked()
+                    && let Some(mut tick_res) = world.get_resource_mut::<crate::core::TickCount>()
+                {
+                    tick_res.paused = !tick_res.paused;
                 }
                 if paused {
                     ui.colored_label(egui::Color32::RED, "PAUSED");
@@ -121,12 +121,11 @@ fn controls_panel_system(world: &mut World) {
                     } else {
                         btn
                     };
-                    if ui.add(btn).clicked() {
-                        if let Some(mut tick_res) =
+                    if ui.add(btn).clicked()
+                        && let Some(mut tick_res) =
                             world.get_resource_mut::<crate::core::TickCount>()
-                        {
-                            tick_res.ticks_per_second = rate;
-                        }
+                    {
+                        tick_res.ticks_per_second = rate;
                     }
                 }
             });

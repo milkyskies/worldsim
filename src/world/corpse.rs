@@ -93,12 +93,11 @@ pub fn kill_into_corpse(commands: &mut Commands, entity: Entity, meat_qty: u32) 
                 .iter(world)
                 .find(|(_, sb)| sb.root == entity)
                 .map(|(e, _)| e);
-            if let Some(sb_entity) = sb_entity {
-                if let Ok(mut sb_mut) = world.get_entity_mut(sb_entity) {
-                    if let Some(mut transform) = sb_mut.get_mut::<Transform>() {
-                        transform.rotation = Quat::from_rotation_z(rotation_z);
-                    }
-                }
+            if let Some(sb_entity) = sb_entity
+                && let Ok(mut sb_mut) = world.get_entity_mut(sb_entity)
+                && let Some(mut transform) = sb_mut.get_mut::<Transform>()
+            {
+                transform.rotation = Quat::from_rotation_z(rotation_z);
             }
         }
 
