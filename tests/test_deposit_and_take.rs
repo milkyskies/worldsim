@@ -47,6 +47,7 @@ fn run_on_complete(
         inventory,
         drives: None,
         mind: &mind,
+        skills: None,
         target_inventory,
         target_entity: None,
         tick: 0,

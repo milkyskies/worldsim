@@ -1,6 +1,6 @@
 //! Parallel action execution - ticks every running action independently.
 //!
-//! Reads: BrainState (chosen actions), PhysicalNeeds, Inventory, WorldMap, Body
+//! Reads: BrainState (chosen actions), PhysicalNeeds, Inventory, WorldMap, Body, Skills
 //! Writes: ActiveActions, PhysicalNeeds, Inventory, TargetPosition, ActionOutcomeEvent, SimEvent
 //! Upstream: brains::arbitration (BrainState), actions::registry (Action definitions)
 //! Downstream: mind::belief_updater (ActionOutcomeEvent), ui (GameLog), SimEvent consumers
@@ -303,6 +303,7 @@ pub fn tick_actions(
         Option<&mut crate::agent::body::needs::PsychologicalDrives>,
         Option<&Body>,
         &crate::agent::mind::knowledge::MindGraph,
+        Option<&crate::agent::skills::Skills>,
     )>,
     mut target_inventories: Query<&mut ItemSlots, Without<PhysicalNeeds>>,
     living_entities: Query<()>,
@@ -320,6 +321,7 @@ pub fn tick_actions(
         mut drives,
         body,
         mind,
+        skills,
     ) in agents.iter_mut()
     {
         // Snapshot the load and capacities at the start of the tick. Capacities
@@ -466,6 +468,7 @@ pub fn tick_actions(
                 inventory: &mut inventory,
                 drives: drives.as_deref_mut(),
                 mind,
+                skills,
                 target_inventory: target_inv_ptr,
                 target_entity: snapshot.target_entity,
                 tick: current_tick,

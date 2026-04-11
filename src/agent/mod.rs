@@ -15,6 +15,7 @@ pub mod mind;
 pub mod movement;
 pub mod nervous_system;
 pub mod psyche;
+pub mod skills;
 pub mod spawn_human;
 
 pub mod subject;
@@ -66,6 +67,9 @@ impl Plugin for AgentPlugin {
             .register_type::<psyche::emotions::EmotionConfig>()
             .init_resource::<psyche::emotions::EmotionConfig>()
             .register_type::<mind::knowledge::MindGraph>()
+            .register_type::<skills::Skills>()
+            .register_type::<skills::SkillsConfig>()
+            .init_resource::<skills::SkillsConfig>()
             .register_type::<actions::ActiveActions>()
             .insert_resource(actions::ActionRegistry::new())
             .init_resource::<crate::core::SimRng>()
@@ -170,6 +174,12 @@ impl Plugin for AgentPlugin {
                     psyche::relationships::decay_relationships,
                     psyche::flocking::decay_social_from_proximity
                         .after(brains::brain_system::three_brains_system),
+                    // Skills: reward practice after action completion, then
+                    // decay disused skills once per game day. Progression
+                    // runs after the execution systems so this frame's
+                    // ActionCompleted messages are visible.
+                    skills::skill_progression_system.after(nervous_system::execution::tick_actions),
+                    skills::decay_skills_system,
                 )
                     .run_if(not_paused),
             )

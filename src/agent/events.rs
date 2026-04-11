@@ -330,6 +330,16 @@ pub enum SimEvent {
         /// The entity that emitted the effect (campfire, hostile zone, etc.)
         source: Entity,
     },
+
+    /// An agent's proficiency in a skill changed — practice, mentorship,
+    /// or disuse decay. Fired once per meaningful delta.
+    SkillChanged {
+        agent: Entity,
+        tick: u64,
+        skill: crate::agent::skills::SkillKind,
+        old_value: f32,
+        new_value: f32,
+    },
 }
 
 /// Which relationship dimension changed.

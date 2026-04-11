@@ -84,6 +84,7 @@ pub fn spawn_deer(
             crate::agent::body::needs::PsychologicalDrives::default(),
             crate::agent::actions::ActiveActions::default(),
             crate::agent::psyche::emotions::EmotionalState::default(),
+            crate::agent::skills::Skills::default(),
         ))
         .id();
 

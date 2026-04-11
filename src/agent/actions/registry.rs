@@ -198,6 +198,11 @@ pub struct CompletionContext<'a> {
     /// beliefs about the target — e.g. Attack/Bite check
     /// `has_trait(target, Prey)` to gate the hunt-kill path.
     pub mind: &'a crate::agent::mind::knowledge::MindGraph,
+    /// The agent's learned skills (read-only). Lets actions scale their
+    /// outcome by competence — e.g. Harvest yields more per action when
+    /// `Skills::level(Harvesting)` is high. Writes happen in the separate
+    /// `skill_progression_system`, not here.
+    pub skills: Option<&'a crate::agent::skills::Skills>,
     /// Target entity's inventory (for Harvest, etc.)
     pub target_inventory: Option<&'a mut crate::agent::item_slots::ItemSlots>,
     /// Target entity

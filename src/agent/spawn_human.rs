@@ -33,6 +33,7 @@ use crate::agent::nervous_system::cns::CentralNervousSystem;
 use crate::agent::psyche::emotions::EmotionalState;
 use crate::agent::psyche::personality::Personality;
 use crate::agent::psyche::relationships::RelationshipHistory;
+use crate::agent::skills::Skills;
 use crate::agent::{Agent, Person, TargetPosition};
 use crate::world::Physical;
 
@@ -80,6 +81,7 @@ pub struct PersonBrainBundle {
     pub active_plans: ActivePlans,
     pub relationships: RelationshipHistory,
     pub theory_of_mind: TheoryOfMind,
+    pub skills: Skills,
 }
 
 /// Inputs that vary between spawn paths. Anything not in here is fixed
@@ -183,6 +185,7 @@ pub fn build_person_logic(
         active_plans: ActivePlans::default(),
         relationships: RelationshipHistory::default(),
         theory_of_mind: TheoryOfMind::default(),
+        skills: Skills::default(),
     };
 
     (core, perception, brain)
