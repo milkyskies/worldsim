@@ -1,9 +1,9 @@
 //! Communication: parallel Bevy plugin that runs conversations as a continuous channel.
 //!
-//! Reads: PsychologicalDrives, Transform, ActiveActions, MindGraph, TheoryOfMind, EmotionalState, Personality, RationalBrain
-//! Writes: ConversationManager, InConversation, ActiveActions (Converse marker), MindGraph (Hearsay), TheoryOfMind, Commitments (verbal commitments), GameEvent, SimEvent
-//! Upstream: agent::mind::conversation (data types), agent::actions (channel marker), agent::mind::theory_of_mind, agent::commitment
-//! Downstream: psyche::relationships (consumes SocialInteraction), nervous_system::cns (reads Commitments for goal formulation)
+//! Reads: PsychologicalDrives, Transform, ActiveActions, MindGraph, TheoryOfMind, EmotionalState, Personality, PlanMemory
+//! Writes: ConversationManager, InConversation, ActiveActions (Converse marker), MindGraph (Hearsay), TheoryOfMind, PlanMemory (verbal commitment plans), GameEvent, SimEvent
+//! Upstream: agent::mind::conversation (data types), agent::actions (channel marker), agent::mind::theory_of_mind, agent::brains::plan_memory
+//! Downstream: psyche::relationships (consumes SocialInteraction), nervous_system::cns (reads PlanMemory for commitment-driven goals)
 //!
 //! # Architecture
 //!
@@ -41,11 +41,9 @@ use crate::agent::Agent;
 use crate::agent::actions::registry::{ActionState, ActiveActions};
 use crate::agent::actions::types::ActionType;
 use crate::agent::body::needs::Consciousness;
-use crate::agent::brains::active_plan::ActivePlans;
+use crate::agent::brains::plan_memory::{HeldPlan, PlanMemory, PlanSource, PlanState};
 use crate::agent::brains::proposal::Intent as BrainIntent;
-use crate::agent::brains::rational::RationalBrain;
-use crate::agent::brains::thinking::Goal;
-use crate::agent::commitment::Commitments;
+use crate::agent::brains::thinking::{Goal, TriplePattern};
 use crate::agent::events::{ConversationTopic, FailureReason, GameEvent, SimEvent};
 use crate::agent::mind::conversation::{
     Conversation, ConversationAbandoned, ConversationManager, ConversationState, InConversation,
@@ -157,7 +155,7 @@ pub fn process_initiate_conversation(
     in_conversations: Query<&InConversation, With<Agent>>,
     mut active_actions: Query<(Entity, &mut ActiveActions), With<Agent>>,
     mut target_positions: Query<&mut crate::agent::TargetPosition>,
-    mut active_plans_query: Query<&mut ActivePlans>,
+    mut plan_memory_query: Query<&mut PlanMemory>,
 ) {
     // Pass 1: snapshot which initiators want what partner. Doing this in a
     // separate pass releases the active_actions borrow before mutation.
@@ -190,7 +188,7 @@ pub fn process_initiate_conversation(
                 now,
                 DropKind::Complete,
                 &mut active_actions,
-                &mut active_plans_query,
+                &mut plan_memory_query,
                 &mut sim_events,
             );
             continue;
@@ -204,7 +202,7 @@ pub fn process_initiate_conversation(
                     reason: FailureReason::NoTarget,
                 },
                 &mut active_actions,
-                &mut active_plans_query,
+                &mut plan_memory_query,
                 &mut sim_events,
             );
             continue;
@@ -217,7 +215,7 @@ pub fn process_initiate_conversation(
                     reason: FailureReason::TargetGone,
                 },
                 &mut active_actions,
-                &mut active_plans_query,
+                &mut plan_memory_query,
                 &mut sim_events,
             );
             continue;
@@ -263,7 +261,7 @@ pub fn process_initiate_conversation(
                         reason: FailureReason::TargetGone,
                     },
                     &mut active_actions,
-                    &mut active_plans_query,
+                    &mut plan_memory_query,
                     &mut sim_events,
                 );
                 continue;
@@ -276,7 +274,7 @@ pub fn process_initiate_conversation(
                         reason: FailureReason::Interrupted,
                     },
                     &mut active_actions,
-                    &mut active_plans_query,
+                    &mut plan_memory_query,
                     &mut sim_events,
                 );
                 continue;
@@ -291,7 +289,7 @@ pub fn process_initiate_conversation(
                         reason: FailureReason::ConversationFull,
                     },
                     &mut active_actions,
-                    &mut active_plans_query,
+                    &mut plan_memory_query,
                     &mut sim_events,
                 );
                 continue;
@@ -321,8 +319,22 @@ pub fn process_initiate_conversation(
                 active.insert(ActionState::new(ActionType::Converse, now));
             }
         }
-        if let Ok(mut plans) = active_plans_query.get_mut(initiator) {
-            plans.complete(BrainIntent::SatisfySocial);
+        // Drop any plan whose cursor is still pointing at InitiateConversation —
+        // we've just graduated it into a live Converse, the plan is done.
+        if let Ok(mut memory) = plan_memory_query.get_mut(initiator) {
+            let doomed: Vec<_> = memory
+                .plans
+                .iter()
+                .filter(|p| {
+                    p.current()
+                        .map(|a| a.action_type == ActionType::InitiateConversation)
+                        .unwrap_or(false)
+                })
+                .map(|p| p.id)
+                .collect();
+            for id in doomed {
+                memory.remove(id);
+            }
         }
         if is_new
             && let Ok((_, mut active)) = active_actions.get_mut(partner)
@@ -375,11 +387,29 @@ fn drop_stale_initiate(
     tick: u64,
     kind: DropKind,
     active_actions: &mut Query<(Entity, &mut ActiveActions), With<Agent>>,
-    active_plans_query: &mut Query<&mut ActivePlans>,
+    plan_memory_query: &mut Query<&mut PlanMemory>,
     sim_events: &mut MessageWriter<SimEvent>,
 ) {
     if let Ok((_, mut active)) = active_actions.get_mut(initiator) {
         active.remove(ActionType::InitiateConversation);
+    }
+
+    // Drop any held plan whose current step is InitiateConversation so a
+    // stalled-out approach doesn't leave a stale plan lingering in memory.
+    if let Ok(mut memory) = plan_memory_query.get_mut(initiator) {
+        let doomed: Vec<_> = memory
+            .plans
+            .iter()
+            .filter(|p| {
+                p.current()
+                    .map(|a| a.action_type == ActionType::InitiateConversation)
+                    .unwrap_or(false)
+            })
+            .map(|p| p.id)
+            .collect();
+        for id in doomed {
+            memory.remove(id);
+        }
     }
 
     match kind {
@@ -389,9 +419,6 @@ fn drop_stale_initiate(
                 tick,
                 action: ActionType::InitiateConversation,
             });
-            if let Ok(mut plans) = active_plans_query.get_mut(initiator) {
-                plans.complete(BrainIntent::SatisfySocial);
-            }
         }
         DropKind::Abandon { reason } => {
             sim_events.write(SimEvent::ActionFailed {
@@ -400,16 +427,12 @@ fn drop_stale_initiate(
                 action: ActionType::InitiateConversation,
                 reason,
             });
-            if let Ok(mut plans) = active_plans_query.get_mut(initiator)
-                && let Some((intent, action)) = plans.abandon(BrainIntent::SatisfySocial, tick)
-            {
-                sim_events.write(SimEvent::PlanAbandoned {
-                    agent: initiator,
-                    tick,
-                    action,
-                    intent,
-                });
-            }
+            sim_events.write(SimEvent::PlanAbandoned {
+                agent: initiator,
+                tick,
+                action: ActionType::InitiateConversation,
+                intent: BrainIntent::SatisfySocial,
+            });
         }
     }
 }
@@ -422,6 +445,77 @@ impl EntityCommand for RemoveConverseMarker {
             active.remove(ActionType::Converse);
         }
     }
+}
+
+/// Pick the "most committed" plan in the agent's memory to seed
+/// conversation content. Preference order: Executing > Considering >
+/// Background; ties broken by commitment value. Returns a clone of the
+/// plan's goal so the caller can hold it without blocking memory access.
+fn most_committed_goal(memory: &PlanMemory) -> Option<Goal> {
+    let priority_state = |state: PlanState| match state {
+        PlanState::Executing => 3,
+        PlanState::Considering => 2,
+        PlanState::Background => 1,
+        PlanState::Suspended => 0,
+    };
+    memory
+        .plans
+        .iter()
+        .max_by(|a, b| {
+            priority_state(a.state).cmp(&priority_state(b.state)).then(
+                a.commitment
+                    .partial_cmp(&b.commitment)
+                    .unwrap_or(std::cmp::Ordering::Equal),
+            )
+        })
+        .map(|p| p.goal.clone())
+}
+
+/// Insert or refresh a `VerbalCommitment` plan in the agent's memory.
+/// Replaces the old `Commitments::add` (#63) — the plan concept is the
+/// thing the speaker just verbally committed to, `listener` is the
+/// partner they promised to.
+///
+/// If a matching verbal-commitment plan already exists for the concept,
+/// just bump its `last_touched` so the #329 announcement bonus fires on
+/// the next tick. Otherwise insert a fresh Background plan with the
+/// concept as its goal.
+fn upsert_verbal_commitment(memory: &mut PlanMemory, concept: Concept, listener: Entity, now: u64) {
+    let existing_id = memory
+        .plans
+        .iter()
+        .find(|p| p.source.is_verbal_commitment() && p.goal.target_concept() == Some(concept))
+        .map(|p| p.id);
+    if let Some(id) = existing_id {
+        if let Some(plan) = memory.get_mut(id) {
+            plan.last_touched = now;
+        }
+        return;
+    }
+    let goal = Goal {
+        conditions: vec![TriplePattern::new(
+            Some(Node::Self_),
+            Some(Predicate::Contains),
+            Some(Value::Item(concept, 1)),
+        )],
+        priority: 0.5,
+    };
+    let id = memory.mint_plan_id();
+    memory.insert(HeldPlan {
+        id,
+        goal,
+        steps: Vec::new(),
+        state: PlanState::Background,
+        commitment: 0.0,
+        subjective_cost: 0.0,
+        source: PlanSource::VerbalCommitment {
+            promised_to: listener,
+            agreement_tick: now,
+        },
+        created_at: now,
+        last_touched: now,
+        current_step: 0,
+    });
 }
 
 // ============================================================================
@@ -444,9 +538,8 @@ pub fn select_turn_intent(
     tick: Res<TickCount>,
     minds: Query<&MindGraph>,
     toms: Query<&TheoryOfMind>,
-    rational_brains: Query<&RationalBrain>,
     personalities: Query<&Personality>,
-    mut commitments_query: Query<&mut Commitments>,
+    mut plan_memories: Query<&mut PlanMemory>,
     mut consciousnesses: Query<&mut Consciousness>,
 ) {
     let now = tick.current;
@@ -475,10 +568,14 @@ pub fn select_turn_intent(
             continue;
         };
         let speaker_tom = toms.get(speaker).ok();
-        let goal = rational_brains
+        // Pick the speaker's highest-commitment held plan as the "goal"
+        // that shapes content selection and the verbal-commitment hook.
+        // Executing plans come first, then Considering, then Background.
+        let speaker_goal: Option<Goal> = plan_memories
             .get(speaker)
             .ok()
-            .and_then(|b| b.current_goal.as_ref());
+            .and_then(|memory| most_committed_goal(&memory));
+        let goal = speaker_goal.as_ref();
         let personality = personalities.get(speaker).ok();
 
         let has_deliberate = !crate::agent::mind::deliberate_talk::pick_deliberate_content(
@@ -547,18 +644,17 @@ pub fn select_turn_intent(
 
         // Verbal commitment: whenever the speaker brings up their active
         // goal in conversation — sharing progress, asking for help, or
-        // answering a question about it — they verbally commit to it. The
-        // commitment is stored on the speaker's [`Commitments`] component
-        // AND broadcast as a triple so listeners remember what was promised.
-        //
-        // The broadcast triple's subject is `Entity(speaker)` (not `Self_`)
-        // because listeners store it in their own MindGraph, where `Self_`
-        // would incorrectly resolve to the listener.
+        // answering a question about it — they verbally commit to it.
+        // We express the commitment by upserting a Background HeldPlan in
+        // the speaker's PlanMemory with `VerbalCommitment` source; the
+        // commitment's `last_touched` drives the #329 announcement bonus
+        // on any pre-existing plan targeting the same concept, and a
+        // broadcast triple lands in listener minds as before.
         if matches!(intent, Intent::Share | Intent::Ask | Intent::Answer)
             && let Some(goal_concept) = goal.and_then(Goal::target_concept)
         {
-            if let Ok(mut commitments) = commitments_query.get_mut(speaker) {
-                commitments.add(goal_concept, now);
+            if let Ok(mut memory) = plan_memories.get_mut(speaker) {
+                upsert_verbal_commitment(&mut memory, goal_concept, primary_listener, now);
             }
             content.push(Triple::with_meta(
                 Node::Entity(speaker),
