@@ -16,7 +16,7 @@
 //! preempts it (interruptive end).
 
 use crate::agent::actions::ActionType;
-use crate::agent::actions::channel::{Channel, ChannelUsage};
+use crate::agent::actions::channel::{Channel, ChannelUsage, Posture};
 use crate::agent::actions::registry::{Action, ActionKind, RuntimeEffects};
 
 pub struct ConverseAction;
@@ -40,6 +40,12 @@ impl Action for ConverseAction {
     fn body_channels(&self) -> &'static [ChannelUsage] {
         const CHANNELS: &[ChannelUsage] = &[ChannelUsage::new(Channel::Vocalization, 0.6)];
         CHANNELS
+    }
+
+    fn posture(&self) -> Option<Posture> {
+        // Posture-agnostic: humans talk mid-walk, deer call to each
+        // other while grazing, a standing group can chat for hours.
+        None
     }
 
     fn interruptible(&self) -> bool {

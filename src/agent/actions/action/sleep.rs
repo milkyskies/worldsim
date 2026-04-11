@@ -1,7 +1,7 @@
 //! Sleep actions - sleeping and waking up.
 
 use crate::agent::actions::ActionType;
-use crate::agent::actions::channel::{Channel, ChannelUsage};
+use crate::agent::actions::channel::{Channel, ChannelUsage, Posture};
 use crate::agent::actions::registry::{Action, ActionKind, RuntimeEffects};
 use crate::agent::mind::knowledge::{Node, Predicate, Triple, Value};
 use crate::constants::actions::sleep::{
@@ -48,6 +48,10 @@ impl Action for SleepAction {
         // start sleeping).
         const CHANNELS: &[ChannelUsage] = &[ChannelUsage::new(Channel::FullBody, 1.0)];
         CHANNELS
+    }
+
+    fn posture(&self) -> Option<Posture> {
+        Some(Posture::Stationary)
     }
 
     // Sleep uses the default `interruptible = true`. WakeUp has to preempt

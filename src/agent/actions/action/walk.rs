@@ -6,7 +6,7 @@
 //! targets up front. The planner constructs the `ActionTemplate` itself.
 
 use crate::agent::actions::ActionType;
-use crate::agent::actions::channel::{Channel, ChannelUsage};
+use crate::agent::actions::channel::{Channel, ChannelUsage, Posture};
 use crate::agent::actions::registry::{Action, ActionKind, RuntimeEffects, TargetSource};
 use crate::constants::actions::walk::{ALERTNESS_PER_SEC, GLUCOSE_DRAIN_PER_SEC, STAMINA_PER_SEC};
 
@@ -33,6 +33,10 @@ impl Action for WalkAction {
     fn body_channels(&self) -> &'static [ChannelUsage] {
         const CHANNELS: &[ChannelUsage] = &[ChannelUsage::new(Channel::Locomotion, 0.4)];
         CHANNELS
+    }
+
+    fn posture(&self) -> Option<Posture> {
+        Some(Posture::Moving)
     }
 
     fn target_source(&self) -> TargetSource {

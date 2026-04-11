@@ -1,7 +1,7 @@
 //! Harvest action - gather resources from targets.
 
 use crate::agent::actions::ActionType;
-use crate::agent::actions::channel::{Channel, ChannelUsage};
+use crate::agent::actions::channel::{Channel, ChannelUsage, Posture};
 use crate::agent::actions::registry::{
     Action, ActionContext, ActionKind, CompletionContext, RuntimeEffects, TargetCandidate,
     TargetSource,
@@ -73,11 +73,14 @@ impl Action for HarvestAction {
     }
 
     fn body_channels(&self) -> &'static [ChannelUsage] {
-        const CHANNELS: &[ChannelUsage] = &[
-            ChannelUsage::new(Channel::Manipulation, 0.9),
-            ChannelUsage::new(Channel::Locomotion, 0.2),
-        ];
+        // Hands only — the legs are planted and the posture gate handles
+        // the "you can't harvest while walking" mutex.
+        const CHANNELS: &[ChannelUsage] = &[ChannelUsage::new(Channel::Manipulation, 0.9)];
         CHANNELS
+    }
+
+    fn posture(&self) -> Option<Posture> {
+        Some(Posture::Stationary)
     }
 
     // Execution: Must have a target entity
