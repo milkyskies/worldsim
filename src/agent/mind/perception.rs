@@ -129,7 +129,7 @@ pub fn update_body_perception(
         // Rule 3: Stats
         mind.perceive_self(
             Predicate::Hunger,
-            Value::Int(physical.hunger as i32),
+            Value::Int((physical.hunger_urgency() * 100.0) as i32),
             current_time,
         );
         mind.perceive_self(
@@ -488,7 +488,9 @@ fn assess_threat(
     // Desperation (high hunger or thirst) reduces fear. This lets the
     // arbitration layer pick food/water even when a threat is visible.
     // No desperation → 1.0×, fully desperate → 0.5×.
-    let desperation = needs.hunger.max(needs.thirst).clamp(0.0, 100.0) / 100.0;
+    let desperation = needs
+        .hunger_urgency()
+        .max((needs.thirst / 100.0).clamp(0.0, 1.0));
     let desperation_mod = 1.0 - desperation * 0.5;
 
     (BASE_THREAT * personality_mod * health_mod * armed_mod * desperation_mod).clamp(0.0, 1.0)
@@ -744,7 +746,7 @@ mod threat_tests {
 
     fn default_needs() -> PhysicalNeeds {
         PhysicalNeeds {
-            hunger: 0.0,
+            metabolism: crate::agent::body::metabolism::Metabolism::well_fed(),
             thirst: 0.0,
             stamina: Stamina::default(),
             health: 100.0,
@@ -821,7 +823,7 @@ mod threat_tests {
         let starving = assess_threat(
             &personality,
             &PhysicalNeeds {
-                hunger: 95.0,
+                metabolism: crate::agent::body::metabolism::Metabolism::at_urgency(0.95),
                 ..default_needs()
             },
             None,
@@ -837,7 +839,7 @@ mod threat_tests {
         // Max-anxiety, max-wounded, unarmed, calm → should still clamp to ≤1.0
         let personality = personality_with_neuroticism(1.0);
         let needs = PhysicalNeeds {
-            hunger: 0.0,
+            metabolism: crate::agent::body::metabolism::Metabolism::well_fed(),
             thirst: 0.0,
             stamina: Stamina::default(),
             health: 0.0,

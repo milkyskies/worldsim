@@ -4,9 +4,10 @@
 //! channel system: `Locomotion` at low intensity (slow drift) plus
 //! `Consumption` at high intensity (continuous nibbling). Herbivores eat
 //! mouth-first, not by handling food, so no `Manipulation` channel is
-//! declared — the occupancy matches the anatomy of the behaviour. Hunger
-//! is reduced via `runtime_effects` rather than a completion hook, so the
-//! agent feeds throughout the drift, not only on arrival.
+//! declared — the occupancy matches the anatomy of the behaviour. Plant
+//! carbs flow into the stomach continuously via `stomach_carbs_per_sec` on
+//! `runtime_effects`, not a completion hook — the animal feeds throughout
+//! the drift, not only on arrival.
 //!
 //! Declares `TargetSource::TileWithTrait(Grazable)` so the rational brain
 //! enumerates one Graze target per known grass tile (asserted by
@@ -23,7 +24,7 @@ use crate::agent::actions::registry::{
 use crate::agent::events::FailureReason;
 use crate::agent::mind::knowledge::{Concept, Node, Predicate, Triple, Value};
 use crate::constants::actions::graze::{
-    ALERTNESS_PER_SEC, BASE_COST, HUNGER_PER_SEC, STAMINA_PER_SEC,
+    ALERTNESS_PER_SEC, BASE_COST, GLUCOSE_DRAIN_PER_SEC, STAMINA_PER_SEC, STOMACH_CARBS_PER_SEC,
 };
 use crate::world::map::TileType;
 
@@ -65,7 +66,8 @@ impl Action for GrazeAction {
     fn runtime_effects(&self) -> RuntimeEffects {
         RuntimeEffects {
             stamina_per_sec: STAMINA_PER_SEC,
-            hunger_per_sec: HUNGER_PER_SEC,
+            glucose_drain_per_sec: GLUCOSE_DRAIN_PER_SEC,
+            stomach_carbs_per_sec: STOMACH_CARBS_PER_SEC,
             alertness_per_sec: ALERTNESS_PER_SEC,
         }
     }
@@ -109,9 +111,12 @@ mod tests {
     }
 
     #[test]
-    fn graze_reduces_hunger_per_second() {
+    fn graze_fills_stomach_per_second() {
         let graze = GrazeAction;
-        assert!(graze.runtime_effects().hunger_per_sec < 0.0);
+        assert!(
+            graze.runtime_effects().stomach_carbs_per_sec > 0.0,
+            "grazing continuously loads carbs into the stomach"
+        );
     }
 
     #[test]

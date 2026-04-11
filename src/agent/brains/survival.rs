@@ -33,7 +33,9 @@ pub fn survival_brain_propose(
     ontology: &Ontology,
     action_registry: &crate::agent::actions::ActionRegistry,
 ) -> Option<BrainProposal> {
-    // Sleep/Wake state machine — not urgency-driven; handles the wake threshold.
+    // While sleeping, the sleep/wake gate owns the decision — either stay
+    // asleep or transition through WakeUp. The urgency ladder below runs
+    // normally once awake.
     if let Some(proposal) = check_sleep_wake(&context, active, action_registry) {
         return Some(proposal);
     }
@@ -130,35 +132,50 @@ fn check_sleep_wake(
     active: &ActiveActions,
     action_registry: &crate::agent::actions::ActionRegistry,
 ) -> Option<BrainProposal> {
-    // Sleep/wake decisions gate on aerobic — the sustained fatigue pool.
-    // Anaerobic refills too quickly to drive sleep behaviour.
-    let aerobic = context.physical.stamina.aerobic;
-    let is_sleeping = active.contains(ActionType::Sleep);
-
-    if is_sleeping {
-        if aerobic >= WAKE_STAMINA_THRESHOLD {
-            let wake_action = action_registry
-                .get(ActionType::WakeUp)
-                .map(|a| a.to_template(None))
-                .expect("WakeUp action must be registered");
-            return Some(BrainProposal {
-                brain: BrainType::Survival,
-                action: wake_action,
-                urgency: 50.0,
-                intent: Intent::SatisfyStamina,
-                reasoning: format!("Rested! Aerobic {:.0} — waking up", aerobic),
-            });
-        } else if let Some(action) = action_registry.get(ActionType::Sleep) {
-            return Some(BrainProposal {
-                brain: BrainType::Survival,
-                action: action.to_template(None),
-                urgency: 100.0 - aerobic,
-                intent: Intent::SatisfyStamina,
-                reasoning: format!("Still tired... {:.0} aerobic", aerobic),
-            });
-        }
+    if !active.contains(ActionType::Sleep) {
+        return None;
     }
-    None
+
+    // Aerobic is the sustained fatigue pool; anaerobic refills too quickly
+    // to drive sleep behaviour.
+    let aerobic = context.physical.stamina.aerobic;
+
+    let wake_proposal = |urgency: f32, reasoning: String| BrainProposal {
+        brain: BrainType::Survival,
+        action: action_registry
+            .get(ActionType::WakeUp)
+            .map(|a| a.to_template(None))
+            .expect("WakeUp action must be registered"),
+        urgency,
+        intent: Intent::SatisfyStamina,
+        reasoning,
+    };
+
+    // Rested wake: natural homeostatic recovery.
+    if aerobic >= WAKE_STAMINA_THRESHOLD {
+        return Some(wake_proposal(
+            50.0,
+            format!("Rested! Aerobic {aerobic:.0} — waking up"),
+        ));
+    }
+
+    // Emergency wake: the urgency layer raised a flag because some drive's
+    // raw input crossed its `sleep_wake_threshold`. Which drive and what
+    // threshold is pure config — the brain just obeys the verdict.
+    if let Some(source) = context.cns.sleep_wake_trigger {
+        return Some(wake_proposal(90.0, format!("Emergency wake: {source:?}")));
+    }
+
+    // Still tired, nothing urgent — stay asleep.
+    action_registry
+        .get(ActionType::Sleep)
+        .map(|action| BrainProposal {
+            brain: BrainType::Survival,
+            action: action.to_template(None),
+            urgency: 100.0 - aerobic,
+            intent: Intent::SatisfyStamina,
+            reasoning: format!("Still tired... {aerobic:.0} aerobic"),
+        })
 }
 
 #[cfg(test)]
@@ -299,6 +316,123 @@ mod tests {
         assert!(
             high_proposal.urgency > low_proposal.urgency,
             "higher urgency input should produce higher urgency proposal"
+        );
+    }
+
+    // ── Sleep/wake behaviour ────────────────────────────────────────────────
+    //
+    // These unit-test the `check_sleep_wake` gate in isolation. The wake
+    // thresholds themselves live in `NervousSystemConfig` and are applied
+    // in `urgency::generate_urgency`; the brain just observes the verdict
+    // via `cns.sleep_wake_trigger`. So these tests seed the trigger directly
+    // rather than running the full urgency pipeline — that integration is
+    // covered by the scenario tests in `tests/test_sleep_wake_cycle.rs`.
+
+    fn sleeping_agent_registry() -> crate::agent::actions::ActionRegistry {
+        let mut registry = crate::agent::actions::ActionRegistry::default();
+        registry.register(crate::agent::actions::action::SleepAction);
+        registry.register(crate::agent::actions::action::WakeUpAction);
+        registry
+    }
+
+    fn active_sleep() -> ActiveActions {
+        let mut active = ActiveActions::empty();
+        active.insert(crate::agent::actions::ActionState::new(
+            ActionType::Sleep,
+            0,
+        ));
+        active
+    }
+
+    fn tired_needs() -> PhysicalNeeds {
+        let mut needs = PhysicalNeeds::default();
+        needs.stamina.aerobic = 10.0; // well below WAKE_STAMINA_THRESHOLD
+        needs
+    }
+
+    #[test]
+    fn sleep_wake_trigger_rouses_sleeping_agent() {
+        let ontology = setup_ontology();
+        let physical = tired_needs();
+        let cns = CentralNervousSystem {
+            sleep_wake_trigger: Some(UrgencySource::Fear),
+            ..Default::default()
+        };
+        let context = context_with_urgency(&physical, &cns);
+
+        let inventory = crate::agent::item_slots::ItemSlots::agent_carry();
+        let active = active_sleep();
+        let registry = sleeping_agent_registry();
+
+        let proposal = survival_brain_propose(context, &inventory, &active, &ontology, &registry)
+            .expect("sleeping agent with wake trigger should propose WakeUp");
+        assert_eq!(
+            proposal.action.name, "Wake Up",
+            "got {:?}",
+            proposal.action.name
+        );
+    }
+
+    #[test]
+    fn no_sleep_wake_trigger_keeps_sleeping_agent_asleep() {
+        let ontology = setup_ontology();
+        let physical = tired_needs();
+        // No trigger, no urgency — the gate should keep the agent asleep.
+        let cns = CentralNervousSystem::default();
+        let context = context_with_urgency(&physical, &cns);
+
+        let inventory = crate::agent::item_slots::ItemSlots::agent_carry();
+        let active = active_sleep();
+        let registry = sleeping_agent_registry();
+
+        let proposal = survival_brain_propose(context, &inventory, &active, &ontology, &registry)
+            .expect("sleeping agent should keep sleeping");
+        assert_eq!(
+            proposal.action.name, "Sleep",
+            "expected Sleep, got {:?}",
+            proposal.action.name
+        );
+    }
+
+    #[test]
+    fn rested_sleeping_agent_wakes_even_without_trigger() {
+        let ontology = setup_ontology();
+        // Aerobic at the wake threshold — normal homeostatic wake.
+        let physical = PhysicalNeeds::default(); // aerobic = 100
+        let cns = CentralNervousSystem::default();
+        let context = context_with_urgency(&physical, &cns);
+
+        let inventory = crate::agent::item_slots::ItemSlots::agent_carry();
+        let active = active_sleep();
+        let registry = sleeping_agent_registry();
+
+        let proposal = survival_brain_propose(context, &inventory, &active, &ontology, &registry)
+            .expect("rested sleeping agent should wake");
+        assert_eq!(proposal.action.name, "Wake Up");
+    }
+
+    #[test]
+    fn sleep_wake_trigger_ignored_when_awake() {
+        // A trigger set on an awake agent should NOT propose WakeUp through
+        // the sleep gate — check_sleep_wake bails out immediately and the
+        // normal urgency ladder runs. With only a trigger (no urgencies),
+        // the ladder proposes nothing.
+        let ontology = setup_ontology();
+        let physical = PhysicalNeeds::default();
+        let cns = CentralNervousSystem {
+            sleep_wake_trigger: Some(UrgencySource::Fear),
+            ..Default::default()
+        };
+        let context = context_with_urgency(&physical, &cns);
+
+        let inventory = crate::agent::item_slots::ItemSlots::agent_carry();
+        let active = ActiveActions::default(); // not sleeping
+        let registry = sleeping_agent_registry();
+
+        let proposal = survival_brain_propose(context, &inventory, &active, &ontology, &registry);
+        assert!(
+            proposal.is_none(),
+            "awake agents route through the urgency ladder, not the sleep gate; got {proposal:?}"
         );
     }
 }

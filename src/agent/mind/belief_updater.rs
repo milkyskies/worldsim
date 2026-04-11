@@ -131,6 +131,17 @@ fn handle_failure_outcome(
                 );
             }
         }
+        FailureReason::PathBlocked { target_tile } => {
+            // Record the blocked target so the planner stops picking it.
+            // TTL-checked on read in `generate_implicit_walk` via the
+            // triple's metadata timestamp — no explicit decay needed.
+            mind.assert(Triple::with_meta(
+                Node::Tile(*target_tile),
+                Predicate::HasTrait,
+                Value::Concept(Concept::Unreachable),
+                Metadata::experience(current_time),
+            ));
+        }
         _ => {}
     }
 }
@@ -169,7 +180,7 @@ fn generate_failure_frustration(
     sim_events: &mut MessageWriter<crate::agent::events::SimEvent>,
 ) {
     let urgency = match reason {
-        FailureReason::NoEdibleFood | FailureReason::MissingItem(_) => needs.hunger / 100.0,
+        FailureReason::NoEdibleFood | FailureReason::MissingItem(_) => needs.hunger_urgency(),
         FailureReason::NoWaterNearby => needs.thirst / 100.0,
         _ => 0.0,
     };
@@ -241,10 +252,10 @@ mod tests {
     #[test]
     fn high_urgency_failure_generates_frustration() {
         let needs = PhysicalNeeds {
-            hunger: 85.0,
+            metabolism: crate::agent::body::metabolism::Metabolism::at_urgency(0.85),
             ..Default::default()
         };
-        let urgency = needs.hunger / 100.0;
+        let urgency = needs.hunger_urgency();
         let frustration = urgency * 0.6;
         assert!(
             frustration > 0.4,

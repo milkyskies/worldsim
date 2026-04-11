@@ -555,7 +555,7 @@ mod tests {
         // offset (matches existing test_sim_events pattern).
         let agent = world.spawn_agent(AgentConfig {
             pos: Vec2::new(20.0, 20.0),
-            hunger: 90.0,
+            metabolism: crate::agent::body::metabolism::Metabolism::at_urgency(0.9),
             ..Default::default()
         });
         world
@@ -613,7 +613,7 @@ mod tests {
         let alice = world.spawn_agent(AgentConfig {
             name: Some("Alice".to_string()),
             pos: Vec2::new(20.0, 20.0),
-            hunger: 90.0,
+            metabolism: crate::agent::body::metabolism::Metabolism::at_urgency(0.9),
             ..Default::default()
         });
         // Pre-load food so Alice acts quickly without a walk phase

@@ -69,7 +69,6 @@ pub mod movement {
 pub mod actions {
     pub mod eat {
         pub const DURATION_TICKS: u32 = 20;
-        pub const HUNGER_REDUCTION: f32 = 50.0;
         pub const STAMINA_GAIN: f32 = 10.0;
     }
 
@@ -82,7 +81,7 @@ pub mod actions {
     pub mod harvest {
         pub const DURATION_TICKS: u32 = 30;
         pub const STAMINA_PER_SEC: f32 = -0.2;
-        pub const HUNGER_PER_SEC: f32 = 2.0;
+        pub const GLUCOSE_DRAIN_PER_SEC: f32 = 2.0;
     }
 
     pub mod deposit {
@@ -91,7 +90,7 @@ pub mod actions {
         /// Stamina drained per second while depositing.
         pub const STAMINA_PER_SEC: f32 = -0.1;
         /// Hunger cost per second while depositing.
-        pub const HUNGER_PER_SEC: f32 = 0.5;
+        pub const GLUCOSE_DRAIN_PER_SEC: f32 = 0.5;
     }
 
     pub mod take {
@@ -100,7 +99,7 @@ pub mod actions {
         /// Stamina drained per second while taking.
         pub const STAMINA_PER_SEC: f32 = -0.1;
         /// Hunger cost per second while taking.
-        pub const HUNGER_PER_SEC: f32 = 0.5;
+        pub const GLUCOSE_DRAIN_PER_SEC: f32 = 0.5;
     }
 
     pub mod construct {
@@ -109,7 +108,7 @@ pub mod actions {
         /// Stamina drained per second while constructing.
         pub const STAMINA_PER_SEC: f32 = -0.3;
         /// Hunger cost per second while constructing.
-        pub const HUNGER_PER_SEC: f32 = 1.5;
+        pub const GLUCOSE_DRAIN_PER_SEC: f32 = 1.5;
         /// Labor ticks required to complete a campfire. Each tick one active
         /// constructor contributes 1 labor unit; multiple agents add up linearly.
         pub const CAMPFIRE_LABOR_TICKS: u32 = 120;
@@ -131,7 +130,7 @@ pub mod actions {
         /// Stamina drained per second while building.
         pub const STAMINA_PER_SEC: f32 = -0.3;
         /// Hunger cost per second while building.
-        pub const HUNGER_PER_SEC: f32 = 1.5;
+        pub const GLUCOSE_DRAIN_PER_SEC: f32 = 1.5;
     }
 
     pub mod attack {
@@ -142,7 +141,7 @@ pub mod actions {
 
     pub mod walk {
         pub const STAMINA_PER_SEC: f32 = -0.3;
-        pub const HUNGER_PER_SEC: f32 = 0.5;
+        pub const GLUCOSE_DRAIN_PER_SEC: f32 = 0.5;
         pub const ALERTNESS_PER_SEC: f32 = 10.0;
 
         /// Estimated stamina cost per tile at normal speed (for planner estimation).
@@ -158,14 +157,14 @@ pub mod actions {
     pub mod explore {
         pub const BASE_COST: f32 = 3.0;
         pub const STAMINA_PER_SEC: f32 = -0.25;
-        pub const HUNGER_PER_SEC: f32 = 2.5;
+        pub const GLUCOSE_DRAIN_PER_SEC: f32 = 2.5;
         pub const ALERTNESS_PER_SEC: f32 = 5.0;
     }
 
     pub mod wander {
         pub const BASE_COST: f32 = 5.0;
         pub const STAMINA_PER_SEC: f32 = -0.2;
-        pub const HUNGER_PER_SEC: f32 = 2.0;
+        pub const GLUCOSE_DRAIN_PER_SEC: f32 = 2.0;
         pub const ALERTNESS_PER_SEC: f32 = 5.0;
     }
 
@@ -179,24 +178,27 @@ pub mod actions {
         pub const DRIFT_RANGE_MAX: f32 = 20.0;
         /// Walking burns a little stamina.
         pub const STAMINA_PER_SEC: f32 = -0.15;
-        /// Negative: grazing continuously reduces hunger as the animal eats
-        /// while walking. Modest per-second since grass is low-calorie —
-        /// a full graze-loop replaces rather than outpaces a berry.
-        pub const HUNGER_PER_SEC: f32 = -4.0;
+        /// Plant carbs ingested per second while grazing. Grass is low-calorie,
+        /// so a full graze-loop trickles into the stomach rather than replacing
+        /// a berry-sized meal.
+        pub const STOMACH_CARBS_PER_SEC: f32 = 4.0;
+        /// Grazing still burns a small amount of glucose for the locomotion
+        /// component (the animal is walking while it eats).
+        pub const GLUCOSE_DRAIN_PER_SEC: f32 = 0.1;
         pub const ALERTNESS_PER_SEC: f32 = 2.0;
     }
 
     pub mod flee {
         pub const BASE_COST: f32 = 1.0;
         pub const STAMINA_PER_SEC: f32 = -0.5;
-        pub const HUNGER_PER_SEC: f32 = 3.0;
+        pub const GLUCOSE_DRAIN_PER_SEC: f32 = 3.0;
         pub const ALERTNESS_PER_SEC: f32 = 20.0;
     }
 
     pub mod sleep {
         pub const BASE_COST: f32 = 0.1;
         pub const STAMINA_PER_SEC: f32 = 20.0;
-        pub const HUNGER_PER_SEC: f32 = 0.2;
+        pub const GLUCOSE_DRAIN_PER_SEC: f32 = 0.2;
         pub const ALERTNESS_PER_SEC: f32 = -50.0;
     }
 }

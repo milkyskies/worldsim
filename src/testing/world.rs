@@ -107,7 +107,8 @@ fn sim_event_tick(event: &SimEvent) -> u64 {
         | SimEvent::TheoryOfMindUpdated { tick, .. }
         | SimEvent::ItemSpoiled { tick, .. }
         | SimEvent::EffectApplied { tick, .. }
-        | SimEvent::LaborContributed { tick, .. } => *tick,
+        | SimEvent::LaborContributed { tick, .. }
+        | SimEvent::SkillChanged { tick, .. } => *tick,
     }
 }
 
@@ -155,7 +156,8 @@ fn sim_event_involves(event: &SimEvent, agent: Entity) -> bool {
 
         SimEvent::ItemSpoiled { agent: a, .. }
         | SimEvent::EffectApplied { agent: a, .. }
-        | SimEvent::LaborContributed { agent: a, .. } => *a == agent,
+        | SimEvent::LaborContributed { agent: a, .. }
+        | SimEvent::SkillChanged { agent: a, .. } => *a == agent,
     }
 }
 
@@ -376,6 +378,19 @@ fn format_sim_event(event: &SimEvent) -> String {
         SimEvent::LaborContributed { agent, tick, site } => {
             format!("[t{tick}] LaborContributed  agent={agent:?} site={site:?}")
         }
+
+        SimEvent::SkillChanged {
+            agent,
+            tick,
+            skill,
+            old_value,
+            new_value,
+        } => {
+            format!(
+                "[t{tick}] SkillChanged      agent={agent:?} skill={skill:?} \
+                 {old_value:.3}->{new_value:.3}"
+            )
+        }
     }
 }
 
@@ -511,7 +526,7 @@ impl TestWorld {
     /// let (mut world, agents) = TestWorld::scenario(42)
     ///     .map_size(32, 32)
     ///     .noise_biomes(false)
-    ///     .agent("alice").pos(Vec2::new(50.0, 50.0)).hunger(80.0).done()
+    ///     .agent("alice").pos(Vec2::new(50.0, 50.0)).hunger_urgency(0.8).done()
     ///     .berry_bushes(2, Vec2::new(60.0, 50.0))
     ///     .build();
     /// let alice = agents["alice"];
@@ -860,8 +875,10 @@ impl TestWorld {
     }
 
     /// Returns the agent's hunger value (0.0–100.0).
+    /// Hunger urgency 0..1 derived from the agent's metabolism pools.
+    /// 0.0 = fully sated, 1.0 = every pool empty.
     pub fn agent_hunger(&self, agent: Entity) -> f32 {
-        self.get::<PhysicalNeeds>(agent).hunger
+        self.get::<PhysicalNeeds>(agent).hunger_urgency()
     }
 
     /// Returns the agent's thirst value (0.0–100.0).
@@ -985,8 +1002,8 @@ impl TestWorld {
         // Physical needs
         if let Some(needs) = world.get::<PhysicalNeeds>(agent) {
             eprintln!(
-                "  Needs:     hunger={:.1}  thirst={:.1}  aerobic={:.1}  anaerobic={:.1}  health={:.1}",
-                needs.hunger,
+                "  Needs:     hunger={:.2}  thirst={:.1}  aerobic={:.1}  anaerobic={:.1}  health={:.1}",
+                needs.hunger_urgency(),
                 needs.thirst,
                 needs.stamina.aerobic,
                 needs.stamina.anaerobic,
@@ -1447,12 +1464,12 @@ mod tests {
         let mut world = TestWorld::with_seed(42);
         let agent = world.spawn_agent(AgentConfig {
             pos: Vec2::new(50.0, 75.0),
-            hunger: 80.0,
+            metabolism: crate::agent::body::metabolism::Metabolism::at_urgency(0.8),
             stamina: 25.0,
             ..Default::default()
         });
 
-        assert_eq!(world.agent_hunger(agent), 80.0);
+        assert!((world.agent_hunger(agent) - 0.8).abs() < 1e-4);
         assert_eq!(world.agent_aerobic(agent), 25.0);
         let transform = world.get::<Transform>(agent);
         assert_eq!(transform.translation.x, 50.0);
@@ -1610,7 +1627,7 @@ mod tests {
         // without any system panicking on missing resources or components.
         let mut world = TestWorld::with_seed(42);
         let _ = world.spawn_agent(AgentConfig {
-            hunger: 50.0,
+            metabolism: crate::agent::body::metabolism::Metabolism::at_urgency(0.5),
             ..Default::default()
         });
         world.spawn_apple_tree(Vec2::new(20.0, 20.0), 10);
@@ -1624,7 +1641,7 @@ mod tests {
     fn print_agent_state_does_not_panic() {
         let mut world = TestWorld::with_seed(42);
         let agent = world.spawn_agent(AgentConfig {
-            hunger: 60.0,
+            metabolism: crate::agent::body::metabolism::Metabolism::at_urgency(0.6),
             stamina: 40.0,
             ..Default::default()
         });
@@ -1637,7 +1654,7 @@ mod tests {
     fn print_brain_decision_does_not_panic() {
         let mut world = TestWorld::with_seed(42);
         let agent = world.spawn_agent(AgentConfig {
-            hunger: 80.0,
+            metabolism: crate::agent::body::metabolism::Metabolism::at_urgency(0.8),
             ..Default::default()
         });
         world.spawn_apple_tree(Vec2::new(20.0, 20.0), 10);
@@ -1710,7 +1727,7 @@ mod tests {
     fn print_recent_events_shows_events_after_ticking() {
         let mut world = TestWorld::with_seed(42);
         let agent = world.spawn_agent(AgentConfig {
-            hunger: 50.0,
+            metabolism: crate::agent::body::metabolism::Metabolism::at_urgency(0.5),
             ..Default::default()
         });
         world.spawn_apple_tree(Vec2::new(20.0, 20.0), 10);

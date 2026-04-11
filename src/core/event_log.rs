@@ -57,10 +57,14 @@ impl EventLogConfig {
         })
     }
 
-    fn agent_passes(&self, names: &[String]) -> bool {
+    fn agent_passes(&self, names: &[String], ids: &[String]) -> bool {
         self.filters.iter().all(|f| match f {
-            EventLogFilter::Agent(agent_name) => {
-                names.is_empty() || names.iter().any(|n| n.eq_ignore_ascii_case(agent_name))
+            EventLogFilter::Agent(query) => {
+                if names.is_empty() && ids.is_empty() {
+                    return true;
+                }
+                names.iter().any(|n| n.eq_ignore_ascii_case(query))
+                    || ids.iter().any(|i| i.eq_ignore_ascii_case(query))
             }
             _ => true,
         })
@@ -99,6 +103,13 @@ pub struct EventLogBuffer {
 
 // ─── System ──────────────────────────────────────────────────────────────────
 
+/// Stable, always-serializable id for an entity. Uses Bevy's Debug format
+/// (e.g. `19v0` for index 19 / generation 0) so it survives despawn and
+/// never collides across entities, unlike the Name component.
+fn entity_id_str(entity: Entity) -> String {
+    format!("{entity:?}")
+}
+
 /// Bevy system (Last schedule): reads SimEvents and appends JSONL lines to EventLogBuffer.
 pub fn collect_event_log(
     config: Res<EventLogConfig>,
@@ -111,18 +122,19 @@ pub fn collect_event_log(
         all_names
             .get(entity)
             .map(|n| n.as_str().to_string())
-            .unwrap_or_else(|_| format!("{entity:?}"))
+            .unwrap_or_else(|_| entity_id_str(entity))
     };
     let agent_resolve = |entity: Entity| -> String {
         agent_names
             .get(entity)
             .map(|n| n.as_str().to_string())
-            .unwrap_or_else(|_| format!("{entity:?}"))
+            .unwrap_or_else(|_| entity_id_str(entity))
     };
 
     for event in sim_events.read() {
-        // Extract tick and the set of agent names involved in this event.
-        let (event_type, tick, involved_agents) = event_meta(event, &agent_resolve, &resolve);
+        // Extract tick and the set of agent names + ids involved in this event.
+        let (event_type, tick, involved_agents, involved_ids) =
+            event_meta(event, &agent_resolve, &resolve);
 
         if !config.tick_passes(tick) {
             continue;
@@ -130,7 +142,7 @@ pub fn collect_event_log(
         if !config.type_passes(event_type) {
             continue;
         }
-        if !config.agent_passes(&involved_agents) {
+        if !config.agent_passes(&involved_agents, &involved_ids) {
             continue;
         }
 
@@ -141,105 +153,106 @@ pub fn collect_event_log(
     }
 }
 
-/// Returns (event_type_str, tick, agent_name_list) for filtering.
+/// Returns (event_type_str, tick, involved_names, involved_ids) for filtering.
+/// Names come from the resolver (may fall back to id on unnamed/despawned
+/// entities); ids are always the stable Entity debug format so filters can
+/// target a specific individual even after death.
 fn event_meta<'a>(
     event: &SimEvent,
     agent_resolve: &impl Fn(Entity) -> String,
     resolve: &impl Fn(Entity) -> String,
-) -> (&'a str, u64, Vec<String>) {
+) -> (&'a str, u64, Vec<String>, Vec<String>) {
+    let one = |ty, tick, e: Entity, named: bool| {
+        let name = if named { agent_resolve(e) } else { resolve(e) };
+        (ty, tick, vec![name], vec![entity_id_str(e)])
+    };
+    let two = |ty, tick, a: Entity, b: Entity, named: bool| {
+        let (na, nb) = if named {
+            (agent_resolve(a), agent_resolve(b))
+        } else {
+            (resolve(a), resolve(b))
+        };
+        (
+            ty,
+            tick,
+            vec![na, nb],
+            vec![entity_id_str(a), entity_id_str(b)],
+        )
+    };
     match event {
-        SimEvent::Decision { agent, tick, .. } => ("Decision", *tick, vec![agent_resolve(*agent)]),
-        SimEvent::ActionStarted { agent, tick, .. } => {
-            ("ActionStarted", *tick, vec![agent_resolve(*agent)])
-        }
+        SimEvent::Decision { agent, tick, .. } => one("Decision", *tick, *agent, true),
+        SimEvent::ActionStarted { agent, tick, .. } => one("ActionStarted", *tick, *agent, true),
         SimEvent::ActionCompleted { agent, tick, .. } => {
-            ("ActionCompleted", *tick, vec![agent_resolve(*agent)])
+            one("ActionCompleted", *tick, *agent, true)
         }
         SimEvent::ActionPreempted { agent, tick, .. } => {
-            ("ActionPreempted", *tick, vec![agent_resolve(*agent)])
+            one("ActionPreempted", *tick, *agent, true)
         }
-        SimEvent::ActionFailed { agent, tick, .. } => {
-            ("ActionFailed", *tick, vec![agent_resolve(*agent)])
-        }
-        SimEvent::PlanAbandoned { agent, tick, .. } => {
-            ("PlanAbandoned", *tick, vec![agent_resolve(*agent)])
-        }
+        SimEvent::ActionFailed { agent, tick, .. } => one("ActionFailed", *tick, *agent, true),
+        SimEvent::PlanAbandoned { agent, tick, .. } => one("PlanAbandoned", *tick, *agent, true),
         SimEvent::ConversationStarted {
             participants, tick, ..
         } => {
             let names = participants.iter().map(|e| resolve(*e)).collect();
-            ("ConversationStarted", *tick, names)
+            let ids = participants.iter().map(|e| entity_id_str(*e)).collect();
+            ("ConversationStarted", *tick, names, ids)
         }
         SimEvent::ConversationEnded {
             participants, tick, ..
         } => {
             let names = participants.iter().map(|e| resolve(*e)).collect();
-            ("ConversationEnded", *tick, names)
+            let ids = participants.iter().map(|e| entity_id_str(*e)).collect();
+            ("ConversationEnded", *tick, names, ids)
         }
         SimEvent::ConversationJoined { joiner, tick, .. } => {
-            ("ConversationJoined", *tick, vec![resolve(*joiner)])
+            one("ConversationJoined", *tick, *joiner, false)
         }
         SimEvent::ConversationLeft { leaver, tick, .. } => {
-            ("ConversationLeft", *tick, vec![resolve(*leaver)])
+            one("ConversationLeft", *tick, *leaver, false)
         }
         SimEvent::ConversationAbandoned {
             abandoner,
             abandoned,
             tick,
-        } => (
+        } => two(
             "ConversationAbandoned",
             *tick,
-            vec![resolve(*abandoner), resolve(*abandoned)],
+            *abandoner,
+            *abandoned,
+            false,
         ),
         SimEvent::RelationshipChanged {
             agent, other, tick, ..
-        } => (
-            "RelationshipChanged",
-            *tick,
-            vec![agent_resolve(*agent), agent_resolve(*other)],
-        ),
+        } => two("RelationshipChanged", *tick, *agent, *other, true),
         SimEvent::EmotionTriggered { agent, tick, .. } => {
-            ("EmotionTriggered", *tick, vec![agent_resolve(*agent)])
+            one("EmotionTriggered", *tick, *agent, true)
         }
-        SimEvent::Death { agent, tick, .. } => ("Death", *tick, vec![agent_resolve(*agent)]),
+        SimEvent::Death { agent, tick, .. } => one("Death", *tick, *agent, true),
         SimEvent::EntityPerceived { agent, tick, .. } => {
-            ("EntityPerceived", *tick, vec![agent_resolve(*agent)])
+            one("EntityPerceived", *tick, *agent, true)
         }
         SimEvent::StrangerDetected { agent, tick, .. } => {
-            ("StrangerDetected", *tick, vec![agent_resolve(*agent)])
+            one("StrangerDetected", *tick, *agent, true)
         }
         SimEvent::KnowledgeShared {
             speaker,
             listener,
             tick,
             ..
-        } => (
-            "KnowledgeShared",
-            *tick,
-            vec![agent_resolve(*speaker), agent_resolve(*listener)],
-        ),
+        } => two("KnowledgeShared", *tick, *speaker, *listener, true),
         SimEvent::WarmthPerceived { agent, tick, .. } => {
-            ("WarmthPerceived", *tick, vec![agent_resolve(*agent)])
+            one("WarmthPerceived", *tick, *agent, true)
         }
-        SimEvent::SoundPerceived { agent, tick, .. } => {
-            ("SoundPerceived", *tick, vec![agent_resolve(*agent)])
-        }
+        SimEvent::SoundPerceived { agent, tick, .. } => one("SoundPerceived", *tick, *agent, true),
         SimEvent::TheoryOfMindUpdated {
             agent, about, tick, ..
-        } => (
-            "TheoryOfMindUpdated",
-            *tick,
-            vec![agent_resolve(*agent), agent_resolve(*about)],
-        ),
-        SimEvent::ItemSpoiled { agent, tick, .. } => {
-            ("ItemSpoiled", *tick, vec![agent_resolve(*agent)])
-        }
-        SimEvent::EffectApplied { agent, tick, .. } => {
-            ("EffectApplied", *tick, vec![agent_resolve(*agent)])
-        }
+        } => two("TheoryOfMindUpdated", *tick, *agent, *about, true),
+        SimEvent::ItemSpoiled { agent, tick, .. } => one("ItemSpoiled", *tick, *agent, true),
+        SimEvent::EffectApplied { agent, tick, .. } => one("EffectApplied", *tick, *agent, true),
         SimEvent::LaborContributed { agent, tick, .. } => {
-            ("LaborContributed", *tick, vec![agent_resolve(*agent)])
+            one("LaborContributed", *tick, *agent, true)
         }
+        SimEvent::SkillChanged { agent, tick, .. } => one("SkillChanged", *tick, *agent, true),
     }
 }
 
@@ -273,6 +286,7 @@ fn event_to_json(
                 "tick": tick,
                 "type": event_type,
                 "agent": resolve(*agent),
+                "agent_id": entity_id_str(*agent),
                 "winner": winner.map(|w| format!("{:?}", w)),
                 "actions": chosen_actions.iter().map(|a| format!("{a:?}")).collect::<Vec<_>>(),
                 "powers": {
@@ -293,8 +307,10 @@ fn event_to_json(
                 "tick": tick,
                 "type": event_type,
                 "agent": resolve(*agent),
+                "agent_id": entity_id_str(*agent),
                 "action": format!("{action:?}"),
                 "target": target.map(resolve),
+                "target_id": target.map(entity_id_str),
             })
         }
         SimEvent::ActionCompleted { agent, action, .. } => {
@@ -302,6 +318,7 @@ fn event_to_json(
                 "tick": tick,
                 "type": event_type,
                 "agent": resolve(*agent),
+                "agent_id": entity_id_str(*agent),
                 "action": format!("{action:?}"),
             })
         }
@@ -314,6 +331,7 @@ fn event_to_json(
                 "tick": tick,
                 "type": event_type,
                 "agent": resolve(*agent),
+                "agent_id": entity_id_str(*agent),
                 "preempted": format!("{preempted_action:?}"),
             })
         }
@@ -327,6 +345,7 @@ fn event_to_json(
                 "tick": tick,
                 "type": event_type,
                 "agent": resolve(*agent),
+                "agent_id": entity_id_str(*agent),
                 "action": format!("{action:?}"),
                 "reason": format!("{reason:?}"),
             })
@@ -341,6 +360,7 @@ fn event_to_json(
                 "tick": tick,
                 "type": event_type,
                 "agent": resolve(*agent),
+                "agent_id": entity_id_str(*agent),
                 "action": format!("{action:?}"),
                 "intent": format!("{intent:?}"),
             })
@@ -354,6 +374,7 @@ fn event_to_json(
                 "tick": tick,
                 "type": event_type,
                 "participants": participants.iter().map(|e| resolve(*e)).collect::<Vec<_>>(),
+                "participant_ids": participants.iter().map(|e| entity_id_str(*e)).collect::<Vec<_>>(),
                 "conversation_id": conversation_id,
             })
         }
@@ -366,6 +387,7 @@ fn event_to_json(
                 "tick": tick,
                 "type": event_type,
                 "participants": participants.iter().map(|e| resolve(*e)).collect::<Vec<_>>(),
+                "participant_ids": participants.iter().map(|e| entity_id_str(*e)).collect::<Vec<_>>(),
                 "conversation_id": conversation_id,
             })
         }
@@ -378,6 +400,7 @@ fn event_to_json(
                 "tick": tick,
                 "type": event_type,
                 "joiner": resolve(*joiner),
+                "joiner_id": entity_id_str(*joiner),
                 "conversation_id": conversation_id,
             })
         }
@@ -390,6 +413,7 @@ fn event_to_json(
                 "tick": tick,
                 "type": event_type,
                 "leaver": resolve(*leaver),
+                "leaver_id": entity_id_str(*leaver),
                 "conversation_id": conversation_id,
             })
         }
@@ -402,7 +426,9 @@ fn event_to_json(
                 "tick": tick,
                 "type": event_type,
                 "abandoner": resolve(*abandoner),
+                "abandoner_id": entity_id_str(*abandoner),
                 "abandoned": resolve(*abandoned),
+                "abandoned_id": entity_id_str(*abandoned),
             })
         }
         SimEvent::RelationshipChanged {
@@ -417,7 +443,9 @@ fn event_to_json(
                 "tick": tick,
                 "type": event_type,
                 "agent": resolve(*agent),
+                "agent_id": entity_id_str(*agent),
                 "other": resolve(*other),
+                "other_id": entity_id_str(*other),
                 "dimension": format!("{dimension:?}"),
                 "old": old_value,
                 "new": new_value,
@@ -433,6 +461,7 @@ fn event_to_json(
                 "tick": tick,
                 "type": event_type,
                 "agent": resolve(*agent),
+                "agent_id": entity_id_str(*agent),
                 "emotion": format!("{emotion:?}"),
                 "intensity": intensity,
             })
@@ -442,6 +471,7 @@ fn event_to_json(
                 "tick": tick,
                 "type": event_type,
                 "agent": resolve(*agent),
+                "agent_id": entity_id_str(*agent),
                 "cause": cause,
             })
         }
@@ -450,7 +480,9 @@ fn event_to_json(
                 "tick": tick,
                 "type": event_type,
                 "agent": resolve(*agent),
+                "agent_id": entity_id_str(*agent),
                 "target": resolve(*target),
+                "target_id": entity_id_str(*target),
             })
         }
         SimEvent::StrangerDetected {
@@ -460,7 +492,9 @@ fn event_to_json(
                 "tick": tick,
                 "type": event_type,
                 "agent": resolve(*agent),
+                "agent_id": entity_id_str(*agent),
                 "stranger": resolve(*stranger),
+                "stranger_id": entity_id_str(*stranger),
             })
         }
         SimEvent::KnowledgeShared {
@@ -473,7 +507,9 @@ fn event_to_json(
                 "tick": tick,
                 "type": event_type,
                 "speaker": resolve(*speaker),
+                "speaker_id": entity_id_str(*speaker),
                 "listener": resolve(*listener),
+                "listener_id": entity_id_str(*listener),
                 "triple_count": triple_count,
             })
         }
@@ -482,7 +518,9 @@ fn event_to_json(
                 "tick": tick,
                 "type": event_type,
                 "agent": resolve(*agent),
+                "agent_id": entity_id_str(*agent),
                 "source": resolve(*source),
+                "source_id": entity_id_str(*source),
             })
         }
         SimEvent::SoundPerceived {
@@ -495,7 +533,9 @@ fn event_to_json(
                 "tick": tick,
                 "type": event_type,
                 "agent": resolve(*agent),
+                "agent_id": entity_id_str(*agent),
                 "source": resolve(*source),
+                "source_id": entity_id_str(*source),
                 "kind": format!("{kind:?}"),
             })
         }
@@ -510,7 +550,9 @@ fn event_to_json(
                 "tick": tick,
                 "type": event_type,
                 "agent": resolve(*agent),
+                "agent_id": entity_id_str(*agent),
                 "about": resolve(*about),
+                "about_id": entity_id_str(*about),
                 "source": format!("{source:?}"),
                 "belief_count": belief_count,
             })
@@ -522,6 +564,7 @@ fn event_to_json(
                 "tick": tick,
                 "type": event_type,
                 "agent": resolve(*agent),
+                "agent_id": entity_id_str(*agent),
                 "from": format!("{from:?}"),
                 "to": format!("{to:?}"),
             })
@@ -531,7 +574,9 @@ fn event_to_json(
                 "tick": tick,
                 "type": event_type,
                 "agent": resolve(*agent),
+                "agent_id": entity_id_str(*agent),
                 "source": resolve(*source),
+                "source_id": entity_id_str(*source),
             })
         }
         SimEvent::LaborContributed { agent, site, .. } => {
@@ -539,7 +584,26 @@ fn event_to_json(
                 "tick": tick,
                 "type": event_type,
                 "agent": resolve(*agent),
+                "agent_id": entity_id_str(*agent),
                 "site": resolve(*site),
+                "site_id": entity_id_str(*site),
+            })
+        }
+        SimEvent::SkillChanged {
+            agent,
+            skill,
+            old_value,
+            new_value,
+            ..
+        } => {
+            serde_json::json!({
+                "tick": tick,
+                "type": event_type,
+                "agent": resolve(*agent),
+                "agent_id": entity_id_str(*agent),
+                "skill": format!("{skill:?}"),
+                "old": old_value,
+                "new": new_value,
             })
         }
     }
@@ -581,5 +645,63 @@ pub fn dump_event_log(buffer: &EventLogBuffer, config: &EventLogConfig) {
                 let _ = writeln!(writer, "{line}");
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn cfg_with(filter: EventLogFilter) -> EventLogConfig {
+        EventLogConfig {
+            output: EventLogOutput::Stdout,
+            filters: vec![filter],
+        }
+    }
+
+    #[test]
+    fn agent_filter_matches_by_name() {
+        let cfg = cfg_with(EventLogFilter::Agent("TestWolf".to_string()));
+        let names = vec!["TestWolf".to_string()];
+        let ids = vec!["18v0".to_string()];
+        assert!(cfg.agent_passes(&names, &ids));
+    }
+
+    #[test]
+    fn agent_filter_matches_by_entity_id() {
+        let cfg = cfg_with(EventLogFilter::Agent("18v0".to_string()));
+        let names = vec!["TestWolf".to_string()];
+        let ids = vec!["18v0".to_string()];
+        assert!(cfg.agent_passes(&names, &ids));
+    }
+
+    #[test]
+    fn agent_filter_distinguishes_individuals_sharing_a_name() {
+        // The whole point of #352-follow-up: multiple TestWolf entities need
+        // to be distinguishable. Filtering by id selects a specific one even
+        // when every wolf shares the TestWolf name.
+        let cfg = cfg_with(EventLogFilter::Agent("19v0".to_string()));
+        let wolf_a_names = vec!["TestWolf".to_string()];
+        let wolf_a_ids = vec!["18v0".to_string()];
+        let wolf_b_names = vec!["TestWolf".to_string()];
+        let wolf_b_ids = vec!["19v0".to_string()];
+        assert!(!cfg.agent_passes(&wolf_a_names, &wolf_a_ids));
+        assert!(cfg.agent_passes(&wolf_b_names, &wolf_b_ids));
+    }
+
+    #[test]
+    fn agent_filter_rejects_unrelated_entities() {
+        let cfg = cfg_with(EventLogFilter::Agent("TestWolf".to_string()));
+        let names = vec!["TestPerson".to_string()];
+        let ids = vec!["3v0".to_string()];
+        assert!(!cfg.agent_passes(&names, &ids));
+    }
+
+    #[test]
+    fn agent_filter_passes_events_with_no_agent_refs() {
+        // ConversationEnded etc. can legitimately serialize with no agent
+        // identity; don't drop those for agent-targeted queries.
+        let cfg = cfg_with(EventLogFilter::Agent("TestWolf".to_string()));
+        assert!(cfg.agent_passes(&[], &[]));
     }
 }

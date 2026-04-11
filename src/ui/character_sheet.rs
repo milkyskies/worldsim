@@ -1,6 +1,6 @@
 //! Player-facing character sheet UI.
 //!
-//! Reads: UiState, DebugUiEnabled, Name, SpeciesProfile, PhysicalNeeds, Consciousness, PsychologicalDrives, EmotionalState, Personality, Body, BrainState, RationalBrain, CentralNervousSystem, MindGraph, WorkingMemory, RelationshipHistory, ItemSlots, ActiveActions
+//! Reads: UiState, DebugUiEnabled, Name, SpeciesProfile, PhysicalNeeds, Consciousness, PsychologicalDrives, EmotionalState, Personality, Skills, Body, BrainState, RationalBrain, CentralNervousSystem, MindGraph, WorkingMemory, RelationshipHistory, ItemSlots, ActiveActions
 //! Writes: CharacterSheetState
 //! Upstream: handle_game_click (populates selected entity)
 //! Downstream: none - terminal UI
@@ -29,6 +29,7 @@ use crate::agent::nervous_system::urgency::UrgencySource;
 use crate::agent::psyche::emotions::{EmotionType, EmotionalState};
 use crate::agent::psyche::personality::{Personality, PersonalityTrait};
 use crate::agent::psyche::relationships::{InteractionRecord, RelationshipHistory};
+use crate::agent::skills::{SkillKind, Skills};
 use crate::core::GameLog;
 use crate::core::tick::TickCount;
 
@@ -87,6 +88,7 @@ pub enum CharSheetTab {
     Overview,
     Needs,
     Personality,
+    Skills,
     Social,
     Health,
     Knowledge,
@@ -104,6 +106,7 @@ impl CharSheetTab {
             CharSheetTab::Overview => "Overview",
             CharSheetTab::Needs => "Needs",
             CharSheetTab::Personality => "Personality",
+            CharSheetTab::Skills => "Skills",
             CharSheetTab::Social => "Social",
             CharSheetTab::Health => "Health",
             CharSheetTab::Knowledge => "Knowledge",
@@ -243,6 +246,7 @@ fn character_sheet_system(world: &mut World) {
                     CharSheetTab::Overview => render_overview(ui, world, entity),
                     CharSheetTab::Needs => render_needs(ui, world, entity),
                     CharSheetTab::Personality => render_personality(ui, world, entity),
+                    CharSheetTab::Skills => render_skills(ui, world, entity),
                     CharSheetTab::Social => render_social(ui, world, entity),
                     CharSheetTab::Health => render_health(ui, world, entity),
                     CharSheetTab::Knowledge => render_knowledge(ui, world, entity),
@@ -318,6 +322,10 @@ fn visible_tabs_for_entity(
 
     if world.get::<Personality>(entity).is_some() {
         tabs.push(CharSheetTab::Personality);
+    }
+
+    if world.get::<Skills>(entity).is_some() {
+        tabs.push(CharSheetTab::Skills);
     }
 
     // Social: has interaction history OR any known entities in MindGraph
@@ -510,10 +518,24 @@ fn render_needs(ui: &mut egui::Ui, world: &World, entity: Entity) {
     if let Some(needs) = world.get::<PhysicalNeeds>(entity) {
         need_bar(
             ui,
-            "Hunger",
-            needs.hunger,
-            100.0,
+            "Stomach",
+            needs.metabolism.stomach_fullness(),
+            crate::agent::body::metabolism::STOMACH_CAPACITY,
+            None,
+        );
+        need_bar(
+            ui,
+            "Glucose",
+            needs.metabolism.glucose,
+            crate::agent::body::metabolism::GLUCOSE_MAX,
             urgency_for(UrgencySource::Hunger),
+        );
+        need_bar(
+            ui,
+            "Reserves",
+            needs.metabolism.reserves,
+            crate::agent::body::metabolism::RESERVES_MAX,
+            None,
         );
         need_bar(
             ui,
@@ -672,6 +694,89 @@ fn trait_block(ui: &mut egui::Ui, name: &str, value: f32, descriptions: &[&str; 
             egui::RichText::new(descriptions[bucket])
                 .italics()
                 .color(Color32::LIGHT_GRAY),
+        );
+    });
+    ui.add_space(2.0);
+}
+
+// ============================================================================
+// SKILLS TAB
+// ============================================================================
+
+/// Rimworld-style scale the 0..1 internal float is rendered against. The
+/// simulation keeps the continuous representation (decay math, multipliers,
+/// personality modulation all prefer a normalised factor); the character
+/// sheet discretises it into a 0..20 level plus a progress-to-next-level
+/// bar for readability.
+const SKILL_DISPLAY_LEVELS: u32 = 20;
+
+fn render_skills(ui: &mut egui::Ui, world: &World, entity: Entity) {
+    let Some(skills) = world.get::<Skills>(entity) else {
+        ui.label("No skills data.");
+        return;
+    };
+
+    ui.heading("Skills");
+    ui.label(
+        egui::RichText::new(format!(
+            "0-{SKILL_DISPLAY_LEVELS} scale; diminishing returns near mastery"
+        ))
+        .small()
+        .color(Color32::LIGHT_GRAY),
+    );
+    ui.add_space(4.0);
+
+    for kind in SkillKind::ALL {
+        skill_block(ui, kind.display_name(), skills.level(kind));
+    }
+}
+
+/// Tier label for a displayed level. Rough Rimworld-ish bands so the eye
+/// can jump straight to "this one is a master" without counting pips.
+fn skill_tier_label(display_level: u32) -> &'static str {
+    match display_level {
+        0..=2 => "Untrained",
+        3..=5 => "Novice",
+        6..=9 => "Apprentice",
+        10..=13 => "Skilled",
+        14..=17 => "Expert",
+        _ => "Master",
+    }
+}
+
+fn skill_block(ui: &mut egui::Ui, name: &str, level: f32) {
+    let scaled = level.clamp(0.0, 1.0) * SKILL_DISPLAY_LEVELS as f32;
+    let display_level = (scaled.floor() as u32).min(SKILL_DISPLAY_LEVELS);
+    let progress_in_level = if display_level >= SKILL_DISPLAY_LEVELS {
+        1.0
+    } else {
+        scaled - scaled.floor()
+    };
+
+    ui.group(|ui| {
+        ui.horizontal(|ui| {
+            ui.strong(name);
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                ui.label(
+                    egui::RichText::new(format!("Lv {display_level}/{SKILL_DISPLAY_LEVELS}"))
+                        .strong(),
+                );
+            });
+        });
+        ui.add(
+            egui::ProgressBar::new(progress_in_level)
+                .desired_width(200.0)
+                .text(format!("{:.0}%", progress_in_level * 100.0)),
+        );
+        ui.label(
+            egui::RichText::new(format!(
+                "{}  ({:.3} raw)",
+                skill_tier_label(display_level),
+                level
+            ))
+            .italics()
+            .small()
+            .color(Color32::LIGHT_GRAY),
         );
     });
     ui.add_space(2.0);

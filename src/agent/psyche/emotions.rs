@@ -311,8 +311,12 @@ pub fn compute_stress_gain_rate(
     traits: &crate::agent::psyche::personality::PersonalityTraits,
     config: &EmotionConfig,
 ) -> f32 {
+    // Hunger stress tracks the 0..1 urgency signal, rescaled onto the legacy
+    // 0..100 threshold axis so `stress_hunger_threshold` / `weight` keep their
+    // existing tuned values.
+    let hunger_100 = physical.hunger_urgency() * 100.0;
     let hunger_stress =
-        (physical.hunger - config.stress_hunger_threshold).max(0.0) * config.stress_hunger_weight;
+        (hunger_100 - config.stress_hunger_threshold).max(0.0) * config.stress_hunger_weight;
     let fatigue_stress = (config.stress_stamina_threshold - physical.stamina.aerobic).max(0.0)
         * config.stress_stamina_weight;
 
@@ -353,7 +357,7 @@ pub fn compute_stress_recovery_rate(
     config: &EmotionConfig,
 ) -> f32 {
     // Both factors in [0, 1]: 1.0 = perfectly fed/rested, 0.0 = starving/exhausted.
-    let satiety = (1.0 - physical.hunger / 100.0).clamp(0.0, 1.0);
+    let satiety = (1.0 - physical.hunger_urgency()).clamp(0.0, 1.0);
     let restedness = physical.stamina.aerobic_fraction();
     // Geometric mean rewards being good at both — being well-fed but exhausted
     // (or vice versa) shouldn't grant the full recovery bonus.
@@ -720,9 +724,10 @@ mod tests {
     }
 
     fn calm_needs() -> crate::agent::body::needs::PhysicalNeeds {
+        use crate::agent::body::metabolism::Metabolism;
         use crate::agent::body::needs::{PhysicalNeeds, Stamina};
         PhysicalNeeds {
-            hunger: 0.0,
+            metabolism: Metabolism::well_fed(),
             thirst: 0.0,
             stamina: Stamina::default(),
             health: 100.0,
@@ -749,7 +754,7 @@ mod tests {
         let traits = traits_with(0.5, 0.5, 0.5);
         let emotions = EmotionalState::default();
         let mut needs = calm_needs();
-        needs.hunger = 90.0;
+        needs.metabolism = crate::agent::body::metabolism::Metabolism::at_urgency(0.9);
 
         let gain = compute_stress_gain_rate(&emotions, &needs, None, &traits, &config);
         assert!(gain > 0.0, "high hunger should produce stress, got {gain}");
@@ -762,7 +767,7 @@ mod tests {
 
         let healthy = calm_needs();
         let mut starving = calm_needs();
-        starving.hunger = 95.0;
+        starving.metabolism = crate::agent::body::metabolism::Metabolism::at_urgency(0.95);
         starving.stamina.aerobic = 5.0;
 
         let healthy_recovery = compute_stress_recovery_rate(&healthy, &traits, &config);
@@ -778,7 +783,7 @@ mod tests {
     fn neurotic_agent_gains_stress_faster_than_stoic() {
         let config = EmotionConfig::default();
         let mut needs = calm_needs();
-        needs.hunger = 85.0;
+        needs.metabolism = crate::agent::body::metabolism::Metabolism::at_urgency(0.85);
         let emotions = EmotionalState::default();
 
         let stoic = traits_with(0.0, 0.5, 0.5);
@@ -821,7 +826,8 @@ mod tests {
         let mut max_step = 0.0f32;
         for h in 25..=35 {
             let mut needs = calm_needs();
-            needs.hunger = h as f32;
+            needs.metabolism =
+                crate::agent::body::metabolism::Metabolism::at_urgency(h as f32 / 100.0);
             let r = compute_stress_recovery_rate(&needs, &traits, &config);
             if let Some(p) = prev {
                 let step: f32 = (r - p).abs();

@@ -112,8 +112,11 @@ pub enum FailureReason {
     TooFar,
     /// Interrupted by something else
     Interrupted,
-    /// Path is blocked
-    PathBlocked,
+    /// A Walk could not reach its target tile: a straight-line step
+    /// crossed a non-walkable tile. Carries the target tile so the belief
+    /// updater can mark it Unreachable and the planner can avoid
+    /// re-picking it on the next replan.
+    PathBlocked { target_tile: (i32, i32) },
     /// Already did this (e.g., already introduced)
     AlreadyDone,
     /// No drinkable water adjacent to agent
@@ -329,6 +332,16 @@ pub enum SimEvent {
         tick: u64,
         /// The entity that emitted the effect (campfire, hostile zone, etc.)
         source: Entity,
+    },
+
+    /// An agent's proficiency in a skill changed — practice, mentorship,
+    /// or disuse decay. Fired once per meaningful delta.
+    SkillChanged {
+        agent: Entity,
+        tick: u64,
+        skill: crate::agent::skills::SkillKind,
+        old_value: f32,
+        new_value: f32,
     },
 }
 

@@ -81,7 +81,6 @@ fn verbal_commitment_persists_across_thinking_cycles() {
     let mut world = TestWorld::with_seed(42);
     let alice = world.spawn_agent(AgentConfig {
         pos: Vec2::new(50.0, 50.0),
-        hunger: 10.0,
         personality: Personality {
             traits: PersonalityTraits {
                 conscientiousness: 0.8,
@@ -120,10 +119,12 @@ fn verbal_commitment_persists_across_thinking_cycles() {
 /// be there at the end.
 #[test]
 fn verbal_commitment_survives_unrelated_urgency_spike() {
+    use worldsim::agent::body::metabolism::Metabolism;
+    use worldsim::agent::body::needs::PhysicalNeeds;
+
     let mut world = TestWorld::with_seed(42);
     let alice = world.spawn_agent(AgentConfig {
         pos: Vec2::new(50.0, 50.0),
-        hunger: 5.0,
         personality: Personality {
             traits: PersonalityTraits {
                 conscientiousness: 0.8,
@@ -141,16 +142,18 @@ fn verbal_commitment_survives_unrelated_urgency_spike() {
     world.tick(60);
 
     // Spike alice's hunger so she picks up a hunger-satisfaction goal.
+    // After the metabolism rewrite (post-#338 base) we drain pools to
+    // empty rather than poking a flat scalar.
     {
-        let mut needs = world.get_mut::<worldsim::agent::body::needs::PhysicalNeeds>(alice);
-        needs.hunger = 95.0;
+        let mut needs = world.get_mut::<PhysicalNeeds>(alice);
+        needs.metabolism = Metabolism::empty();
     }
     world.tick(240);
 
-    // Now cool hunger off and keep ticking.
+    // Now cool hunger off again.
     {
-        let mut needs = world.get_mut::<worldsim::agent::body::needs::PhysicalNeeds>(alice);
-        needs.hunger = 10.0;
+        let mut needs = world.get_mut::<PhysicalNeeds>(alice);
+        needs.metabolism = Metabolism::well_fed();
     }
     world.tick(240);
 

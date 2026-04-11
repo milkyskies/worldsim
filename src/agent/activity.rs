@@ -56,7 +56,7 @@ impl CurrentActivity {
 pub struct ActivityEffects {
     /// Physical Needs
     pub stamina_change: f32, // +gain / -loss
-    pub hunger_change: f32, // +increase (getting hungrier)
+    pub glucose_drain: f32, // glucose burned per sec (BMR + activity cost)
     pub thirst_change: f32, // +increase (getting thirstier)
     pub health_change: f32, // +healing / -damage
 
@@ -106,7 +106,7 @@ impl Default for ActivityConfig {
                 name: "Base Metabolism".to_string(),
                 effects: ActivityEffects {
                     stamina_change: -0.15,
-                    hunger_change: 0.5,
+                    glucose_drain: 0.2,
                     ..Default::default()
                 },
             },
@@ -127,7 +127,7 @@ impl Default for ActivityConfig {
                     // `tick_actions` in execution.rs via the intensity-aware
                     // `Stamina::drain` call (#339). Activity effects only
                     // contribute the non-stamina drift (hunger, alertness).
-                    hunger_change: 2.0,
+                    glucose_drain: 0.4,
                     alertness_change: 0.5,
                     ..Default::default()
                 },
@@ -136,7 +136,7 @@ impl Default for ActivityConfig {
                 name: "Sleeping".to_string(),
                 effects: ActivityEffects {
                     stamina_change: 20.0,
-                    hunger_change: 0.2,      // Low hunger rate
+                    glucose_drain: 0.05,     // Sleeping burns little extra fuel
                     alertness_change: -50.0, // Unconscious: alertness collapses during sleep
                     emotion_changes: vec![(EmotionType::Joy, 2.0)], // Comfort
                     ..Default::default()
@@ -157,7 +157,7 @@ impl Default for ActivityConfig {
                 name: "Harvesting".to_string(),
                 effects: ActivityEffects {
                     stamina_change: -0.2,
-                    hunger_change: 2.0,
+                    glucose_drain: 0.4,
                     // Focused physical task drains a little mental fuel.
                     alertness_change: -0.5,
                     ..Default::default()
@@ -182,7 +182,7 @@ impl Default for ActivityConfig {
                 name: "Exploring".to_string(),
                 effects: ActivityEffects {
                     // Stamina drain owned by `tick_actions` (#339).
-                    hunger_change: 2.5,
+                    glucose_drain: 0.5,
                     // Actively scanning for novel features drains focus.
                     alertness_change: -1.0,
                     ..Default::default()

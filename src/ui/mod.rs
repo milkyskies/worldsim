@@ -845,8 +845,8 @@ fn agent_viewer_ui_for_agent(world: &mut World, entity: Entity, ui: &mut egui::U
             egui::Grid::new("state_grid").show(ui, |ui| {
                 ui.label("Hunger");
                 ui.add(
-                    egui::ProgressBar::new(physical.hunger / 100.0)
-                        .text(format!("{:.1}", physical.hunger)),
+                    egui::ProgressBar::new(physical.hunger_urgency())
+                        .text(format!("{:.2}", physical.hunger_urgency())),
                 );
                 ui.end_row();
 

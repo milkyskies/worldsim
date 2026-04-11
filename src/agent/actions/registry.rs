@@ -140,7 +140,12 @@ pub enum ActionKind {
 #[derive(Debug, Clone, Default)]
 pub struct RuntimeEffects {
     pub stamina_per_sec: f32,
-    pub hunger_per_sec: f32,
+    /// Glucose burned per second while the action is active. Positive drain,
+    /// applied on top of the activity-level BMR drain.
+    pub glucose_drain_per_sec: f32,
+    /// Carbs added to the stomach per second. Used by continuous-feed actions
+    /// like Graze where the animal is ingesting plant matter over time.
+    pub stomach_carbs_per_sec: f32,
     pub alertness_per_sec: f32,
 }
 
@@ -198,6 +203,11 @@ pub struct CompletionContext<'a> {
     /// beliefs about the target — e.g. Attack/Bite check
     /// `has_trait(target, Prey)` to gate the hunt-kill path.
     pub mind: &'a crate::agent::mind::knowledge::MindGraph,
+    /// The agent's learned skills (read-only). Lets actions scale their
+    /// outcome by competence — e.g. Harvest yields more per action when
+    /// `Skills::level(Harvesting)` is high. Writes happen in the separate
+    /// `skill_progression_system`, not here.
+    pub skills: Option<&'a crate::agent::skills::Skills>,
     /// Target entity's inventory (for Harvest, etc.)
     pub target_inventory: Option<&'a mut crate::agent::item_slots::ItemSlots>,
     /// Target entity
