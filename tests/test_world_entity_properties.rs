@@ -434,15 +434,24 @@ fn agent_near_campfire_has_lower_stress_than_distant_agent() {
 
 #[test]
 fn agent_near_campfire_recovers_more_energy_than_distant_agent() {
-    // Drain both agents' stamina to give the campfire something to recover.
+    // Drain both agents deep into exhaustion so both cross the
+    // `FATIGUE_SLEEP_THRESHOLD` (#386) and pick full Sleep instead of
+    // the milder Rest. Starting at stamina 30 puts them on the
+    // boundary: the `near` agent's campfire comfort drops their
+    // urgency just below the threshold → Rest, while `far` stays
+    // just above → Sleep. Sleep recovers faster than Rest, so `far`
+    // ends up with more aerobic and the test's intended signal
+    // (campfire proximity boosts recovery) gets inverted. Starting
+    // at stamina 10 pushes both into the Sleep branch unambiguously
+    // and leaves the campfire aura as the only variable.
     let (mut world, entities) = TestWorld::scenario(0)
         .agent("near")
         .pos(Vec2::new(100.0, 100.0))
-        .stamina(30.0)
+        .stamina(10.0)
         .done()
         .agent("far")
         .pos(Vec2::new(800.0, 800.0))
-        .stamina(30.0)
+        .stamina(10.0)
         .done()
         .build();
     let near = entities.get("near");
