@@ -186,6 +186,7 @@ fn character_sheet_system(world: &mut World) {
         .resizable(true)
         .default_width(360.0)
         .min_width(280.0)
+        .max_width(360.0)
         .show(ctx, |ui| {
             // Header
             ui.add_space(6.0);
