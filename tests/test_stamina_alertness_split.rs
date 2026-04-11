@@ -6,7 +6,7 @@
 //! these tests exercise how the systems wire them into the ECS loop.
 
 use worldsim::agent::activity::CurrentActivity;
-use worldsim::agent::body::needs::{Consciousness, PhysicalNeeds, Stamina};
+use worldsim::agent::body::needs::{Consciousness, PhysicalNeeds, PsychologicalDrives, Stamina};
 use worldsim::testing::{AgentConfig, TestWorld, personality};
 
 /// Sleep activity refills BOTH aerobic and anaerobic pools — the acceptance
@@ -167,6 +167,25 @@ fn idle_brain_work_drains_alertness_but_not_stamina() {
         genome: personality().conscientiousness(0.0).openness(0.0).into(),
         ..AgentConfig::default()
     });
+
+    // Tick once so `develop_phenotype_system` runs and writes genome-derived
+    // drives. After this, we zero every drive so the brain has no motivation
+    // to pursue anything — the test relies on the agent staying in Idle for
+    // the full duration, and non-zero drives would occasionally make it
+    // wander and drain anaerobic.
+    world.tick(1);
+    {
+        let mut drives = world.get_mut::<PsychologicalDrives>(agent);
+        *drives = PsychologicalDrives {
+            social: 0.0,
+            fun: 0.0,
+            curiosity: 0.0,
+            status: 0.0,
+            security: 0.0,
+            autonomy: 0.0,
+            territoriality: 0.0,
+        };
+    }
 
     // Pin the agent into Idle so no physical activity drains aerobic. The
     // idle activity still restores alertness (+2.5/s scaled), so we need to
