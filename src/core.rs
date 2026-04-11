@@ -28,7 +28,12 @@ impl Plugin for CorePlugin {
             .insert_resource(GameLog::new(100))
             .init_resource::<GameTime>()
             .init_resource::<SimRng>()
-            .add_systems(Update, (time_controls, tick::tick_system).chain());
+            .add_systems(
+                Update,
+                (time_controls, tick::tick_system)
+                    .chain()
+                    .run_if(crate::menu::sim_interactive),
+            );
     }
 }
 

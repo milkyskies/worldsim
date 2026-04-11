@@ -20,7 +20,7 @@ use egui::Color32;
 use egui_dock::{DockArea, DockState, NodeIndex, Style};
 use hud::GameLog;
 
-use crate::menu::AppState;
+use crate::menu::{AppState, sim_interactive};
 
 pub mod character_sheet;
 pub mod debug_knowledge;
@@ -49,13 +49,11 @@ impl Plugin for UiPlugin {
             .init_resource::<debug_knowledge::KnowledgeInspectorState>()
             .add_systems(
                 EguiPrimaryContextPass,
-                controls_panel_system.run_if(in_state(AppState::InSim)),
+                controls_panel_system.run_if(sim_interactive),
             )
             .add_systems(
                 EguiPrimaryContextPass,
-                ui_system
-                    .run_if(debug_ui_enabled)
-                    .run_if(in_state(AppState::InSim)),
+                ui_system.run_if(debug_ui_enabled).run_if(sim_interactive),
             )
             .add_systems(
                 PostUpdate,
@@ -66,8 +64,7 @@ impl Plugin for UiPlugin {
             )
             .add_systems(
                 Update,
-                (toggle_debug_ui, handle_game_click, draw_selection_gizmos)
-                    .run_if(in_state(AppState::InSim)),
+                (toggle_debug_ui, handle_game_click, draw_selection_gizmos).run_if(sim_interactive),
             );
     }
 }

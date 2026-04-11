@@ -10,7 +10,9 @@ use bevy::prelude::*;
 use bevy_egui::{EguiContext, EguiPrimaryContextPass, PrimaryEguiContext, egui};
 use rand::Rng;
 
+use crate::agent::mind::conversation::ConversationManager;
 use crate::core::{SimRng, TickCount};
+use crate::world::spatial_index::SpatialIndex;
 
 /// Top-level app screen. Drives whether the simulation plugins are running.
 #[derive(States, Debug, Clone, Copy, Eq, PartialEq, Hash, Default)]
@@ -82,7 +84,11 @@ impl Plugin for MenuPlugin {
             .add_systems(OnEnter(AppState::ModePicker), pause_ticks)
             .add_systems(OnEnter(AppState::CreateWorld), pause_ticks)
             .add_systems(OnEnter(AppState::InSim), enter_sim)
-            .add_systems(OnExit(AppState::InSim), close_pause_menu)
+            .add_systems(
+                OnExit(AppState::InSim),
+                (close_pause_menu, reset_sim_resources),
+            )
+            .add_systems(First, enforce_pause_outside_in_sim)
             .add_systems(Update, handle_pause_key.run_if(in_state(AppState::InSim)))
             .add_systems(
                 EguiPrimaryContextPass,
@@ -137,8 +143,46 @@ fn close_pause_menu(mut pause: ResMut<PauseMenuOpen>, tick: Option<ResMut<TickCo
     }
 }
 
+/// Drops entity references held by stateful sim resources so the next run
+/// doesn't access stale generations from the previous sim. Without this, a
+/// second "New Simulation" crashes because systems like
+/// `evaluate_conversation_continuation` try to apply commands against
+/// despawned agents whose IDs were still in `ConversationManager`.
+fn reset_sim_resources(
+    mut conversations: Option<ResMut<ConversationManager>>,
+    mut spatial: Option<ResMut<SpatialIndex>>,
+) {
+    if let Some(conversations) = conversations.as_mut() {
+        **conversations = ConversationManager::default();
+    }
+    if let Some(spatial) = spatial.as_mut() {
+        **spatial = SpatialIndex::default();
+    }
+}
+
+/// Belt-and-suspenders: if we're not in the sim, force the tick paused so
+/// any `run_if(not_paused)` system skips even if a transition left the flag
+/// in a stale state. Runs in `First` so Update-time systems see the enforced
+/// value before they check it.
+fn enforce_pause_outside_in_sim(state: Res<State<AppState>>, tick: Option<ResMut<TickCount>>) {
+    if *state.get() == AppState::InSim {
+        return;
+    }
+    if let Some(mut tick) = tick {
+        tick.paused = true;
+    }
+}
+
 fn pause_menu_is_open(pause: Res<PauseMenuOpen>) -> bool {
     pause.0
+}
+
+/// Run condition for sim-interaction UI systems: true only while the player
+/// is actively in a sim AND not looking at the pause menu overlay. Prevents
+/// clicking on the world or toggling debug widgets from leaking through the
+/// pause menu.
+pub fn sim_interactive(state: Res<State<AppState>>, pause: Res<PauseMenuOpen>) -> bool {
+    *state.get() == AppState::InSim && !pause.0
 }
 
 fn handle_pause_key(
@@ -538,5 +582,35 @@ mod tests {
 
         assert!(!app.world().resource::<PauseMenuOpen>().0);
         assert!(app.world().resource::<TickCount>().paused);
+    }
+
+    #[test]
+    fn reset_sim_resources_clears_stale_conversation_entities() {
+        let mut app = App::new();
+        app.init_resource::<ConversationManager>();
+        app.init_resource::<SpatialIndex>();
+
+        // Seed the conversation manager with a fake participant — after
+        // DespawnOnExit runs, its Entity id would be stale.
+        let fake_entity = app.world_mut().spawn_empty().id();
+        {
+            let mut conv = app.world_mut().resource_mut::<ConversationManager>();
+            conv.start_conversation(vec![fake_entity], 0);
+        }
+        {
+            let mut spatial = app.world_mut().resource_mut::<SpatialIndex>();
+            spatial.update_entity(fake_entity, IVec2::new(0, 0));
+        }
+
+        let sys_id = app.register_system(reset_sim_resources);
+        app.world_mut().run_system(sys_id).unwrap();
+
+        assert!(
+            app.world()
+                .resource::<ConversationManager>()
+                .conversations
+                .is_empty(),
+            "ConversationManager should be empty after reset"
+        );
     }
 }
