@@ -1,9 +1,9 @@
 //! Unified Spawner: The single source of truth for creating entities in the world.
 //! Ensures consistent ECS components + Knowledge Graph assertions.
 //!
-//! Reads: WorldMap, Ontology, WorldSpawnConfig (layout computation)
+//! Reads: WorldMap, Ontology, SimConfig (mode + seed), WorldSpawnConfig (layout computation)
 //! Writes: Person, Deer, Wolf, BerryBush, AppleTree entities (initial population)
-//! Upstream: world::map (terrain), world::spawn_config (placement layout)
+//! Upstream: world::map (terrain), world::spawn_config (placement layout), menu (SimConfig)
 //! Downstream: agent systems consume the resulting entities
 //!
 //! Individual entity spawning logic is delegated to:
@@ -17,6 +17,7 @@
 
 use crate::agent::mind::knowledge::{MindGraph, Ontology};
 use crate::agent::mind::recognition::initialize_relationship_with_affection;
+use crate::menu::{AppState, SimConfig, SimMode};
 use crate::world::spawn_config::{SpawnLayout, WorldSpawnConfig};
 use bevy::prelude::*;
 
@@ -83,10 +84,17 @@ impl Plugin for SpawnerPlugin {
             .register_type::<Deer>()
             .register_type::<Wolf>()
             .add_systems(
-                Startup,
+                OnEnter(AppState::InSim),
                 (
-                    spawn_initial_population.after(crate::world::map::setup_map),
-                    setup_wolf_pack_bonds.after(spawn_initial_population),
+                    spawn_initial_population
+                        .after(crate::world::map::setup_map)
+                        .run_if(in_debug_mode),
+                    setup_wolf_pack_bonds
+                        .after(spawn_initial_population)
+                        .run_if(in_debug_mode),
+                    spawn_game_scaffold
+                        .after(crate::world::map::setup_map)
+                        .run_if(in_game_mode),
                 ),
             )
             .add_systems(
@@ -107,24 +115,59 @@ fn spawn_initial_population(
     map: Res<crate::world::map::WorldMap>,
     ontology: Res<Ontology>,
     mut sim_rng: ResMut<crate::core::SimRng>,
+    sim_config: Option<Res<SimConfig>>,
 ) {
-    let config = WorldSpawnConfig::game_defaults();
+    let seed = sim_config.map(|c| c.seed as u64).unwrap_or(0);
+    let config = WorldSpawnConfig {
+        seed,
+        ..WorldSpawnConfig::game_defaults()
+    };
     let layout = config.compute_layout(&map);
-    apply_layout(&mut commands, &ontology, &layout, sim_rng.inner_mut());
+    let spawned = apply_layout(&mut commands, &ontology, &layout, sim_rng.inner_mut());
+    for entity in spawned {
+        commands
+            .entity(entity)
+            .insert(DespawnOnExit(AppState::InSim));
+    }
 }
+
+/// Run condition: spawn the full sandbox population only when the player picked Debug.
+fn in_debug_mode(sim_config: Option<Res<SimConfig>>) -> bool {
+    sim_config
+        .map(|c| matches!(c.mode, SimMode::Debug))
+        .unwrap_or(true)
+}
+
+/// Run condition: game-mode scaffold path. Future factory-game systems will
+/// reuse this same condition to gate themselves to game runs.
+fn in_game_mode(sim_config: Option<Res<SimConfig>>) -> bool {
+    sim_config
+        .map(|c| matches!(c.mode, SimMode::Game))
+        .unwrap_or(false)
+}
+
+/// Intentionally empty placeholder for the factory-game entry point.
+/// Picking Game today gives you terrain with no agents, visibly distinct
+/// from Debug. Future factory features hook in here.
+fn spawn_game_scaffold() {}
 
 /// Spawns all entities described by `layout` into the Bevy world using full
 /// visual spawners. Used by the windowed game path.
+///
+/// Returns the list of root entities created so callers can tag them with
+/// state-scoped cleanup or other lifetime markers.
 pub fn apply_layout(
     commands: &mut Commands,
     ontology: &Ontology,
     layout: &SpawnLayout,
     rng: &mut impl rand::Rng,
-) {
+) -> Vec<Entity> {
     use std::collections::HashMap;
     use std::sync::Arc;
 
     use crate::agent::culture::Culture;
+
+    let mut spawned: Vec<Entity> = Vec::new();
 
     // First group stays on the original settlement side; second group spawns
     // across the river. Cultures are split so the two groups have different
@@ -146,14 +189,15 @@ pub fn apply_layout(
     for (i, &pos) in layout.human_positions.iter().enumerate() {
         let culture = first_group_cultures[rng.random_range(0..first_group_cultures.len())];
         let knowledge = cultural_knowledge_map.get(&culture).unwrap().clone();
-        spawn_person(commands, ontology.clone(), pos, i, culture, knowledge, rng);
+        let entity = spawn_person(commands, ontology.clone(), pos, i, culture, knowledge, rng);
+        spawned.push(entity);
     }
 
     let offset = layout.human_positions.len();
     for (i, &pos) in layout.second_human_positions.iter().enumerate() {
         let culture = second_group_cultures[rng.random_range(0..second_group_cultures.len())];
         let knowledge = cultural_knowledge_map.get(&culture).unwrap().clone();
-        spawn_person(
+        let entity = spawn_person(
             commands,
             ontology.clone(),
             pos,
@@ -162,6 +206,7 @@ pub fn apply_layout(
             knowledge,
             rng,
         );
+        spawned.push(entity);
     }
 
     let mut deer_index = 0;
@@ -174,6 +219,7 @@ pub fn apply_layout(
                 entity
             })
             .collect();
+        spawned.extend(members.iter().copied());
         if members.len() > 1 {
             introduce_group_as_kin(commands, members, KIN_BASELINE_AFFECTION);
         }
@@ -189,26 +235,29 @@ pub fn apply_layout(
                 entity
             })
             .collect();
+        spawned.extend(members.iter().copied());
         if members.len() > 1 {
             introduce_group_as_kin(commands, members, KIN_BASELINE_AFFECTION);
         }
     }
 
     for &(pos, berries) in &layout.berry_bush_positions {
-        spawn_berry_bush(commands, pos, berries);
+        spawned.push(spawn_berry_bush(commands, pos, berries));
     }
 
     for &(pos, apples) in &layout.apple_tree_positions {
-        spawn_apple_tree(commands, pos, apples);
+        spawned.push(spawn_apple_tree(commands, pos, apples));
     }
 
     for &(pos, stones) in &layout.stone_node_positions {
-        spawn_stone_node(commands, pos, stones);
+        spawned.push(spawn_stone_node(commands, pos, stones));
     }
 
     for &(pos, wood) in &layout.wood_log_positions {
-        spawn_wood_log(commands, pos, wood);
+        spawned.push(spawn_wood_log(commands, pos, wood));
     }
+
+    spawned
 }
 
 /// Establishes mutual pack bonds between all spawned wolves.

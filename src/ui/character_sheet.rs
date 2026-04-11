@@ -64,8 +64,10 @@ pub struct CharacterSheetPlugin;
 
 impl Plugin for CharacterSheetPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<CharacterSheetState>()
-            .add_systems(EguiPrimaryContextPass, character_sheet_system);
+        app.init_resource::<CharacterSheetState>().add_systems(
+            EguiPrimaryContextPass,
+            character_sheet_system.run_if(crate::menu::sim_interactive),
+        );
     }
 }
 

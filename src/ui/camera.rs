@@ -36,7 +36,8 @@ impl Plugin for CameraPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(
             Update,
-            (camera_zoom, camera_drag, touchpad_pinch_zoom, touchpad_pan),
+            (camera_zoom, camera_drag, touchpad_pinch_zoom, touchpad_pan)
+                .run_if(crate::menu::sim_interactive),
         );
     }
 }

@@ -28,6 +28,10 @@ impl Plugin for CorePlugin {
             .insert_resource(GameLog::new(100))
             .init_resource::<GameTime>()
             .init_resource::<SimRng>()
+            // tick_system runs unconditionally — it early-returns when paused,
+            // and Bevy internals may depend on it advancing. time_controls
+            // handles its own sim_interactive check inline so menu screens
+            // don't hijack Space/+/-.
             .add_systems(Update, (time_controls, tick::tick_system).chain());
     }
 }
@@ -37,7 +41,15 @@ fn time_controls(
     keyboard: Res<ButtonInput<KeyCode>>,
     mut tick: ResMut<TickCount>,
     mut game_log: ResMut<GameLog>,
+    state: Res<State<crate::menu::AppState>>,
+    pause_menu: Res<crate::menu::PauseMenuOpen>,
 ) {
+    // Ignore time keys when not actively playing — menu and pause overlay
+    // shouldn't let the player toggle/tweak the sim clock.
+    if *state.get() != crate::menu::AppState::InSim || pause_menu.0 {
+        return;
+    }
+
     // Space toggles pause
     if keyboard.just_pressed(KeyCode::Space) {
         tick.paused = !tick.paused;
