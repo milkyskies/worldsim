@@ -338,10 +338,19 @@ pub trait Action: Send + Sync + 'static {
     /// Body channels this action occupies, with intensity 0.0..=1.0 each.
     ///
     /// Returns a `'static` slice so the hot tick loop never allocates.
-    /// Default: no channels - the action is purely cognitive (Idle, planning).
-    fn body_channels(&self) -> &'static [ChannelUsage] {
-        &[]
-    }
+    ///
+    /// **Required** — every action must declare what body state it
+    /// occupies, even passive or cognitive ones. "Doing nothing" is
+    /// still a posture (legs planted, eyes open, breathing), and the
+    /// arbitration system needs to know about it to prevent silent
+    /// nonsense like "resting while walking" (the #386 Rest+Walk
+    /// coexistence bug that forced this to become mandatory).
+    ///
+    /// If the action truly claims no body part — rare, but possible
+    /// for purely signal-like actions — declare
+    /// [`ChannelSlice::NONE`] explicitly so the intent is visible in
+    /// the diff, not hidden by a fallback default.
+    fn body_channels(&self) -> &'static [ChannelUsage];
 
     /// Whether this action can be preempted mid-execution. Default `true`.
     /// Reserved for future actions that should resist casual preemption

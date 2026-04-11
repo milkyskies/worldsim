@@ -191,6 +191,32 @@ impl ChannelUsage {
     }
 }
 
+/// Prebuilt channel slices for the common action stances.
+///
+/// `body_channels()` is required on every `Action`, and most passive or
+/// task-focused actions share the same posture: "my legs are planted,
+/// I'm not going anywhere." Returning `ChannelSlices::STATIONARY` says
+/// that explicitly. Movement actions use their own Locomotion 0.4 slice.
+/// Actions that legitimately claim no body channel declare
+/// `ChannelSlices::NONE` — an explicit empty slice, not a fallback
+/// default, so the intent is visible in the diff.
+pub struct ChannelSlices;
+
+impl ChannelSlices {
+    /// Explicitly empty — the action claims no body channel at all.
+    /// Rare. Use when the action is a pure signal or state marker
+    /// (e.g. `Converse` the body-channel marker vs. real conversation).
+    pub const NONE: &'static [ChannelUsage] = &[];
+
+    /// Legs planted, body stationary. The right stance for Idle, Rest,
+    /// Groom, Eat, Drink, Harvest, Build, Attack, Bite — anything where
+    /// the agent is committed in one spot. Saturates Locomotion so any
+    /// Movement action (which adds Locomotion 0.4) crosses the hard
+    /// conflict threshold and has to preempt or be preempted instead
+    /// of silently coexisting.
+    pub const STATIONARY: &'static [ChannelUsage] = &[ChannelUsage::new(Channel::Locomotion, 1.0)];
+}
+
 /// Saturation of every channel summed across a set of actions.
 ///
 /// Backed by a fixed-size array indexed by `Channel as usize` so the hot

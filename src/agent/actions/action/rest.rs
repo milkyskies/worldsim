@@ -12,6 +12,7 @@
 //! Sleep would be overkill (#386).
 
 use crate::agent::actions::ActionType;
+use crate::agent::actions::channel::{ChannelSlices, ChannelUsage};
 use crate::agent::actions::registry::{Action, ActionKind, RuntimeEffects};
 
 pub struct RestAction;
@@ -33,8 +34,16 @@ impl Action for RestAction {
         }
     }
 
-    // Rest reserves no body channels — it's passive recovery and can
-    // coexist with low-intensity actions like Observe.
+    fn body_channels(&self) -> &'static [ChannelUsage] {
+        // Rest is a stationary posture — legs planted, recovering.
+        // Saturating Locomotion mutexes Rest against every Movement
+        // action via the normal channel arbitration, which is what
+        // prevents the "resting + patrolling" nonsense from #386.
+        // Cognition and Vocalization stay free so a resting agent
+        // can still watch the world or hold a conversation.
+        ChannelSlices::STATIONARY
+    }
+
     fn runtime_effects(&self) -> RuntimeEffects {
         RuntimeEffects {
             stamina_per_sec: 8.0,        // slower than Sleep (+20), faster than Idle (0)

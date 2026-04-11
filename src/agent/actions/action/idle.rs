@@ -1,6 +1,7 @@
 //! Idle action - the default "do nothing" state.
 
 use crate::agent::actions::ActionType;
+use crate::agent::actions::channel::{ChannelSlices, ChannelUsage};
 use crate::agent::actions::registry::{Action, ActionKind, RuntimeEffects};
 
 pub struct IdleAction;
@@ -20,7 +21,12 @@ impl Action for IdleAction {
         }
     }
 
-    // Idle reserves no body channels (default `&[]`).
+    fn body_channels(&self) -> &'static [ChannelUsage] {
+        // Idle is a stance, not the absence of one: legs planted,
+        // body stationary. Saturates Locomotion so the agent can't
+        // silently "idle while walking" (the Rest+Walk bug class).
+        ChannelSlices::STATIONARY
+    }
 
     fn runtime_effects(&self) -> RuntimeEffects {
         RuntimeEffects {
