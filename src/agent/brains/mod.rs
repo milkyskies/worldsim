@@ -7,6 +7,7 @@ pub mod brain_system;
 pub mod emotional;
 pub mod history;
 // pub mod exploration; // REMOVED
+pub mod plan_memory;
 pub mod planner;
 pub mod proposal;
 pub mod rational;
@@ -24,6 +25,7 @@ impl Plugin for BrainPlugin {
         use crate::core::not_paused;
 
         app.register_type::<rational::RationalBrain>()
+            .register_type::<plan_memory::PlanMemory>()
             .register_type::<proposal::BrainState>()
             .register_type::<proposal::BrainType>()
             .register_type::<proposal::BrainPowers>()
