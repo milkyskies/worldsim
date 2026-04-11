@@ -94,8 +94,13 @@ impl ActionType {
     /// `pick_locomotion_intensity` to reflect urgency.
     pub fn default_locomotion_intensity(self) -> f32 {
         match self {
-            ActionType::Wander => 0.3, // slow drift
-            ActionType::Walk => 0.5,   // purposeful walk
+            // 0.25 keeps slow-drift wandering under Stamina::drain's
+            // sprint gate (intensity > 0.3 → burns anaerobic). A
+            // high-urgency territorial wander gets boosted by
+            // `pick_locomotion_intensity` up to ~0.55 which does burn
+            // anaerobic, so urgent patrol still feels the cost.
+            ActionType::Wander => 0.25, // slow drift
+            ActionType::Walk => 0.5,    // purposeful walk
             ActionType::Explore => 0.5,
             ActionType::Graze => 0.25, // walk-and-eat shuffle
             ActionType::Flee => 1.0,   // sprint
