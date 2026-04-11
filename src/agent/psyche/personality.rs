@@ -63,13 +63,24 @@ impl PersonalityTraits {
     }
 
     /// Sample traits from an explicit RNG (deterministic when caller seeds it).
+    ///
+    /// Each trait is the average of three independent uniform samples, producing
+    /// a triangle distribution centred at 0.5. This avoids the all-extreme
+    /// personalities you get with a single uniform draw while still allowing
+    /// genuine variation.
     pub fn from_rng<R: Rng>(rng: &mut R) -> Self {
+        let avg = |r: &mut R| {
+            (r.random_range(0.0_f32..=1.0)
+                + r.random_range(0.0_f32..=1.0)
+                + r.random_range(0.0_f32..=1.0))
+                / 3.0
+        };
         Self {
-            openness: rng.random_range(0.0..=1.0),
-            conscientiousness: rng.random_range(0.0..=1.0),
-            extraversion: rng.random_range(0.0..=1.0),
-            agreeableness: rng.random_range(0.0..=1.0),
-            neuroticism: rng.random_range(0.0..=1.0),
+            openness: avg(rng),
+            conscientiousness: avg(rng),
+            extraversion: avg(rng),
+            agreeableness: avg(rng),
+            neuroticism: avg(rng),
         }
     }
 }
