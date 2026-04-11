@@ -131,6 +131,17 @@ fn handle_failure_outcome(
                 );
             }
         }
+        FailureReason::PathBlocked { target_tile } => {
+            // Record the blocked target so the planner stops picking it.
+            // TTL-checked on read in `generate_implicit_walk` via the
+            // triple's metadata timestamp — no explicit decay needed.
+            mind.assert(Triple::with_meta(
+                Node::Tile(*target_tile),
+                Predicate::HasTrait,
+                Value::Concept(Concept::Unreachable),
+                Metadata::experience(current_time),
+            ));
+        }
         _ => {}
     }
 }

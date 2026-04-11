@@ -332,6 +332,13 @@ pub fn tick_actions(
 
         let mut completed_types: Vec<ActionType> = Vec::new();
         let mut target_gone_types: Vec<ActionType> = Vec::new();
+        // Movement actions whose straight-line step hit a non-walkable tile
+        // this frame. They're still removed from the active set (like any
+        // completed action) but processed as failures instead of successes:
+        // on_complete is skipped and an ActionOutcome::Failed is emitted
+        // carrying the target tile so the belief updater can mark it
+        // Unreachable.
+        let mut path_blocked_types: Vec<(ActionType, (i32, i32))> = Vec::new();
 
         for action_state in active.iter_mut() {
             let action_type = action_state.action_type;
@@ -425,6 +432,11 @@ pub fn tick_actions(
                                     MoveResult::Blocked => {
                                         game_log
                                             .log_debug(format!("{} path blocked", name.as_str()));
+                                        let tile = (
+                                            (target_position.x / TILE_SIZE).floor() as i32,
+                                            (target_position.y / TILE_SIZE).floor() as i32,
+                                        );
+                                        path_blocked_types.push((action_type, tile));
                                         true
                                     }
                                 }
@@ -436,7 +448,10 @@ pub fn tick_actions(
                 },
             };
 
-            if completed {
+            // A path-blocked Movement is "complete" in the sense that it's
+            // removed from the active set this tick, but it's a failure, not
+            // a success: handled by the path_blocked_types loop below.
+            if completed && path_blocked_types.iter().all(|(t, _)| *t != action_type) {
                 completed_types.push(action_type);
             }
         }
@@ -584,6 +599,33 @@ pub fn tick_actions(
                     action: *action_type,
                     target,
                     reason: crate::agent::events::FailureReason::TargetGone,
+                },
+            });
+        }
+
+        // Fail path-blocked Movement actions. Keeps the active set clean
+        // (like completion), but emits a failure outcome so the belief
+        // updater can record the target tile as Unreachable and the
+        // planner stops re-picking it on the next replan.
+        for (action_type, target_tile) in &path_blocked_types {
+            let snapshot = active.get(*action_type).cloned();
+            active.remove(*action_type);
+            let target = snapshot.and_then(|s| s.target_entity);
+            let reason = crate::agent::events::FailureReason::PathBlocked {
+                target_tile: *target_tile,
+            };
+            sim_events.write(crate::agent::events::SimEvent::ActionFailed {
+                agent: entity,
+                tick: current_tick,
+                action: *action_type,
+                reason: reason.clone(),
+            });
+            outcome_events.write(ActionOutcomeEvent {
+                actor: entity,
+                outcome: ActionOutcome::Failed {
+                    action: *action_type,
+                    target,
+                    reason,
                 },
             });
         }
