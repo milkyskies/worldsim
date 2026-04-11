@@ -8,7 +8,6 @@ languages = ["rust"]
 [skills]
 include = [
     "ship",
-    "rulify",
     "retrospective",
     "land",
 ]

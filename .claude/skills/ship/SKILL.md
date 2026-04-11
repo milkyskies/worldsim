@@ -1,7 +1,7 @@
 ---
 name: ship
 description: >
-  Run quality gates, /simplify, /rulify, create or update a PR, poll CI, then mark ready.
+  Run quality gates, /simplify, create or update a PR, poll CI, then mark ready.
   TRIGGER when: (1) the user says "ship it", "ship", or asks to create a PR, OR (2) you have finished implementing a task and are ready to submit it -- invoke this automatically as part of the workflow.
   DO NOT TRIGGER when: the user just wants to run tests or quality gates without creating a PR.
 argument-hint: "[issue number (optional, inferred from branch if omitted)]"
@@ -29,7 +29,13 @@ On **re-runs** (PR already exists), skip PR creation — just run quality gates,
 
 ## Step 2: Verify against issue
 
-Read the issue with `glb show <num>` and check that every requirement, acceptance criterion, or sub-task in the issue body is actually implemented in the diff. If anything is missing, finish it before proceeding to the next step.
+**MANDATORY — produce the checklist below as visible output.** Run `glb show <num>` and list every requirement, acceptance criterion, and sub-task from the issue body. Mark each:
+
+- ✓ `<requirement>` — implemented in `<file:line>`
+- ✗ `<requirement>` — MISSING, implementing now
+- ⊘ `<requirement>` — skipped because `<reason>` (only use when the user explicitly agreed or it's clearly out of scope)
+
+If anything is ✗, finish it before proceeding.
 
 ## Step 3: Quality gates
 
@@ -49,12 +55,9 @@ or nextest locally.
 
 ## Step 4: Code review
 
-Run self-checks in order:
+Run **`/simplify`** — review changed code for reuse, quality, and efficiency.
 
-1. **`/simplify`** — review changed code for reuse, quality, and efficiency
-2. **`/rulify`** — cross-check changes against `.claude/rules/`
-
-If any made changes:
+If it made changes:
 - Re-run quality gates (step 3) on affected packages
 - Commit fixes
 
@@ -126,7 +129,7 @@ Track consecutive failures. **Cap at 3 — after 3 consecutive failures, stop an
 1. **Merge conflicts** (`mergeable` is `CONFLICTING`): merge the base branch in and resolve conflicts
 2. **CI failures**: read failure logs and fix the issue
 3. Re-run quality gates (step 3) on affected packages
-4. If the fix involved new logic or structural changes (not just mechanical fixes like missing imports or type annotations), re-run `/simplify` and `/rulify`
+4. If the fix involved new logic or structural changes (not just mechanical fixes like missing imports or type annotations), re-run `/simplify`
 5. Commit, push, poll again
 
 ### On CI pass AND no conflicts:
