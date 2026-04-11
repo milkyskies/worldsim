@@ -16,7 +16,7 @@
 //! action is just a body-channel marker; the plugin owns the lifecycle.
 
 use crate::agent::actions::ActionType;
-use crate::agent::actions::channel::{Channel, ChannelUsage};
+use crate::agent::actions::channel::{Channel, ChannelUsage, Posture};
 use crate::agent::actions::registry::{Action, ActionContext, ActionKind, TargetSource};
 use crate::agent::events::FailureReason;
 
@@ -56,6 +56,10 @@ impl Action for InitiateConversationAction {
         // simultaneously try to wander somewhere else and lose its target.
         const CHANNELS: &[ChannelUsage] = &[ChannelUsage::new(Channel::Locomotion, 1.0)];
         CHANNELS
+    }
+
+    fn posture(&self) -> Option<Posture> {
+        Some(Posture::Moving)
     }
 
     fn can_start(&self, ctx: &ActionContext) -> Result<(), FailureReason> {

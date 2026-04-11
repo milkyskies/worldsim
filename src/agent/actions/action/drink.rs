@@ -8,7 +8,7 @@
 //! generator. No manual preconditions or `to_template` override needed.
 
 use crate::agent::actions::ActionType;
-use crate::agent::actions::channel::{Channel, ChannelUsage};
+use crate::agent::actions::channel::{Channel, ChannelUsage, Posture};
 use crate::agent::actions::registry::{
     Action, ActionContext, ActionKind, CompletionContext, TargetSource,
 };
@@ -62,6 +62,11 @@ impl Action for DrinkAction {
         // without hands can lap from water surfaces the same as humans.
         const CHANNELS: &[ChannelUsage] = &[ChannelUsage::new(Channel::Consumption, 0.8)];
         CHANNELS
+    }
+
+    fn posture(&self) -> Option<Posture> {
+        // Head-down at the waterline — stationary until done.
+        Some(Posture::Stationary)
     }
 
     fn target_source(&self) -> TargetSource {

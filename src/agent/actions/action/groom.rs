@@ -11,7 +11,7 @@
 //! the no-drive baseline. Any real drive outbids it.
 
 use crate::agent::actions::ActionType;
-use crate::agent::actions::channel::{Channel, ChannelUsage};
+use crate::agent::actions::channel::{Channel, ChannelUsage, Posture};
 use crate::agent::actions::registry::{Action, ActionKind, RuntimeEffects};
 
 pub struct GroomAction;
@@ -37,6 +37,12 @@ impl Action for GroomAction {
         // Consumption channel — an agent could groom and eat at once.
         const CHANNELS: &[ChannelUsage] = &[ChannelUsage::new(Channel::Manipulation, 0.3)];
         CHANNELS
+    }
+
+    fn posture(&self) -> Option<Posture> {
+        // Grooming is a seated / standing-still behaviour — you don't
+        // preen feathers mid-flight.
+        Some(Posture::Stationary)
     }
 
     fn runtime_effects(&self) -> RuntimeEffects {

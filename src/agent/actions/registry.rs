@@ -5,7 +5,7 @@
 
 use crate::agent::actions::ActionType;
 use crate::agent::actions::action::{AttackAction, BiteAction};
-use crate::agent::actions::channel::ChannelUsage;
+use crate::agent::actions::channel::{ChannelUsage, Posture};
 use crate::agent::brains::thinking::{ActionTemplate, TriplePattern};
 use crate::agent::events::FailureReason;
 use crate::agent::item_slots::ItemSlots;
@@ -351,6 +351,23 @@ pub trait Action: Send + Sync + 'static {
     /// [`ChannelSlice::NONE`] explicitly so the intent is visible in
     /// the diff, not hidden by a fallback default.
     fn body_channels(&self) -> &'static [ChannelUsage];
+
+    /// How this action positions the body.
+    ///
+    /// - `Some(Stationary)` — the action commits the agent in place
+    ///   (Rest, Idle, Sleep, Eat, Harvest, Build, ...).
+    /// - `Some(Moving)` — the action's purpose is moving through space
+    ///   (Walk, Wander, Flee, Graze, Explore, ...).
+    /// - `None` — posture-agnostic. The action runs whether the agent
+    ///   is Stationary or Moving: a charging wolf biting its prey, a
+    ///   runner shouting a greeting, a walker watching the sky.
+    ///
+    /// Required on every action — same forcing-function discipline as
+    /// `body_channels()`. Posture is orthogonal to body channels:
+    /// posture mutexes the whole-body stance ("can this body be doing
+    /// two opposed things at once?"), channels arbitrate per-part
+    /// overlap ("can these parts share the load?").
+    fn posture(&self) -> Option<Posture>;
 
     /// Whether this action can be preempted mid-execution. Default `true`.
     /// Reserved for future actions that should resist casual preemption

@@ -12,7 +12,7 @@
 //! interesting in view.
 
 use crate::agent::actions::ActionType;
-use crate::agent::actions::channel::{Channel, ChannelUsage};
+use crate::agent::actions::channel::{Channel, ChannelUsage, Posture};
 use crate::agent::actions::registry::{Action, ActionKind, RuntimeEffects};
 
 pub struct ObserveAction;
@@ -44,6 +44,11 @@ impl Action for ObserveAction {
         // later if a brain pairs them up.
         const CHANNELS: &[ChannelUsage] = &[ChannelUsage::new(Channel::Cognition, 0.6)];
         CHANNELS
+    }
+
+    fn posture(&self) -> Option<Posture> {
+        // Watching works from a standstill or mid-walk — both are real.
+        None
     }
 
     fn runtime_effects(&self) -> RuntimeEffects {

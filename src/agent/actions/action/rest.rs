@@ -12,7 +12,7 @@
 //! Sleep would be overkill (#386).
 
 use crate::agent::actions::ActionType;
-use crate::agent::actions::channel::{ChannelSlices, ChannelUsage};
+use crate::agent::actions::channel::{ChannelSlices, ChannelUsage, Posture};
 use crate::agent::actions::registry::{Action, ActionKind, RuntimeEffects};
 
 pub struct RestAction;
@@ -35,13 +35,17 @@ impl Action for RestAction {
     }
 
     fn body_channels(&self) -> &'static [ChannelUsage] {
-        // Rest is a stationary posture — legs planted, recovering.
-        // Saturating Locomotion mutexes Rest against every Movement
-        // action via the normal channel arbitration, which is what
+        // Rest claims no body part — the legs-planted stance is expressed
+        // through `posture()`. Cognition and Vocalization stay free so a
+        // resting agent can still watch the world or hold a conversation.
+        ChannelSlices::NONE
+    }
+
+    fn posture(&self) -> Option<Posture> {
+        // Legs planted, recovering. The posture gate rejects Walk /
+        // Wander / Flee admission while Rest is active, which is what
         // prevents the "resting + patrolling" nonsense from #386.
-        // Cognition and Vocalization stay free so a resting agent
-        // can still watch the world or hold a conversation.
-        ChannelSlices::STATIONARY
+        Some(Posture::Stationary)
     }
 
     fn runtime_effects(&self) -> RuntimeEffects {

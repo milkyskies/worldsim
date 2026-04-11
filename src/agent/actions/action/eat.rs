@@ -1,7 +1,7 @@
 //! Eat action - consume food from inventory.
 
 use crate::agent::actions::ActionType;
-use crate::agent::actions::channel::{Channel, ChannelUsage};
+use crate::agent::actions::channel::{Channel, ChannelUsage, Posture};
 use crate::agent::actions::registry::{Action, ActionContext, ActionKind, CompletionContext};
 use crate::agent::body::metabolism::{FoodMacros, food_macros};
 use crate::agent::brains::thinking::TriplePattern;
@@ -37,6 +37,11 @@ impl Action for EatAction {
         // use a hand to bring food to their face but the gate is the mouth.
         const CHANNELS: &[ChannelUsage] = &[ChannelUsage::new(Channel::Consumption, 0.8)];
         CHANNELS
+    }
+
+    fn posture(&self) -> Option<Posture> {
+        // Sit-and-eat. The Moving variant is Graze, a separate action.
+        Some(Posture::Stationary)
     }
 
     // Planning: Need to have food to eat

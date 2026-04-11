@@ -145,6 +145,22 @@ pub fn start_actions(
             let requirements = action_def.body_channels();
             let before_preempt: Vec<ActionType> = active.iter().map(|a| a.action_type).collect();
 
+            // #396: Posture is a whole-body stance mutex orthogonal to the
+            // channel system. A Stationary action can't coexist with a
+            // Moving one regardless of which body parts each claims. Run
+            // this check ahead of the channel-based preemption pass so
+            // the posture-conflicting victims are gone before
+            // `preempt_to_make_room` starts measuring Locomotion math.
+            if !preempt_posture_conflicts(&mut active, &registry, action_def.posture(), &mut target)
+            {
+                game_log.log_debug(format!(
+                    "{} could not start {:?}: posture conflict with uninterruptible action",
+                    name.as_str(),
+                    wanted_action
+                ));
+                continue;
+            }
+
             // #223: Two ActionKind::Movement actions cannot coexist (only one
             // transform). Displace any existing interruptible Movement before
             // the channel-based preemption pass runs. Most-recent wins. The
@@ -785,6 +801,82 @@ fn preempt_existing_movement(
     active.remove(existing);
     target.0 = None;
     Some(existing)
+}
+
+/// Enforce the posture mutex for an incoming action.
+///
+/// Posture (`Stationary`/`Moving`/agnostic) is orthogonal to body
+/// channels: it asks "is the whole body in the right stance?", not
+/// "which body parts are free?". The channel system can't express this
+/// cleanly — trying to mark every stationary action with `Locomotion 1.0`
+/// breaks legitimate parallelism like attack-while-walking — so posture
+/// gets its own pre-check here, ahead of `preempt_to_make_room`.
+///
+/// For each running action whose declared posture conflicts with the
+/// incoming action's posture:
+///   - if it's interruptible, preempt it (transactionally — the target
+///     position is cleared if the victim was the active movement);
+///   - if any conflicting victim is uninterruptible, roll back every
+///     preemption made during this call and reject admission.
+///
+/// Returns `true` if the incoming action is admissible after the posture
+/// pass. Returns `false` if an uninterruptible opposing-posture victim
+/// blocks it. Posture-agnostic incoming actions (and posture-agnostic
+/// runners) trivially return `true` with no mutation.
+fn preempt_posture_conflicts(
+    active: &mut ActiveActions,
+    registry: &ActionRegistry,
+    incoming_posture: Option<crate::agent::actions::channel::Posture>,
+    target: &mut TargetPosition,
+) -> bool {
+    use crate::agent::actions::channel::posture_conflict;
+
+    // Fast path: an incoming posture-agnostic action can never conflict.
+    if incoming_posture.is_none() {
+        return true;
+    }
+
+    // Collect conflicting victims first so we can do an all-or-nothing
+    // preemption pass. An uninterruptible victim must roll back any
+    // earlier preemptions from this call — otherwise a rejected
+    // admission would still destroy interruptible neighbours.
+    let victims: Vec<ActionType> = active
+        .iter()
+        .filter_map(|s| {
+            let def = registry.get(s.action_type)?;
+            if posture_conflict(incoming_posture, def.posture()) {
+                Some(s.action_type)
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    if victims.is_empty() {
+        return true;
+    }
+
+    // Any uninterruptible opposed-posture victim rejects the admission
+    // outright — nothing to preempt, nothing to roll back.
+    for victim in &victims {
+        if let Some(def) = registry.get(*victim)
+            && !def.interruptible()
+        {
+            return false;
+        }
+    }
+
+    // All victims are interruptible — evict them.
+    for victim in &victims {
+        if matches!(
+            registry.get(*victim).map(|d| d.kind()),
+            Some(ActionKind::Movement)
+        ) {
+            target.0 = None;
+        }
+        active.remove(*victim);
+    }
+    true
 }
 
 /// Try to admit `requirements` into `active`, preempting interruptible actions
@@ -1657,5 +1749,214 @@ mod tests {
             "zero-away fallback must actually move; got same position {target:?}",
         );
         assert!(map.is_walkable(target));
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // #396: Posture split from body-part channels
+    // ─────────────────────────────────────────────────────────────────────
+    //
+    // Posture is a whole-body stance mutex orthogonal to body channels:
+    // a Stationary action can't coexist with a Moving one regardless of
+    // which body parts each claims. The check runs before the channel
+    // preemption pass, so these tests exercise the posture gate in
+    // isolation — via `preempt_posture_conflicts` — without depending on
+    // the downstream channel math.
+
+    #[test]
+    fn posture_stationary_mutexes_moving() {
+        // Rest (Stationary, interruptible) holds the slot. An incoming
+        // Walk (Moving) demands the opposite posture — the stationary
+        // victim is preempted to make way.
+        use crate::agent::actions::channel::Posture;
+        let registry = build_registry();
+        let mut active = ActiveActions::empty();
+        active.insert(ActionState::new(ActionType::Rest, 0));
+        let mut target = TargetPosition::default();
+
+        let admitted =
+            preempt_posture_conflicts(&mut active, &registry, Some(Posture::Moving), &mut target);
+
+        assert!(admitted, "opposing-posture victim must be preempted");
+        assert!(
+            !active.contains(ActionType::Rest),
+            "Rest must be evicted to clear the Stationary posture"
+        );
+    }
+
+    #[test]
+    fn posture_agnostic_coexists_with_either() {
+        // Observe declares posture `None`. It should admit cleanly against
+        // both Stationary (Rest) and Moving (Walk) running sets, leaving
+        // the neighbour untouched — agnostic actions never trigger the
+        // posture gate.
+        let registry = build_registry();
+
+        for neighbour in [ActionType::Rest, ActionType::Walk] {
+            let mut active = ActiveActions::empty();
+            active.insert(ActionState::new(neighbour, 0));
+            let mut target = TargetPosition::default();
+            let observe_def = registry.get(ActionType::Observe).unwrap();
+
+            let admitted = preempt_posture_conflicts(
+                &mut active,
+                &registry,
+                observe_def.posture(),
+                &mut target,
+            );
+
+            assert!(admitted, "posture-agnostic admission must succeed");
+            assert!(
+                active.contains(neighbour),
+                "agnostic admission must not evict {neighbour:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn posture_check_preempts_interruptible_mover_when_stationary_admits() {
+        // Wander (Moving, interruptible) is running. Rest (Stationary)
+        // admits — the posture gate evicts Wander and clears the
+        // movement target so the transform isn't left chasing a stale
+        // destination.
+        use crate::agent::actions::channel::Posture;
+        let registry = build_registry();
+        let mut active = ActiveActions::empty();
+        active.insert(ActionState::new(ActionType::Wander, 0));
+        let mut target = TargetPosition(Some(Vec2::new(42.0, 42.0)));
+
+        let admitted = preempt_posture_conflicts(
+            &mut active,
+            &registry,
+            Some(Posture::Stationary),
+            &mut target,
+        );
+
+        assert!(admitted);
+        assert!(!active.contains(ActionType::Wander));
+        assert_eq!(
+            target.0, None,
+            "evicting the active Movement must clear TargetPosition"
+        );
+    }
+
+    #[test]
+    fn posture_check_rejects_moving_when_uninterruptible_stationary_holds() {
+        // Build (Stationary, uninterruptible) is running. An incoming
+        // Walk (Moving) would mutex at the posture layer, but Build
+        // refuses preemption, so the entire admission is rejected.
+        // This is the posture analogue of the channel-level Build
+        // rejection test — Build keeps its slot when a lower-priority
+        // mover tries to edge in.
+        use crate::agent::actions::channel::Posture;
+        let registry = build_registry();
+        let mut active = ActiveActions::empty();
+        active.insert(ActionState::new(ActionType::Build, 0));
+        let mut target = TargetPosition::default();
+
+        let admitted =
+            preempt_posture_conflicts(&mut active, &registry, Some(Posture::Moving), &mut target);
+
+        assert!(
+            !admitted,
+            "Walk must NOT be admitted while uninterruptible Build holds Stationary"
+        );
+        assert!(
+            active.contains(ActionType::Build),
+            "Build must remain running after a rejected posture preempt"
+        );
+    }
+
+    #[test]
+    fn posture_rejected_admission_rolls_back_collateral_evictions() {
+        // Rest (Stationary, interruptible) and Build (Stationary,
+        // uninterruptible) both running. Incoming Walk (Moving) would
+        // conflict with both. The posture gate must reject admission
+        // atomically: Rest is NOT allowed to be destroyed just because
+        // Build ultimately refused, otherwise a rejected admission does
+        // collateral damage.
+        use crate::agent::actions::channel::Posture;
+        let registry = build_registry();
+        let mut active = ActiveActions::empty();
+        active.insert(ActionState::new(ActionType::Rest, 0));
+        active.insert(ActionState::new(ActionType::Build, 0));
+        let mut target = TargetPosition::default();
+
+        let admitted =
+            preempt_posture_conflicts(&mut active, &registry, Some(Posture::Moving), &mut target);
+
+        assert!(
+            !admitted,
+            "admission must be rejected because Build is uninterruptible"
+        );
+        assert!(
+            active.contains(ActionType::Rest),
+            "Rest must NOT be collateral damage from a rejected posture preempt"
+        );
+        assert!(active.contains(ActionType::Build));
+    }
+
+    #[test]
+    fn rest_plus_walk_mutex_via_posture_not_locomotion_intensity() {
+        // Regression for the #386 stop-gap: Rest no longer claims
+        // Locomotion 1.0. The Rest+Walk mutex must come from the posture
+        // gate instead. We assert two things:
+        //   1. Rest's body_channels do not touch Locomotion at all.
+        //   2. With Walk running, admitting Rest evicts Walk through
+        //      the posture check alone.
+        use crate::agent::actions::channel::{Channel, Posture};
+        let registry = build_registry();
+
+        let rest_def = registry.get(ActionType::Rest).unwrap();
+        let touches_locomotion = rest_def
+            .body_channels()
+            .iter()
+            .any(|c| c.channel == Channel::Locomotion);
+        assert!(
+            !touches_locomotion,
+            "Rest must no longer declare a Locomotion-intensity stop-gap"
+        );
+
+        let mut active = ActiveActions::empty();
+        active.insert(ActionState::new(ActionType::Walk, 0));
+        let mut target = TargetPosition(Some(Vec2::new(10.0, 0.0)));
+
+        let admitted = preempt_posture_conflicts(
+            &mut active,
+            &registry,
+            Some(Posture::Stationary),
+            &mut target,
+        );
+
+        assert!(admitted);
+        assert!(!active.contains(ActionType::Walk));
+        assert_eq!(target.0, None);
+    }
+
+    #[test]
+    fn attack_coexists_with_walk_via_posture_agnostic() {
+        // Regression for the posture-agnostic combat path: a charging
+        // agent mid-Walk must be able to start Attack without either
+        // side being kicked out. The posture gate is the only step we
+        // care about here — Attack and Walk have no body-channel
+        // overlap, so the downstream channel pass is already fine.
+        let registry = build_registry();
+        let mut active = ActiveActions::empty();
+        active.insert(ActionState::new(ActionType::Walk, 0));
+        let mut target = TargetPosition(Some(Vec2::new(1.0, 0.0)));
+        let target_before = target.0;
+
+        let attack_def = registry.get(ActionType::Attack).unwrap();
+        let admitted =
+            preempt_posture_conflicts(&mut active, &registry, attack_def.posture(), &mut target);
+
+        assert!(admitted, "Attack is posture-agnostic and must coexist");
+        assert!(
+            active.contains(ActionType::Walk),
+            "Walk must keep running alongside a posture-agnostic Attack"
+        );
+        assert_eq!(
+            target.0, target_before,
+            "agnostic admission must leave TargetPosition untouched"
+        );
     }
 }
