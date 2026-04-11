@@ -555,7 +555,7 @@ pub fn select_turn_intent(
         // because listeners store it in their own MindGraph, where `Self_`
         // would incorrectly resolve to the listener.
         if matches!(intent, Intent::Share | Intent::Ask | Intent::Answer)
-            && let Some(goal_concept) = goal.and_then(goal_target_concept)
+            && let Some(goal_concept) = goal.and_then(Goal::target_concept)
         {
             if let Ok(mut commitments) = commitments_query.get_mut(speaker) {
                 commitments.add(goal_concept, now);
@@ -703,21 +703,6 @@ pub(crate) fn pick_next_speaker(
         }
     }
     candidates[count - 1]
-}
-
-/// Extract the concept a goal is pursuing, if any. Goals produced by
-/// build/harvest chains contain a `(Self_, Contains, Item(concept, n))`
-/// pattern — the concept in that `Item` is the thing being pursued.
-/// Drive-based goals (hunger, thirst, etc.) return `None` because there's
-/// no concept-level target to commit to.
-fn goal_target_concept(goal: &Goal) -> Option<Concept> {
-    goal.conditions.iter().find_map(|pattern| {
-        if let Some(Value::Item(concept, _)) = pattern.object {
-            Some(concept)
-        } else {
-            None
-        }
-    })
 }
 
 /// Select the intent for the speaker's next turn based on their knowledge,

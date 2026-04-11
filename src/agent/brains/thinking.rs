@@ -109,6 +109,23 @@ pub struct Goal {
     pub priority: f32,
 }
 
+impl Goal {
+    /// Extract the concept-level target of a resource-acquisition goal.
+    /// Returns the first `Item` concept referenced by any condition — this
+    /// is the thing the agent is pursuing (Apple, Campfire, ...). Drive-based
+    /// goals (hunger, thirst, ...) have no concept target and return `None`.
+    pub fn target_concept(&self) -> Option<crate::agent::mind::knowledge::Concept> {
+        use crate::agent::mind::knowledge::Value;
+        self.conditions.iter().find_map(|pattern| {
+            if let Some(Value::Item(concept, _)) = pattern.object {
+                Some(concept)
+            } else {
+                None
+            }
+        })
+    }
+}
+
 // Custom equality: goals are equal if their CONDITIONS are the same
 // Priority changes frequently but shouldn't reset the plan
 impl PartialEq for Goal {
