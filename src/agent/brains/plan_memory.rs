@@ -461,7 +461,7 @@ mod tests {
 
         assert!(disciplined_curious > neutral);
         assert!(anxious <= neutral);
-        assert!(disciplined_curious >= BASE_MAX_PLANS + 1);
+        assert!(disciplined_curious > BASE_MAX_PLANS);
     }
 
     #[test]

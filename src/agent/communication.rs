@@ -574,7 +574,7 @@ pub fn select_turn_intent(
         let speaker_goal: Option<Goal> = plan_memories
             .get(speaker)
             .ok()
-            .and_then(|memory| most_committed_goal(&memory));
+            .and_then(most_committed_goal);
         let goal = speaker_goal.as_ref();
         let personality = personalities.get(speaker).ok();
 
