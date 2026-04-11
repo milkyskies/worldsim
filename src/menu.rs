@@ -600,7 +600,7 @@ mod tests {
         );
         let messages = app.world().resource::<Messages<AppExit>>();
         assert!(
-            messages.len() >= 1,
+            !messages.is_empty(),
             "drain_quit_requested should have written at least one AppExit message"
         );
     }

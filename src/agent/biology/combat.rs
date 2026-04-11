@@ -654,7 +654,7 @@ mod tests {
 
     #[test]
     fn bleed_coefficients_are_ordered() {
-        assert!(SLASH_BLEED_COEFF > PIERCE_BLEED_COEFF);
+        const { assert!(SLASH_BLEED_COEFF > PIERCE_BLEED_COEFF) };
         assert_eq!(CRUSH_BLEED_COEFF, 0.0);
     }
 
