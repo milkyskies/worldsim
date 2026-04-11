@@ -27,16 +27,33 @@ impl Action for WakeUpAction {
     }
 
     fn body_channels(&self) -> &'static [ChannelUsage] {
-        const CHANNELS: &[ChannelUsage] = &[ChannelUsage::new(Channel::FullBody, 0.4)];
+        // WakeUp is an exclusive transition — eyes opening, body
+        // stretching, the mind re-booting from sleep. It needs to
+        // mutex with every other action for its 30-tick duration:
+        //
+        // - FullBody 0.4 keeps the Sleep→WakeUp preemption path
+        //   working (Sleep holds FullBody 1.0, WakeUp's 0.4 pushes
+        //   total to 1.4 → hard conflict → Sleep is interruptible
+        //   post-#352 → preempted → WakeUp admits).
+        // - Cognition 1.0 blocks Observe and any other Cognition
+        //   user from running in parallel. The user saw WakeUp and
+        //   Observe both in `active_actions` during the transition
+        //   and flipping in the UI every frame — a waking agent
+        //   isn't also scanning the room, they're re-orienting.
+        const CHANNELS: &[ChannelUsage] = &[
+            ChannelUsage::new(Channel::FullBody, 0.4),
+            ChannelUsage::new(Channel::Cognition, 1.0),
+        ];
         CHANNELS
     }
 
     fn posture(&self) -> Option<Posture> {
-        // Posture-agnostic: WakeUp is a transition, not a stance. It
-        // preempts Sleep through the FullBody channel path (both touch
-        // FullBody at high intensity), so the posture gate doesn't need
-        // to take a side on Stationary vs Moving here.
-        None
+        // Stationary: you don't wake up mid-walk. The transition is
+        // committed to one spot — this also mutexes WakeUp with any
+        // Moving action someone might propose during the 30-tick
+        // window (previously the gate was missing and a Walk could
+        // silently run alongside WakeUp).
+        Some(Posture::Stationary)
     }
 
     fn runtime_effects(&self) -> RuntimeEffects {
