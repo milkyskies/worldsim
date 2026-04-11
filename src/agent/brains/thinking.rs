@@ -6,7 +6,7 @@
 //! Downstream: all brain systems, belief_state, nervous_system::cns (goal formulation)
 
 use crate::agent::actions::ActionType;
-use crate::agent::mind::knowledge::{Node, Predicate, Triple, Value};
+use crate::agent::mind::knowledge::{Concept, Node, Predicate, Triple, Value};
 use bevy::prelude::*;
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -20,6 +20,14 @@ pub struct TriplePattern {
     pub subject: Option<Node>,
     pub predicate: Option<Predicate>,
     pub object: Option<Value>,
+    /// When set, a `Value::Item` in the object position must satisfy `IsA <concept>`
+    /// in the ontology. Used to express "contains a Food item" without enumerating
+    /// every edible concept. Checked by both mind and action satisfiability functions.
+    pub isa_filter: Option<Concept>,
+    /// When set, a `Value::Item` in the object position must satisfy `HasTrait <concept>`
+    /// in the ontology. Complements `isa_filter` — use whichever is more natural for
+    /// the constraint (e.g. `Edible` vs `Food`). Both filters AND together if both are set.
+    pub trait_filter: Option<Concept>,
 }
 
 impl TriplePattern {
@@ -28,6 +36,8 @@ impl TriplePattern {
             subject: s,
             predicate: p,
             object: o,
+            isa_filter: None,
+            trait_filter: None,
         }
     }
 
@@ -66,6 +76,16 @@ impl TriplePattern {
     /// Pattern for self containing items
     pub fn self_contains() -> Self {
         Self::new(Some(Node::Self_), Some(Predicate::Contains), None)
+    }
+
+    /// Pattern for self containing an edible (Food) item.
+    /// The `isa_filter` restricts matching to items whose concept `IsA Food`,
+    /// so the planner will not chain "harvest stone → eat" to satisfy hunger.
+    pub fn self_contains_food() -> Self {
+        Self {
+            isa_filter: Some(Concept::Food),
+            ..Self::new(Some(Node::Self_), Some(Predicate::Contains), None)
+        }
     }
 
     /// Check if self is awake (high alertness)
