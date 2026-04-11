@@ -336,6 +336,7 @@ pub fn update_decision_trace(
                 agent,
                 tick,
                 action,
+                ..
             } => {
                 if !config.in_tick_range(*tick) {
                     continue;

@@ -196,6 +196,7 @@ fn assert_in_range(entity: Entity, label: &str, value: f32, min: f32, max: f32) 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::agent::biology::body::BodyPartKind;
     use crate::agent::psyche::emotions::{Emotion, EmotionType};
     use crate::testing::{AgentConfig, TestWorld};
 
@@ -259,7 +260,7 @@ mod tests {
         let mut world = TestWorld::new();
         let agent = world.spawn_agent(AgentConfig::default());
         let mut body = world.get_mut::<Body>(agent);
-        body.part_mut("head")
+        body.part_mut(BodyPartKind::Head)
             .expect("human body has head")
             .function_rate = 1.5;
         assert_invariants(world.app_mut().world_mut());

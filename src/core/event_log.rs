@@ -253,6 +253,18 @@ fn event_meta<'a>(
             one("LaborContributed", *tick, *agent, true)
         }
         SimEvent::SkillChanged { agent, tick, .. } => one("SkillChanged", *tick, *agent, true),
+        SimEvent::CombatHit {
+            attacker,
+            defender,
+            tick,
+            ..
+        } => two("CombatHit", *tick, *attacker, *defender, true),
+        SimEvent::CombatMissed {
+            attacker,
+            defender,
+            tick,
+        } => two("CombatMissed", *tick, *attacker, *defender, true),
+        SimEvent::PartSevered { entity, tick, .. } => one("PartSevered", *tick, *entity, true),
         SimEvent::PhenotypeDeveloped { agent, tick, .. } => {
             one("PhenotypeDeveloped", *tick, *agent, true)
         }
@@ -607,6 +619,44 @@ fn event_to_json(
                 "skill": format!("{skill:?}"),
                 "old": old_value,
                 "new": new_value,
+            })
+        }
+        SimEvent::CombatHit {
+            attacker,
+            defender,
+            part_kind,
+            damage,
+            injury_type,
+            ..
+        } => {
+            serde_json::json!({
+                "tick": tick,
+                "type": event_type,
+                "attacker": resolve(*attacker),
+                "defender": resolve(*defender),
+                "part": part_kind.display_name(),
+                "damage": damage,
+                "injury_type": format!("{injury_type:?}"),
+            })
+        }
+        SimEvent::CombatMissed {
+            attacker, defender, ..
+        } => {
+            serde_json::json!({
+                "tick": tick,
+                "type": event_type,
+                "attacker": resolve(*attacker),
+                "defender": resolve(*defender),
+            })
+        }
+        SimEvent::PartSevered {
+            entity, part_kind, ..
+        } => {
+            serde_json::json!({
+                "tick": tick,
+                "type": event_type,
+                "entity": resolve(*entity),
+                "part": part_kind.display_name(),
             })
         }
         SimEvent::PhenotypeDeveloped {

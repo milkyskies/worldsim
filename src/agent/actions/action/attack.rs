@@ -1,8 +1,8 @@
 use crate::agent::actions::ActionType;
 use crate::agent::actions::channel::{Channel, ChannelUsage, Posture};
 use crate::agent::actions::registry::{
-    Action, ActionContext, ActionKind, CompletionContext, RuntimeEffects, SpawnRequest,
-    TargetCandidate, TargetSource,
+    Action, ActionContext, ActionKind, CompletionContext, RuntimeEffects, TargetCandidate,
+    TargetSource,
 };
 use crate::agent::mind::knowledge::{Concept, MindGraph, Node, Predicate, Triple, Value};
 use crate::constants::actions::attack::{BASE_COST, DURATION_TICKS, STAMINA_PER_SEC};
@@ -80,9 +80,13 @@ impl Action for AttackAction {
         }
     }
 
-    fn on_complete(&self, ctx: &mut CompletionContext) {
-        apply_hunt_kill(ctx);
-    }
+    // Damage, dodge, death, and meat deposit all live in
+    // `biology::combat::resolve_combat_hits`, which consumes the
+    // `SimEvent::ActionCompleted` this action emits. Keeping on_complete
+    // empty here means the planner / action registry only knows
+    // "Attack is a timed action that needs Manipulation" — every bit of
+    // combat semantics stays in the combat module.
+    fn on_complete(&self, _ctx: &mut CompletionContext) {}
 }
 
 /// `(Self_, Contains, Item(X, n))` projections for everything the entity
@@ -124,40 +128,4 @@ pub(crate) fn prey_produces_useful_item(entity: bevy::prelude::Entity, mind: &Mi
             false
         }
     })
-}
-
-/// Hunting kill: deposit the killer's "first cut" into their inventory and
-/// queue an in-place Becomes transformation that morphs the prey into a
-/// Corpse holding extra meat for scavengers. The killer's direct deposit
-/// keeps the planner's `Walk → Attack → Eat` chain working as a single plan;
-/// the corpse exists as the world artifact future agents can Harvest.
-///
-/// Skipped for non-prey targets so the emotional brain's reactive
-/// "I'm angry, hit the wolf" attacks don't generate meat or corpses.
-/// Shared between Attack and Bite.
-pub(crate) fn apply_hunt_kill(ctx: &mut CompletionContext) {
-    let Some(target) = ctx.target_entity else {
-        return;
-    };
-
-    if !ctx.mind.has_trait(&Node::Entity(target), Concept::Prey) {
-        return;
-    }
-
-    let yields = prey_yield_effects(target, ctx.mind);
-    if yields.is_empty() {
-        return;
-    }
-
-    for triple in &yields {
-        if let Value::Item(concept, qty) = &triple.object {
-            ctx.inventory.add(*concept, *qty);
-        }
-    }
-
-    ctx.spawn_requests.push(SpawnRequest::BecomesAttach {
-        entity: target,
-        target: Concept::Corpse,
-        mode: crate::world::becomes::BecomesMode::InPlace,
-    });
 }

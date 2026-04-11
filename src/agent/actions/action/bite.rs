@@ -1,11 +1,10 @@
 //! Bite action — jaws-as-weapon variant of Attack for species with `Channel::Bite`.
-//! Hunting semantics (Prey enumeration, Produces yield, Becomes transformation)
-//! are shared with Attack via the helpers in `attack.rs`.
+//! Planning semantics (Prey enumeration, Produces yield projection) are
+//! shared with Attack via the helpers in `attack.rs`. Damage, hit
+//! resolution, and death live in `biology::combat`.
 
 use crate::agent::actions::ActionType;
-use crate::agent::actions::action::attack::{
-    apply_hunt_kill, prey_produces_useful_item, prey_yield_effects,
-};
+use crate::agent::actions::action::attack::{prey_produces_useful_item, prey_yield_effects};
 use crate::agent::actions::channel::{Channel, ChannelUsage, Posture};
 use crate::agent::actions::registry::{
     Action, ActionContext, ActionKind, CompletionContext, RuntimeEffects, TargetCandidate,
@@ -88,7 +87,9 @@ impl Action for BiteAction {
         }
     }
 
-    fn on_complete(&self, ctx: &mut CompletionContext) {
-        apply_hunt_kill(ctx);
-    }
+    // Damage, bleed, death, and meat deposit all live in
+    // `biology::combat::resolve_combat_hits`. Keeping this empty means
+    // the Bite action definition only knows about channels and planning;
+    // combat semantics stay in the combat module.
+    fn on_complete(&self, _ctx: &mut CompletionContext) {}
 }

@@ -109,6 +109,9 @@ fn sim_event_tick(event: &SimEvent) -> u64 {
         | SimEvent::EffectApplied { tick, .. }
         | SimEvent::LaborContributed { tick, .. }
         | SimEvent::SkillChanged { tick, .. }
+        | SimEvent::CombatHit { tick, .. }
+        | SimEvent::CombatMissed { tick, .. }
+        | SimEvent::PartSevered { tick, .. }
         | SimEvent::PhenotypeDeveloped { tick, .. } => *tick,
     }
 }
@@ -160,6 +163,14 @@ fn sim_event_involves(event: &SimEvent, agent: Entity) -> bool {
         | SimEvent::LaborContributed { agent: a, .. }
         | SimEvent::SkillChanged { agent: a, .. }
         | SimEvent::PhenotypeDeveloped { agent: a, .. } => *a == agent,
+
+        SimEvent::CombatHit {
+            attacker, defender, ..
+        } => *attacker == agent || *defender == agent,
+        SimEvent::CombatMissed {
+            attacker, defender, ..
+        } => *attacker == agent || *defender == agent,
+        SimEvent::PartSevered { entity, .. } => *entity == agent,
     }
 }
 
@@ -196,8 +207,10 @@ fn format_sim_event(event: &SimEvent) -> String {
             agent,
             tick,
             action,
+            target,
         } => {
-            format!("[t{tick}] ActionCompleted agent={agent:?} action={action:?}")
+            let tgt = target.map(|t| format!(" target={t:?}")).unwrap_or_default();
+            format!("[t{tick}] ActionCompleted agent={agent:?} action={action:?}{tgt}")
         }
 
         SimEvent::ActionPreempted {
@@ -391,6 +404,40 @@ fn format_sim_event(event: &SimEvent) -> String {
             format!(
                 "[t{tick}] SkillChanged      agent={agent:?} skill={skill:?} \
                  {old_value:.3}->{new_value:.3}"
+            )
+        }
+
+        SimEvent::CombatHit {
+            attacker,
+            defender,
+            tick,
+            part_kind,
+            damage,
+            injury_type,
+        } => {
+            format!(
+                "[t{tick}] CombatHit         {attacker:?} -> {defender:?} \
+                 {} {damage:.1} ({injury_type:?})",
+                part_kind.display_name()
+            )
+        }
+
+        SimEvent::CombatMissed {
+            attacker,
+            defender,
+            tick,
+        } => {
+            format!("[t{tick}] CombatMissed      {attacker:?} -> {defender:?} (dodged)")
+        }
+
+        SimEvent::PartSevered {
+            entity,
+            tick,
+            part_kind,
+        } => {
+            format!(
+                "[t{tick}] PartSevered       {entity:?} lost {}",
+                part_kind.display_name()
             )
         }
 
@@ -1100,7 +1147,11 @@ impl TestWorld {
                 };
                 eprintln!(
                     "    {:<10}  hp={:.0}/{:.0}  fn={:.2}{}",
-                    part.name, part.current_hp, part.max_hp, part.function_rate, injury_str
+                    part.name(),
+                    part.current_hp,
+                    part.max_hp,
+                    part.function_rate,
+                    injury_str
                 );
             }
         }

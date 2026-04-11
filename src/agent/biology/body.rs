@@ -53,24 +53,32 @@ impl Body {
     pub fn human() -> Self {
         Self {
             parts: vec![
-                BodyPart::vital("head", 50.0, vec![(Channel::Cognition, 1.0)])
+                BodyPart::vital(BodyPartKind::Head, 50.0, vec![(Channel::Cognition, 1.0)])
                     .with_organs(head_organs()),
-                BodyPart::vital("torso", 100.0, vec![(Channel::FullBody, 1.0)])
+                BodyPart::vital(BodyPartKind::Torso, 100.0, vec![(Channel::FullBody, 1.0)])
                     .with_organs(torso_organs()),
                 BodyPart::new(
-                    "left arm",
+                    BodyPartKind::LeftArm,
                     60.0,
                     vec![(Channel::Manipulation, 0.5), (Channel::Carry, 0.25)],
                 ),
                 BodyPart::new(
-                    "right arm",
+                    BodyPartKind::RightArm,
                     60.0,
                     vec![(Channel::Manipulation, 0.5), (Channel::Carry, 0.25)],
                 ),
-                BodyPart::new("left leg", 70.0, vec![(Channel::Locomotion, 0.5)]),
-                BodyPart::new("right leg", 70.0, vec![(Channel::Locomotion, 0.5)]),
                 BodyPart::new(
-                    "mouth",
+                    BodyPartKind::LeftLeg,
+                    70.0,
+                    vec![(Channel::Locomotion, 0.5)],
+                ),
+                BodyPart::new(
+                    BodyPartKind::RightLeg,
+                    70.0,
+                    vec![(Channel::Locomotion, 0.5)],
+                ),
+                BodyPart::new(
+                    BodyPartKind::Mouth,
                     30.0,
                     vec![(Channel::Consumption, 1.0), (Channel::Vocalization, 1.0)],
                 ),
@@ -85,16 +93,32 @@ impl Body {
     pub fn wolf() -> Self {
         Self {
             parts: vec![
-                BodyPart::vital("head", 50.0, vec![(Channel::Cognition, 0.6)])
+                BodyPart::vital(BodyPartKind::Head, 50.0, vec![(Channel::Cognition, 0.6)])
                     .with_organs(head_organs()),
-                BodyPart::vital("torso", 100.0, vec![(Channel::FullBody, 1.0)])
+                BodyPart::vital(BodyPartKind::Torso, 100.0, vec![(Channel::FullBody, 1.0)])
                     .with_organs(torso_organs()),
-                BodyPart::new("front left leg", 55.0, vec![(Channel::Locomotion, 0.3)]),
-                BodyPart::new("front right leg", 55.0, vec![(Channel::Locomotion, 0.3)]),
-                BodyPart::new("back left leg", 55.0, vec![(Channel::Locomotion, 0.3)]),
-                BodyPart::new("back right leg", 55.0, vec![(Channel::Locomotion, 0.3)]),
                 BodyPart::new(
-                    "jaws",
+                    BodyPartKind::LeftForeleg,
+                    55.0,
+                    vec![(Channel::Locomotion, 0.3)],
+                ),
+                BodyPart::new(
+                    BodyPartKind::RightForeleg,
+                    55.0,
+                    vec![(Channel::Locomotion, 0.3)],
+                ),
+                BodyPart::new(
+                    BodyPartKind::LeftHindleg,
+                    55.0,
+                    vec![(Channel::Locomotion, 0.3)],
+                ),
+                BodyPart::new(
+                    BodyPartKind::RightHindleg,
+                    55.0,
+                    vec![(Channel::Locomotion, 0.3)],
+                ),
+                BodyPart::new(
+                    BodyPartKind::Jaws,
                     40.0,
                     vec![
                         (Channel::Manipulation, 0.4),
@@ -113,16 +137,32 @@ impl Body {
     pub fn deer() -> Self {
         Self {
             parts: vec![
-                BodyPart::vital("head", 40.0, vec![(Channel::Cognition, 0.4)])
+                BodyPart::vital(BodyPartKind::Head, 40.0, vec![(Channel::Cognition, 0.4)])
                     .with_organs(head_organs()),
-                BodyPart::vital("torso", 80.0, vec![(Channel::FullBody, 1.0)])
+                BodyPart::vital(BodyPartKind::Torso, 80.0, vec![(Channel::FullBody, 1.0)])
                     .with_organs(torso_organs()),
-                BodyPart::new("front left leg", 50.0, vec![(Channel::Locomotion, 0.3)]),
-                BodyPart::new("front right leg", 50.0, vec![(Channel::Locomotion, 0.3)]),
-                BodyPart::new("back left leg", 50.0, vec![(Channel::Locomotion, 0.3)]),
-                BodyPart::new("back right leg", 50.0, vec![(Channel::Locomotion, 0.3)]),
                 BodyPart::new(
-                    "mouth",
+                    BodyPartKind::LeftForeleg,
+                    50.0,
+                    vec![(Channel::Locomotion, 0.3)],
+                ),
+                BodyPart::new(
+                    BodyPartKind::RightForeleg,
+                    50.0,
+                    vec![(Channel::Locomotion, 0.3)],
+                ),
+                BodyPart::new(
+                    BodyPartKind::LeftHindleg,
+                    50.0,
+                    vec![(Channel::Locomotion, 0.3)],
+                ),
+                BodyPart::new(
+                    BodyPartKind::RightHindleg,
+                    50.0,
+                    vec![(Channel::Locomotion, 0.3)],
+                ),
+                BodyPart::new(
+                    BodyPartKind::Mouth,
                     25.0,
                     vec![(Channel::Consumption, 1.0), (Channel::Vocalization, 0.3)],
                 ),
@@ -146,12 +186,12 @@ impl Body {
         self.parts.iter()
     }
 
-    pub fn part(&self, name: &str) -> Option<&BodyPart> {
-        self.parts.iter().find(|p| p.name == name)
+    pub fn part(&self, kind: BodyPartKind) -> Option<&BodyPart> {
+        self.parts.iter().find(|p| p.kind == kind)
     }
 
-    pub fn part_mut(&mut self, name: &str) -> Option<&mut BodyPart> {
-        self.parts.iter_mut().find(|p| p.name == name)
+    pub fn part_mut(&mut self, kind: BodyPartKind) -> Option<&mut BodyPart> {
+        self.parts.iter_mut().find(|p| p.kind == kind)
     }
 
     /// Sum of pain across every part, weighted by unhealed severity.
@@ -278,6 +318,52 @@ fn torso_organs() -> Vec<Organ> {
     ]
 }
 
+/// Typed identifier for every anatomical part any species can carry.
+///
+/// Using an enum instead of a `String` makes part lookups cheap, typo-free,
+/// and makes `SimEvent` variants that reference parts `Copy`-able without
+/// allocating. New parts (tail, wings, tentacles) land as new variants.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect)]
+pub enum BodyPartKind {
+    // Vital structure — every species has these.
+    Head,
+    Torso,
+    // Biped limbs.
+    LeftArm,
+    RightArm,
+    LeftLeg,
+    RightLeg,
+    // Quadruped limbs.
+    LeftForeleg,
+    RightForeleg,
+    LeftHindleg,
+    RightHindleg,
+    // Feeding / combat appendages.
+    Mouth,
+    Jaws,
+}
+
+impl BodyPartKind {
+    /// Human-readable label used by the UI and by event-log serialisation.
+    /// Kept here so every consumer renders the same words for the same part.
+    pub fn display_name(self) -> &'static str {
+        match self {
+            BodyPartKind::Head => "head",
+            BodyPartKind::Torso => "torso",
+            BodyPartKind::LeftArm => "left arm",
+            BodyPartKind::RightArm => "right arm",
+            BodyPartKind::LeftLeg => "left leg",
+            BodyPartKind::RightLeg => "right leg",
+            BodyPartKind::LeftForeleg => "front left leg",
+            BodyPartKind::RightForeleg => "front right leg",
+            BodyPartKind::LeftHindleg => "back left leg",
+            BodyPartKind::RightHindleg => "back right leg",
+            BodyPartKind::Mouth => "mouth",
+            BodyPartKind::Jaws => "jaws",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Reflect)]
 pub enum InjuryType {
     Cut,
@@ -285,6 +371,15 @@ pub enum InjuryType {
     Fracture,
     Burn,
     Infection,
+    /// Pointed weapons (arrows, spears, claws, fangs). Deep, narrow wounds
+    /// with a high chance of reaching internal organs and a heavy bleed.
+    Pierce,
+    /// Edged weapons (swords, claws, large fangs). Wide wounds with the
+    /// highest bleed rate but less organ penetration than Pierce.
+    Slash,
+    /// Blunt weapons (fists, maces, hooves, falls). Damages bone and soft
+    /// tissue without bleeding much; the main consequence is function loss.
+    Crush,
 }
 
 /// Species-agnostic organ kinds carried inside a [`BodyPart`]. Each entry is
@@ -376,11 +471,37 @@ pub struct Injury {
     pub severity: f32,      // 0.0 to 1.0 (1.0 = Max severity)
     pub pain: f32,          // 0.0 to 10.0
     pub healed_amount: f32, // 0.0 to 1.0 (1.0 = Fully healed)
+    /// Ongoing HP loss per second from open wounds. Zero for crush/bruise,
+    /// larger for slash/pierce. Decays to zero as `healed_amount` climbs so
+    /// a clotting wound stops bleeding before it fully closes.
+    pub bleed_rate: f32,
 }
+
+impl Injury {
+    /// Effective bleeding rate right now. Decoupled from `healed_amount`
+    /// because clotting happens on a minutes timescale while tissue
+    /// healing happens on a weeks timescale — they're two different
+    /// biological processes. The bleed system decays `bleed_rate`
+    /// directly over time via [`CLOT_DECAY_PER_SEC`] so a fresh wound
+    /// stops bleeding in a handful of game minutes even though the
+    /// tissue itself takes weeks to close.
+    pub fn effective_bleed(&self) -> f32 {
+        self.bleed_rate.max(0.0)
+    }
+}
+
+/// Per-real-second decay on `Injury::bleed_rate` applied by the bleed
+/// system. Matches the codebase's rate-per-real-second convention
+/// (same as starvation damage, digestion rates, etc.). 1/300 means a
+/// fresh wound's bleed rate decays to zero in 300 real seconds
+/// (5 real minutes) — fast enough to match real-world clotting
+/// timescales, but slow enough that a gushing Pierce wound still
+/// matters during a fight.
+pub const CLOT_DECAY_PER_SEC: f32 = 1.0 / 300.0;
 
 #[derive(Debug, Clone, Reflect)]
 pub struct BodyPart {
-    pub name: String,
+    pub kind: BodyPartKind,
     #[reflect(ignore)]
     pub provides: Vec<(Channel, f32)>,
     /// Losing a vital part (head / torso) incapacitates the whole body.
@@ -396,9 +517,9 @@ pub struct BodyPart {
 }
 
 impl BodyPart {
-    pub fn new(name: impl Into<String>, max_hp: f32, provides: Vec<(Channel, f32)>) -> Self {
+    pub fn new(kind: BodyPartKind, max_hp: f32, provides: Vec<(Channel, f32)>) -> Self {
         Self {
-            name: name.into(),
+            kind,
             provides,
             vital: false,
             max_hp,
@@ -409,10 +530,15 @@ impl BodyPart {
         }
     }
 
-    pub fn vital(name: impl Into<String>, max_hp: f32, provides: Vec<(Channel, f32)>) -> Self {
-        let mut part = Self::new(name, max_hp, provides);
+    pub fn vital(kind: BodyPartKind, max_hp: f32, provides: Vec<(Channel, f32)>) -> Self {
+        let mut part = Self::new(kind, max_hp, provides);
         part.vital = true;
         part
+    }
+
+    /// Human-readable label for UI / logs. Shortcut for `kind.display_name()`.
+    pub fn name(&self) -> &'static str {
+        self.kind.display_name()
     }
 
     /// Builder: attach a set of organs to this part. Used in the species
@@ -459,28 +585,65 @@ impl BodyPart {
     }
 }
 
+/// Target time to fully heal a fresh injury of the given type, in the
+/// codebase's per-second rate convention. `TickCount::dt()` accumulates
+/// to 1.0 per real second at 1x simulation speed, so these durations
+/// are in **real seconds** — the same unit starvation, digestion, and
+/// every other rate-per-second constant uses.
+///
+/// At the game's 1 real second = 1 game minute compression, the
+/// durations below map to roughly:
+///
+/// - Bruise / Cut: ~3 real minutes = ~3 game hours
+/// - Slash: ~4 real minutes = ~4 game hours
+/// - Crush: ~5 real minutes = ~5 game hours
+/// - Burn: ~7 real minutes = ~7 game hours
+/// - Pierce / Infection: ~10 real minutes = ~10 game hours
+/// - Fracture: ~20 real minutes = ~20 game hours
+///
+/// Still compressed vs real-world recovery (a real bruise takes weeks)
+/// but long enough that a wounded agent stays meaningfully
+/// disadvantaged for several real minutes instead of a fraction of a
+/// second, without making tests hang on week-long heals.
+fn heal_duration_seconds(kind: InjuryType) -> f32 {
+    const MINUTE: f32 = 60.0;
+    match kind {
+        InjuryType::Bruise => 3.0 * MINUTE,
+        InjuryType::Cut => 3.0 * MINUTE,
+        InjuryType::Slash => 4.0 * MINUTE,
+        InjuryType::Crush => 5.0 * MINUTE,
+        InjuryType::Burn => 7.0 * MINUTE,
+        InjuryType::Pierce => 10.0 * MINUTE,
+        InjuryType::Infection => 10.0 * MINUTE,
+        InjuryType::Fracture => 20.0 * MINUTE,
+    }
+}
+
 pub fn process_healing(
     mut query: Query<(&mut Body, Option<&PhysicalNeeds>)>,
     tick: Res<crate::core::tick::TickCount>,
 ) {
     let dt = tick.dt();
-    let base_healing_speed = 0.05;
 
     for (mut body, needs) in query.iter_mut() {
-        let mut healing_speed = base_healing_speed;
-
-        if let Some(physical) = needs
+        // Rested, well-fueled agents recover twice as fast. Consumes the
+        // existing stamina-aerobic signal the previous healing pass used.
+        let condition_mult = if let Some(physical) = needs
             && physical.stamina.aerobic > 80.0
         {
-            healing_speed *= 2.0;
-        }
+            2.0
+        } else {
+            1.0
+        };
 
         for part in body.parts.iter_mut() {
             let mut fully_healed_indices = Vec::new();
 
             for (i, injury) in part.injuries.iter_mut().enumerate() {
                 if injury.healed_amount < 1.0 {
-                    injury.healed_amount += healing_speed * dt;
+                    let duration = heal_duration_seconds(injury.injury_type).max(1.0);
+                    let rate = condition_mult / duration;
+                    injury.healed_amount += rate * dt;
                     if injury.healed_amount >= 1.0 {
                         injury.healed_amount = 1.0;
                         fully_healed_indices.push(i);
@@ -492,6 +655,11 @@ pub fn process_healing(
                 let severity = part.injuries[*index].severity;
                 let scar_damage = severity * 2.0;
                 part.max_hp = (part.max_hp - scar_damage).max(1.0);
+                // Scarring shrinks max_hp. If regen had already refilled
+                // current_hp up to the pre-scar maximum, clamp it back
+                // down — otherwise current_hp stays stranded above the
+                // new max_hp forever and trips the body invariant.
+                part.current_hp = part.current_hp.min(part.max_hp);
 
                 part.injuries.remove(*index);
             }
@@ -631,7 +799,7 @@ mod organ_tests {
     fn human_has_expected_organs_in_head_and_torso() {
         let body = Body::human();
 
-        let head = body.part("head").expect("human has a head");
+        let head = body.part(BodyPartKind::Head).expect("human has a head");
         let head_kinds: Vec<OrganKind> = head.organs.iter().map(|o| o.kind).collect();
         assert_eq!(
             head_kinds,
@@ -643,7 +811,7 @@ mod organ_tests {
             ]
         );
 
-        let torso = body.part("torso").expect("human has a torso");
+        let torso = body.part(BodyPartKind::Torso).expect("human has a torso");
         let torso_kinds: Vec<OrganKind> = torso.organs.iter().map(|o| o.kind).collect();
         assert_eq!(
             torso_kinds,
@@ -656,7 +824,9 @@ mod organ_tests {
             ]
         );
 
-        let left_arm = body.part("left arm").expect("human has a left arm");
+        let left_arm = body
+            .part(BodyPartKind::LeftArm)
+            .expect("human has a left arm");
         assert!(
             left_arm.organs.is_empty(),
             "limbs carry no organs in MVP, got {:?}",

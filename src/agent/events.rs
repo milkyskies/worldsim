@@ -166,6 +166,11 @@ pub enum SimEvent {
         agent: Entity,
         tick: u64,
         action: ActionType,
+        /// The entity this action was running against, if any. Carried
+        /// here so downstream systems (combat resolution, perception
+        /// reactions) can find the target after `ActiveActions` has
+        /// already dropped the completed action state.
+        target: Option<Entity>,
     },
 
     /// An action was preempted to make room for a higher-priority action.
@@ -342,6 +347,36 @@ pub enum SimEvent {
         skill: crate::agent::skills::SkillKind,
         old_value: f32,
         new_value: f32,
+    },
+
+    /// An attacker landed a blow on a defender. Carries the struck part
+    /// kind, damage magnitude, and the applied injury type so the JSONL
+    /// log and debug tooling can reconstruct the fight blow by blow.
+    CombatHit {
+        attacker: Entity,
+        defender: Entity,
+        tick: u64,
+        part_kind: crate::agent::biology::body::BodyPartKind,
+        damage: f32,
+        injury_type: crate::agent::biology::body::InjuryType,
+    },
+
+    /// A dodge roll succeeded — the defender evaded the attacker's swing.
+    /// Feeds the event log without forcing ActionFailed semantics on the
+    /// action (the Attack itself still "completed", the hit just didn't).
+    CombatMissed {
+        attacker: Entity,
+        defender: Entity,
+        tick: u64,
+    },
+
+    /// A body part was severed — its HP hit zero and it was non-vital, so
+    /// it fell off the owner and spawned a `SeveredPart` world entity.
+    /// Covers limbs, jaws, ears, mouths — anything non-vital.
+    PartSevered {
+        entity: Entity,
+        tick: u64,
+        part_kind: crate::agent::biology::body::BodyPartKind,
     },
 
     /// A genome was expressed into a phenotype at spawn.

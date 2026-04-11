@@ -18,7 +18,7 @@ use worldsim::agent::actions::ChannelCapacities;
 use worldsim::agent::actions::ChannelLoad;
 use worldsim::agent::actions::ChannelUsage;
 use worldsim::agent::actions::{ActionRegistry, ActionType};
-use worldsim::agent::biology::body::{Body, Injury, InjuryType};
+use worldsim::agent::biology::body::{Body, BodyPartKind, Injury, InjuryType};
 
 fn requirements_for(registry: &ActionRegistry, action: ActionType) -> &'static [ChannelUsage] {
     registry
@@ -152,12 +152,15 @@ fn wolf_quadruped_has_higher_locomotion_than_human() {
 #[test]
 fn wolf_broken_jaws_loses_manipulation_consumption_vocalization_and_bite() {
     let mut body = Body::wolf();
-    let jaws = body.part_mut("jaws").expect("wolf body has jaws");
+    let jaws = body
+        .part_mut(BodyPartKind::Jaws)
+        .expect("wolf body has jaws");
     jaws.add_injury(Injury {
         injury_type: InjuryType::Fracture,
         severity: 1.0,
         pain: 5.0,
         healed_amount: 0.0,
+        bleed_rate: 0.0,
     });
 
     // A single anatomical injury collapses multiple capabilities at once,
@@ -188,12 +191,15 @@ fn wolf_broken_jaws_loses_manipulation_consumption_vocalization_and_bite() {
 #[test]
 fn human_one_broken_arm_halves_manipulation() {
     let mut body = Body::human();
-    let right = body.part_mut("right arm").expect("human has right arm");
+    let right = body
+        .part_mut(BodyPartKind::RightArm)
+        .expect("human has right arm");
     right.add_injury(Injury {
         injury_type: InjuryType::Fracture,
         severity: 1.0,
         pain: 5.0,
         healed_amount: 0.0,
+        bleed_rate: 0.0,
     });
     // Additive capability means one broken arm drops Manipulation from
     // 1.0 to 0.5 — not enough for Harvest's 0.9 threshold. The agent

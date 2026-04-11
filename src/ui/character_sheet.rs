@@ -1196,11 +1196,14 @@ fn injury_label(kind: InjuryType) -> &'static str {
         InjuryType::Fracture => "Fracture",
         InjuryType::Burn => "Burn",
         InjuryType::Infection => "Infection",
+        InjuryType::Pierce => "Pierce",
+        InjuryType::Slash => "Slash",
+        InjuryType::Crush => "Crush",
     }
 }
 
 fn render_body_part_row(ui: &mut egui::Ui, part: &BodyPart) {
-    ui.label(part.name.as_str());
+    ui.label(part.name());
     let hp_pct = (part.current_hp / part.max_hp).clamp(0.0, 1.0);
     ui.add(
         egui::ProgressBar::new(hp_pct)
