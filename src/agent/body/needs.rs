@@ -183,8 +183,9 @@ impl Default for PhysicalNeeds {
 }
 
 impl PhysicalNeeds {
-    /// 0..1 hunger urgency derived from the three metabolism pools. Drop-in
-    /// replacement for the legacy `hunger / 100.0` formula at call sites.
+    /// 0..1 hunger urgency derived from the three metabolism pools. Every
+    /// consumer of "how hungry is this agent" reads through this accessor so
+    /// the underlying pool weights stay in one place (`Metabolism::hunger_urgency`).
     pub fn hunger_urgency(&self) -> f32 {
         self.metabolism.hunger_urgency()
     }

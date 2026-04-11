@@ -235,13 +235,6 @@ impl Metabolism {
         self.stomach_fat = (self.stomach_fat + macros.fat * scale).max(0.0);
     }
 
-    /// Instant glucose top-up. Used by the legacy "eat grants stamina boost"
-    /// path until the stamina system reads glucose directly. Also handy for
-    /// tests.
-    pub fn add_glucose(&mut self, amount: f32) {
-        self.glucose = (self.glucose + amount).clamp(0.0, GLUCOSE_MAX);
-    }
-
     /// Advance the metabolism one tick.
     ///
     /// `bmr_drain` is the basal metabolic rate (glucose burned just to stay
