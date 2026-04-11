@@ -1,9 +1,9 @@
 //! Unified Spawner: The single source of truth for creating entities in the world.
 //! Ensures consistent ECS components + Knowledge Graph assertions.
 //!
-//! Reads: WorldMap, Ontology, WorldSpawnConfig (layout computation)
+//! Reads: WorldMap, Ontology, SimConfig (mode + seed), WorldSpawnConfig (layout computation)
 //! Writes: Person, Deer, Wolf, BerryBush, AppleTree entities (initial population)
-//! Upstream: world::map (terrain), world::spawn_config (placement layout)
+//! Upstream: world::map (terrain), world::spawn_config (placement layout), menu (SimConfig)
 //! Downstream: agent systems consume the resulting entities
 //!
 //! Individual entity spawning logic is delegated to:
@@ -17,6 +17,7 @@
 
 use crate::agent::mind::knowledge::{MindGraph, Ontology};
 use crate::agent::mind::recognition::initialize_relationship_with_affection;
+use crate::menu::{AppState, SimConfig, SimMode};
 use crate::world::spawn_config::{SpawnLayout, WorldSpawnConfig};
 use bevy::prelude::*;
 
@@ -83,10 +84,17 @@ impl Plugin for SpawnerPlugin {
             .register_type::<Deer>()
             .register_type::<Wolf>()
             .add_systems(
-                Startup,
+                OnEnter(AppState::InSim),
                 (
-                    spawn_initial_population.after(crate::world::map::setup_map),
-                    setup_wolf_pack_bonds.after(spawn_initial_population),
+                    spawn_initial_population
+                        .after(crate::world::map::setup_map)
+                        .run_if(in_debug_mode),
+                    setup_wolf_pack_bonds
+                        .after(spawn_initial_population)
+                        .run_if(in_debug_mode),
+                    spawn_game_scaffold
+                        .after(crate::world::map::setup_map)
+                        .run_if(in_game_mode),
                 ),
             )
             .add_systems(
@@ -107,11 +115,36 @@ fn spawn_initial_population(
     map: Res<crate::world::map::WorldMap>,
     ontology: Res<Ontology>,
     mut sim_rng: ResMut<crate::core::SimRng>,
+    sim_config: Option<Res<SimConfig>>,
 ) {
-    let config = WorldSpawnConfig::game_defaults();
+    let seed = sim_config.map(|c| c.seed as u64).unwrap_or(0);
+    let config = WorldSpawnConfig {
+        seed,
+        ..WorldSpawnConfig::game_defaults()
+    };
     let layout = config.compute_layout(&map);
     apply_layout(&mut commands, &ontology, &layout, sim_rng.inner_mut());
 }
+
+/// Run condition: spawn the full sandbox population only when the player picked Debug.
+fn in_debug_mode(sim_config: Option<Res<SimConfig>>) -> bool {
+    sim_config
+        .map(|c| matches!(c.mode, SimMode::Debug))
+        .unwrap_or(true)
+}
+
+/// Run condition: game-mode scaffold path. Future factory-game systems will
+/// reuse this same condition to gate themselves to game runs.
+fn in_game_mode(sim_config: Option<Res<SimConfig>>) -> bool {
+    sim_config
+        .map(|c| matches!(c.mode, SimMode::Game))
+        .unwrap_or(false)
+}
+
+/// Game-mode scaffold spawn. Today this is intentionally empty — picking Game
+/// gives you a populated terrain with no agents, visibly distinct from Debug.
+/// Factory-game features will hook in here in follow-up issues.
+fn spawn_game_scaffold(_commands: Commands) {}
 
 /// Spawns all entities described by `layout` into the Bevy world using full
 /// visual spawners. Used by the windowed game path.

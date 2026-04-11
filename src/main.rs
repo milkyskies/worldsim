@@ -12,6 +12,7 @@ use worldsim::agent::AgentPlugin;
 use worldsim::cli::CliArgs;
 use worldsim::core::CorePlugin;
 use worldsim::headless;
+use worldsim::menu::MenuPlugin;
 use worldsim::ui::UiPlugin;
 use worldsim::ui::camera::CameraPlugin;
 use worldsim::world::WorldPlugin;
@@ -84,6 +85,9 @@ fn run_windowed() {
         .add_systems(Update, log_performance_stats)
         // Performance profiling for debugging
         .add_plugins(worldsim::core::DiagnosticsPlugin)
+        // Menu first so AppState is registered before any other plugin
+        // schedules systems on OnEnter(AppState::InSim).
+        .add_plugins(MenuPlugin)
         // Domain plugins
         .add_plugins(WorldPlugin)
         .add_plugins(AgentPlugin)

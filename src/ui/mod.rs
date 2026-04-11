@@ -20,6 +20,8 @@ use egui::Color32;
 use egui_dock::{DockArea, DockState, NodeIndex, Style};
 use hud::GameLog;
 
+use crate::menu::AppState;
+
 pub mod character_sheet;
 pub mod debug_knowledge;
 pub mod sprite_animation;
@@ -45,17 +47,27 @@ impl Plugin for UiPlugin {
             .init_resource::<UiState>()
             .init_resource::<DebugUiEnabled>()
             .init_resource::<debug_knowledge::KnowledgeInspectorState>()
-            .add_systems(EguiPrimaryContextPass, controls_panel_system)
-            .add_systems(EguiPrimaryContextPass, ui_system.run_if(debug_ui_enabled))
+            .add_systems(
+                EguiPrimaryContextPass,
+                controls_panel_system.run_if(in_state(AppState::InSim)),
+            )
+            .add_systems(
+                EguiPrimaryContextPass,
+                ui_system
+                    .run_if(debug_ui_enabled)
+                    .run_if(in_state(AppState::InSim)),
+            )
             .add_systems(
                 PostUpdate,
                 set_camera_viewport
                     .after(ui_system)
-                    .run_if(debug_ui_enabled),
+                    .run_if(debug_ui_enabled)
+                    .run_if(in_state(AppState::InSim)),
             )
             .add_systems(
                 Update,
-                (toggle_debug_ui, handle_game_click, draw_selection_gizmos),
+                (toggle_debug_ui, handle_game_click, draw_selection_gizmos)
+                    .run_if(in_state(AppState::InSim)),
             );
     }
 }
