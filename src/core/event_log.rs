@@ -253,6 +253,9 @@ fn event_meta<'a>(
             one("LaborContributed", *tick, *agent, true)
         }
         SimEvent::SkillChanged { agent, tick, .. } => one("SkillChanged", *tick, *agent, true),
+        SimEvent::PhenotypeDeveloped { agent, tick, .. } => {
+            one("PhenotypeDeveloped", *tick, *agent, true)
+        }
     }
 }
 
@@ -604,6 +607,25 @@ fn event_to_json(
                 "skill": format!("{skill:?}"),
                 "old": old_value,
                 "new": new_value,
+            })
+        }
+        SimEvent::PhenotypeDeveloped {
+            agent,
+            speed,
+            vision,
+            metabolism,
+            endurance,
+            ..
+        } => {
+            serde_json::json!({
+                "tick": tick,
+                "type": event_type,
+                "agent": resolve(*agent),
+                "agent_id": entity_id_str(*agent),
+                "speed": speed,
+                "vision": vision,
+                "metabolism": metabolism,
+                "endurance": endurance,
             })
         }
     }

@@ -1,6 +1,6 @@
 //! Parallel action execution - ticks every running action independently.
 //!
-//! Reads: BrainState (chosen actions), PhysicalNeeds, Inventory, WorldMap, Body, Skills
+//! Reads: BrainState (chosen actions), PhysicalNeeds, Inventory, WorldMap, Body, Skills, Phenotype
 //! Writes: ActiveActions, PhysicalNeeds, Inventory, TargetPosition, ActionOutcomeEvent, SimEvent
 //! Upstream: brains::arbitration (BrainState), actions::registry (Action definitions)
 //! Downstream: mind::belief_updater (ActionOutcomeEvent), ui (GameLog), SimEvent consumers
@@ -12,7 +12,9 @@ use crate::agent::actions::registry::{
     ActionContext, ActionKind, ActionRegistry, ActionState, ActiveActions,
 };
 use crate::agent::biology::body::Body;
+use crate::agent::body::genetics::phenotype::Phenotype;
 use crate::agent::body::needs::{Consciousness, PhysicalNeeds};
+use crate::agent::body::species::SpeciesProfile;
 use crate::agent::brains::proposal::BrainState;
 use crate::agent::events::{ActionOutcome, ActionOutcomeEvent, NeedSatisfaction};
 use crate::agent::item_slots::ItemSlots;
@@ -302,6 +304,8 @@ pub fn tick_actions(
         Option<&Body>,
         &crate::agent::mind::knowledge::MindGraph,
         Option<&crate::agent::skills::Skills>,
+        Option<&SpeciesProfile>,
+        Option<&Phenotype>,
     )>,
     mut target_inventories: Query<&mut ItemSlots, Without<PhysicalNeeds>>,
     living_entities: Query<()>,
@@ -320,6 +324,8 @@ pub fn tick_actions(
         body,
         mind,
         skills,
+        species,
+        phenotype,
     ) in agents.iter_mut()
     {
         // Snapshot the load and capacities at the start of the tick. Capacities
@@ -407,7 +413,14 @@ pub fn tick_actions(
                                 let effective = effective_intensity(desired, &physical.stamina);
                                 let intensity_mult = intensity_speed_multiplier(effective);
 
+                                // Apply species base speed and individual genetic multiplier.
+                                // Phenotype.speed is 1.0 for an average individual; faster
+                                // or slower individuals deviate from the species baseline.
+                                let species_speed = species.map(|s| s.base_speed).unwrap_or(1.0);
+                                let genetic_speed = phenotype.map(|p| p.speed).unwrap_or(1.0);
                                 let speed = calculate_speed(physical.stamina.aerobic, None)
+                                    * species_speed
+                                    * genetic_speed
                                     * degradation
                                     * intensity_mult;
 

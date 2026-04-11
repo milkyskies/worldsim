@@ -108,7 +108,8 @@ fn sim_event_tick(event: &SimEvent) -> u64 {
         | SimEvent::ItemSpoiled { tick, .. }
         | SimEvent::EffectApplied { tick, .. }
         | SimEvent::LaborContributed { tick, .. }
-        | SimEvent::SkillChanged { tick, .. } => *tick,
+        | SimEvent::SkillChanged { tick, .. }
+        | SimEvent::PhenotypeDeveloped { tick, .. } => *tick,
     }
 }
 
@@ -157,7 +158,8 @@ fn sim_event_involves(event: &SimEvent, agent: Entity) -> bool {
         SimEvent::ItemSpoiled { agent: a, .. }
         | SimEvent::EffectApplied { agent: a, .. }
         | SimEvent::LaborContributed { agent: a, .. }
-        | SimEvent::SkillChanged { agent: a, .. } => *a == agent,
+        | SimEvent::SkillChanged { agent: a, .. }
+        | SimEvent::PhenotypeDeveloped { agent: a, .. } => *a == agent,
     }
 }
 
@@ -389,6 +391,20 @@ fn format_sim_event(event: &SimEvent) -> String {
             format!(
                 "[t{tick}] SkillChanged      agent={agent:?} skill={skill:?} \
                  {old_value:.3}->{new_value:.3}"
+            )
+        }
+
+        SimEvent::PhenotypeDeveloped {
+            agent,
+            tick,
+            speed,
+            vision,
+            metabolism,
+            endurance,
+        } => {
+            format!(
+                "[t{tick}] PhenotypeDeveloped agent={agent:?} speed={speed:.3} \
+                 vision={vision:.3} metabolism={metabolism:.3} endurance={endurance:.3}"
             )
         }
     }
@@ -1921,6 +1937,125 @@ mod tests {
         assert!(
             !triples.is_empty(),
             "wolf should mark its spawn tile as territory"
+        );
+    }
+
+    // ─── Genetics tests ────────────────────────────────────────────────────────
+
+    #[test]
+    fn deer_spawn_has_genome_and_phenotype() {
+        let mut world = TestWorld::with_seed(42);
+        let deer = world.spawn_deer(Vec2::new(40.0, 40.0));
+
+        // Genome and Phenotype should be pre-inserted at spawn (no tick needed).
+        assert!(
+            world
+                .app()
+                .world()
+                .get::<crate::agent::body::genetics::genome::Genome>(deer)
+                .is_some(),
+            "spawned deer should have Genome component"
+        );
+        assert!(
+            world
+                .app()
+                .world()
+                .get::<crate::agent::body::genetics::phenotype::Phenotype>(deer)
+                .is_some(),
+            "spawned deer should have Phenotype component"
+        );
+    }
+
+    #[test]
+    fn neutral_genome_produces_baseline_phenotype_on_tick() {
+        use crate::agent::body::genetics::phenotype::Phenotype;
+
+        let mut world = TestWorld::with_seed(42);
+        let deer = world.spawn_deer(Vec2::new(40.0, 40.0));
+
+        // The test deer spawns with Genome::default() (neutral).
+        // After one tick, develop_phenotype_system runs (Added<Genome>) and
+        // overwrites the Phenotype. Neutral genome → all-baseline phenotype.
+        world.tick(1);
+
+        let phenotype = world.get::<Phenotype>(deer);
+        assert!(
+            (phenotype.speed - 1.0).abs() < 1e-5,
+            "neutral genome should produce speed=1.0, got {}",
+            phenotype.speed
+        );
+        assert!(
+            (phenotype.vision - 1.0).abs() < 1e-5,
+            "neutral genome should produce vision=1.0, got {}",
+            phenotype.vision
+        );
+    }
+
+    #[test]
+    fn positive_speed_genome_makes_deer_faster_than_baseline() {
+        use crate::agent::body::genetics::genome::Genome;
+        use crate::agent::body::genetics::phenotype::Phenotype;
+
+        let mut world = TestWorld::with_seed(42);
+
+        // Spawn two deer: one with a neutral genome, one with a fast genome.
+        let slow_deer = world.spawn_deer(Vec2::new(40.0, 40.0));
+        let fast_deer = world.spawn_deer(Vec2::new(60.0, 60.0));
+
+        // Give fast_deer a positive-biased speed genome.
+        {
+            let w = world.app_mut().world_mut();
+            let mut genome = w.get_mut::<Genome>(fast_deer).unwrap();
+            for i in 0..4 {
+                genome.maternal[i] = 1.5;
+                genome.paternal[i] = 1.5;
+            }
+        }
+
+        // Tick once so develop_phenotype_system runs for both (Added<Genome>).
+        // Note: Added<Genome> fires only once per entity, and the test deer already
+        // had Genome::default() inserted at spawn. The system won't re-fire for the
+        // slow_deer since it's not newly-added. We verify the manual genome overwrite
+        // took effect on fast_deer's Phenotype by checking Phenotype directly.
+        world.tick(1);
+
+        let fast_phenotype = world.get::<Phenotype>(fast_deer);
+        let slow_phenotype = world.get::<Phenotype>(slow_deer);
+
+        assert!(
+            fast_phenotype.speed > slow_phenotype.speed,
+            "fast deer (speed={}) should be faster than slow deer (speed={})",
+            fast_phenotype.speed,
+            slow_phenotype.speed
+        );
+    }
+
+    #[test]
+    fn personality_is_derived_from_genome_after_tick() {
+        use crate::agent::body::genetics::genome::Genome;
+        use crate::agent::psyche::personality::Personality;
+
+        let mut world = TestWorld::with_seed(42);
+
+        // Spawn a deer with a high-openness genome (positive openness loci).
+        let deer = world.spawn_deer(Vec2::new(40.0, 40.0));
+        {
+            let w = world.app_mut().world_mut();
+            let mut genome = w.get_mut::<Genome>(deer).unwrap();
+            // Openness loci start at index 16
+            for i in 16..20 {
+                genome.maternal[i] = 2.0;
+                genome.paternal[i] = 2.0;
+            }
+        }
+
+        world.tick(1);
+
+        let personality = world.get::<Personality>(deer);
+        assert!(
+            personality.traits.openness > 0.5,
+            "high openness genome should produce openness > 0.5, got {}",
+            personality.traits.openness
         );
     }
 

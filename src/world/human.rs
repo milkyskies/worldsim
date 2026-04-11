@@ -1,31 +1,33 @@
 //! Human (Person) spawning logic.
 
+use crate::agent::body::genetics::founder::random_genome;
 use crate::agent::body::needs::PhysicalNeeds;
+use crate::agent::body::species::Species;
 use crate::agent::mind::knowledge::Ontology;
+use crate::agent::psyche::personality::Personality;
 use crate::agent::spawn_human::{PersonInit, build_person_logic};
 use crate::world::environment::{AgentBodySprite, BaseColor};
 use bevy::prelude::*;
+use rand::Rng;
 
 /// Spawns a Person (Human Agent)
-pub fn spawn_person(
+pub fn spawn_person<R: Rng>(
     commands: &mut Commands,
     ontology: Ontology,
     position: Vec2,
     index: usize,
     culture: crate::agent::culture::Culture,
     cultural_knowledge: std::sync::Arc<Vec<crate::agent::mind::knowledge::Triple>>,
+    rng: &mut R,
 ) -> Entity {
-    use crate::agent::psyche::personality::Personality;
-    use rand::Rng;
-
-    let mut rng = rand::rng();
-    let personality = Personality::random();
+    let genome = random_genome(rng, Species::Human);
 
     let (core, perception, brain) = build_person_logic(
         PersonInit {
             name: format!("Person {} ({:?})", index, culture),
             position,
-            personality,
+            // Placeholder personality; overwritten by develop_phenotype_system from genome.
+            personality: Personality::default(),
             physical_needs: PhysicalNeeds::default(),
             social_drive_override: None,
             cultural_knowledge,
@@ -57,6 +59,7 @@ pub fn spawn_person(
             crate::ui::sprite_animation::VisualOffset::default(),
         ))
         .insert(brain)
+        .insert(genome)
         .id();
 
     commands.entity(entity).with_children(|parent| {

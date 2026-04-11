@@ -88,7 +88,11 @@ pub(super) fn spawn_test_person(
 
 /// Spawns a Deer animal agent with all logic components but no visuals.
 pub(super) fn spawn_test_deer(world: &mut World, ontology: Ontology, pos: Vec2) -> Entity {
+    use crate::agent::body::genetics::genome::Genome;
+    use crate::agent::body::genetics::phenotype::Phenotype;
     use crate::agent::psyche::personality::Personality;
+
+    let species = SpeciesProfile::deer();
 
     let mut mind = MindGraph::new(ontology);
     crate::world::deer::add_deer_knowledge(&mut mind);
@@ -99,19 +103,25 @@ pub(super) fn spawn_test_deer(world: &mut World, ontology: Ontology, pos: Vec2) 
             Agent,
             Deer,
             EntityType(Concept::Deer),
-            SpeciesProfile::deer(),
+            species,
             Physical,
             TargetPosition::default(),
             MovementState::default(),
             ItemSlots::agent_carry(),
             Personality::default(),
+            // Neutral genome + baseline phenotype pre-inserted so tests that
+            // don't tick see correct species-baseline behaviour immediately.
+            Genome::default(),
+            Phenotype::default(),
             Transform::from_translation(pos.extend(3.0)),
             GlobalTransform::default(),
         ))
         .insert((
             Affordance::default(),
             mind,
-            Vision { range: 128.0 },
+            Vision {
+                range: SpeciesProfile::deer().vision_range,
+            },
             VisibleObjects::default(),
         ))
         .insert((
@@ -137,6 +147,8 @@ pub(super) fn spawn_test_deer(world: &mut World, ontology: Ontology, pos: Vec2) 
 
 /// Spawns a Wolf predator agent with all logic components but no visuals.
 pub(super) fn spawn_test_wolf(world: &mut World, ontology: Ontology, pos: Vec2) -> Entity {
+    use crate::agent::body::genetics::genome::Genome;
+    use crate::agent::body::genetics::phenotype::Phenotype;
     use crate::agent::psyche::personality::Personality;
     use crate::world::map::TILE_SIZE;
 
@@ -156,13 +168,17 @@ pub(super) fn spawn_test_wolf(world: &mut World, ontology: Ontology, pos: Vec2) 
             MovementState::default(),
             ItemSlots::agent_carry(),
             Personality::default(),
+            Genome::default(),
+            Phenotype::default(),
             Transform::from_translation(pos.extend(3.0)),
             GlobalTransform::default(),
         ))
         .insert((
             Affordance::default(),
             mind,
-            Vision { range: 120.0 },
+            Vision {
+                range: SpeciesProfile::wolf().vision_range,
+            },
             VisibleObjects::default(),
         ))
         .insert((

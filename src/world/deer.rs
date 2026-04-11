@@ -6,10 +6,12 @@
 //! - Flee from humans (they know Person is Dangerous)
 //! - Have basic survival instincts
 
-use crate::agent::body::species::SpeciesProfile;
+use crate::agent::body::genetics::founder::random_genome;
+use crate::agent::body::species::{Species, SpeciesProfile};
 use crate::agent::mind::knowledge::{Concept, MindGraph, Ontology};
 use crate::agent::{Agent, inventory::EntityType, item_slots::ItemSlots};
 use bevy::prelude::*;
+use rand::Rng;
 
 /// Marker component for deer entities.
 #[derive(Component, Reflect, Default)]
@@ -17,20 +19,16 @@ use bevy::prelude::*;
 pub struct Deer;
 
 /// Spawns a Deer (Animal Agent)
-pub fn spawn_deer(
+pub fn spawn_deer<R: Rng>(
     commands: &mut Commands,
     ontology: Ontology,
     position: Vec2,
     index: usize,
+    rng: &mut R,
 ) -> Entity {
-    use crate::agent::psyche::personality::Personality;
-
     let species_profile = SpeciesProfile::deer();
     let inventory = ItemSlots::agent_carry();
-
-    // Deer get a simplified personality (for now, reusing human system)
-    // TODO: Implement Universal traits (boldness, aggression) for animals
-    let personality = Personality::random();
+    let genome = random_genome(rng, Species::Deer);
 
     // Initialize Mind with Ontology
     let mut mind = MindGraph::new(ontology);
@@ -53,7 +51,7 @@ pub fn spawn_deer(
             crate::agent::TargetPosition::default(),
             crate::agent::movement::MovementState::default(),
             inventory,
-            personality,
+            genome,
             // ROOT HAS NO SPRITE (Invisible Container)
             Transform::from_translation(position.extend(3.0)),
             GlobalTransform::default(),
@@ -61,8 +59,11 @@ pub fn spawn_deer(
         .insert((
             crate::agent::affordance::Affordance::default(),
             mind,
-            // Vision/Perception (from species profile)
-            crate::agent::mind::perception::Vision { range: 128.0 },
+            // Vision range is set by develop_phenotype_system from species.vision_range
+            // × phenotype.vision; this placeholder is overwritten before first perception tick.
+            crate::agent::mind::perception::Vision {
+                range: SpeciesProfile::deer().vision_range,
+            },
             crate::agent::mind::perception::VisibleObjects::default(),
             Visibility::default(),
             InheritedVisibility::default(),
