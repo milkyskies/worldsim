@@ -80,13 +80,14 @@ fn exhausted_agent_sleeps_and_then_wakes_once_rested() {
 fn starving_wakes_sleeping_agent() {
     let (mut world, sleeper) = tired_sleeper();
 
-    // Bump hunger well past the Hunger drive's sleep_wake_threshold (0.9 in
-    // input-space = 90/100 raw hunger). Keep aerobic low so we are NOT
+    // Bump hunger urgency past the Hunger drive's sleep_wake_threshold (0.9
+    // in input-space = 90/100 raw hunger, which maps to `at_urgency(0.95)`
+    // under the new three-pool metabolism). Keep aerobic low so we are NOT
     // testing the rested-wake path — any wake must come from the hunger
     // trigger. Cap the wake loop well under the natural recovery time.
     {
         let mut needs = world.get_mut::<PhysicalNeeds>(sleeper);
-        needs.hunger = 95.0;
+        needs.metabolism = worldsim::agent::body::metabolism::Metabolism::at_urgency(0.95);
         needs.stamina.aerobic = 5.0;
     }
 
@@ -116,11 +117,11 @@ fn starving_wakes_sleeping_agent() {
 fn moderate_hunger_does_not_wake_sleeping_agent() {
     let (mut world, sleeper) = tired_sleeper();
 
-    // Below the 90/100 threshold. Agent should stay asleep until stamina
+    // Below the 0.9 urgency threshold. Agent should stay asleep until stamina
     // recovers naturally — far longer than our short observation window.
     {
         let mut needs = world.get_mut::<PhysicalNeeds>(sleeper);
-        needs.hunger = 50.0;
+        needs.metabolism = worldsim::agent::body::metabolism::Metabolism::at_urgency(0.5);
         needs.stamina.aerobic = 5.0;
     }
 
