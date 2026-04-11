@@ -45,6 +45,7 @@ impl Plugin for UiPlugin {
             .init_resource::<UiState>()
             .init_resource::<DebugUiEnabled>()
             .init_resource::<debug_knowledge::KnowledgeInspectorState>()
+            .add_systems(EguiPrimaryContextPass, controls_panel_system)
             .add_systems(EguiPrimaryContextPass, ui_system.run_if(debug_ui_enabled))
             .add_systems(
                 PostUpdate,
@@ -61,6 +62,84 @@ impl Plugin for UiPlugin {
 
 fn debug_ui_enabled(debug: Res<DebugUiEnabled>) -> bool {
     debug.0
+}
+
+fn controls_panel_system(world: &mut World) {
+    let Ok(egui_context) = world
+        .query_filtered::<&mut EguiContext, With<PrimaryEguiContext>>()
+        .single(world)
+    else {
+        return;
+    };
+    let mut egui_context = egui_context.clone();
+    let ctx = egui_context.get_mut();
+
+    egui::SidePanel::left("controls_panel")
+        .resizable(true)
+        .default_width(160.0)
+        .min_width(120.0)
+        .max_width(240.0)
+        .show(ctx, |ui| {
+            ui.add_space(6.0);
+
+            // Time
+            if let Some(game_time) = world.get_resource::<crate::core::GameTime>() {
+                ui.strong(game_time.format());
+            }
+
+            let (paused, speed) =
+                if let Some(tick_res) = world.get_resource::<crate::core::TickCount>() {
+                    (tick_res.paused, tick_res.ticks_per_second / 60.0)
+                } else {
+                    return;
+                };
+
+            ui.horizontal(|ui| {
+                let pause_text = if paused { "▶" } else { "⏸" };
+                if ui.button(pause_text).clicked() {
+                    if let Some(mut tick_res) = world.get_resource_mut::<crate::core::TickCount>() {
+                        tick_res.paused = !tick_res.paused;
+                    }
+                }
+                if paused {
+                    ui.colored_label(egui::Color32::RED, "PAUSED");
+                }
+            });
+
+            ui.horizontal_wrapped(|ui| {
+                for (label, rate) in [
+                    ("1x", 60.0f32),
+                    ("2x", 120.0),
+                    ("3x", 180.0),
+                    ("5x", 300.0),
+                    ("10x", 600.0),
+                ] {
+                    let selected = (speed - rate / 60.0).abs() < 0.1;
+                    let btn = egui::Button::new(label);
+                    let btn = if selected {
+                        btn.fill(egui::Color32::from_rgb(60, 100, 60))
+                    } else {
+                        btn
+                    };
+                    if ui.add(btn).clicked() {
+                        if let Some(mut tick_res) =
+                            world.get_resource_mut::<crate::core::TickCount>()
+                        {
+                            tick_res.ticks_per_second = rate;
+                        }
+                    }
+                }
+            });
+
+            ui.separator();
+
+            // Overlays
+            ui.strong("Overlays");
+            if let Some(mut overlay_state) = world.get_resource_mut::<OverlayState>() {
+                ui.checkbox(&mut overlay_state.show_vision, "Vision Range");
+                ui.checkbox(&mut overlay_state.show_intent, "Agent Intent");
+            }
+        });
 }
 
 fn toggle_debug_ui(
