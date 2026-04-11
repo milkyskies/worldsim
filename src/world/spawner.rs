@@ -123,7 +123,15 @@ fn spawn_initial_population(
         ..WorldSpawnConfig::game_defaults()
     };
     let layout = config.compute_layout(&map);
-    apply_layout(&mut commands, &ontology, &layout, sim_rng.inner_mut());
+    let spawned = apply_layout(&mut commands, &ontology, &layout, sim_rng.inner_mut());
+    // Tag every freshly-spawned root entity for state-scoped cleanup so
+    // returning to the main menu tears the whole sim down. Children come
+    // along for the ride via Bevy's recursive despawn.
+    for entity in spawned {
+        commands
+            .entity(entity)
+            .insert(DespawnOnExit(AppState::InSim));
+    }
 }
 
 /// Run condition: spawn the full sandbox population only when the player picked Debug.
@@ -148,16 +156,21 @@ fn spawn_game_scaffold(_commands: Commands) {}
 
 /// Spawns all entities described by `layout` into the Bevy world using full
 /// visual spawners. Used by the windowed game path.
+///
+/// Returns the list of root entities created so callers can tag them with
+/// state-scoped cleanup or other lifetime markers.
 pub fn apply_layout(
     commands: &mut Commands,
     ontology: &Ontology,
     layout: &SpawnLayout,
     rng: &mut impl rand::Rng,
-) {
+) -> Vec<Entity> {
     use std::collections::HashMap;
     use std::sync::Arc;
 
     use crate::agent::culture::Culture;
+
+    let mut spawned: Vec<Entity> = Vec::new();
 
     // First group stays on the original settlement side; second group spawns
     // across the river. Cultures are split so the two groups have different
@@ -179,14 +192,15 @@ pub fn apply_layout(
     for (i, &pos) in layout.human_positions.iter().enumerate() {
         let culture = first_group_cultures[rng.random_range(0..first_group_cultures.len())];
         let knowledge = cultural_knowledge_map.get(&culture).unwrap().clone();
-        spawn_person(commands, ontology.clone(), pos, i, culture, knowledge, rng);
+        let entity = spawn_person(commands, ontology.clone(), pos, i, culture, knowledge, rng);
+        spawned.push(entity);
     }
 
     let offset = layout.human_positions.len();
     for (i, &pos) in layout.second_human_positions.iter().enumerate() {
         let culture = second_group_cultures[rng.random_range(0..second_group_cultures.len())];
         let knowledge = cultural_knowledge_map.get(&culture).unwrap().clone();
-        spawn_person(
+        let entity = spawn_person(
             commands,
             ontology.clone(),
             pos,
@@ -195,6 +209,7 @@ pub fn apply_layout(
             knowledge,
             rng,
         );
+        spawned.push(entity);
     }
 
     let mut deer_index = 0;
@@ -207,6 +222,7 @@ pub fn apply_layout(
                 entity
             })
             .collect();
+        spawned.extend(members.iter().copied());
         if members.len() > 1 {
             introduce_group_as_kin(commands, members, KIN_BASELINE_AFFECTION);
         }
@@ -222,26 +238,29 @@ pub fn apply_layout(
                 entity
             })
             .collect();
+        spawned.extend(members.iter().copied());
         if members.len() > 1 {
             introduce_group_as_kin(commands, members, KIN_BASELINE_AFFECTION);
         }
     }
 
     for &(pos, berries) in &layout.berry_bush_positions {
-        spawn_berry_bush(commands, pos, berries);
+        spawned.push(spawn_berry_bush(commands, pos, berries));
     }
 
     for &(pos, apples) in &layout.apple_tree_positions {
-        spawn_apple_tree(commands, pos, apples);
+        spawned.push(spawn_apple_tree(commands, pos, apples));
     }
 
     for &(pos, stones) in &layout.stone_node_positions {
-        spawn_stone_node(commands, pos, stones);
+        spawned.push(spawn_stone_node(commands, pos, stones));
     }
 
     for &(pos, wood) in &layout.wood_log_positions {
-        spawn_wood_log(commands, pos, wood);
+        spawned.push(spawn_wood_log(commands, pos, wood));
     }
+
+    spawned
 }
 
 /// Establishes mutual pack bonds between all spawned wolves.

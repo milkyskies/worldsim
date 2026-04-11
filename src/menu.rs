@@ -65,6 +65,10 @@ pub struct CreateWorldForm {
     pub selected_mode: SimMode,
 }
 
+/// Whether the in-sim pause menu overlay is currently shown. Toggled by ESC.
+#[derive(Resource, Debug, Default)]
+pub struct PauseMenuOpen(pub bool);
+
 pub const DEFAULT_WORLD_NAME: &str = "New World";
 
 pub struct MenuPlugin;
@@ -73,10 +77,13 @@ impl Plugin for MenuPlugin {
     fn build(&self, app: &mut App) {
         app.init_state::<AppState>()
             .init_resource::<CreateWorldForm>()
+            .init_resource::<PauseMenuOpen>()
             .add_systems(OnEnter(AppState::MainMenu), (reset_form, pause_ticks))
             .add_systems(OnEnter(AppState::ModePicker), pause_ticks)
             .add_systems(OnEnter(AppState::CreateWorld), pause_ticks)
             .add_systems(OnEnter(AppState::InSim), enter_sim)
+            .add_systems(OnExit(AppState::InSim), close_pause_menu)
+            .add_systems(Update, handle_pause_key.run_if(in_state(AppState::InSim)))
             .add_systems(
                 EguiPrimaryContextPass,
                 main_menu_screen.run_if(in_state(AppState::MainMenu)),
@@ -88,6 +95,12 @@ impl Plugin for MenuPlugin {
             .add_systems(
                 EguiPrimaryContextPass,
                 create_world_screen.run_if(in_state(AppState::CreateWorld)),
+            )
+            .add_systems(
+                EguiPrimaryContextPass,
+                pause_menu_screen
+                    .run_if(in_state(AppState::InSim))
+                    .run_if(pause_menu_is_open),
             );
     }
 }
@@ -112,6 +125,34 @@ fn enter_sim(
     }
     if let Some(config) = config {
         commands.insert_resource(SimRng::from_seed(config.seed as u64));
+    }
+}
+
+fn close_pause_menu(mut pause: ResMut<PauseMenuOpen>, tick: Option<ResMut<TickCount>>) {
+    pause.0 = false;
+    // Bringing the player back to the menu also pauses ticks; the next entry
+    // into InSim will unpause via `enter_sim`.
+    if let Some(mut tick) = tick {
+        tick.paused = true;
+    }
+}
+
+fn pause_menu_is_open(pause: Res<PauseMenuOpen>) -> bool {
+    pause.0
+}
+
+fn handle_pause_key(
+    keyboard: Res<ButtonInput<KeyCode>>,
+    mut pause: ResMut<PauseMenuOpen>,
+    tick: Option<ResMut<TickCount>>,
+) {
+    if !keyboard.just_pressed(KeyCode::Escape) {
+        return;
+    }
+    pause.0 = !pause.0;
+    if let Some(mut tick) = tick {
+        // Pause menu open ⇒ force pause; closing returns control to play.
+        tick.paused = pause.0;
     }
 }
 
@@ -235,6 +276,11 @@ fn mode_picker_screen(
     });
 }
 
+/// Width of the create-world card. The form is horizontally padded to this
+/// width and centered, so widgets like `Grid` (which expand to fill their
+/// container) stay aligned instead of drifting to the right edge.
+const CREATE_WORLD_CARD_WIDTH: f32 = 440.0;
+
 fn create_world_screen(
     mut contexts: Query<&mut EguiContext, With<PrimaryEguiContext>>,
     mut next_state: ResMut<NextState<AppState>>,
@@ -247,58 +293,133 @@ fn create_world_screen(
     let ctx = egui_ctx.get_mut();
 
     egui::CentralPanel::default().show(ctx, |ui| {
-        ui.vertical_centered(|ui| {
-            ui.add_space(80.0);
-            ui.heading("Create New World");
-            ui.add_space(4.0);
-            ui.label(format!("Mode: {}", form.selected_mode.label()));
-            ui.add_space(28.0);
+        ui.add_space(80.0);
 
-            egui::Grid::new("create_world_form")
-                .num_columns(2)
-                .spacing([16.0, 12.0])
-                .show(ui, |ui| {
-                    ui.label("World name");
-                    ui.add(
-                        egui::TextEdit::singleline(&mut form.name)
-                            .desired_width(220.0)
-                            .hint_text(DEFAULT_WORLD_NAME),
-                    );
-                    ui.end_row();
+        let avail_width = ui.available_width();
+        let side_pad = ((avail_width - CREATE_WORLD_CARD_WIDTH) / 2.0).max(0.0);
 
-                    ui.label("Seed");
-                    ui.horizontal(|ui| {
+        ui.horizontal(|ui| {
+            ui.add_space(side_pad);
+            ui.vertical(|ui| {
+                ui.set_width(CREATE_WORLD_CARD_WIDTH);
+
+                ui.vertical_centered(|ui| {
+                    ui.heading("Create New World");
+                    ui.add_space(4.0);
+                    ui.label(format!("Mode: {}", form.selected_mode.label()));
+                });
+                ui.add_space(28.0);
+
+                egui::Grid::new("create_world_form")
+                    .num_columns(2)
+                    .spacing([16.0, 12.0])
+                    .min_col_width(110.0)
+                    .show(ui, |ui| {
+                        ui.label("World name");
                         ui.add(
-                            egui::TextEdit::singleline(&mut form.seed_input)
-                                .desired_width(160.0)
-                                .hint_text("random"),
+                            egui::TextEdit::singleline(&mut form.name)
+                                .desired_width(260.0)
+                                .hint_text(DEFAULT_WORLD_NAME),
                         );
-                        if ui.button("Randomize").clicked() {
-                            form.seed_input = random_seed().to_string();
+                        ui.end_row();
+
+                        ui.label("Seed");
+                        ui.horizontal(|ui| {
+                            ui.add(
+                                egui::TextEdit::singleline(&mut form.seed_input)
+                                    .desired_width(170.0)
+                                    .hint_text("random"),
+                            );
+                            if ui.button("Randomize").clicked() {
+                                form.seed_input = random_seed().to_string();
+                            }
+                        });
+                        ui.end_row();
+                    });
+
+                ui.add_space(36.0);
+
+                ui.vertical_centered(|ui| {
+                    ui.horizontal(|ui| {
+                        let button_size = egui::vec2(140.0, 40.0);
+                        let row_width = button_size.x * 2.0 + 20.0;
+                        let inner_pad = ((CREATE_WORLD_CARD_WIDTH - row_width) / 2.0).max(0.0);
+                        ui.add_space(inner_pad);
+                        if ui
+                            .add_sized(button_size, egui::Button::new("Back"))
+                            .clicked()
+                        {
+                            next_state.set(AppState::ModePicker);
+                        }
+                        ui.add_space(20.0);
+                        if ui
+                            .add_sized(button_size, egui::Button::new("Play"))
+                            .clicked()
+                        {
+                            start_simulation(&form, &mut commands, &mut next_state);
                         }
                     });
-                    ui.end_row();
                 });
-
-            ui.add_space(32.0);
-
-            ui.horizontal(|ui| {
-                if ui
-                    .add_sized(egui::vec2(140.0, 40.0), egui::Button::new("Back"))
-                    .clicked()
-                {
-                    next_state.set(AppState::ModePicker);
-                }
-                ui.add_space(20.0);
-                if ui
-                    .add_sized(egui::vec2(140.0, 40.0), egui::Button::new("Play"))
-                    .clicked()
-                {
-                    start_simulation(&form, &mut commands, &mut next_state);
-                }
             });
         });
     });
+}
+
+fn pause_menu_screen(
+    mut contexts: Query<&mut EguiContext, With<PrimaryEguiContext>>,
+    mut next_state: ResMut<NextState<AppState>>,
+    mut pause: ResMut<PauseMenuOpen>,
+    tick: Option<ResMut<TickCount>>,
+    mut exit_writer: MessageWriter<AppExit>,
+) {
+    let Ok(mut egui_ctx) = contexts.single_mut() else {
+        return;
+    };
+    let ctx = egui_ctx.get_mut();
+
+    egui::Window::new("Paused")
+        .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
+        .resizable(false)
+        .collapsible(false)
+        .title_bar(false)
+        .fixed_size(egui::vec2(280.0, 220.0))
+        .show(ctx, |ui| {
+            ui.vertical_centered(|ui| {
+                ui.add_space(16.0);
+                ui.heading("Paused");
+                ui.add_space(20.0);
+
+                let button_size = egui::vec2(200.0, 40.0);
+
+                if ui
+                    .add_sized(button_size, egui::Button::new("Resume"))
+                    .clicked()
+                {
+                    pause.0 = false;
+                    if let Some(mut tick) = tick {
+                        tick.paused = false;
+                    }
+                    return;
+                }
+                ui.add_space(8.0);
+                if ui
+                    .add_sized(button_size, egui::Button::new("Main Menu"))
+                    .clicked()
+                {
+                    // OnExit(InSim) closes the pause menu and DespawnOnExit
+                    // tears down the sim entities.
+                    next_state.set(AppState::MainMenu);
+                    return;
+                }
+                ui.add_space(8.0);
+                if ui
+                    .add_sized(button_size, egui::Button::new("Quit"))
+                    .clicked()
+                {
+                    exit_writer.write(AppExit::Success);
+                }
+            });
+        });
 }
 
 #[cfg(test)]
@@ -398,5 +519,24 @@ mod tests {
         });
         // The seed is whatever the RNG produced; we just need a SimConfig.
         let _ = app.world().resource::<SimConfig>().seed;
+    }
+
+    #[test]
+    fn close_pause_menu_resets_resource_and_pauses_tick() {
+        let mut app = App::new();
+        app.add_plugins(bevy::state::app::StatesPlugin);
+        app.init_state::<AppState>();
+        app.insert_resource(PauseMenuOpen(true));
+        app.insert_resource(TickCount::new(60.0));
+        {
+            let mut tick = app.world_mut().resource_mut::<TickCount>();
+            tick.paused = false;
+        }
+
+        let sys_id = app.register_system(close_pause_menu);
+        app.world_mut().run_system(sys_id).unwrap();
+
+        assert!(!app.world().resource::<PauseMenuOpen>().0);
+        assert!(app.world().resource::<TickCount>().paused);
     }
 }

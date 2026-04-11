@@ -95,3 +95,78 @@ fn map_plugin_does_not_run_setup_until_in_sim_state() {
         "WorldMap should remain unpopulated while still on the main menu"
     );
 }
+
+#[test]
+fn returning_to_main_menu_despawns_tilemap() {
+    use worldsim::world::map::TileMap;
+
+    let mut app = build_test_app();
+    app.insert_resource(SimConfig {
+        mode: SimMode::Debug,
+        seed: 99,
+        world_name: "Cleanup".into(),
+    });
+
+    enter_in_sim(&mut app);
+
+    // The tilemap parent (with all its tile children) is now alive.
+    {
+        let mut q = app.world_mut().query::<&TileMap>();
+        let count = q.iter(app.world()).count();
+        assert_eq!(count, 1, "expected one TileMap parent after entering InSim");
+    }
+
+    // Player chooses Main Menu from the pause menu.
+    {
+        let mut next = app.world_mut().resource_mut::<NextState<AppState>>();
+        next.set(AppState::MainMenu);
+    }
+    app.update();
+    app.update();
+
+    {
+        let mut q = app.world_mut().query::<&TileMap>();
+        let count = q.iter(app.world()).count();
+        assert_eq!(
+            count, 0,
+            "TileMap should be despawned by DespawnOnExit when leaving InSim"
+        );
+    }
+}
+
+#[test]
+fn re_entering_in_sim_after_main_menu_spawns_a_fresh_tilemap() {
+    use worldsim::world::map::TileMap;
+
+    let mut app = build_test_app();
+    app.insert_resource(SimConfig {
+        mode: SimMode::Debug,
+        seed: 7,
+        world_name: "First".into(),
+    });
+
+    enter_in_sim(&mut app);
+
+    // Quit back to menu...
+    {
+        let mut next = app.world_mut().resource_mut::<NextState<AppState>>();
+        next.set(AppState::MainMenu);
+    }
+    app.update();
+    app.update();
+
+    // ...then start a fresh sim with a different seed.
+    app.insert_resource(SimConfig {
+        mode: SimMode::Debug,
+        seed: 31,
+        world_name: "Second".into(),
+    });
+    enter_in_sim(&mut app);
+
+    let mut q = app.world_mut().query::<&TileMap>();
+    let count = q.iter(app.world()).count();
+    assert_eq!(
+        count, 1,
+        "expected exactly one TileMap after re-entering InSim — old one should have been cleaned up"
+    );
+}
