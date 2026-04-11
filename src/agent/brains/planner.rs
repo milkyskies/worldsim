@@ -517,15 +517,15 @@ fn pattern_matches_triple(
     if pattern.isa_filter.is_some() || pattern.trait_filter.is_some() {
         match &triple.object {
             Value::Item(concept, _) => {
-                if let Some(isa) = pattern.isa_filter {
-                    if !ontology.is_some_and(|o| o.is_a(*concept, isa)) {
-                        return false;
-                    }
+                if let Some(isa) = pattern.isa_filter
+                    && !ontology.is_some_and(|o| o.is_a(*concept, isa))
+                {
+                    return false;
                 }
-                if let Some(trait_) = pattern.trait_filter {
-                    if !ontology.is_some_and(|o| o.has_trait(*concept, trait_)) {
-                        return false;
-                    }
+                if let Some(trait_) = pattern.trait_filter
+                    && !ontology.is_some_and(|o| o.has_trait(*concept, trait_))
+                {
+                    return false;
                 }
             }
             _ => return false,
@@ -890,15 +890,15 @@ fn mind_satisfies_pattern(mind: &MindGraph, pattern: &TriplePattern) -> bool {
             if *qty == 0 {
                 return false;
             }
-            if let Some(isa) = pattern.isa_filter {
-                if !mind.ontology.is_a(*concept, isa) {
-                    return false;
-                }
+            if let Some(isa) = pattern.isa_filter
+                && !mind.ontology.is_a(*concept, isa)
+            {
+                return false;
             }
-            if let Some(trait_) = pattern.trait_filter {
-                if !mind.ontology.has_trait(*concept, trait_) {
-                    return false;
-                }
+            if let Some(trait_) = pattern.trait_filter
+                && !mind.ontology.has_trait(*concept, trait_)
+            {
+                return false;
             }
             true
         }
