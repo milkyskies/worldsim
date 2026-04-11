@@ -1,5 +1,5 @@
 use crate::agent::actions::ActionType;
-use crate::agent::actions::channel::{Channel, ChannelUsage};
+use crate::agent::actions::channel::{Channel, ChannelUsage, Posture};
 use crate::agent::actions::registry::{
     Action, ActionContext, ActionKind, CompletionContext, RuntimeEffects, SpawnRequest,
     TargetCandidate, TargetSource,
@@ -35,13 +35,21 @@ impl Action for AttackAction {
     fn body_channels(&self) -> &'static [ChannelUsage] {
         // Manual melee — requires hands/arms to strike. Wolves can't use
         // this (no Manipulation); they get `BiteAction` instead. Humans use
-        // it for punches, grapples, and held weapons.
+        // it for punches, grapples, and held weapons. No Locomotion claim
+        // — posture-agnostic means the agent can charge, grapple in motion,
+        // or strike from a standstill, and the posture gate doesn't care.
         const CHANNELS: &[ChannelUsage] = &[
             ChannelUsage::new(Channel::Manipulation, 0.9),
-            ChannelUsage::new(Channel::Locomotion, 0.6),
             ChannelUsage::new(Channel::FullBody, 0.7),
         ];
         CHANNELS
+    }
+
+    fn posture(&self) -> Option<Posture> {
+        // Posture-agnostic: a human can punch while walking, grapple while
+        // charging, or strike from a standstill. Attack claims full body
+        // via FullBody 0.7 but doesn't pick a posture.
+        None
     }
 
     fn can_start(&self, ctx: &ActionContext) -> Result<(), crate::agent::events::FailureReason> {

@@ -1,7 +1,7 @@
 //! Flee action - run away from threats.
 
 use crate::agent::actions::ActionType;
-use crate::agent::actions::channel::{Channel, ChannelUsage};
+use crate::agent::actions::channel::{Channel, ChannelUsage, Posture};
 use crate::agent::actions::registry::{Action, ActionKind, RuntimeEffects};
 use crate::constants::actions::flee::{
     ALERTNESS_PER_SEC, BASE_COST, GLUCOSE_DRAIN_PER_SEC, STAMINA_PER_SEC,
@@ -32,6 +32,10 @@ impl Action for FleeAction {
             ChannelUsage::new(Channel::FullBody, 0.5),
         ];
         CHANNELS
+    }
+
+    fn posture(&self) -> Option<Posture> {
+        Some(Posture::Moving)
     }
 
     fn runtime_effects(&self) -> RuntimeEffects {

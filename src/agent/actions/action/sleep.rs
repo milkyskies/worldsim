@@ -1,7 +1,7 @@
 //! Sleep actions - sleeping and waking up.
 
 use crate::agent::actions::ActionType;
-use crate::agent::actions::channel::{Channel, ChannelUsage};
+use crate::agent::actions::channel::{Channel, ChannelUsage, Posture};
 use crate::agent::actions::registry::{Action, ActionKind, RuntimeEffects};
 use crate::agent::mind::knowledge::{Node, Predicate, Triple, Value};
 use crate::constants::actions::sleep::{
@@ -50,6 +50,10 @@ impl Action for SleepAction {
         CHANNELS
     }
 
+    fn posture(&self) -> Option<Posture> {
+        Some(Posture::Stationary)
+    }
+
     // Sleep uses the default `interruptible = true`. WakeUp has to preempt
     // Sleep through the normal channel-admission path (both touch FullBody),
     // and `interruptible = false` deadlocks that: WakeUp could never free
@@ -64,6 +68,9 @@ impl Action for SleepAction {
             stamina_per_sec: STAMINA_PER_SEC,
             glucose_drain_per_sec: GLUCOSE_DRAIN_PER_SEC,
             alertness_per_sec: ALERTNESS_PER_SEC,
+            // Dreams feed the mind. Sleep gently raises curiosity so
+            // the agent wakes with fresh novelty-seeking urge.
+            curiosity_per_sec: 0.01,
             ..Default::default()
         }
     }

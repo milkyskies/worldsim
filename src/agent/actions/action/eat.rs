@@ -1,7 +1,7 @@
 //! Eat action - consume food from inventory.
 
 use crate::agent::actions::ActionType;
-use crate::agent::actions::channel::{Channel, ChannelUsage};
+use crate::agent::actions::channel::{Channel, ChannelUsage, Posture};
 use crate::agent::actions::registry::{Action, ActionContext, ActionKind, CompletionContext};
 use crate::agent::body::metabolism::{FoodMacros, food_macros};
 use crate::agent::brains::thinking::TriplePattern;
@@ -37,6 +37,16 @@ impl Action for EatAction {
         // use a hand to bring food to their face but the gate is the mouth.
         const CHANNELS: &[ChannelUsage] = &[ChannelUsage::new(Channel::Consumption, 0.8)];
         CHANNELS
+    }
+
+    fn posture(&self) -> Option<Posture> {
+        // Posture-agnostic. Munching a berry while walking is normal —
+        // humans snack on the move, deer nibble a fruit mid-stride, a
+        // wolf chews a bite of meat while trotting. Graze is a separate
+        // fused walk-and-eat for grass tiles specifically (continuous
+        // consumption of a terrain resource), not the general "I have
+        // food in hand" eating path.
+        None
     }
 
     // Planning: Need to have food to eat

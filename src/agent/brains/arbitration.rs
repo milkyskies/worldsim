@@ -172,6 +172,13 @@ pub fn arbitrate_parallel(
     let mut rejected: Vec<BrainProposal> = Vec::new();
     let mut load = ChannelLoad::new();
     let mut movement_admitted = false;
+    // #386 follow-up: pin the agent's posture for this tick. The first
+    // admitted action with an explicit posture claims it; any later
+    // proposal with a conflicting posture is rejected here, before it
+    // can reach `start_actions` and cause per-tick preemption churn
+    // (the Rest/Wander flip-flop where ActionStarted fires for both
+    // actions every frame because they keep preempting each other).
+    let mut pinned_posture: Option<crate::agent::actions::channel::Posture> = None;
 
     for (_score, proposal) in scored {
         let Some(action_def) = registry.get(proposal.action.action_type) else {
@@ -197,6 +204,18 @@ pub fn arbitrate_parallel(
             continue;
         }
 
+        // #386 follow-up: posture mutex. If a previous proposal pinned
+        // the posture (e.g. Survival's Rest pinned Stationary), any
+        // later proposal with a conflicting posture is rejected. The
+        // iteration is in score order, so the strongest drive pins
+        // the tick's stance and weaker conflicting drives lose
+        // silently — no more admit-then-preempt-then-readmit churn.
+        let incoming_posture = action_def.posture();
+        if crate::agent::actions::channel::posture_conflict(incoming_posture, pinned_posture) {
+            rejected.push(proposal);
+            continue;
+        }
+
         let requirements = action_def.body_channels();
 
         if load.would_hard_conflict(requirements, capacities) {
@@ -207,6 +226,9 @@ pub fn arbitrate_parallel(
         load.add(requirements);
         if matches!(kind, crate::agent::actions::ActionKind::Movement) {
             movement_admitted = true;
+        }
+        if incoming_posture.is_some() && pinned_posture.is_none() {
+            pinned_posture = incoming_posture;
         }
         admitted.push(proposal);
     }

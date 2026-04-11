@@ -1,7 +1,7 @@
 //! Wander action - random movement.
 
 use crate::agent::actions::ActionType;
-use crate::agent::actions::channel::{Channel, ChannelUsage};
+use crate::agent::actions::channel::{Channel, ChannelUsage, Posture};
 use crate::agent::actions::registry::{Action, ActionKind, RuntimeEffects};
 use crate::constants::actions::wander::{
     ALERTNESS_PER_SEC, BASE_COST, GLUCOSE_DRAIN_PER_SEC, STAMINA_PER_SEC,
@@ -31,11 +31,20 @@ impl Action for WanderAction {
         CHANNELS
     }
 
+    fn posture(&self) -> Option<Posture> {
+        Some(Posture::Moving)
+    }
+
     fn runtime_effects(&self) -> RuntimeEffects {
         RuntimeEffects {
             stamina_per_sec: STAMINA_PER_SEC,
             glucose_drain_per_sec: GLUCOSE_DRAIN_PER_SEC,
             alertness_per_sec: ALERTNESS_PER_SEC,
+            // Wandering is a mild curiosity satisfier — the agent
+            // drifts through local space and passively takes in
+            // what's around. Weaker than Explore (which actively
+            // seeks novelty) and Observe (which focuses on one thing).
+            curiosity_per_sec: -0.02,
             ..Default::default()
         }
     }

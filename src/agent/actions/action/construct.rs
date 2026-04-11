@@ -6,7 +6,7 @@
 //! Downstream: labor_accumulation_system (queries ActiveActions for Construct to tick LaborAccumulated)
 
 use crate::agent::actions::ActionType;
-use crate::agent::actions::channel::{Channel, ChannelUsage};
+use crate::agent::actions::channel::{Channel, ChannelUsage, Posture};
 use crate::agent::actions::registry::{
     Action, ActionContext, ActionKind, CompletionContext, RuntimeEffects, TargetCandidate,
     TargetSource,
@@ -42,11 +42,14 @@ impl Action for ConstructAction {
     }
 
     fn body_channels(&self) -> &'static [ChannelUsage] {
-        const CHANNELS: &[ChannelUsage] = &[
-            ChannelUsage::new(Channel::Manipulation, 0.8),
-            ChannelUsage::new(Channel::Locomotion, 0.1),
-        ];
+        const CHANNELS: &[ChannelUsage] = &[ChannelUsage::new(Channel::Manipulation, 0.8)];
         CHANNELS
+    }
+
+    fn posture(&self) -> Option<Posture> {
+        // Hands-on the construction site — stationary until the site
+        // transforms or the agent is preempted.
+        Some(Posture::Stationary)
     }
 
     fn cost(&self) -> f32 {

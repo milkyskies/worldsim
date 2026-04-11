@@ -17,7 +17,13 @@ pub enum UrgencySource {
     Fun,
     Fear,
     Pain,
-    Boredom,
+    /// Desire for novel stimulation. Reads from `drives.curiosity` which
+    /// rises slowly during unstimulating activity and drains via
+    /// `RuntimeEffects::curiosity_per_sec` when the agent does something
+    /// that scratches the itch (Observe, Explore, Wander, Converse).
+    /// Replaces the old `Boredom` source, which was a half-implemented
+    /// constant-baseline drive with no backing state.
+    Curiosity,
     Territoriality,
 }
 
@@ -100,8 +106,10 @@ pub fn generate_urgency(
                 UrgencySource::Fear => emotions
                     .get_emotion_intensity(crate::agent::psyche::emotions::EmotionType::Fear),
 
-                // Boredom is usually a constant base + modifiers
-                UrgencySource::Boredom => 0.0,
+                // Curiosity is a psychological drive that rises from
+                // unstimulating activity and drains from novelty-seeking
+                // actions (Observe/Explore/Wander). Mirrors Social/Fun.
+                UrgencySource::Curiosity => drives.map(|d| d.curiosity).unwrap_or(0.0),
             }
         };
 
@@ -139,9 +147,10 @@ pub fn generate_urgency(
                 cns.sleep_wake_trigger = Some(drive_config.source);
             }
 
-            // If base constant is non-zero, it might override or add to input (e.g. Boredom)
-            // If input is 0 (e.g. Boredom source returns 0), we use base_constant?
-            // Let's just Max them.
+            // If base constant is non-zero, it might override or add to input.
+            // Kept as a general mechanism for drives that want a hard floor.
+            // Curiosity used to be constant-baseline (#338 follow-up);
+            // it now uses the real drives.curiosity state.
             let effective_base = normalized_input.max(drive_config.base_constant);
 
             // 2. Apply response curve
@@ -192,7 +201,9 @@ pub fn generate_urgency(
                 crate::agent::actions::ActionType::Eat => Some(UrgencySource::Hunger),
                 crate::agent::actions::ActionType::Drink => Some(UrgencySource::Thirst),
                 crate::agent::actions::ActionType::Sleep => Some(UrgencySource::Stamina),
-                crate::agent::actions::ActionType::Wander => Some(UrgencySource::Boredom),
+                crate::agent::actions::ActionType::Wander => Some(UrgencySource::Curiosity),
+                crate::agent::actions::ActionType::Explore => Some(UrgencySource::Curiosity),
+                crate::agent::actions::ActionType::Observe => Some(UrgencySource::Curiosity),
                 _ => None,
             })
             .collect();

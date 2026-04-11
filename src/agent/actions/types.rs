@@ -42,6 +42,18 @@ pub enum ActionType {
     Explore, // Directed long-distance exploration to find resources
     #[default]
     Idle,
+    /// Sit and recover. Milder than Sleep — some stamina gain without
+    /// dropping alertness. The natural fit for mild fatigue that
+    /// doesn't justify losing consciousness.
+    Rest,
+    /// Stand still and attend to a visible target. Satisfies curiosity
+    /// without moving. A cat watching a bird, a wolf watching a deer
+    /// from a distance, a human studying a stranger.
+    Observe,
+    /// Self-grooming and low-level body tending. The natural default
+    /// when an agent has no drive pressing them toward anything.
+    /// Animals at rest groom themselves; humans fidget, preen, tidy.
+    Groom,
 
     /// Work on a construction site that requires labor to complete.
     /// Targets a world entity with a `Becomes` component whose trigger tree
@@ -82,8 +94,13 @@ impl ActionType {
     /// `pick_locomotion_intensity` to reflect urgency.
     pub fn default_locomotion_intensity(self) -> f32 {
         match self {
-            ActionType::Wander => 0.3, // slow drift
-            ActionType::Walk => 0.5,   // purposeful walk
+            // 0.25 keeps slow-drift wandering under Stamina::drain's
+            // sprint gate (intensity > 0.3 → burns anaerobic). A
+            // high-urgency territorial wander gets boosted by
+            // `pick_locomotion_intensity` up to ~0.55 which does burn
+            // anaerobic, so urgent patrol still feels the cost.
+            ActionType::Wander => 0.25, // slow drift
+            ActionType::Walk => 0.5,    // purposeful walk
             ActionType::Explore => 0.5,
             ActionType::Graze => 0.25, // walk-and-eat shuffle
             ActionType::Flee => 1.0,   // sprint
@@ -128,6 +145,9 @@ impl ActionType {
             ActionType::Wander => "Wandering",
             ActionType::Explore => "Exploring",
             ActionType::Idle => "Idle",
+            ActionType::Rest => "Resting",
+            ActionType::Observe => "Watching",
+            ActionType::Groom => "Grooming",
             ActionType::Wave => "Waving at",
             ActionType::InitiateConversation => "Approaching",
             ActionType::Converse => "Talking to",

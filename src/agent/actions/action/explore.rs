@@ -1,7 +1,7 @@
 //! Explore action - movement to find resources.
 
 use crate::agent::actions::ActionType;
-use crate::agent::actions::channel::{Channel, ChannelUsage};
+use crate::agent::actions::channel::{Channel, ChannelUsage, Posture};
 use crate::agent::actions::registry::{Action, ActionKind, RuntimeEffects};
 use crate::constants::actions::explore::{
     ALERTNESS_PER_SEC, BASE_COST, GLUCOSE_DRAIN_PER_SEC, STAMINA_PER_SEC,
@@ -31,11 +31,18 @@ impl Action for ExploreAction {
         CHANNELS
     }
 
+    fn posture(&self) -> Option<Posture> {
+        Some(Posture::Moving)
+    }
+
     fn runtime_effects(&self) -> RuntimeEffects {
         RuntimeEffects {
             stamina_per_sec: STAMINA_PER_SEC,
             glucose_drain_per_sec: GLUCOSE_DRAIN_PER_SEC,
             alertness_per_sec: ALERTNESS_PER_SEC,
+            // Exploring is peak novelty-seeking — the agent is actively
+            // covering new ground. Strongest curiosity satisfier.
+            curiosity_per_sec: -0.05,
             ..Default::default()
         }
     }

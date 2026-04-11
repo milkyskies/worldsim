@@ -152,9 +152,11 @@ fn cost_profile_for(action_type: ActionType) -> CostProfile {
         | ActionType::Construct
         | ActionType::Attack
         | ActionType::Bite
-        | ActionType::Flee => CostProfile::Physical,
+        | ActionType::Flee
+        | ActionType::Rest
+        | ActionType::Groom => CostProfile::Physical,
 
-        ActionType::Converse => CostProfile::Cognitive,
+        ActionType::Converse | ActionType::Observe => CostProfile::Cognitive,
 
         ActionType::InitiateConversation | ActionType::Wave | ActionType::Explore => {
             CostProfile::Mixed
