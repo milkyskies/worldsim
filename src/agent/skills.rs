@@ -478,10 +478,11 @@ mod tests {
     #[test]
     fn level_caps_at_one() {
         let mut skills = Skills::default();
-        skills.set_level(SkillKind::Combat, 0.999, 0);
-        for _ in 0..100 {
-            skills.practice(SkillKind::Combat, 1.0, 0);
-        }
+        skills.set_level(SkillKind::Combat, 0.9, 0);
+        // Delta large enough that the raw addition would overshoot 1.0 —
+        // headroom² × 100 = 0.01 × 100 = 1.0, added to 0.9 gives 1.9, which
+        // the clamp must pin to 1.0.
+        skills.practice(SkillKind::Combat, 100.0, 0);
         assert_eq!(skills.level(SkillKind::Combat), 1.0);
     }
 
