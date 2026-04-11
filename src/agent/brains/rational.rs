@@ -524,6 +524,44 @@ const MAX_COMMITMENT: f32 = 10.0;
 /// background split without a hardcoded dwell timer.
 const BACKGROUND_PROMOTE_RATIO: f32 = 0.5;
 
+/// Map a plan's goal to the arbitration `Intent` it should compete on.
+/// Returns `None` for goals whose conditions don't match any of the
+/// drive predicates the intent enum knows about — caller falls back to
+/// the top CNS urgency intent in that case.
+fn intent_for_goal(goal: &crate::agent::brains::thinking::Goal) -> Option<Intent> {
+    for cond in &goal.conditions {
+        let Some(predicate) = cond.predicate else {
+            continue;
+        };
+        let intent = match predicate {
+            Predicate::Hunger => Some(Intent::SatisfyHunger),
+            Predicate::Thirst => Some(Intent::SatisfyThirst),
+            Predicate::Stamina => Some(Intent::SatisfyStamina),
+            Predicate::SocialDrive => Some(Intent::SatisfySocial),
+            Predicate::Pain => Some(Intent::SatisfyPainRelief),
+            // `Contains` goals describe resource acquisition. Map by
+            // the concept's edibility / drinkability when known so a
+            // food-acquisition plan competes on Hunger and a water
+            // plan competes on Thirst.
+            Predicate::Contains => match &cond.object {
+                Some(Value::Item(concept, _)) => match concept {
+                    crate::agent::mind::knowledge::Concept::Apple
+                    | crate::agent::mind::knowledge::Concept::Berry
+                    | crate::agent::mind::knowledge::Concept::Meat => Some(Intent::SatisfyHunger),
+                    crate::agent::mind::knowledge::Concept::Water => Some(Intent::SatisfyThirst),
+                    _ => None,
+                },
+                _ => None,
+            },
+            _ => None,
+        };
+        if intent.is_some() {
+            return intent;
+        }
+    }
+    None
+}
+
 /// Emit rational-brain proposals for every plan currently in the
 /// Executing state. Arbitration consumes this list and admits as many as
 /// body channels allow; rejected proposals trigger Executing → Suspended
@@ -541,7 +579,7 @@ pub fn rational_brain_propose(
     action_registry: &crate::agent::actions::ActionRegistry,
     in_conversation: bool,
 ) -> Vec<BrainProposal> {
-    let goal_intent = cns
+    let cns_intent = cns
         .urgencies
         .first()
         .map(|u| Intent::from_urgency_source(u.source))
@@ -556,11 +594,17 @@ pub fn rational_brain_propose(
             continue;
         }
         let urgency = (plan.goal.priority * 100.0).max(1.0);
+        // Per-plan intent, derived from the plan's goal so multiple
+        // Executing plans don't all collapse onto the same intent in
+        // arbitration's dedup pass. Falls back to the top CNS urgency
+        // intent (or `None`) when the goal's conditions don't map to
+        // a specific drive.
+        let intent = intent_for_goal(&plan.goal).unwrap_or(cns_intent);
         out.push(BrainProposal {
             brain: BrainType::Rational,
             action: action.clone(),
             urgency,
-            intent: goal_intent,
+            intent,
             reasoning: format!(
                 "Executing plan {:?} step {}: {}",
                 plan.id, plan.current_step, action.name
@@ -574,7 +618,7 @@ pub fn rational_brain_propose(
 
     // No executing plan — fall through to Explore or idle wander.
     if let Some(goal) = &cns.current_goal {
-        if matches!(goal_intent, Intent::SatisfyHunger | Intent::SatisfyThirst) {
+        if matches!(cns_intent, Intent::SatisfyHunger | Intent::SatisfyThirst) {
             let explore_action = action_registry
                 .get(ActionType::Explore)
                 .map(|a| a.to_template(None))
@@ -583,7 +627,7 @@ pub fn rational_brain_propose(
                 brain: BrainType::Rational,
                 action: explore_action,
                 urgency: goal.priority * EXPLORE_FALLBACK_PRIORITY_MULTIPLIER * 100.0,
-                intent: goal_intent,
+                intent: cns_intent,
                 reasoning: "No plan ready — exploring for resources".to_string(),
             }];
         }
