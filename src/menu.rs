@@ -71,6 +71,14 @@ pub struct CreateWorldForm {
 #[derive(Resource, Debug, Default)]
 pub struct PauseMenuOpen(pub bool);
 
+/// Set by menu buttons that want to terminate the app. An Update-schedule
+/// system drains this into an actual `AppExit` message so the write happens
+/// in a schedule the runner will actually see before it checks at frame end
+/// — writing `AppExit` directly from `EguiPrimaryContextPass` was landing
+/// too late for the runner to pick up.
+#[derive(Resource, Debug, Default)]
+pub struct QuitRequested(pub bool);
+
 pub const DEFAULT_WORLD_NAME: &str = "New World";
 
 pub struct MenuPlugin;
@@ -80,6 +88,7 @@ impl Plugin for MenuPlugin {
         app.init_state::<AppState>()
             .init_resource::<CreateWorldForm>()
             .init_resource::<PauseMenuOpen>()
+            .init_resource::<QuitRequested>()
             .add_systems(OnEnter(AppState::MainMenu), (reset_form, pause_ticks))
             .add_systems(OnEnter(AppState::ModePicker), pause_ticks)
             .add_systems(OnEnter(AppState::CreateWorld), pause_ticks)
@@ -90,6 +99,7 @@ impl Plugin for MenuPlugin {
             )
             .add_systems(First, enforce_pause_outside_in_sim)
             .add_systems(Update, handle_pause_key.run_if(in_state(AppState::InSim)))
+            .add_systems(Update, drain_quit_requested)
             .add_systems(
                 EguiPrimaryContextPass,
                 main_menu_screen.run_if(in_state(AppState::MainMenu)),
@@ -173,6 +183,13 @@ fn enforce_pause_outside_in_sim(state: Res<State<AppState>>, tick: Option<ResMut
     }
 }
 
+fn drain_quit_requested(mut quit: ResMut<QuitRequested>, mut exit_writer: MessageWriter<AppExit>) {
+    if quit.0 {
+        quit.0 = false;
+        exit_writer.write(AppExit::Success);
+    }
+}
+
 fn pause_menu_is_open(pause: Res<PauseMenuOpen>) -> bool {
     pause.0
 }
@@ -244,7 +261,7 @@ pub fn start_simulation(
 fn main_menu_screen(
     mut contexts: Query<&mut EguiContext, With<PrimaryEguiContext>>,
     mut next_state: ResMut<NextState<AppState>>,
-    mut exit_writer: MessageWriter<AppExit>,
+    mut quit: ResMut<QuitRequested>,
 ) {
     let Ok(mut egui_ctx) = contexts.single_mut() else {
         return;
@@ -269,7 +286,7 @@ fn main_menu_screen(
                 .add_sized(button_size, egui::Button::new("Quit"))
                 .clicked()
             {
-                exit_writer.write(AppExit::Success);
+                quit.0 = true;
             }
         });
     });
@@ -414,7 +431,7 @@ fn pause_menu_screen(
     mut next_state: ResMut<NextState<AppState>>,
     mut pause: ResMut<PauseMenuOpen>,
     tick: Option<ResMut<TickCount>>,
-    mut exit_writer: MessageWriter<AppExit>,
+    mut quit: ResMut<QuitRequested>,
 ) {
     let Ok(mut egui_ctx) = contexts.single_mut() else {
         return;
@@ -460,7 +477,7 @@ fn pause_menu_screen(
                     .add_sized(button_size, egui::Button::new("Quit"))
                     .clicked()
                 {
-                    exit_writer.write(AppExit::Success);
+                    quit.0 = true;
                 }
             });
         });
@@ -582,6 +599,31 @@ mod tests {
 
         assert!(!app.world().resource::<PauseMenuOpen>().0);
         assert!(app.world().resource::<TickCount>().paused);
+    }
+
+    #[test]
+    fn drain_quit_requested_writes_app_exit_and_clears_flag() {
+        use bevy::app::AppExit;
+        use bevy::ecs::message::Messages;
+
+        let mut app = App::new();
+        app.add_plugins(bevy::state::app::StatesPlugin);
+        app.add_message::<AppExit>();
+        app.init_resource::<QuitRequested>();
+        app.world_mut().resource_mut::<QuitRequested>().0 = true;
+
+        let sys_id = app.register_system(drain_quit_requested);
+        app.world_mut().run_system(sys_id).unwrap();
+
+        assert!(
+            !app.world().resource::<QuitRequested>().0,
+            "flag should be cleared after drain"
+        );
+        let messages = app.world().resource::<Messages<AppExit>>();
+        assert!(
+            messages.len() >= 1,
+            "drain_quit_requested should have written at least one AppExit message"
+        );
     }
 
     #[test]
