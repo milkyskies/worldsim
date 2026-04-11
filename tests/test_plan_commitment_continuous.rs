@@ -11,7 +11,8 @@ use worldsim::agent::brains::rational::{
     compute_commit_threshold,
 };
 use worldsim::agent::brains::thinking::{ActionTemplate, Goal, TriplePattern};
-use worldsim::agent::mind::knowledge::{Node as MindNode, Predicate, Value};
+use worldsim::agent::commitment::Commitments;
+use worldsim::agent::mind::knowledge::{Concept, Node as MindNode, Predicate, Value};
 use worldsim::agent::psyche::personality::{Personality, PersonalityTraits};
 use worldsim::testing::{AgentConfig, TestWorld};
 
@@ -29,6 +30,9 @@ fn fake_walk_step() -> ActionTemplate {
     }
 }
 
+/// Inject a hunger-style plan whose goal targets the `Apple` concept so
+/// the commitment announcement path (which matches on the goal's concept)
+/// can fire.
 fn inject_plan(world: &mut TestWorld, agent: Entity, cost: f32) {
     let current_tick = world.current_tick();
     let mut brain = world
@@ -40,8 +44,8 @@ fn inject_plan(world: &mut TestWorld, agent: Entity, cost: f32) {
     brain.current_goal = Some(Goal {
         conditions: vec![TriplePattern::new(
             Some(MindNode::Self_),
-            Some(Predicate::LocatedAt),
-            Some(Value::Tile((2, 0))),
+            Some(Predicate::Contains),
+            Some(Value::Item(Concept::Apple, 1)),
         )],
         priority: 0.5,
     });
@@ -149,6 +153,63 @@ fn neurotic_agent_commits_slower_than_stoic() {
         stoic_commitment > neurotic_commitment,
         "stoic should outpace neurotic on identical plans \
          (stoic={stoic_commitment}, neurotic={neurotic_commitment})"
+    );
+}
+
+/// Sharing the plan in conversation must accelerate the sharer's
+/// commitment. We simulate the conversation outcome by inserting a
+/// `Commitments` entry for the plan's goal concept dated after the plan
+/// started — this is exactly what `communication.rs` writes when the
+/// agent's Share/Ask/Answer turn references the active goal.
+#[test]
+fn announced_plan_commits_faster_than_silent_plan() {
+    let mut world = TestWorld::with_seed(42);
+
+    let silent = world.spawn_agent(AgentConfig {
+        pos: Vec2::new(10.0, 10.0),
+        personality: Personality {
+            traits: PersonalityTraits {
+                conscientiousness: 0.5,
+                neuroticism: 0.5,
+                ..Default::default()
+            },
+        },
+        ..Default::default()
+    });
+    let announced = world.spawn_agent(AgentConfig {
+        pos: Vec2::new(100.0, 100.0),
+        personality: Personality {
+            traits: PersonalityTraits {
+                conscientiousness: 0.5,
+                neuroticism: 0.5,
+                ..Default::default()
+            },
+        },
+        ..Default::default()
+    });
+
+    inject_plan(&mut world, silent, 100.0);
+    inject_plan(&mut world, announced, 100.0);
+
+    // Record a verbal commitment on the announcer's `Commitments` that
+    // lands AFTER the plan's start tick. `update_rational_brain` should
+    // read this and apply the announcement bonus to that agent only.
+    let now = world.current_tick();
+    let mut commitments = world
+        .app_mut()
+        .world_mut()
+        .get_mut::<Commitments>(announced)
+        .expect("agent should have Commitments component");
+    commitments.add(Concept::Apple, now);
+
+    world.tick(1);
+
+    let silent_commitment = commitment(&world, silent);
+    let announced_commitment = commitment(&world, announced);
+    assert!(
+        announced_commitment > silent_commitment,
+        "announced plan must accumulate commitment faster than silent one \
+         (silent={silent_commitment}, announced={announced_commitment})"
     );
 }
 
