@@ -718,25 +718,16 @@ impl TestWorld {
     /// no-visuals) spawners. Counterpart to [`crate::world::spawner::apply_layout`]
     /// which uses the full visual spawners.
     ///
-    /// Personalities are sampled from a deterministic RNG seeded by `self.seed`
-    /// so spawned humans match the variety of the real spawner without
-    /// sacrificing reproducibility.
+    /// Spawns all entities from a layout using the test-compatible (logic-only,
+    /// no-visuals) spawners. Human personalities are left at the neutral default
+    /// (0.5 on all traits); genome-derived variation only applies after a tick
+    /// once `develop_phenotype_system` runs.
     pub fn apply_spawn_layout(&mut self, layout: &SpawnLayout) {
-        use rand::SeedableRng;
-        use rand_chacha::ChaCha8Rng;
-        let mut personality_rng = ChaCha8Rng::seed_from_u64(self.seed);
-        let random_personality =
-            |rng: &mut ChaCha8Rng| crate::agent::psyche::personality::Personality::from_rng(rng);
-
         for &pos in &layout.human_positions {
-            let mut config = AgentConfig::at(pos);
-            config.personality = random_personality(&mut personality_rng);
-            self.spawn_agent(config);
+            self.spawn_agent(AgentConfig::at(pos));
         }
         for &pos in &layout.second_human_positions {
-            let mut config = AgentConfig::at(pos);
-            config.personality = random_personality(&mut personality_rng);
-            self.spawn_agent(config);
+            self.spawn_agent(AgentConfig::at(pos));
         }
         for herd in &layout.deer_herds {
             let members: Vec<Entity> = herd.iter().map(|&pos| self.spawn_deer(pos)).collect();
