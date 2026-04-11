@@ -6,7 +6,7 @@ use crate::agent::actions::registry::{Action, ActionContext, ActionKind, Complet
 use crate::agent::body::metabolism::{FoodMacros, food_macros};
 use crate::agent::brains::thinking::TriplePattern;
 use crate::agent::events::FailureReason;
-use crate::agent::mind::knowledge::{Node, Predicate, Triple, Value};
+use crate::agent::mind::knowledge::{Concept, Node, Predicate, Triple, Value};
 use crate::constants::actions::eat::{DURATION_TICKS, STAMINA_GAIN};
 
 /// Fallback macros for edible items that don't yet have an entry in the
@@ -51,10 +51,8 @@ impl Action for EatAction {
 
     // Planning: Need to have food to eat
     fn preconditions(&self) -> Vec<TriplePattern> {
-        vec![
-            // Self must contain some edible item
-            TriplePattern::self_contains(),
-        ]
+        // isa_filter = Food prevents the planner from chaining "harvest stone → eat".
+        vec![TriplePattern::self_contains_food()]
     }
 
     // Planning: After eating, hunger is satisfied
@@ -62,9 +60,13 @@ impl Action for EatAction {
         vec![Triple::new(Node::Self_, Predicate::Hunger, Value::Int(0))]
     }
 
-    // Execution: Actually check if we have edible food
+    // Execution: Actually check if we have edible food (not just any item)
     fn can_start(&self, ctx: &ActionContext) -> Result<(), FailureReason> {
-        if ctx.inventory.all_items().next().is_some() {
+        if ctx
+            .inventory
+            .all_items()
+            .any(|item| ctx.mind.is_a(&Node::Concept(item.concept), Concept::Food))
+        {
             Ok(())
         } else {
             Err(FailureReason::NoEdibleFood)
@@ -73,10 +75,14 @@ impl Action for EatAction {
 
     // Execution: What happens when we finish eating
     fn on_complete(&self, ctx: &mut CompletionContext) {
-        // Identify what's being eaten and look up its macros. Unknown edibles
-        // fall back to a generic meal so the action always produces *some*
-        // satiety (prevents silently eating junk that does nothing).
-        let concept = ctx.inventory.all_items().next().map(|t| t.concept);
+        // Pick the first food item (IsA Food) from inventory.
+        // Unknown edibles fall back to a generic meal so the action always
+        // produces *some* satiety (prevents silently eating junk that does nothing).
+        let concept = ctx
+            .inventory
+            .all_items()
+            .find(|item| ctx.mind.is_a(&Node::Concept(item.concept), Concept::Food))
+            .map(|t| t.concept);
         if let Some(concept) = concept {
             let macros = food_macros(concept).unwrap_or(FALLBACK_MEAL);
             ctx.physical.metabolism.eat(macros);
