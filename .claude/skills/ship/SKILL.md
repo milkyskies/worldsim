@@ -39,7 +39,10 @@ If anything is ✗, finish it before proceeding.
 
 ## Step 3: Code review
 
-Run **`/simplify`** — review changed code for reuse, quality, and efficiency. Commit any fixes.
+1. **`/simplify`** — review changed code for reuse, quality, and efficiency
+2. **Clean removals, no half-migrations** — scan the diff for legacy debris: dead branches, commented-out blocks, stub/unused functions, backcompat shims, re-exports kept "just in case", `// TODO remove later` markers. Delete them all. If old code was replaced, the old code must be fully gone — no in-between states.
+
+Commit any fixes.
 
 ## Step 4: Quality gates
 
