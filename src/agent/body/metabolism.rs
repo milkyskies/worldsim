@@ -448,14 +448,16 @@ mod tests {
     #[test]
     fn prolonged_fast_progresses_through_gradient() {
         let mut m = Metabolism::well_fed();
-        // Simulate an extended fast under heavy exertion. BMR 1.0/s +
-        // activity 4.0/s = 5.0 glucose/s — drains ~20 in/stomach + 80
-        // glucose + 300 reserves (~400 total units) within the 500
-        // simulated seconds below. Reserves mobilize to buffer, but
-        // eventually every pool empties.
+        // Simulate an extended fast under heavy exertion. The rate-limiting
+        // step is reserve mobilization (RESERVE_MOBILIZE_RATE = 0.8/s), not
+        // raw glucose drain, because once glucose is exhausted the agent
+        // lives off reserves at the mobilization cap regardless of BMR +
+        // activity. Starting reserves ≈400, needing to reach < 20 (weak)
+        // and then 0 (starving), takes ~475+ simulated seconds. 1200
+        // seconds leaves comfortable headroom.
         let mut saw_weak = false;
         let mut saw_starving = false;
-        for _ in 0..5000 {
+        for _ in 0..12_000 {
             m.tick(0.1, 1.0, 4.0);
             if m.is_weak_from_hunger() {
                 saw_weak = true;
