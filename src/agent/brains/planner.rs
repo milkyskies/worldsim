@@ -263,6 +263,41 @@ fn subjective_walk_cost(dist: f32, tile: (i32, i32), cache: &PlanCostCache) -> f
     dist * fatigue * risk * personality
 }
 
+/// Sum the subjective cost of every step in an already-generated plan.
+///
+/// Walks between explicit steps are represented in the plan vector as their
+/// own `Walk` templates — their `target_position` is the destination tile
+/// centre. Distance is measured in tile units between the start position and
+/// each successive walk target so the total matches what the planner's A*
+/// accumulator saw, up to floating-point noise.
+pub fn estimate_plan_cost(
+    plan: &[ActionTemplate],
+    start_pos: Vec2,
+    ctx: &PlanCostContext,
+    mind: &MindGraph,
+) -> f32 {
+    let cache = PlanCostCache::new(ctx, mind);
+    let mut total = 0.0;
+    let mut cursor = start_pos;
+    for action in plan {
+        if action.action_type == ActionType::Walk {
+            let Some(target) = action.target_position else {
+                continue;
+            };
+            let dist = cursor.distance(target) / TILE_SIZE;
+            let tile = (
+                (target.x / TILE_SIZE).floor() as i32,
+                (target.y / TILE_SIZE).floor() as i32,
+            );
+            total += subjective_walk_cost(dist, tile, &cache);
+            cursor = target;
+        } else {
+            total += subjective_action_cost(action, &cache, mind);
+        }
+    }
+    total
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // PLANNER STATE — Snapshot of MindGraph for A* planning
 // ═══════════════════════════════════════════════════════════════════════════
