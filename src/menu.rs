@@ -46,7 +46,7 @@ impl SimMode {
 /// factory-game systems detect "we are in game mode" without inspecting
 /// `SimConfig` directly.
 #[derive(Resource, Debug, Default)]
-pub struct GameModeMarker;
+pub(crate) struct GameModeMarker;
 
 /// Configuration for the active simulation. Inserted on entry to `AppState::InSim`
 /// and read by `setup_map`, `spawn_initial_population`, and any future system
@@ -61,25 +61,24 @@ pub struct SimConfig {
 /// In-progress form state for the menu screens. Persists across state transitions
 /// so the player can step Back without losing their input.
 #[derive(Resource, Debug, Default)]
-pub struct CreateWorldForm {
-    pub name: String,
-    pub seed_input: String,
-    pub selected_mode: SimMode,
+pub(crate) struct CreateWorldForm {
+    pub(crate) name: String,
+    pub(crate) seed_input: String,
+    pub(crate) selected_mode: SimMode,
 }
 
 /// Whether the in-sim pause menu overlay is currently shown. Toggled by ESC.
 #[derive(Resource, Debug, Default)]
-pub struct PauseMenuOpen(pub bool);
+pub(crate) struct PauseMenuOpen(pub(crate) bool);
 
 /// Set by menu buttons that want to terminate the app. An Update-schedule
-/// system drains this into an actual `AppExit` message so the write happens
-/// in a schedule the runner will actually see before it checks at frame end
-/// — writing `AppExit` directly from `EguiPrimaryContextPass` was landing
-/// too late for the runner to pick up.
+/// system drains this into an actual `AppExit` message — writing `AppExit`
+/// directly from `EguiPrimaryContextPass` was landing too late for the
+/// runner's end-of-update check.
 #[derive(Resource, Debug, Default)]
-pub struct QuitRequested(pub bool);
+pub(crate) struct QuitRequested(pub(crate) bool);
 
-pub const DEFAULT_WORLD_NAME: &str = "New World";
+const DEFAULT_WORLD_NAME: &str = "New World";
 
 pub struct MenuPlugin;
 
@@ -146,8 +145,6 @@ fn enter_sim(
 
 fn close_pause_menu(mut pause: ResMut<PauseMenuOpen>, tick: Option<ResMut<TickCount>>) {
     pause.0 = false;
-    // Bringing the player back to the menu also pauses ticks; the next entry
-    // into InSim will unpause via `enter_sim`.
     if let Some(mut tick) = tick {
         tick.paused = true;
     }
@@ -207,10 +204,8 @@ fn pause_menu_is_open(pause: Res<PauseMenuOpen>) -> bool {
 }
 
 /// Run condition for sim-interaction UI systems: true only while the player
-/// is actively in a sim AND not looking at the pause menu overlay. Prevents
-/// clicking on the world or toggling debug widgets from leaking through the
-/// pause menu.
-pub fn sim_interactive(state: Res<State<AppState>>, pause: Res<PauseMenuOpen>) -> bool {
+/// is actively in a sim AND not looking at the pause menu overlay.
+pub(crate) fn sim_interactive(state: Res<State<AppState>>, pause: Res<PauseMenuOpen>) -> bool {
     *state.get() == AppState::InSim && !pause.0
 }
 
@@ -224,14 +219,13 @@ fn handle_pause_key(
     }
     pause.0 = !pause.0;
     if let Some(mut tick) = tick {
-        // Pause menu open ⇒ force pause; closing returns control to play.
         tick.paused = pause.0;
     }
 }
 
 /// Parses a seed string. Empty or unparseable input falls back to a fresh
 /// random seed so the player never silently runs with seed 0.
-pub fn parse_seed_or_random(input: &str) -> u32 {
+fn parse_seed_or_random(input: &str) -> u32 {
     let trimmed = input.trim();
     if trimmed.is_empty() {
         return random_seed();
@@ -239,14 +233,13 @@ pub fn parse_seed_or_random(input: &str) -> u32 {
     trimmed.parse::<u32>().unwrap_or_else(|_| random_seed())
 }
 
-pub fn random_seed() -> u32 {
+fn random_seed() -> u32 {
     rand::rng().random::<u32>()
 }
 
-/// Pure helper: turns the form state into a `SimConfig`, inserts it, and
-/// queues a transition to `AppState::InSim`. Extracted from the egui screen so
-/// tests can drive it without simulating button clicks.
-pub fn start_simulation(
+/// Extracted from the egui screen so tests can drive the Play button's
+/// behavior without simulating a click.
+fn start_simulation(
     form: &CreateWorldForm,
     commands: &mut Commands,
     next_state: &mut NextState<AppState>,
@@ -270,6 +263,10 @@ pub fn start_simulation(
     config
 }
 
+fn sized_button(ui: &mut egui::Ui, size: egui::Vec2, label: &str) -> bool {
+    ui.add_sized(size, egui::Button::new(label)).clicked()
+}
+
 fn main_menu_screen(
     mut contexts: Query<&mut EguiContext, With<PrimaryEguiContext>>,
     state: Res<State<AppState>>,
@@ -288,17 +285,11 @@ fn main_menu_screen(
             ui.add_space(40.0);
 
             let button_size = egui::vec2(220.0, 48.0);
-            if ui
-                .add_sized(button_size, egui::Button::new("New Simulation"))
-                .clicked()
-            {
+            if sized_button(ui, button_size, "New Simulation") {
                 next_state.set(AppState::ModePicker);
             }
             ui.add_space(8.0);
-            if ui
-                .add_sized(button_size, egui::Button::new("Quit"))
-                .clicked()
-            {
+            if sized_button(ui, button_size, "Quit") {
                 request_quit(&mut quit, *state.get(), &mut next_state);
             }
         });
@@ -324,26 +315,17 @@ fn mode_picker_screen(
             ui.add_space(40.0);
 
             let button_size = egui::vec2(220.0, 48.0);
-            if ui
-                .add_sized(button_size, egui::Button::new("Debug"))
-                .clicked()
-            {
+            if sized_button(ui, button_size, "Debug") {
                 form.selected_mode = SimMode::Debug;
                 next_state.set(AppState::CreateWorld);
             }
             ui.add_space(8.0);
-            if ui
-                .add_sized(button_size, egui::Button::new("Game"))
-                .clicked()
-            {
+            if sized_button(ui, button_size, "Game") {
                 form.selected_mode = SimMode::Game;
                 next_state.set(AppState::CreateWorld);
             }
             ui.add_space(20.0);
-            if ui
-                .add_sized(egui::vec2(140.0, 32.0), egui::Button::new("Back"))
-                .clicked()
-            {
+            if sized_button(ui, egui::vec2(140.0, 32.0), "Back") {
                 next_state.set(AppState::MainMenu);
             }
         });
@@ -419,17 +401,11 @@ fn create_world_screen(
                         let row_width = button_size.x * 2.0 + 20.0;
                         let inner_pad = ((CREATE_WORLD_CARD_WIDTH - row_width) / 2.0).max(0.0);
                         ui.add_space(inner_pad);
-                        if ui
-                            .add_sized(button_size, egui::Button::new("Back"))
-                            .clicked()
-                        {
+                        if sized_button(ui, button_size, "Back") {
                             next_state.set(AppState::ModePicker);
                         }
                         ui.add_space(20.0);
-                        if ui
-                            .add_sized(button_size, egui::Button::new("Play"))
-                            .clicked()
-                        {
+                        if sized_button(ui, button_size, "Play") {
                             start_simulation(&form, &mut commands, &mut next_state);
                         }
                     });
@@ -466,10 +442,7 @@ fn pause_menu_screen(
 
                 let button_size = egui::vec2(200.0, 40.0);
 
-                if ui
-                    .add_sized(button_size, egui::Button::new("Resume"))
-                    .clicked()
-                {
+                if sized_button(ui, button_size, "Resume") {
                     pause.0 = false;
                     if let Some(mut tick) = tick {
                         tick.paused = false;
@@ -477,20 +450,12 @@ fn pause_menu_screen(
                     return;
                 }
                 ui.add_space(8.0);
-                if ui
-                    .add_sized(button_size, egui::Button::new("Main Menu"))
-                    .clicked()
-                {
-                    // OnExit(InSim) closes the pause menu and DespawnOnExit
-                    // tears down the sim entities.
+                if sized_button(ui, button_size, "Main Menu") {
                     next_state.set(AppState::MainMenu);
                     return;
                 }
                 ui.add_space(8.0);
-                if ui
-                    .add_sized(button_size, egui::Button::new("Quit"))
-                    .clicked()
-                {
+                if sized_button(ui, button_size, "Quit") {
                     request_quit(&mut quit, *state.get(), &mut next_state);
                 }
             });

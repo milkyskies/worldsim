@@ -638,8 +638,6 @@ pub fn setup_map(
 
     // Spawn tiles as children of a parent TileMap entity.
     // Each tile's color combines a biome tint from elevation and a hillshade shadow.
-    // The DespawnOnExit tag tears the whole hierarchy down when the player
-    // returns to the main menu (despawn is recursive on Children in Bevy 0.18).
     commands
         .spawn((
             Name::new("TileMap"),

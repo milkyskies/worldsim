@@ -124,9 +124,6 @@ fn spawn_initial_population(
     };
     let layout = config.compute_layout(&map);
     let spawned = apply_layout(&mut commands, &ontology, &layout, sim_rng.inner_mut());
-    // Tag every freshly-spawned root entity for state-scoped cleanup so
-    // returning to the main menu tears the whole sim down. Children come
-    // along for the ride via Bevy's recursive despawn.
     for entity in spawned {
         commands
             .entity(entity)
@@ -149,10 +146,10 @@ fn in_game_mode(sim_config: Option<Res<SimConfig>>) -> bool {
         .unwrap_or(false)
 }
 
-/// Game-mode scaffold spawn. Today this is intentionally empty — picking Game
-/// gives you a populated terrain with no agents, visibly distinct from Debug.
-/// Factory-game features will hook in here in follow-up issues.
-fn spawn_game_scaffold(_commands: Commands) {}
+/// Intentionally empty placeholder for the factory-game entry point.
+/// Picking Game today gives you terrain with no agents, visibly distinct
+/// from Debug. Future factory features hook in here.
+fn spawn_game_scaffold() {}
 
 /// Spawns all entities described by `layout` into the Bevy world using full
 /// visual spawners. Used by the windowed game path.
