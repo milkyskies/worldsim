@@ -13,6 +13,8 @@ impl Plugin for BiologyPlugin {
             .register_type::<body::BodyPart>()
             .register_type::<body::Injury>()
             .register_type::<body::InjuryType>()
+            .register_type::<body::Organ>()
+            .register_type::<body::OrganKind>()
             .add_systems(
                 Update,
                 (
