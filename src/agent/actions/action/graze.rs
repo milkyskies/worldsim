@@ -17,7 +17,7 @@
 //! generator if the agent isn't already on a grass tile.
 
 use crate::agent::actions::ActionType;
-use crate::agent::actions::channel::{Channel, ChannelUsage};
+use crate::agent::actions::channel::{Channel, ChannelUsage, Posture};
 use crate::agent::actions::registry::{
     Action, ActionContext, ActionKind, RuntimeEffects, TargetSource,
 };
@@ -63,12 +63,19 @@ impl Action for GrazeAction {
         CHANNELS
     }
 
+    fn posture(&self) -> Option<Posture> {
+        // Graze is the fused walk-and-eat action — the animal is
+        // continuously drifting, not committed in place.
+        Some(Posture::Moving)
+    }
+
     fn runtime_effects(&self) -> RuntimeEffects {
         RuntimeEffects {
             stamina_per_sec: STAMINA_PER_SEC,
             glucose_drain_per_sec: GLUCOSE_DRAIN_PER_SEC,
             stomach_carbs_per_sec: STOMACH_CARBS_PER_SEC,
             alertness_per_sec: ALERTNESS_PER_SEC,
+            ..Default::default()
         }
     }
 

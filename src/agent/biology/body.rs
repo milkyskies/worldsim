@@ -12,6 +12,7 @@
 //! Downstream: channel::ChannelCapacities (capability queries),
 //!             movement::calculate_speed (injury penalty), UI/debug
 
+use crate::agent::Agent;
 use crate::agent::actions::channel::Channel;
 use crate::agent::body::metabolism::STARVATION_DAMAGE_PER_SEC;
 use crate::agent::body::needs::PhysicalNeeds;
@@ -738,7 +739,7 @@ pub fn die(
 
 pub fn check_death(
     mut commands: Commands,
-    query: Query<(Entity, &PhysicalNeeds, Option<&Name>), Without<Becomes>>,
+    query: Query<(Entity, &PhysicalNeeds, Option<&Name>), (With<Agent>, Without<Becomes>)>,
     mut game_log: ResMut<GameLog>,
     tick: Res<crate::core::tick::TickCount>,
     mut sim_events: MessageWriter<crate::agent::events::SimEvent>,

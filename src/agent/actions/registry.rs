@@ -5,7 +5,7 @@
 
 use crate::agent::actions::ActionType;
 use crate::agent::actions::action::{AttackAction, BiteAction};
-use crate::agent::actions::channel::ChannelUsage;
+use crate::agent::actions::channel::{ChannelUsage, Posture};
 use crate::agent::brains::thinking::{ActionTemplate, TriplePattern};
 use crate::agent::events::FailureReason;
 use crate::agent::item_slots::ItemSlots;
@@ -147,6 +147,15 @@ pub struct RuntimeEffects {
     /// like Graze where the animal is ingesting plant matter over time.
     pub stomach_carbs_per_sec: f32,
     pub alertness_per_sec: f32,
+    /// Delta to `drives.social` per second. Negative = satisfies the drive
+    /// (Converse, InitiateConversation). Positive = starves it (prolonged
+    /// isolation, though that path is currently covered elsewhere).
+    pub social_per_sec: f32,
+    /// Delta to `drives.curiosity` per second. Negative = satisfies the
+    /// drive (Observe, Explore, Wander, Converse — novelty-seeking or
+    /// novelty-adjacent behaviour). Positive = raises it (Idle, Sleep,
+    /// Rest, Groom — stillness breeds curiosity).
+    pub curiosity_per_sec: f32,
 }
 
 // ============================================================================
@@ -329,10 +338,36 @@ pub trait Action: Send + Sync + 'static {
     /// Body channels this action occupies, with intensity 0.0..=1.0 each.
     ///
     /// Returns a `'static` slice so the hot tick loop never allocates.
-    /// Default: no channels - the action is purely cognitive (Idle, planning).
-    fn body_channels(&self) -> &'static [ChannelUsage] {
-        &[]
-    }
+    ///
+    /// **Required** — every action must declare what body state it
+    /// occupies, even passive or cognitive ones. "Doing nothing" is
+    /// still a posture (legs planted, eyes open, breathing), and the
+    /// arbitration system needs to know about it to prevent silent
+    /// nonsense like "resting while walking" (the #386 Rest+Walk
+    /// coexistence bug that forced this to become mandatory).
+    ///
+    /// If the action truly claims no body part — rare, but possible
+    /// for purely signal-like actions — declare
+    /// [`ChannelSlice::NONE`] explicitly so the intent is visible in
+    /// the diff, not hidden by a fallback default.
+    fn body_channels(&self) -> &'static [ChannelUsage];
+
+    /// How this action positions the body.
+    ///
+    /// - `Some(Stationary)` — the action commits the agent in place
+    ///   (Rest, Idle, Sleep, Eat, Harvest, Build, ...).
+    /// - `Some(Moving)` — the action's purpose is moving through space
+    ///   (Walk, Wander, Flee, Graze, Explore, ...).
+    /// - `None` — posture-agnostic. The action runs whether the agent
+    ///   is Stationary or Moving: a charging wolf biting its prey, a
+    ///   runner shouting a greeting, a walker watching the sky.
+    ///
+    /// Required on every action — same forcing-function discipline as
+    /// `body_channels()`. Posture is orthogonal to body channels:
+    /// posture mutexes the whole-body stance ("can this body be doing
+    /// two opposed things at once?"), channels arbitrate per-part
+    /// overlap ("can these parts share the load?").
+    fn posture(&self) -> Option<Posture>;
 
     /// Whether this action can be preempted mid-execution. Default `true`.
     /// Reserved for future actions that should resist casual preemption
@@ -663,8 +698,9 @@ impl ActiveActions {
 
 use super::action::{
     BuildAction, ConstructAction, ConverseAction, DepositAction, DrinkAction, EatAction,
-    ExploreAction, FleeAction, GrazeAction, HarvestAction, IdleAction, InitiateConversationAction,
-    SleepAction, TakeAction, WakeUpAction, WalkAction, WanderAction,
+    ExploreAction, FleeAction, GrazeAction, GroomAction, HarvestAction, IdleAction,
+    InitiateConversationAction, ObserveAction, RestAction, SleepAction, TakeAction, WakeUpAction,
+    WalkAction, WanderAction,
 };
 
 #[derive(Resource, Default)]
@@ -693,6 +729,12 @@ impl ActionRegistry {
         registry.register(DepositAction);
         registry.register(TakeAction);
         registry.register(WanderAction);
+        // Ambient / low-drive behaviours (#386). These are the actions an
+        // agent picks when they have mild drives and no urgent plan, so
+        // the sim stays alive instead of freezing on "no proposal".
+        registry.register(RestAction);
+        registry.register(ObserveAction);
+        registry.register(GroomAction);
         // Conversation actions — owned by the CommunicationPlugin.
         registry.register(InitiateConversationAction);
         registry.register(ConverseAction);

@@ -15,6 +15,7 @@
 use bevy::math::Vec2;
 use worldsim::agent::body::metabolism::Metabolism;
 use worldsim::agent::body::needs::PhysicalNeeds;
+use worldsim::agent::events::SimEvent;
 use worldsim::agent::inventory::EntityType;
 use worldsim::agent::mind::knowledge::Concept;
 use worldsim::testing::{AgentConfig, TestWorld};
@@ -98,5 +99,45 @@ fn prolonged_starvation_eventually_spawns_a_corpse() {
         Concept::Corpse,
         "starved agent should end the test as a Corpse (got {:?})",
         entity_type.0
+    );
+}
+
+/// Regression test for #402: a corpse must not re-emit death SimEvents after
+/// the initial transformation. Before the fix, `check_death` queried
+/// `Without<Becomes>` but never excluded corpses. Once the first `Becomes`
+/// fired and was removed, the corpse's `PhysicalNeeds { health <= 0 }` made
+/// `check_death` insert a new `Becomes` every tick — producing death-event spam.
+///
+/// With the fix (`With<Agent>` added to the query), only living entities are
+/// checked; the corpse (Agent marker stripped) is invisible to `check_death`.
+#[test]
+fn corpse_emits_death_event_exactly_once() {
+    let mut world = TestWorld::with_seed(42);
+    let agent = world.spawn_agent(AgentConfig {
+        pos: Vec2::new(50.0, 50.0),
+        metabolism: Metabolism::empty(),
+        ..Default::default()
+    });
+
+    world
+        .app_mut()
+        .world_mut()
+        .get_mut::<PhysicalNeeds>(agent)
+        .expect("agent has physical needs")
+        .health = 0.1;
+
+    // Tick well past death so the corpse has many opportunities to re-fire.
+    world.tick(120);
+
+    let death_count = world
+        .sim_events()
+        .all()
+        .iter()
+        .filter(|e| matches!(e, SimEvent::Death { agent: a, .. } if *a == agent))
+        .count();
+
+    assert_eq!(
+        death_count, 1,
+        "death SimEvent must fire exactly once per agent, got {death_count}"
     );
 }

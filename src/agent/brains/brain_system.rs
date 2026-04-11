@@ -128,6 +128,7 @@ pub fn three_brains_system(
             drives,
             in_conversation,
             self_entity_type.map(|t| t.0),
+            cns,
             &action_registry,
         );
 

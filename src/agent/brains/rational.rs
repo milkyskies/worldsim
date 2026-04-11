@@ -19,7 +19,7 @@ use crate::agent::brains::thinking::{ActionTemplate, TriplePattern};
 use crate::agent::mind::knowledge::{Concept, MindGraph, Node, Predicate, Value};
 use crate::agent::mind::perception::VisibleObjects;
 use crate::constants::brains::rational::{
-    EXPLORE_FALLBACK_PRIORITY_MULTIPLIER, IDLE_WANDER_URGENCY, MIN_ALERTNESS_FOR_PLANNING,
+    EXPLORE_FALLBACK_PRIORITY_MULTIPLIER, MIN_ALERTNESS_FOR_PLANNING,
 };
 use crate::world::map::WorldMap;
 use bevy::prelude::*;
@@ -638,43 +638,39 @@ pub fn rational_brain_propose(
         return out;
     }
 
-    // No executing plan — fall through to Explore or idle wander.
-    if let Some(goal) = &cns.current_goal {
-        if matches!(cns_intent, Intent::SatisfyHunger | Intent::SatisfyThirst) {
-            let explore_action = action_registry
-                .get(ActionType::Explore)
-                .map(|a| a.to_template(None))
-                .expect("Explore action must be registered");
-            return vec![BrainProposal {
-                brain: BrainType::Rational,
-                action: explore_action,
-                urgency: goal.priority * EXPLORE_FALLBACK_PRIORITY_MULTIPLIER * 100.0,
-                intent: cns_intent,
-                reasoning: "No plan ready — exploring for resources".to_string(),
-            }];
-        }
-        // Non-resource goal with no plan yet: let another brain win.
-        return Vec::new();
+    // No executing plan. Rational is the *planning* brain; if the
+    // current goal is a state-directed drive whose plan isn't ready
+    // yet (Hunger/Thirst, no known food source), propose Explore as
+    // the planner's concrete next step: "I can't form a plan yet,
+    // but I know searching is the shape of the solution." Every
+    // other drive is owned by a different brain (Survival for
+    // Stamina/Fear/Pain, Emotional for Social/Boredom/Territoriality)
+    // and Rational has nothing useful to say about them — returning
+    // empty lets those brains carry the tick (#386).
+    //
+    // The old "idle Wander" fallback at the bottom of this function
+    // is gone on purpose. Wander-as-catchall was a cartoon default
+    // that hid the real "no drive is pressing enough" case. Emotional
+    // brain now owns that case with a true idle behaviour (Groom
+    // baseline).
+    if let Some(goal) = &cns.current_goal
+        && matches!(cns_intent, Intent::SatisfyHunger | Intent::SatisfyThirst)
+        && !in_conversation
+    {
+        let explore_action = action_registry
+            .get(ActionType::Explore)
+            .map(|a| a.to_template(None))
+            .expect("Explore action must be registered");
+        return vec![BrainProposal {
+            brain: BrainType::Rational,
+            action: explore_action,
+            urgency: goal.priority * EXPLORE_FALLBACK_PRIORITY_MULTIPLIER * 100.0,
+            intent: cns_intent,
+            reasoning: "No plan ready — exploring for resources".to_string(),
+        }];
     }
 
-    // Idle wander suppressed during conversation — Wander rides
-    // Locomotion and would walk the agent out of conversation range,
-    // collapsing the turn and triggering the #330 flicker.
-    if in_conversation {
-        return Vec::new();
-    }
-
-    let wander_action = action_registry
-        .get(ActionType::Wander)
-        .map(|a| a.to_template(None))
-        .expect("Wander action must be registered");
-    vec![BrainProposal {
-        brain: BrainType::Rational,
-        action: wander_action,
-        urgency: IDLE_WANDER_URGENCY,
-        intent: Intent::None,
-        reasoning: "Nothing to do, wandering".to_string(),
-    }]
+    Vec::new()
 }
 
 /// Gating policy used by `collect_planning_actions`. Unifies the old
@@ -881,7 +877,11 @@ mod tests {
     }
 
     #[test]
-    fn propose_idle_wander_when_no_goal_and_no_plan() {
+    fn propose_empty_when_no_goal_and_no_plan() {
+        // Rational no longer owns the "nothing to do" case (#386).
+        // Emotional's Groom baseline handles it — this test documents
+        // that Rational correctly keeps silent instead of emitting a
+        // cartoon Wander. The Wander-as-fallback pattern was removed.
         let cns = CentralNervousSystem::default();
         let memory = PlanMemory::default();
 
@@ -893,9 +893,11 @@ mod tests {
             false,
         );
 
-        assert_eq!(proposals.len(), 1);
-        assert_eq!(proposals[0].action.action_type, ActionType::Wander);
-        assert!((proposals[0].urgency - IDLE_WANDER_URGENCY).abs() < 0.01);
+        assert!(
+            proposals.is_empty(),
+            "Rational must not propose for a plan-less / goal-less agent \
+             (Emotional's Groom baseline owns this case); got {proposals:?}",
+        );
     }
 
     #[test]

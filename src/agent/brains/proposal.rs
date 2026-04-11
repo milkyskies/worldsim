@@ -46,7 +46,7 @@ impl Intent {
             UrgencySource::Fear => Intent::SatisfySafety,
             UrgencySource::Pain => Intent::SatisfyPainRelief,
             UrgencySource::Territoriality => Intent::SatisfyTerritoriality,
-            UrgencySource::Fun | UrgencySource::Boredom => Intent::SatisfyCuriosity,
+            UrgencySource::Fun | UrgencySource::Curiosity => Intent::SatisfyCuriosity,
         }
     }
 }

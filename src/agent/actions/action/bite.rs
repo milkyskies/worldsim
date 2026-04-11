@@ -5,7 +5,7 @@
 
 use crate::agent::actions::ActionType;
 use crate::agent::actions::action::attack::{prey_produces_useful_item, prey_yield_effects};
-use crate::agent::actions::channel::{Channel, ChannelUsage};
+use crate::agent::actions::channel::{Channel, ChannelUsage, Posture};
 use crate::agent::actions::registry::{
     Action, ActionContext, ActionKind, CompletionContext, RuntimeEffects, TargetCandidate,
     TargetSource,
@@ -42,12 +42,21 @@ impl Action for BiteAction {
     }
 
     fn body_channels(&self) -> &'static [ChannelUsage] {
+        // Jaws and whole-body commitment — no Locomotion claim so a wolf
+        // can keep charging while biting. Posture-agnostic handles the
+        // stance side of the equation.
         const CHANNELS: &[ChannelUsage] = &[
             ChannelUsage::new(Channel::Bite, 1.0),
-            ChannelUsage::new(Channel::Locomotion, 0.6),
             ChannelUsage::new(Channel::FullBody, 0.7),
         ];
         CHANNELS
+    }
+
+    fn posture(&self) -> Option<Posture> {
+        // Posture-agnostic: a charging wolf biting its prey is the
+        // canonical example. Bite works from a standstill (ambush) or
+        // mid-sprint (hunt).
+        None
     }
 
     fn can_start(&self, ctx: &ActionContext) -> Result<(), crate::agent::events::FailureReason> {

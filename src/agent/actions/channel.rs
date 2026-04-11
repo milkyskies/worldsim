@@ -191,6 +191,45 @@ impl ChannelUsage {
     }
 }
 
+/// Prebuilt channel slices for actions that legitimately claim no body
+/// channel at all — an explicit empty slice so the intent is visible in
+/// the diff rather than hiding behind a default. `body_channels()` is
+/// required on every `Action`, so this is the one named way to say
+/// "this action doesn't touch any capability channel."
+pub struct ChannelSlices;
+
+impl ChannelSlices {
+    pub const NONE: &'static [ChannelUsage] = &[];
+}
+
+/// How an agent's whole body is positioned. Orthogonal to body-part
+/// channels: a `Stationary` agent can still use Manipulation, Consumption,
+/// Cognition, Vocalization in parallel; they just can't also be `Moving`.
+///
+/// Starts as a binary enum. Extend to Sitting, Lying, Crouching, etc.
+/// only when a feature actually needs the distinction — don't add
+/// speculative granularity.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Posture {
+    /// Legs planted, body committed in one spot. Rest, Idle, Sleep, Eat,
+    /// Harvest, Build — anything the agent does from a fixed position.
+    Stationary,
+    /// The agent's whole body is moving through space. Walk, Wander,
+    /// Flee, Graze, Explore — any action whose core purpose is getting
+    /// somewhere else.
+    Moving,
+}
+
+/// Does `incoming` mutex with `running` at the posture layer?
+///
+/// `None` on either side means posture-agnostic and always compatible —
+/// a charging wolf biting its prey, a runner shouting a greeting. Only
+/// two declared-but-different postures conflict.
+#[inline]
+pub fn posture_conflict(incoming: Option<Posture>, running: Option<Posture>) -> bool {
+    matches!((incoming, running), (Some(a), Some(b)) if a != b)
+}
+
 /// Saturation of every channel summed across a set of actions.
 ///
 /// Backed by a fixed-size array indexed by `Channel as usize` so the hot
@@ -659,6 +698,39 @@ mod tests {
         assert!(!load.would_hard_conflict(&walk, &caps));
         let flee = [req(Channel::Locomotion, 1.0), req(Channel::FullBody, 0.5)];
         assert!(load.would_hard_conflict(&flee, &caps));
+    }
+
+    #[test]
+    fn posture_conflict_rejects_opposed_postures() {
+        assert!(posture_conflict(
+            Some(Posture::Stationary),
+            Some(Posture::Moving)
+        ));
+        assert!(posture_conflict(
+            Some(Posture::Moving),
+            Some(Posture::Stationary)
+        ));
+    }
+
+    #[test]
+    fn posture_conflict_accepts_identical_postures() {
+        assert!(!posture_conflict(
+            Some(Posture::Stationary),
+            Some(Posture::Stationary)
+        ));
+        assert!(!posture_conflict(
+            Some(Posture::Moving),
+            Some(Posture::Moving)
+        ));
+    }
+
+    #[test]
+    fn posture_conflict_treats_none_as_compatible_with_anything() {
+        assert!(!posture_conflict(None, Some(Posture::Stationary)));
+        assert!(!posture_conflict(None, Some(Posture::Moving)));
+        assert!(!posture_conflict(Some(Posture::Stationary), None));
+        assert!(!posture_conflict(Some(Posture::Moving), None));
+        assert!(!posture_conflict(None, None));
     }
 
     #[test]
