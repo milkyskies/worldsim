@@ -534,8 +534,9 @@ pub fn resolve_combat_hits(
 // BLEEDING SYSTEM
 // ════════════════════════════════════════════════════════════════════════════
 
-/// Drain HP from parts with open bleeding injuries and drip blood at the
-/// bleeder's current position so fleeing wounded agents leave a trail.
+/// Drain HP from parts with open bleeding injuries, decay each
+/// injury's clotting, and drip blood at the bleeder's current position
+/// so fleeing wounded agents leave a trail.
 pub fn bleed_system(
     mut commands: Commands,
     tick: Res<TickCount>,
@@ -552,7 +553,17 @@ pub fn bleed_system(
     for (mut body, transform) in agents.iter_mut() {
         let mut total_drain = 0.0_f32;
         for part in body.parts.iter_mut() {
-            let part_bleed: f32 = part.injuries.iter().map(|i| i.effective_bleed()).sum();
+            let mut part_bleed = 0.0_f32;
+            for injury in part.injuries.iter_mut() {
+                let bleed = injury.effective_bleed();
+                part_bleed += bleed;
+                // Clot decay runs every tick regardless of whether the
+                // wound is currently bleeding, so fresh wounds stop
+                // bleeding in minutes even when nothing drains them.
+                injury.bleed_rate = (injury.bleed_rate
+                    - crate::agent::biology::body::CLOT_DECAY_PER_SEC * dt)
+                    .max(0.0);
+            }
             if part_bleed > 0.0 {
                 let drain = part_bleed * dt;
                 part.current_hp = (part.current_hp - drain).max(0.0);

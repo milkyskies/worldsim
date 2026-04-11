@@ -477,17 +477,24 @@ pub struct Injury {
 }
 
 impl Injury {
-    /// Effective bleeding rate after accounting for clotting / healing.
-    /// Stops entirely once the wound is half-healed (a realistic crude
-    /// clotting model — platelets beat the clock on the full healing curve).
+    /// Effective bleeding rate right now. Decoupled from `healed_amount`
+    /// because clotting happens on a minutes timescale while tissue
+    /// healing happens on a weeks timescale — they're two different
+    /// biological processes. The bleed system decays `bleed_rate`
+    /// directly over time via [`CLOT_DECAY_PER_SEC`] so a fresh wound
+    /// stops bleeding in a handful of game minutes even though the
+    /// tissue itself takes weeks to close.
     pub fn effective_bleed(&self) -> f32 {
-        if self.healed_amount >= 0.5 {
-            0.0
-        } else {
-            self.bleed_rate * (1.0 - self.healed_amount * 2.0)
-        }
+        self.bleed_rate.max(0.0)
     }
 }
+
+/// Per-game-second decay on `Injury::bleed_rate` applied by the bleed
+/// system. Units: bleed-rate per game second. 1/300 means a fresh
+/// wound's bleed rate decays to zero in 300 game seconds (5 game
+/// minutes) — fast enough to match real-world clotting, but slow
+/// enough that a gushing Pierce wound matters during a fight.
+pub const CLOT_DECAY_PER_SEC: f32 = 1.0 / 300.0;
 
 #[derive(Debug, Clone, Reflect)]
 pub struct BodyPart {
@@ -575,28 +582,60 @@ impl BodyPart {
     }
 }
 
+/// Target time to fully heal a fresh injury of the given type, in game
+/// seconds. Calibrated against rough real-world recovery windows, then
+/// compressed slightly so tests don't hang on week-long heals:
+///
+/// - Bruise: ~1 game week (soft tissue swelling resolves).
+/// - Cut / Slash: ~1 game week (skin closes and scar stabilises).
+/// - Crush: ~10 game days (deep tissue damage, longer than a bruise).
+/// - Burn: ~2 game weeks (skin regeneration is slow).
+/// - Pierce: ~3 game weeks (deep wound channel, internal clotting).
+/// - Infection: ~3 game weeks (immune clearance).
+/// - Fracture: ~6 game weeks (bone remodelling).
+///
+/// These are still 10-100x faster than real-world recovery but close
+/// enough that a wounded agent stays meaningfully disadvantaged for
+/// a handful of real-time minutes rather than a fraction of a second.
+fn heal_duration_seconds(kind: InjuryType) -> f32 {
+    const DAY: f32 = 86_400.0; // 1 game day in game seconds
+    match kind {
+        InjuryType::Bruise => 7.0 * DAY,
+        InjuryType::Cut => 7.0 * DAY,
+        InjuryType::Slash => 7.0 * DAY,
+        InjuryType::Crush => 10.0 * DAY,
+        InjuryType::Burn => 14.0 * DAY,
+        InjuryType::Pierce => 21.0 * DAY,
+        InjuryType::Infection => 21.0 * DAY,
+        InjuryType::Fracture => 42.0 * DAY,
+    }
+}
+
 pub fn process_healing(
     mut query: Query<(&mut Body, Option<&PhysicalNeeds>)>,
     tick: Res<crate::core::tick::TickCount>,
 ) {
     let dt = tick.dt();
-    let base_healing_speed = 0.05;
 
     for (mut body, needs) in query.iter_mut() {
-        let mut healing_speed = base_healing_speed;
-
-        if let Some(physical) = needs
+        // Rested, well-fueled agents recover twice as fast. Consumes the
+        // existing stamina-aerobic signal the previous healing pass used.
+        let condition_mult = if let Some(physical) = needs
             && physical.stamina.aerobic > 80.0
         {
-            healing_speed *= 2.0;
-        }
+            2.0
+        } else {
+            1.0
+        };
 
         for part in body.parts.iter_mut() {
             let mut fully_healed_indices = Vec::new();
 
             for (i, injury) in part.injuries.iter_mut().enumerate() {
                 if injury.healed_amount < 1.0 {
-                    injury.healed_amount += healing_speed * dt;
+                    let duration = heal_duration_seconds(injury.injury_type).max(1.0);
+                    let rate = condition_mult / duration;
+                    injury.healed_amount += rate * dt;
                     if injury.healed_amount >= 1.0 {
                         injury.healed_amount = 1.0;
                         fully_healed_indices.push(i);
