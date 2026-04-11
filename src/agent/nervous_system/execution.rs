@@ -219,14 +219,12 @@ pub fn start_actions(
                     )
                     .or(action_template.target_position),
                     ActionType::Flee => {
-                        if let Some(threat) = action_template.target_entity {
-                            if let Ok(threat_t) = entity_transforms.get(threat) {
-                                let threat_pos = threat_t.translation().truncate();
-                                let away = (pos - threat_pos).normalize_or_zero();
-                                Some(pos + away * 50.0)
-                            } else {
-                                pick_random_walkable_target(pos, &world_map, 30.0..60.0, rng)
-                            }
+                        if let Some(threat) = action_template.target_entity
+                            && let Ok(threat_t) = entity_transforms.get(threat)
+                        {
+                            let threat_pos = threat_t.translation().truncate();
+                            let away = (pos - threat_pos).normalize_or_zero();
+                            pick_flee_target(pos, away, &world_map, rng)
                         } else {
                             pick_random_walkable_target(pos, &world_map, 30.0..60.0, rng)
                         }
@@ -888,6 +886,93 @@ fn pick_random_walkable_target(
     None
 }
 
+/// Sample the straight line from `from` to `to` at tile-sized steps and
+/// return `false` if any sampled point is non-walkable. Shallow
+/// line-of-sight check — good enough for the walker which itself moves in
+/// a straight line, so a destination that's walkable but behind a wall
+/// doesn't count as reachable.
+fn straight_line_is_clear(from: Vec2, to: Vec2, world_map: &WorldMap) -> bool {
+    let delta = to - from;
+    let distance = delta.length();
+    if distance < 1e-3 {
+        return world_map.in_bounds(from) && world_map.is_walkable(from);
+    }
+    let steps = (distance / TILE_SIZE).ceil() as i32;
+    if steps <= 0 {
+        return world_map.in_bounds(to) && world_map.is_walkable(to);
+    }
+    for i in 0..=steps {
+        let t = i as f32 / steps as f32;
+        let sample = from + delta * t;
+        if !world_map.in_bounds(sample) || !world_map.is_walkable(sample) {
+            return false;
+        }
+    }
+    true
+}
+
+/// Pick a flee target along an away-vector cone, preferring directly-away
+/// at maximum distance and widening the angle and shortening the distance
+/// until a walkable tile *with a clear straight-line path* is found.
+/// Without this sampling the straight `pos + away * 50` from Flee would
+/// drive agents into water or off-map whenever the direct retreat path
+/// was blocked — every tick, repeatedly, because Flee is urgency-driven
+/// and regenerates on its own (#376).
+///
+/// Destination walkability alone is not enough: the walker moves in a
+/// straight line with no pathfinding, so a candidate whose destination is
+/// walkable but whose path crosses water will still fail as `PathBlocked`
+/// next tick. `straight_line_is_clear` samples the path at tile steps to
+/// reject those cases up front.
+///
+/// `away` is expected to be a unit vector pointing away from the threat.
+/// If the caller supplies a zero vector (agent standing on the threat,
+/// `normalize_or_zero` degenerate case) this function falls back to a
+/// random walkable target so the agent at least tries to move.
+fn pick_flee_target(
+    pos: Vec2,
+    away: Vec2,
+    world_map: &WorldMap,
+    rng: &mut impl Rng,
+) -> Option<Vec2> {
+    if away == Vec2::ZERO {
+        return pick_random_walkable_target(pos, world_map, 30.0..60.0, rng);
+    }
+
+    // Distance candidates, longest first — a far flee is more useful than
+    // a short one, so we accept the first distance that works.
+    const DIST_STEPS: [f32; 3] = [50.0, 35.0, 20.0];
+    // Angular offsets from the pure-away direction. Zero first so the
+    // agent flees directly back when possible; widen to ±30° and ±60°
+    // only when the direct line is blocked.
+    const ANGLE_OFFSETS_RAD: [f32; 5] = [
+        0.0,
+        std::f32::consts::FRAC_PI_6,  //  +30°
+        -std::f32::consts::FRAC_PI_6, //  -30°
+        std::f32::consts::FRAC_PI_3,  //  +60°
+        -std::f32::consts::FRAC_PI_3, //  -60°
+    ];
+
+    for dist in DIST_STEPS {
+        for offset in ANGLE_OFFSETS_RAD {
+            let (sin, cos) = offset.sin_cos();
+            let rotated = Vec2::new(away.x * cos - away.y * sin, away.x * sin + away.y * cos);
+            let test_pos = pos + rotated * dist;
+            if world_map.in_bounds(test_pos)
+                && world_map.is_walkable(test_pos)
+                && straight_line_is_clear(pos, test_pos, world_map)
+            {
+                return Some(test_pos);
+            }
+        }
+    }
+
+    // Cornered against an obstacle in every direction we checked. Try a
+    // fully-random walkable tile as a last-resort so the agent doesn't
+    // thrash repeatedly against the same blocked cone.
+    pick_random_walkable_target(pos, world_map, 30.0..60.0, rng)
+}
+
 /// Pick a nearby grass tile as a drift target. Grazing only happens on grass,
 /// so this refuses to return non-grass positions rather than silently letting
 /// the grazer wander onto sand, forest, or rock.
@@ -1325,5 +1410,207 @@ mod tests {
 
         assert_eq!(preempted, None);
         assert!(active.contains(ActionType::Eat));
+    }
+
+    // ─── Flee target sampling (#376) ───────────────────────────────────────
+
+    use crate::world::map::{CHUNK_SIZE as MAP_CHUNK_SIZE, TILE_SIZE as MAP_TILE_SIZE, TileType};
+    use bevy::math::IVec2;
+    use rand::SeedableRng;
+    use rand::rngs::StdRng;
+
+    /// Build a flat-grass WorldMap large enough to cover the flee search
+    /// cone. Tests then paint specific tiles with `map.set_tile(x, y, …)`.
+    fn walkable_test_map() -> WorldMap {
+        let size = MAP_CHUNK_SIZE * 4;
+        let mut map = WorldMap::new(size, size);
+        // Seed every chunk the search cone can touch so set_tile and
+        // is_walkable don't hit missing-chunk fallbacks.
+        for cx in 0..4i32 {
+            for cy in 0..4i32 {
+                map.chunks
+                    .entry(IVec2::new(cx, cy))
+                    .or_insert_with(|| crate::world::map::Chunk::new(cx, cy));
+            }
+        }
+        for x in 0..size {
+            for y in 0..size {
+                map.set_tile(x, y, TileType::Grass);
+            }
+        }
+        map
+    }
+
+    fn fill_rect(map: &mut WorldMap, x: u32, y: u32, w: u32, h: u32, tile: TileType) {
+        for ty in y..y + h {
+            for tx in x..x + w {
+                map.set_tile(tx, ty, tile);
+            }
+        }
+    }
+
+    #[test]
+    fn flee_picks_walkable_straight_away_when_path_is_clear() {
+        // Agent at (50, 50), threat east. Away vector points -x. No
+        // obstacles — the function must return a tile directly west, at
+        // the longest candidate distance.
+        let map = walkable_test_map();
+        let mut rng = StdRng::seed_from_u64(0);
+        let pos = Vec2::new(50.0, 50.0);
+        let away = Vec2::new(-1.0, 0.0);
+
+        let target = pick_flee_target(pos, away, &map, &mut rng)
+            .expect("clear map must yield a walkable flee target");
+
+        // Directly west at the maximum distance step (50 px) — the
+        // cone-sampler should hit this on its very first candidate.
+        assert!(
+            (target.x - 0.0).abs() < 1e-3 && (target.y - 50.0).abs() < 1e-3,
+            "expected direct-away at 50 px (≈ (0, 50)); got {target:?}",
+        );
+    }
+
+    #[test]
+    fn flee_widens_angle_when_straight_retreat_is_blocked() {
+        // Agent at (100, 100), threat east (away = -x). Paint a vertical
+        // water column immediately west of the agent so the 0° candidates
+        // at all three distances hit water. The sampler should deflect to
+        // ±30° (or further) and return a walkable tile.
+        //
+        // Water column at tile x=2 (world x range 32-48). Agent at tile
+        // (6, 6). Direct-away (0° offset) at 50/35/20 px lands at
+        // world x ≈ 50, 65, 80 — *east* of the water wall (walkable).
+        //
+        // To force deflection, place the threat to the WEST so away = +x,
+        // and put the water wall east of the agent.
+        let mut map = walkable_test_map();
+        // Water wall east of the agent, blocking the direct-east retreat
+        // across all three distance steps. Tile x=7 is world range
+        // 112-128; the agent at (100, 100) tries (150, 100), (135, 100),
+        // (120, 100). All three land on tile x≥7 which is water.
+        fill_rect(&mut map, 7, 0, 3, MAP_CHUNK_SIZE * 4, TileType::Water);
+        let mut rng = StdRng::seed_from_u64(0);
+        let pos = Vec2::new(100.0, 100.0);
+        let away = Vec2::new(1.0, 0.0); // flee east
+
+        let target = pick_flee_target(pos, away, &map, &mut rng)
+            .expect("angular offsets should open a viable flee route");
+
+        // Not in the water column. Must be on a walkable tile.
+        assert!(
+            map.is_walkable(target),
+            "flee target {target:?} must be walkable",
+        );
+        // Must still be moving away from the threat (x >= pos.x), even
+        // after angular deflection — the sampler starts with 0° so it
+        // should never pick something actively moving *toward* the threat.
+        assert!(
+            target.x >= pos.x - 1e-3,
+            "flee target should still be east-ish (not moving back \
+             toward the threat at x < {}); got {target:?}",
+            pos.x,
+        );
+    }
+
+    #[test]
+    fn flee_falls_back_to_random_when_entire_cone_is_blocked() {
+        // Surround the agent on all sides by water, leaving only the tile
+        // they stand on walkable. Every cone candidate fails, so the
+        // sampler must fall through to `pick_random_walkable_target` and
+        // return either the agent's own tile or None (since no other
+        // walkable tile exists, None is also acceptable).
+        let mut map = walkable_test_map();
+        let agent_tx = 6u32;
+        let agent_ty = 6u32;
+        for ty in 0..(MAP_CHUNK_SIZE * 4) {
+            for tx in 0..(MAP_CHUNK_SIZE * 4) {
+                if tx != agent_tx || ty != agent_ty {
+                    map.set_tile(tx, ty, TileType::Water);
+                }
+            }
+        }
+        let mut rng = StdRng::seed_from_u64(0);
+        let pos = Vec2::new(
+            agent_tx as f32 * MAP_TILE_SIZE + MAP_TILE_SIZE / 2.0,
+            agent_ty as f32 * MAP_TILE_SIZE + MAP_TILE_SIZE / 2.0,
+        );
+        let away = Vec2::new(1.0, 0.0);
+
+        // The desperate fallback may return None (no walkable neighbour
+        // exists). What we're asserting is that it does *not* return a
+        // bogus water tile — i.e. any Some(target) must be walkable.
+        if let Some(target) = pick_flee_target(pos, away, &map, &mut rng) {
+            assert!(
+                map.is_walkable(target),
+                "fallback target {target:?} must still be walkable when the \
+                 cone is fully blocked",
+            );
+        }
+    }
+
+    #[test]
+    fn flee_rejects_candidates_whose_straight_line_crosses_water() {
+        // The destination tile is walkable, but the path from the agent
+        // to it crosses a water column. A flee picker that only checks
+        // `is_walkable(test_pos)` returns that target; a straight-line
+        // check correctly rejects it. This is the concrete regression
+        // from the post-fix 40k headless run where 3v0 kept targeting a
+        // walkable tile behind a water wall and accumulating 329
+        // PathBlocked failures on the same (68, 36) coordinate.
+        let mut map = walkable_test_map();
+        // Vertical water column at tile x=7 (world 112-128). Agent at
+        // world (100, 100), fleeing east (away = +x). Cone candidates:
+        //   50 px: (150, 100) — walkable destination, but path crosses
+        //          water at (112-128, 100).
+        //   35 px: (135, 100) — same.
+        //   20 px: (120, 100) — also in water.
+        // With angular offsets, ±30°/±60° at each distance land on y
+        // values that still cross the water column.
+        //
+        // Expect pick_flee_target to reject every east-going candidate
+        // and fall back to a random walkable tile (which won't be east
+        // of the wall either, since no path goes through water — but
+        // the fallback picks angles from the agent's position and the
+        // walkable area directly around them).
+        fill_rect(&mut map, 7, 0, 1, MAP_CHUNK_SIZE * 4, TileType::Water);
+        let mut rng = StdRng::seed_from_u64(0);
+        let pos = Vec2::new(100.0, 100.0);
+        let away = Vec2::new(1.0, 0.0);
+
+        let target = pick_flee_target(pos, away, &map, &mut rng);
+
+        if let Some(target) = target {
+            // Whatever we return must actually be reachable in a straight
+            // line from the agent's position.
+            assert!(
+                straight_line_is_clear(pos, target, &map),
+                "flee target {target:?} must have a clear straight line \
+                 from agent at {pos:?}",
+            );
+            assert!(
+                map.is_walkable(target),
+                "flee target {target:?} must also be walkable",
+            );
+        }
+    }
+
+    #[test]
+    fn flee_with_zero_away_vector_falls_back_to_random_walkable() {
+        // Agent standing on the threat: (pos - threat_pos) normalises to
+        // zero. The function must not return pos verbatim; it should fall
+        // back to pick_random_walkable_target and actually try to move.
+        let map = walkable_test_map();
+        let mut rng = StdRng::seed_from_u64(0);
+        let pos = Vec2::new(100.0, 100.0);
+        let away = Vec2::ZERO;
+
+        let target = pick_flee_target(pos, away, &map, &mut rng)
+            .expect("open map must yield a fallback walkable target");
+
+        assert!(
+            (target - pos).length() > 1e-3,
+            "zero-away fallback must actually move; got same position {target:?}",
+        );
+        assert!(map.is_walkable(target));
     }
 }
