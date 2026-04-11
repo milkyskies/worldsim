@@ -173,6 +173,10 @@ pub enum Concept {
     Harvestable,
     Awake,
     Asleep,
+    // Transient: (Tile, HasTrait, Unreachable) recorded when a Walk to this
+    // tile failed with PathBlocked. TTL-checked by the planner so the same
+    // blocked target isn't re-picked until the belief ages out.
+    Unreachable,
 
     // ─── Property traits (auto-derived from ECS components via define_property_component!) ───
     LightEmitting,    // Entity emits light (e.g. campfire, torch)

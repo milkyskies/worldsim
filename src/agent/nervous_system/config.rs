@@ -123,6 +123,13 @@ pub struct DriveConfig {
 
     /// If true, ignores sensory dampening (e.g. Pain wakes you up)
     pub bypasses_gating: bool,
+
+    /// Threshold (in normalized input space, 0-1) at which this drive rouses
+    /// a sleeping agent. `None` means this drive never wakes a sleeper — the
+    /// normal WAKE_STAMINA_THRESHOLD path covers rested wakes. Compared
+    /// against the pre-gated `normalized_input`, so it works even for drives
+    /// whose urgency is dampened by low alertness.
+    pub sleep_wake_threshold: Option<f32>,
 }
 
 impl Default for DriveConfig {
@@ -136,6 +143,7 @@ impl Default for DriveConfig {
             modifiers: vec![],
             min_threshold: 0.01,
             bypasses_gating: false,
+            sleep_wake_threshold: None,
         }
     }
 }
@@ -183,6 +191,9 @@ impl Default for NervousSystemConfig {
                     modifiers: vec![],
                     min_threshold: 0.05,
                     bypasses_gating: true,
+                    // Dedicated nociceptive wake pathway: significant injury
+                    // (body pain >= 60/100) rouses a sleeper.
+                    sleep_wake_threshold: Some(0.6),
                 },
                 // THIRST
                 DriveConfig {
@@ -201,6 +212,8 @@ impl Default for NervousSystemConfig {
                     modifiers: vec![],
                     min_threshold: 0.01,
                     bypasses_gating: false,
+                    // Severe dehydration eventually disturbs sleep.
+                    sleep_wake_threshold: Some(0.85),
                 },
                 // HUNGER
                 DriveConfig {
@@ -219,6 +232,8 @@ impl Default for NervousSystemConfig {
                     modifiers: vec![],
                     min_threshold: 0.01,
                     bypasses_gating: false,
+                    // Starvation (cortisol surge) eventually overrides sleep.
+                    sleep_wake_threshold: Some(0.9),
                 },
                 // STAMINA (Fatigue): Note inputs are inverted logic in urgency.rs if needed,
                 // but config just defines the response curve.
@@ -238,6 +253,9 @@ impl Default for NervousSystemConfig {
                     modifiers: vec![],
                     min_threshold: 0.01,
                     bypasses_gating: false,
+                    // Fatigue is the reason to sleep, not the reason to wake.
+                    // Rested-wake is handled separately by the aerobic check.
+                    sleep_wake_threshold: None,
                 },
                 // SOCIAL
                 DriveConfig {
@@ -260,6 +278,7 @@ impl Default for NervousSystemConfig {
                     ],
                     min_threshold: 0.01,
                     bypasses_gating: false,
+                    sleep_wake_threshold: None,
                 },
                 // FEAR
                 DriveConfig {
@@ -278,6 +297,9 @@ impl Default for NervousSystemConfig {
                     modifiers: vec![],
                     min_threshold: 0.0,
                     bypasses_gating: true,
+                    // Amygdala wake pathway: a clearly visible threat
+                    // (fear emotion >= ~0.44) rouses a sleeper.
+                    sleep_wake_threshold: Some(0.44),
                 },
                 // TERRITORIALITY — raised externally by update_territoriality when
                 // intruders are perceived on owned tiles. Dampened by fear so
@@ -306,6 +328,7 @@ impl Default for NervousSystemConfig {
                     ],
                     min_threshold: 0.01,
                     bypasses_gating: false,
+                    sleep_wake_threshold: None,
                 },
                 // BOREDOM
                 DriveConfig {
@@ -321,6 +344,7 @@ impl Default for NervousSystemConfig {
                     modifiers: vec![],
                     min_threshold: 0.0,
                     bypasses_gating: false,
+                    sleep_wake_threshold: None,
                 },
             ],
             momentum_bonus: 1.5,
