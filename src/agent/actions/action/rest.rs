@@ -1,12 +1,15 @@
 //! Rest action — sit-and-recover. Milder than Sleep, gentler than Idle.
 //!
 //! Rest is the behaviour a mildly tired agent chooses when they need some
-//! stamina back but don't want to lose consciousness. Compared to Sleep:
-//!   - Rest keeps alertness roughly flat (actually gains slightly), so
-//!     the agent stays reactive to threats and conversation.
-//!   - Rest recovers stamina slower than Sleep but faster than Idle.
+//! stamina back but don't want to lose consciousness.
+//!
+//! Compared to Sleep:
+//! - Rest keeps alertness roughly flat (actually gains slightly), so the
+//!   agent stays reactive to threats and conversation.
+//! - Rest recovers stamina slower than Sleep but faster than Idle.
+//!
 //! Compared to Idle:
-//!   - Idle is the true "standing still" default; Rest is active recovery.
+//! - Idle is the true "standing still" default; Rest is active recovery.
 //!
 //! Mapping: Survival brain proposes Rest for mild Stamina urgency where
 //! Sleep would be overkill (#386).
