@@ -9,7 +9,7 @@ use bevy::ecs::world::World;
 use bevy::prelude::*;
 
 use crate::agent::Agent;
-use crate::agent::biology::body::{Body, BodyPartKind};
+use crate::agent::biology::body::Body;
 use crate::agent::body::needs::{Consciousness, PhysicalNeeds, PsychologicalDrives};
 use crate::agent::mind::conversation::{ConversationState, InConversation};
 use crate::agent::psyche::emotions::EmotionalState;
@@ -196,6 +196,7 @@ fn assert_in_range(entity: Entity, label: &str, value: f32, min: f32, max: f32) 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::agent::biology::body::BodyPartKind;
     use crate::agent::psyche::emotions::{Emotion, EmotionType};
     use crate::testing::{AgentConfig, TestWorld};
 
