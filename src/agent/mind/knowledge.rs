@@ -1150,11 +1150,23 @@ impl MindGraph {
         timestamp: u64,
         confidence: f32,
     ) {
+        // IsA beliefs identify what an entity *is*, not what it's
+        // currently doing. Route them through semantic memory so an
+        // agent remembers "I know a berry bush at that spot" after the
+        // perception half-life would have forgotten it. Without this,
+        // bushes seen 6k+ ticks ago vanish from the agent's planner
+        // enumeration and they starve looking for food they already
+        // knew existed.
+        let meta = if predicate == Predicate::IsA {
+            Metadata::semantic(timestamp)
+        } else {
+            Metadata::perception_with_conf(timestamp, confidence)
+        };
         self.assert(Triple::with_meta(
             Node::Entity(entity),
             predicate,
             object,
-            Metadata::perception_with_conf(timestamp, confidence),
+            meta,
         ));
     }
 

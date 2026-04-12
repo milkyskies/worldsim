@@ -49,9 +49,6 @@ impl Action for HarvestAction {
         TargetSource::EntityAffordance
     }
 
-    /// Per-target precondition: the entity must be known to contain something.
-    /// The default `to_template_for_target` injects this on top of the static
-    /// (none) preconditions plus the auto-injected proximity precondition.
     fn target_preconditions(
         &self,
         target: &TargetCandidate,
@@ -92,19 +89,11 @@ impl Action for HarvestAction {
         }
     }
 
-    // Planning: Only valid if we KNOW it produces something useful
     fn is_plan_valid(&self, target: &TargetCandidate, mind: &MindGraph) -> bool {
         let Some(target_entity) = target.as_entity() else {
             return false;
         };
 
-        // 1. Collect everything we believe the target produces — first
-        //    the direct entity-level facts (e.g. "this specific bush has
-        //    berries, I just saw them") and then the type-level fallback
-        //    via IsA (e.g. "this is a BerryBush, and all BerryBushes
-        //    produce berries"). The type-level path is what lets agents
-        //    act on a freshly-perceived entity before they've actually
-        //    observed its inventory. (#416)
         let mut produced: Vec<Value> = mind
             .query(
                 Some(&Node::Entity(target_entity)),
@@ -134,10 +123,9 @@ impl Action for HarvestAction {
         }
 
         if produced.is_empty() {
-            return false; // Don't know it produces anything
+            return false;
         }
 
-        // 2. Is any produced item useful (Food or Resource)?
         produced.iter().any(|value| {
             if let Value::Item(concept, _) = value {
                 mind.is_a(&Node::Concept(*concept), Concept::Food)

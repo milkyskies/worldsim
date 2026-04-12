@@ -148,12 +148,10 @@ fn is_step_complete(action: &ActionTemplate, mind: &MindGraph) -> bool {
 /// the early-invalidate path only costs one extra walk attempt per
 /// genuinely-blocked tile.
 fn are_preconditions_met(action: &ActionTemplate, mind: &MindGraph) -> bool {
-    // If no preconditions, always possible
     if action.preconditions.is_empty() {
         return true;
     }
 
-    // All preconditions must be satisfied
     action.preconditions.iter().all(|pre| {
         let subject = pre.subject.as_ref();
         let predicate = pre.predicate;

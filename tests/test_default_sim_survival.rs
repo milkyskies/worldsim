@@ -375,17 +375,27 @@ fn hungry_agent_with_visible_bush_plans_a_harvest() {
 /// (Realistic biome placement, wolves triggering Fear→Flee interrupts,
 /// scattered food, natural hunger ramp-up).
 fn assert_humans_survive_default_sim(ticks: u64) {
-    use worldsim::agent::Person;
+    use bevy::prelude::{With, Without};
+    use worldsim::agent::{Agent, Person};
+    use worldsim::world::becomes::Becomes;
     use worldsim::world::spawn_config::WorldSpawnConfig;
 
     let mut world = TestWorld::game_defaults(42);
-    let initial_humans: usize = {
+    // Only count humans who are still living Agents — `Person` alone
+    // stays on the entity after `kill_into_corpse` strips the `Agent`
+    // marker, so querying `With<Person>` would count corpses and hide
+    // every starvation. `With<Agent>` is the living-only predicate;
+    // `Without<Becomes>` also excludes humans mid-transition into a
+    // Corpse (the one-tick gap between `die()` and the substrate run).
+    let alive_count = |world: &mut TestWorld| -> usize {
         let mut q = world
             .app_mut()
             .world_mut()
-            .query_filtered::<bevy::prelude::Entity, bevy::prelude::With<Person>>();
+            .query_filtered::<bevy::prelude::Entity, (With<Person>, With<Agent>, Without<Becomes>)>(
+            );
         q.iter(world.app().world()).count()
     };
+    let initial_humans = alive_count(&mut world);
     assert!(
         initial_humans > 0,
         "game_defaults must populate a non-empty human population"
@@ -401,13 +411,7 @@ fn assert_humans_survive_default_sim(ticks: u64) {
         .cloned()
         .collect();
 
-    let surviving_humans: usize = {
-        let mut q = world
-            .app_mut()
-            .world_mut()
-            .query_filtered::<bevy::prelude::Entity, bevy::prelude::With<Person>>();
-        q.iter(world.app().world()).count()
-    };
+    let surviving_humans = alive_count(&mut world);
 
     if surviving_humans < initial_humans {
         eprintln!(
@@ -481,11 +485,73 @@ fn default_sim_seed_42_humans_survive_800k() {
     assert_humans_survive_default_sim(800_000);
 }
 
+/// ~11.6 days (1M ticks).
+#[test]
+#[ignore = "very slow: full game_defaults run. Run with --ignored."]
+fn default_sim_seed_42_humans_survive_1m() {
+    assert_humans_survive_default_sim(1_000_000);
+}
+
 /// ~23 days (2M ticks). Extended-play canary.
 #[test]
 #[ignore = "very slow: full game_defaults run. Run with --ignored."]
 fn default_sim_seed_42_humans_survive_2m() {
     assert_humans_survive_default_sim(2_000_000);
+}
+
+/// Diagnostic: walk the 100k sim in 10k-tick chunks, find every
+/// Person, and dump the first still-alive human that later dies. The
+/// single persistent starvation case in the current sim is entity 3v0
+/// dying at tick ~94k — this test surfaces its full state trajectory.
+#[test]
+#[ignore = "diagnostic: dumps first-to-die trajectory, not an assertion"]
+fn diagnostic_trace_dying_human() {
+    use bevy::prelude::{Entity, Name, With};
+    use worldsim::agent::{Agent, Person};
+    use worldsim::world::becomes::Becomes;
+
+    let mut world = TestWorld::game_defaults(42);
+    // The human with entity index 3 is the last-to-die starver in the
+    // current 100k run. Look it up by iterating Persons — constructing
+    // `Entity::from_bits(3)` gives a different entity because of the
+    // bit-packed index+generation layout.
+    let target: Entity = {
+        let mut q = world
+            .app_mut()
+            .world_mut()
+            .query_filtered::<(Entity, &Name), With<Person>>();
+        let mut found = None;
+        let mut names: Vec<String> = Vec::new();
+        for (e, name) in q.iter(world.app().world()) {
+            names.push(format!("{:?}={}", e, name.as_str()));
+            if format!("{:?}", e.index()) == "3" || name.as_str() == "Alice" {
+                found = Some(e);
+            }
+        }
+        found.unwrap_or_else(|| {
+            eprintln!("Persons in world: {}", names.join(", "));
+            panic!("no human with entity index 3 — is the sim layout different?");
+        })
+    };
+
+    for chunk in 1..=10u64 {
+        world.tick(10_000);
+        let tick = chunk * 10_000;
+
+        let alive = world
+            .app()
+            .world()
+            .get_entity(target)
+            .map(|e| e.contains::<Person>() && e.contains::<Agent>() && !e.contains::<Becomes>())
+            .unwrap_or(false);
+
+        eprintln!("\n==== CHECKPOINT tick={tick} 3v0 alive={alive} ====");
+        world.print_agent_state(target);
+        if !alive {
+            eprintln!("(dead, stopping)");
+            break;
+        }
+    }
 }
 
 /// Diagnostic helper kept for manual investigation: walks the default
