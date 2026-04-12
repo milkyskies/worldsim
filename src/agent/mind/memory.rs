@@ -369,13 +369,16 @@ fn record_knowledge_shared(
     ));
 }
 
-/// Decay stale knowledge using exponential decay based on memory type and salience.
+/// Strength-based memory decay with reinforcement and interference.
 ///
-/// Memory strength decays as: strength = 0.5^(age / half_life)
-/// - Perception memories decay fastest (~30s half-life)
-/// - Episodic memories decay slower (~5min half-life)
-/// - High-salience (emotional) memories decay even slower
-/// - Semantic/Cultural memories are essentially permanent
+/// Each triple carries a `strength` float that is:
+/// - **Reinforced** by repeated perception/assertion (in `MindGraph::assert`)
+/// - **Passively decayed** each tick: `strength *= base^(1 / (strength * salience_resist))`
+/// - **Interfered** by competing same-predicate triples: weak memories in crowded
+///   categories decay faster
+/// - **Forgotten** when strength drops below `forget_threshold`
+///
+/// Intrinsic, Cultural, and Procedural memories never decay.
 pub fn decay_stale_knowledge(
     mut agents: Query<(Entity, &mut crate::agent::mind::knowledge::MindGraph)>,
     tick: Res<crate::core::TickCount>,
@@ -383,42 +386,55 @@ pub fn decay_stale_knowledge(
     mut game_log: ResMut<crate::core::GameLog>,
 ) {
     let current_time = tick.current;
-    let ticks_per_sec = tick.ticks_per_second;
 
-    // Stagger decay across agents to spread load
     for (entity, mut mind) in agents.iter_mut() {
-        // Only run decay every N ticks, staggered by entity
         if !(entity.index_u32() as u64 + current_time).is_multiple_of(decay_config.decay_interval) {
             continue;
         }
 
         let initial_count = mind.len();
 
-        let decayed_count = mind.retain(|triple| {
-            let age_ticks = current_time.saturating_sub(triple.meta.timestamp);
-            let age_seconds = age_ticks as f32 / ticks_per_sec;
+        // Snapshot predicate counts for interference (O(P) where P = distinct predicates)
+        let pred_counts = mind.predicate_count_map();
 
-            // Check if this memory should be forgotten
-            if decay_config.should_forget(
-                age_seconds,
-                triple.meta.memory_type,
-                triple.meta.salience,
-            ) {
-                return false; // Forget this triple
+        let decayed_count = mind.decay_pass(|triple| {
+            let base = decay_config.base_decay(triple.meta.memory_type);
+            if base >= 1.0 {
+                return true; // Permanent memory type
             }
 
-            true // Keep this triple
+            // Passive decay: high strength and salience slow the effective rate.
+            // At strength 1.0 with no salience the full base rate applies.
+            // At strength 10.0 the exponent drops to 0.1, making decay ~10x slower.
+            let salience_resist =
+                1.0 + triple.meta.salience * decay_config.salience_decay_resistance;
+            let effective_rate = base.powf(1.0 / (triple.meta.strength.max(1.0) * salience_resist));
+            triple.meta.strength *= effective_rate;
+
+            // Interference: more same-predicate triples → faster loss for weak memories.
+            // Strong memories resist interference (vulnerability → 0 as strength grows).
+            let pred_count = pred_counts.get(&triple.predicate).copied().unwrap_or(0);
+            if pred_count > 1 {
+                let pressure =
+                    (pred_count as f32 / decay_config.interference_divisor).ln_1p() * 0.01;
+                let vulnerability = 1.0 / (1.0 + triple.meta.strength * 2.0);
+                triple.meta.strength -= pressure * vulnerability;
+            }
+
+            triple.meta.strength = triple.meta.strength.max(0.0);
+            triple.meta.strength >= decay_config.forget_threshold
         });
 
+        // Episodic capacity cap: cull weakest events when over limit
+        if decay_config.episodic_capacity > 0 {
+            enforce_episodic_capacity(&mut mind, decay_config.episodic_capacity);
+        }
+
         if decayed_count > 0 {
-            // Compact only when tombstones outnumber live slots — compaction
-            // is O(n) and rebuilds every index, so doing it on every tick of
-            // light decay would reintroduce the cost we just eliminated.
             if mind.tombstone_count() * 2 > mind.total_slots() {
                 mind.compact();
             }
 
-            // Log significant decay events
             if decayed_count > 10 {
                 game_log.log_debug(format!(
                     "Memory decay: {} forgot {} triples ({} -> {})",
@@ -432,56 +448,93 @@ pub fn decay_stale_knowledge(
     }
 }
 
+/// Remove the weakest episodic events when the total event count exceeds capacity.
+/// An "event" is a group of triples sharing the same `Node::Event(eid)` subject.
+fn enforce_episodic_capacity(
+    mind: &mut crate::agent::mind::knowledge::MindGraph,
+    capacity: usize,
+) {
+    use crate::agent::mind::knowledge::Node;
+    use std::collections::{HashMap, HashSet};
+
+    let mut event_strengths: HashMap<u64, f32> = HashMap::new();
+    for triple in mind.iter() {
+        if let Node::Event(eid) = triple.subject {
+            let entry = event_strengths.entry(eid).or_insert(0.0_f32);
+            *entry = entry.max(triple.meta.strength);
+        }
+    }
+
+    if event_strengths.len() <= capacity {
+        return;
+    }
+
+    let mut events: Vec<(u64, f32)> = event_strengths.into_iter().collect();
+    events.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+    let to_remove = events.len() - capacity;
+    let eids_to_remove: HashSet<u64> = events[..to_remove].iter().map(|(eid, _)| *eid).collect();
+
+    mind.retain(|triple| {
+        if let Node::Event(eid) = triple.subject {
+            !eids_to_remove.contains(&eid)
+        } else {
+            true
+        }
+    });
+}
+
 // =============================================================================
 // MEMORY DECAY CONFIG
 // =============================================================================
 
-/// Configuration for memory decay half-lives (in seconds)
+/// Configuration for the reinforcement + interference memory model.
+///
+/// Decay rates are per-pass multipliers (one pass per `decay_interval` ticks).
+/// Values closer to 1.0 mean slower decay.
 #[derive(Resource, Debug, Clone, Reflect)]
 #[reflect(Resource)]
 pub struct MemoryDecayConfig {
-    pub perception_half_life: f32,
-    pub episodic_half_life: f32,
-    pub semantic_half_life: f32,
-    pub salience_multiplier: f32,
+    /// Strength multiplier per decay pass for Perception triples.
+    pub perception_decay: f32,
+    /// Strength multiplier per decay pass for Episodic triples.
+    pub episodic_decay: f32,
+    /// Strength multiplier per decay pass for Semantic triples.
+    pub semantic_decay: f32,
+    /// How much salience resists decay (multiplier in denominator of exponent).
+    pub salience_decay_resistance: f32,
+    /// Divisor for interference pressure: higher = less interference.
+    pub interference_divisor: f32,
+    /// Strength threshold below which a triple is forgotten.
     pub forget_threshold: f32,
+    /// Maximum distinct episodic events before weakest are culled.
+    pub episodic_capacity: usize,
+    /// Ticks between decay passes (staggered per agent).
     pub decay_interval: u64,
 }
 
 impl Default for MemoryDecayConfig {
     fn default() -> Self {
         Self {
-            perception_half_life: 30.0,
-            episodic_half_life: 300.0,
-            semantic_half_life: 36000.0, // 10 hours
-            salience_multiplier: 2.0,
-            forget_threshold: 0.1,
+            perception_decay: 0.95,
+            episodic_decay: 0.997,
+            semantic_decay: 0.9998,
+            salience_decay_resistance: 2.0,
+            interference_divisor: 30.0,
+            forget_threshold: 0.05,
+            episodic_capacity: 200,
             decay_interval: 60,
         }
     }
 }
 
 impl MemoryDecayConfig {
-    pub fn half_life_for(&self, memory_type: MemoryType) -> f32 {
+    /// Base decay rate for a memory type. Returns 1.0 (no decay) for permanent types.
+    pub fn base_decay(&self, memory_type: MemoryType) -> f32 {
         match memory_type {
-            MemoryType::Perception => self.perception_half_life,
-            MemoryType::Episodic => self.episodic_half_life,
-            MemoryType::Semantic => self.semantic_half_life,
-            MemoryType::Intrinsic => f32::INFINITY,
-            MemoryType::Cultural => self.semantic_half_life * 2.0,
-            MemoryType::Procedural => f32::INFINITY,
+            MemoryType::Perception => self.perception_decay,
+            MemoryType::Episodic => self.episodic_decay,
+            MemoryType::Semantic => self.semantic_decay,
+            MemoryType::Intrinsic | MemoryType::Procedural | MemoryType::Cultural => 1.0,
         }
-    }
-
-    pub fn should_forget(&self, age_seconds: f32, memory_type: MemoryType, salience: f32) -> bool {
-        let base_half_life = self.half_life_for(memory_type);
-        if base_half_life.is_infinite() {
-            return false;
-        }
-
-        let adjusted_half_life = base_half_life * (1.0 + salience * self.salience_multiplier);
-        let strength = 0.5_f32.powf(age_seconds / adjusted_half_life);
-
-        strength < self.forget_threshold
     }
 }
