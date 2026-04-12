@@ -5,10 +5,12 @@
 
 pub mod action;
 pub mod channel;
+pub mod motor;
 pub mod registry;
 pub mod types;
 
 pub use channel::{Channel, ChannelCapacities, ChannelLoad, ChannelUsage};
+pub use motor::{Behavior, IntensityPolicy, Intent, MotorPrimitive, TargetSelector};
 pub use registry::{
     Action, ActionContext, ActionKind, ActionRegistry, ActionState, ActiveActions, RuntimeEffects,
     TargetCandidate, TargetSource,

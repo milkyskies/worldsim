@@ -258,6 +258,14 @@ pub trait Action: Send + Sync + 'static {
     /// Human-readable name
     fn name(&self) -> &'static str;
 
+    /// The motor primitive this action resolves to.
+    ///
+    /// Default delegates to `ActionType::motor_primitive()` so existing
+    /// actions work without override. New code should override directly.
+    fn motor_primitive(&self) -> crate::agent::actions::motor::MotorPrimitive {
+        self.action_type().motor_primitive()
+    }
+
     // === FOR PLANNING (GOAP) ===
 
     /// Preconditions as TriplePatterns - what must be true before action
