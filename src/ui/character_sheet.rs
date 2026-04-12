@@ -2385,30 +2385,39 @@ fn current_action_summary(world: &World, entity: Entity) -> String {
     let Some(active) = world.get::<ActiveActions>(entity) else {
         return "Idle".into();
     };
-
-    let action = active
-        .iter()
-        .find(|a| !matches!(a.action_type, ActionType::Idle))
-        .or_else(|| active.iter().next());
-
-    let Some(a) = action else {
+    if active.is_empty() {
         return "Idle".into();
+    }
+
+    let render_one = |a: &crate::agent::actions::registry::ActionState| -> String {
+        let base = a.action_type.verb();
+        if let Some(target) = a.target_entity {
+            let target_name = world
+                .get::<Name>(target)
+                .map(|n| n.to_string())
+                .unwrap_or_else(|| format!("{:?}", target));
+            format!("{} {}", base, target_name)
+        } else if let Some(pos) = a.target_position
+            && !matches!(a.action_type, ActionType::Flee)
+        {
+            format!("{} ({:.0}, {:.0})", base, pos.x, pos.y)
+        } else {
+            base.to_string()
+        }
     };
 
-    let base = a.action_type.verb();
-    if let Some(target) = a.target_entity {
-        let target_name = world
-            .get::<Name>(target)
-            .map(|n| n.to_string())
-            .unwrap_or_else(|| format!("{:?}", target));
-        format!("{} {}", base, target_name)
-    } else if let Some(pos) = a.target_position
-        && !matches!(a.action_type, ActionType::Flee)
-    {
-        format!("{} ({:.0}, {:.0})", base, pos.x, pos.y)
-    } else {
-        base.to_string()
+    let non_idle: Vec<_> = active
+        .iter()
+        .filter(|a| !matches!(a.action_type, ActionType::Idle))
+        .collect();
+    if non_idle.is_empty() {
+        return "Idle".into();
     }
+    non_idle
+        .iter()
+        .map(|a| render_one(a))
+        .collect::<Vec<_>>()
+        .join(" + ")
 }
 
 fn winning_reasoning(brain: &BrainState) -> Option<&str> {
