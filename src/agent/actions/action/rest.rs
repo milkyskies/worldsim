@@ -49,7 +49,7 @@ impl Action for RestAction {
 
     fn body_channels(&self) -> &'static [ChannelUsage] {
         // Rest claims no body part — the legs-planted stance is expressed
-        // through `posture()`. Cognition and Vocalization stay free so a
+        // through `posture()`. Focus, Awareness, and Vocalization stay free so a
         // resting agent can still watch the world or hold a conversation.
         ChannelSlices::NONE
     }

@@ -34,7 +34,11 @@ impl Action for ExploreAction {
     }
 
     fn body_channels(&self) -> &'static [ChannelUsage] {
-        const CHANNELS: &[ChannelUsage] = &[ChannelUsage::new(Channel::Locomotion, 0.4)];
+        const CHANNELS: &[ChannelUsage] = &[
+            ChannelUsage::new(Channel::Locomotion, 0.4),
+            ChannelUsage::new(Channel::Focus, 0.15),
+            ChannelUsage::new(Channel::Awareness, 0.2),
+        ];
         CHANNELS
     }
 

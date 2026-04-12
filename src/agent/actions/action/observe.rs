@@ -48,11 +48,10 @@ impl Action for ObserveAction {
     }
 
     fn body_channels(&self) -> &'static [ChannelUsage] {
-        // Observing uses cognitive bandwidth — rules out reading,
-        // planning-heavy Explore, etc. in parallel. Does not block
-        // Locomotion so the agent could in principle walk-and-watch
-        // later if a brain pairs them up.
-        const CHANNELS: &[ChannelUsage] = &[ChannelUsage::new(Channel::Cognition, 0.6)];
+        const CHANNELS: &[ChannelUsage] = &[
+            ChannelUsage::new(Channel::Focus, 0.3),
+            ChannelUsage::new(Channel::Awareness, 0.6),
+        ];
         CHANNELS
     }
 

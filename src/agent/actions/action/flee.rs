@@ -37,6 +37,7 @@ impl Action for FleeAction {
         const CHANNELS: &[ChannelUsage] = &[
             ChannelUsage::new(Channel::Locomotion, 1.0),
             ChannelUsage::new(Channel::FullBody, 0.5),
+            ChannelUsage::new(Channel::Awareness, 0.7),
         ];
         CHANNELS
     }

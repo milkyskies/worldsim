@@ -28,7 +28,7 @@ fn requirements_for(registry: &ActionRegistry, action: ActionType) -> &'static [
 }
 
 fn can_perform(body: &Body, requirements: &[ChannelUsage]) -> bool {
-    let caps = ChannelCapacities::compute(Some(body), None);
+    let caps = ChannelCapacities::compute(Some(body), None, None);
     let load = ChannelLoad::new();
     !load.would_hard_conflict(requirements, &caps)
 }

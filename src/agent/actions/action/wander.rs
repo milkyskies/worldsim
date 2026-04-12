@@ -34,7 +34,10 @@ impl Action for WanderAction {
     }
 
     fn body_channels(&self) -> &'static [ChannelUsage] {
-        const CHANNELS: &[ChannelUsage] = &[ChannelUsage::new(Channel::Locomotion, 0.4)];
+        const CHANNELS: &[ChannelUsage] = &[
+            ChannelUsage::new(Channel::Locomotion, 0.4),
+            ChannelUsage::new(Channel::Awareness, 0.15),
+        ];
         CHANNELS
     }
 

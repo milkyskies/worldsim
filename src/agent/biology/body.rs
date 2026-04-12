@@ -53,8 +53,12 @@ impl Body {
     pub fn human() -> Self {
         Self {
             parts: vec![
-                BodyPart::vital(BodyPartKind::Head, 50.0, vec![(Channel::Cognition, 1.0)])
-                    .with_organs(head_organs()),
+                BodyPart::vital(
+                    BodyPartKind::Head,
+                    50.0,
+                    vec![(Channel::Focus, 1.0), (Channel::Awareness, 1.0)],
+                )
+                .with_organs(head_organs()),
                 BodyPart::vital(BodyPartKind::Torso, 100.0, vec![(Channel::FullBody, 1.0)])
                     .with_organs(torso_organs()),
                 BodyPart::new(
@@ -93,7 +97,7 @@ impl Body {
     pub fn wolf() -> Self {
         Self {
             parts: vec![
-                BodyPart::vital(BodyPartKind::Head, 50.0, vec![(Channel::Cognition, 0.6)])
+                BodyPart::vital(BodyPartKind::Head, 50.0, vec![(Channel::Focus, 0.6), (Channel::Awareness, 0.8)])
                     .with_organs(head_organs()),
                 BodyPart::vital(BodyPartKind::Torso, 100.0, vec![(Channel::FullBody, 1.0)])
                     .with_organs(torso_organs()),
@@ -137,8 +141,12 @@ impl Body {
     pub fn deer() -> Self {
         Self {
             parts: vec![
-                BodyPart::vital(BodyPartKind::Head, 40.0, vec![(Channel::Cognition, 0.4)])
-                    .with_organs(head_organs()),
+                BodyPart::vital(
+                    BodyPartKind::Head,
+                    40.0,
+                    vec![(Channel::Focus, 0.4), (Channel::Awareness, 1.0)],
+                )
+                .with_organs(head_organs()),
                 BodyPart::vital(BodyPartKind::Torso, 80.0, vec![(Channel::FullBody, 1.0)])
                     .with_organs(torso_organs()),
                 BodyPart::new(

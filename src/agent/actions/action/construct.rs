@@ -51,7 +51,10 @@ impl Action for ConstructAction {
     }
 
     fn body_channels(&self) -> &'static [ChannelUsage] {
-        const CHANNELS: &[ChannelUsage] = &[ChannelUsage::new(Channel::Manipulation, 0.8)];
+        const CHANNELS: &[ChannelUsage] = &[
+            ChannelUsage::new(Channel::Manipulation, 0.8),
+            ChannelUsage::new(Channel::Focus, 0.4),
+        ];
         CHANNELS
     }
 

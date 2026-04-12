@@ -322,7 +322,7 @@ fn multiple_executing_plans_admit_in_parallel() {
     let mut cns = CentralNervousSystem::default();
     cns.urgencies.push(Urgency::new(UrgencySource::Hunger, 0.5));
     let registry = ActionRegistry::new();
-    let proposals = rational_brain_propose(&memory, &cns, &MindGraph::default(), &registry, false);
+    let proposals = rational_brain_propose(&memory, &cns, &MindGraph::default(), &registry);
 
     let kinds: Vec<_> = proposals.iter().map(|p| p.action.action_type).collect();
     assert!(
@@ -424,7 +424,7 @@ fn arbitration_admits_walk_and_converse_in_parallel() {
     let mut cns = CentralNervousSystem::default();
     cns.urgencies.push(Urgency::new(UrgencySource::Hunger, 0.7));
     let registry = ActionRegistry::new();
-    let proposals = rational_brain_propose(&memory, &cns, &MindGraph::default(), &registry, false);
+    let proposals = rational_brain_propose(&memory, &cns, &MindGraph::default(), &registry);
 
     let powers = BrainPowers {
         survival: 1.0,

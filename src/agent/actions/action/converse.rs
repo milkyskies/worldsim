@@ -48,7 +48,11 @@ impl Action for ConverseAction {
     }
 
     fn body_channels(&self) -> &'static [ChannelUsage] {
-        const CHANNELS: &[ChannelUsage] = &[ChannelUsage::new(Channel::Vocalization, 0.6)];
+        const CHANNELS: &[ChannelUsage] = &[
+            ChannelUsage::new(Channel::Vocalization, 0.6),
+            ChannelUsage::new(Channel::Focus, 0.6),
+            ChannelUsage::new(Channel::Awareness, 0.3),
+        ];
         CHANNELS
     }
 

@@ -50,6 +50,8 @@ impl Action for AttackAction {
         const CHANNELS: &[ChannelUsage] = &[
             ChannelUsage::new(Channel::Manipulation, 0.9),
             ChannelUsage::new(Channel::FullBody, 0.7),
+            ChannelUsage::new(Channel::Focus, 0.3),
+            ChannelUsage::new(Channel::Awareness, 0.5),
         ];
         CHANNELS
     }
