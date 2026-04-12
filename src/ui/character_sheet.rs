@@ -87,6 +87,9 @@ pub enum CharSheetTab {
     #[default]
     Overview,
     Needs,
+    /// All plans the agent holds plus the last brain arbitration —
+    /// "what's the agent considering, and who's winning the argument?"
+    Plans,
     Personality,
     Skills,
     Social,
@@ -105,6 +108,7 @@ impl CharSheetTab {
         match self {
             CharSheetTab::Overview => "Overview",
             CharSheetTab::Needs => "Needs",
+            CharSheetTab::Plans => "Plans",
             CharSheetTab::Personality => "Personality",
             CharSheetTab::Skills => "Skills",
             CharSheetTab::Social => "Social",
@@ -245,6 +249,7 @@ fn character_sheet_system(world: &mut World) {
                 .show(ui, |ui| match new_tab {
                     CharSheetTab::Overview => render_overview(ui, world, entity),
                     CharSheetTab::Needs => render_needs(ui, world, entity),
+                    CharSheetTab::Plans => render_plans(ui, world, entity),
                     CharSheetTab::Personality => render_personality(ui, world, entity),
                     CharSheetTab::Skills => render_skills(ui, world, entity),
                     CharSheetTab::Social => render_social(ui, world, entity),
@@ -318,6 +323,10 @@ fn visible_tabs_for_entity(
 
     if world.get::<PhysicalNeeds>(entity).is_some() {
         tabs.push(CharSheetTab::Needs);
+    }
+
+    if world.get::<PlanMemory>(entity).is_some() || world.get::<BrainState>(entity).is_some() {
+        tabs.push(CharSheetTab::Plans);
     }
 
     if world.get::<Personality>(entity).is_some() {
@@ -1603,6 +1612,302 @@ fn render_activity(ui: &mut egui::Ui, world: &World, entity: Entity) {
 
 // ============================================================================
 // BRAIN TAB (debug only)
+// ============================================================================
+
+// ============================================================================
+// PLANS TAB — active plan memory + last brain arbitration
+// ============================================================================
+
+/// Renders everything the agent is currently "thinking about":
+/// - The brain arbitration header: powers per brain, last-tick winner,
+///   and the chosen actions the brain is driving this frame.
+/// - All `HeldPlan`s in `PlanMemory`, grouped by state (Executing,
+///   Considering, Background, Suspended), with step chains, commitment
+///   bars against each plan's threshold, goal, and source.
+/// - The full `BrainProposal` list sorted by effective score so the
+///   player can see "Survival wants Eat at 76, Emotional wants
+///   Converse at 22, Rational wants Harvest at 60, Survival won".
+fn render_plans(ui: &mut egui::Ui, world: &World, entity: Entity) {
+    let brain = world.get::<BrainState>(entity);
+    let memory = world.get::<PlanMemory>(entity);
+    let personality = world.get::<Personality>(entity);
+
+    // ── Arbitration: powers + winner ─────────────────────────────────
+    if let Some(brain) = brain {
+        ui.label(egui::RichText::new("Brain powers").strong());
+        let p = &brain.powers;
+        let total = (p.survival + p.emotional + p.rational).max(1.0);
+        power_bar(ui, BrainType::Survival, p.survival, total);
+        power_bar(ui, BrainType::Emotional, p.emotional, total);
+        power_bar(ui, BrainType::Rational, p.rational, total);
+
+        ui.horizontal(|ui| {
+            ui.label(egui::RichText::new("Winner:").strong());
+            if let Some(winner) = brain.winner {
+                ui.colored_label(brain_color(winner), winner.display_name());
+            } else {
+                ui.label(egui::RichText::new("(none)").italics().color(Color32::GRAY));
+            }
+        });
+
+        if !brain.chosen_actions.is_empty() {
+            ui.horizontal_wrapped(|ui| {
+                ui.label(egui::RichText::new("Doing now:").strong());
+                for action in &brain.chosen_actions {
+                    ui.colored_label(Color32::YELLOW, &action.name);
+                }
+            });
+        }
+        ui.separator();
+    }
+
+    // ── Held plans grouped by lifecycle state ────────────────────────
+    if let Some(memory) = memory {
+        if memory.plans.is_empty() {
+            ui.label(
+                egui::RichText::new("No plans held")
+                    .italics()
+                    .color(Color32::GRAY),
+            );
+        } else {
+            ui.label(egui::RichText::new(format!("Plans held: {}", memory.plans.len())).strong());
+            ui.add_space(4.0);
+
+            // Render in priority order: Executing first (these are what
+            // the agent's actually doing), then Considering (next up),
+            // then Background and Suspended (farther from acting).
+            let order = [
+                (
+                    PlanState::Executing,
+                    "Executing",
+                    Color32::from_rgb(255, 210, 90),
+                ),
+                (
+                    PlanState::Considering,
+                    "Considering",
+                    Color32::from_rgb(180, 210, 255),
+                ),
+                (PlanState::Background, "Background", Color32::LIGHT_GRAY),
+                (
+                    PlanState::Suspended,
+                    "Suspended",
+                    Color32::from_rgb(180, 140, 140),
+                ),
+            ];
+            for (state, label, color) in order {
+                let plans: Vec<_> = memory.in_state(state).collect();
+                if plans.is_empty() {
+                    continue;
+                }
+                ui.colored_label(color, format!("{} ({})", label, plans.len()));
+                for plan in plans {
+                    render_held_plan(ui, plan, personality);
+                }
+                ui.add_space(4.0);
+            }
+        }
+    }
+
+    // ── Full proposal list from the last arbitration ─────────────────
+    if let Some(brain) = brain
+        && !brain.proposals.is_empty()
+    {
+        ui.separator();
+        ui.label(egui::RichText::new("Last arbitration").strong());
+        let mut sorted: Vec<&crate::agent::brains::proposal::BrainProposal> =
+            brain.proposals.iter().collect();
+        sorted.sort_by(|a, b| {
+            let a_score = a.urgency * a.brain.power(&brain.powers);
+            let b_score = b.urgency * b.brain.power(&brain.powers);
+            b_score
+                .partial_cmp(&a_score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        for prop in sorted {
+            let admitted = brain
+                .chosen_actions
+                .iter()
+                .any(|a| a.name == prop.action.name);
+            let effective = prop.urgency * prop.brain.power(&brain.powers);
+            let mark = if admitted { "✓" } else { "·" };
+            ui.horizontal(|ui| {
+                ui.colored_label(
+                    if admitted {
+                        Color32::YELLOW
+                    } else {
+                        Color32::GRAY
+                    },
+                    mark,
+                );
+                ui.colored_label(brain_color(prop.brain), prop.brain.display_name());
+                ui.label(egui::RichText::new(&prop.action.name).color(if admitted {
+                    Color32::WHITE
+                } else {
+                    Color32::LIGHT_GRAY
+                }));
+                ui.label(
+                    egui::RichText::new(format!(
+                        "u={:.0}  ×{:.1}  = {:.0}",
+                        prop.urgency,
+                        prop.brain.power(&brain.powers),
+                        effective,
+                    ))
+                    .small()
+                    .color(Color32::GRAY),
+                );
+            });
+            if !prop.reasoning.is_empty() {
+                ui.label(
+                    egui::RichText::new(format!("    {}", prop.reasoning))
+                        .italics()
+                        .small()
+                        .color(Color32::from_gray(170)),
+                );
+            }
+        }
+    }
+}
+
+fn brain_color(brain: BrainType) -> Color32 {
+    match brain {
+        BrainType::Survival => Color32::from_rgb(230, 120, 100),
+        BrainType::Emotional => Color32::from_rgb(255, 160, 210),
+        BrainType::Rational => Color32::from_rgb(140, 200, 255),
+    }
+}
+
+fn power_bar(ui: &mut egui::Ui, brain: BrainType, value: f32, total: f32) {
+    let frac = (value / total).clamp(0.0, 1.0);
+    ui.horizontal(|ui| {
+        ui.add_sized([80.0, 0.0], egui::Label::new(brain.display_name()));
+        ui.add(
+            egui::ProgressBar::new(frac)
+                .desired_width(180.0)
+                .fill(brain_color(brain))
+                .text(format!("{:.1}", value)),
+        );
+    });
+}
+
+fn render_held_plan(
+    ui: &mut egui::Ui,
+    plan: &crate::agent::brains::plan_memory::HeldPlan,
+    personality: Option<&Personality>,
+) {
+    ui.group(|ui| {
+        // Step chain (✓ done, ▶ current, bare = upcoming)
+        if plan.steps.is_empty() {
+            ui.label(
+                egui::RichText::new("(stepless)")
+                    .italics()
+                    .color(Color32::GRAY),
+            );
+        } else {
+            let chain: Vec<String> = plan
+                .steps
+                .iter()
+                .enumerate()
+                .map(|(i, step)| {
+                    if i < plan.current_step {
+                        format!("✓{}", step.name)
+                    } else if i == plan.current_step {
+                        format!("▶{}", step.name)
+                    } else {
+                        step.name.clone()
+                    }
+                })
+                .collect();
+            ui.label(egui::RichText::new(chain.join("  →  ")).strong());
+        }
+
+        // Goal
+        let goal_text = plan
+            .goal
+            .conditions
+            .iter()
+            .map(|c| {
+                format!(
+                    "{:?}={}",
+                    c.predicate
+                        .map(|p| format!("{:?}", p))
+                        .unwrap_or_else(|| "?".into()),
+                    c.object
+                        .as_ref()
+                        .map(|o| format!("{:?}", o))
+                        .unwrap_or_else(|| "?".into()),
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+        ui.label(
+            egui::RichText::new(format!(
+                "goal: {}  (priority {:.2})",
+                if goal_text.is_empty() {
+                    "(none)".into()
+                } else {
+                    goal_text
+                },
+                plan.goal.priority,
+            ))
+            .small()
+            .color(Color32::GRAY),
+        );
+
+        // Commitment bar vs cost-derived threshold — this is the
+        // promotion ladder in visual form. A plan at Executing with
+        // low commitment is about to be suspended; Background with
+        // rising commitment is about to be Considering.
+        let threshold = personality
+            .map(|p| {
+                crate::agent::brains::rational::compute_commit_threshold(
+                    plan.subjective_cost,
+                    p.traits.conscientiousness,
+                )
+            })
+            .unwrap_or(plan.subjective_cost);
+        let frac = if threshold > 0.0 {
+            (plan.commitment / threshold).clamp(0.0, 1.5)
+        } else {
+            0.0
+        };
+        let fill = if plan.commitment >= threshold {
+            Color32::from_rgb(120, 200, 140)
+        } else {
+            Color32::from_rgb(160, 170, 200)
+        };
+        ui.horizontal(|ui| {
+            ui.label(egui::RichText::new("commit").small());
+            ui.add(
+                egui::ProgressBar::new((frac / 1.5).clamp(0.0, 1.0))
+                    .desired_width(160.0)
+                    .fill(fill)
+                    .text(format!("{:.2}/{:.2}", plan.commitment, threshold)),
+            );
+        });
+
+        // Provenance line — was this the agent's own idea or a
+        // commitment they made out loud?
+        let source = match &plan.source {
+            crate::agent::brains::plan_memory::PlanSource::Brain(b) => {
+                format!("{} brain", b.display_name())
+            }
+            crate::agent::brains::plan_memory::PlanSource::VerbalCommitment { .. } => {
+                "verbal commitment".into()
+            }
+        };
+        ui.label(
+            egui::RichText::new(format!(
+                "source: {}  cost {:.2}",
+                source, plan.subjective_cost
+            ))
+            .small()
+            .color(Color32::from_gray(140)),
+        );
+    });
+}
+
+// ============================================================================
+// BRAIN TAB — developer-only raw proposal dump
 // ============================================================================
 
 fn render_brain(ui: &mut egui::Ui, world: &World, entity: Entity) {
