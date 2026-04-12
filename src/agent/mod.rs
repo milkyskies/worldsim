@@ -23,10 +23,22 @@ pub mod subject;
 use bevy::prelude::*;
 
 /// Marker component for all thinking entities (humans, animals, etc.)
-/// Systems that apply to all agents should query With<Agent>.
+/// Removed by `kill_into_corpse` when the entity becomes a corpse.
+/// For liveness checks, prefer `With<Alive>` — it is removed earlier
+/// (by `die()`) and has no 1-tick gap.
 #[derive(Component, Reflect, Default)]
 #[reflect(Component)]
 pub struct Agent;
+
+/// Marker for a living agent. Inserted at spawn, removed by `die()`.
+#[derive(Component, Reflect, Default)]
+#[reflect(Component)]
+pub struct Alive;
+
+/// Marker for a dead agent. Inserted by `die()`, persists on the corpse.
+#[derive(Component, Reflect, Default)]
+#[reflect(Component)]
+pub struct Dead;
 
 /// Marker component for human agents specifically.
 /// Use this for human-only behavior (speech, tool use, etc.)
@@ -45,6 +57,8 @@ impl Plugin for AgentPlugin {
         use crate::core::{every_n_ticks, not_paused};
 
         app.register_type::<Agent>()
+            .register_type::<Alive>()
+            .register_type::<Dead>()
             .register_type::<Person>()
             .register_type::<TargetPosition>()
             .register_type::<movement::MovementState>()

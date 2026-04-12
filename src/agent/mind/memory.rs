@@ -387,7 +387,10 @@ fn record_knowledge_shared(
 ///
 /// Intrinsic, Cultural, and Procedural memories never decay.
 pub fn decay_stale_knowledge(
-    mut agents: Query<(Entity, &mut crate::agent::mind::knowledge::MindGraph)>,
+    mut agents: Query<
+        (Entity, &mut crate::agent::mind::knowledge::MindGraph),
+        With<crate::agent::Alive>,
+    >,
     tick: Res<crate::core::TickCount>,
     decay_config: Res<MemoryDecayConfig>,
     mut game_log: ResMut<crate::core::GameLog>,

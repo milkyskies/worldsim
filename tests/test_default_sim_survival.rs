@@ -375,24 +375,16 @@ fn hungry_agent_with_visible_bush_plans_a_harvest() {
 /// (Realistic biome placement, wolves triggering Fear→Flee interrupts,
 /// scattered food, natural hunger ramp-up).
 fn assert_humans_survive_default_sim(ticks: u64) {
-    use bevy::prelude::{With, Without};
-    use worldsim::agent::{Agent, Person};
-    use worldsim::world::becomes::Becomes;
+    use bevy::prelude::With;
+    use worldsim::agent::{Alive, Person};
     use worldsim::world::spawn_config::WorldSpawnConfig;
 
     let mut world = TestWorld::game_defaults(42);
-    // Only count humans who are still living Agents — `Person` alone
-    // stays on the entity after `kill_into_corpse` strips the `Agent`
-    // marker, so querying `With<Person>` would count corpses and hide
-    // every starvation. `With<Agent>` is the living-only predicate;
-    // `Without<Becomes>` also excludes humans mid-transition into a
-    // Corpse (the one-tick gap between `die()` and the substrate run).
     let alive_count = |world: &mut TestWorld| -> usize {
         let mut q = world
             .app_mut()
             .world_mut()
-            .query_filtered::<bevy::prelude::Entity, (With<Person>, With<Agent>, Without<Becomes>)>(
-            );
+            .query_filtered::<bevy::prelude::Entity, (With<Person>, With<Alive>)>();
         q.iter(world.app().world()).count()
     };
     let initial_humans = alive_count(&mut world);

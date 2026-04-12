@@ -5,6 +5,7 @@
 //! Upstream: activity system (CurrentActivity, ActivityConfig), core::tick (TickCount)
 //! Downstream: nervous_system::urgency (reads updated needs to recalculate urgencies)
 
+use crate::agent::Alive;
 use crate::agent::activity::{ActivityConfig, CurrentActivity};
 use crate::agent::biology::body::Body;
 use crate::agent::body::needs::{Consciousness, PhysicalNeeds, PsychologicalDrives};
@@ -35,11 +36,14 @@ use bevy::prelude::*;
 pub fn tick_metabolism(
     activity_config: Res<ActivityConfig>,
     tick: Res<TickCount>,
-    mut query: Query<(
-        &mut PhysicalNeeds,
-        Option<&Body>,
-        Option<&crate::agent::body::genetics::phenotype::Phenotype>,
-    )>,
+    mut query: Query<
+        (
+            &mut PhysicalNeeds,
+            Option<&Body>,
+            Option<&crate::agent::body::genetics::phenotype::Phenotype>,
+        ),
+        With<Alive>,
+    >,
 ) {
     let dt = tick.dt();
     let bmr_drain = activity_config.base.effects.glucose_drain;

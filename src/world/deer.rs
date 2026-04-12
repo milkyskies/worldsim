@@ -10,7 +10,7 @@ use crate::agent::body::genetics::founder::random_genome;
 use crate::agent::body::species::{Species, SpeciesProfile};
 use crate::agent::mind::knowledge::{Concept, MindGraph, Ontology};
 use crate::agent::naming::deer_name;
-use crate::agent::{Agent, inventory::EntityType, item_slots::ItemSlots};
+use crate::agent::{Agent, Alive, inventory::EntityType, item_slots::ItemSlots};
 use bevy::prelude::*;
 use rand::Rng;
 
@@ -44,8 +44,9 @@ pub fn spawn_deer<R: Rng>(
     let entity = commands
         .spawn((
             Name::new(deer_name(index)),
-            Agent, // All thinking entities have this
-            Deer,  // Deer-specific marker
+            Agent,
+            Alive,
+            Deer,
             EntityType(Concept::Deer),
             species_profile,
             crate::world::Physical,
