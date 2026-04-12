@@ -43,6 +43,29 @@ pub fn survival_brain_propose(
     }
 
     // Find the top survival-relevant urgency (urgencies are sorted highest-first).
+    // Special case: if Sleepiness is above the sleep threshold, it always
+    // wins over other survival drives that would only produce Rest. An agent
+    // who is both physically tired and sleepy should Sleep, not Rest — Sleep
+    // recovers both wakefulness and stamina, while Rest only recovers stamina.
+    let sleepiness = context
+        .cns
+        .urgencies
+        .iter()
+        .find(|u| u.source == UrgencySource::Sleepiness);
+    if let Some(s) = sleepiness {
+        if s.value >= SLEEPINESS_SLEEP_THRESHOLD {
+            if let Some(action) = action_registry.get(ActionType::Sleep) {
+                return Some(BrainProposal {
+                    brain: BrainType::Survival,
+                    action: action.to_template(None),
+                    urgency: s.value * 100.0,
+                    intent: Intent::SatisfySleepiness,
+                    reasoning: format!("Sleepiness urgency {:.2} — sleeping!", s.value),
+                });
+            }
+        }
+    }
+
     let top = context
         .cns
         .urgencies
