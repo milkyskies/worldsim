@@ -241,11 +241,6 @@ pub trait Action: Send + Sync + 'static {
     fn name(&self) -> &'static str;
 
     /// The default behavior configuration for this action.
-    ///
-    /// Returns the primitive, target strategy, intensity policy, and
-    /// motivational intent. This is what the brain proposes and the
-    /// execution system runs — replaces the old bridge methods on
-    /// `ActionType` (`motor_primitive()`, `default_intensity_policy()`).
     fn default_behavior(&self) -> Behavior;
 
     /// The motor primitive this action resolves to.

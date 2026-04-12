@@ -2,7 +2,9 @@
 
 use crate::agent::actions::ActionType;
 use crate::agent::actions::channel::{Channel, ChannelUsage, Posture};
-use crate::agent::actions::motor::{ActionPrimitive, Behavior, IntensityPolicy, TargetSelector};
+use crate::agent::actions::motor::{
+    ActionPrimitive, Behavior, IntensityPolicy, Intent, TargetSelector,
+};
 use crate::agent::actions::registry::{Action, ActionKind};
 
 pub struct ExploreAction;
@@ -21,7 +23,7 @@ impl Action for ExploreAction {
             ActionPrimitive::Locomote,
             TargetSelector::UnknownArea,
             IntensityPolicy::Normal,
-            crate::agent::actions::motor::Intent::Curiosity,
+            Intent::Curiosity,
         )
     }
 

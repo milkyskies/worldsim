@@ -7,7 +7,9 @@
 
 use crate::agent::actions::ActionType;
 use crate::agent::actions::channel::{Channel, ChannelUsage, Posture};
-use crate::agent::actions::motor::{ActionPrimitive, Behavior, IntensityPolicy, TargetSelector};
+use crate::agent::actions::motor::{
+    ActionPrimitive, Behavior, IntensityPolicy, Intent, TargetSelector,
+};
 use crate::agent::actions::registry::{Action, ActionKind, TargetSource};
 
 /// Canonical display name for the Walk action. Shared with the planner's
@@ -31,7 +33,7 @@ impl Action for WalkAction {
             ActionPrimitive::Locomote,
             TargetSelector::InPlace,
             IntensityPolicy::Normal,
-            crate::agent::actions::motor::Intent::Goal,
+            Intent::Goal,
         )
     }
 

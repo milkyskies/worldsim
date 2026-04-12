@@ -9,7 +9,9 @@
 
 use crate::agent::actions::ActionType;
 use crate::agent::actions::channel::{Channel, ChannelUsage, Posture};
-use crate::agent::actions::motor::{ActionPrimitive, Behavior, IntensityPolicy, TargetSelector};
+use crate::agent::actions::motor::{
+    ActionPrimitive, Behavior, IntensityPolicy, Intent, TargetSelector,
+};
 use crate::agent::actions::registry::{
     Action, ActionContext, ActionKind, CompletionContext, TargetSource,
 };
@@ -57,7 +59,7 @@ impl Action for DrinkAction {
             ActionPrimitive::Ingest,
             TargetSelector::InPlace,
             IntensityPolicy::Fixed(0.0),
-            crate::agent::actions::motor::Intent::Thirst,
+            Intent::Thirst,
         )
     }
 

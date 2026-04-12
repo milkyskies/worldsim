@@ -2,7 +2,9 @@
 
 use crate::agent::actions::ActionType;
 use crate::agent::actions::channel::{ChannelSlices, ChannelUsage, Posture};
-use crate::agent::actions::motor::{ActionPrimitive, Behavior, IntensityPolicy, TargetSelector};
+use crate::agent::actions::motor::{
+    ActionPrimitive, Behavior, IntensityPolicy, Intent, TargetSelector,
+};
 use crate::agent::actions::registry::{Action, ActionKind};
 
 pub struct IdleAction;
@@ -21,7 +23,7 @@ impl Action for IdleAction {
             ActionPrimitive::Rest,
             TargetSelector::InPlace,
             IntensityPolicy::Fixed(0.0),
-            crate::agent::actions::motor::Intent::Goal,
+            Intent::Goal,
         )
     }
 

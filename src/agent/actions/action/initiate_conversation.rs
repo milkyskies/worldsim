@@ -17,7 +17,9 @@
 
 use crate::agent::actions::ActionType;
 use crate::agent::actions::channel::{Channel, ChannelUsage, Posture};
-use crate::agent::actions::motor::{ActionPrimitive, Behavior, IntensityPolicy, TargetSelector};
+use crate::agent::actions::motor::{
+    ActionPrimitive, Behavior, IntensityPolicy, Intent, TargetSelector,
+};
 use crate::agent::actions::registry::{Action, ActionContext, ActionKind, TargetSource};
 use crate::agent::events::FailureReason;
 
@@ -33,7 +35,7 @@ impl Action for InitiateConversationAction {
             ActionPrimitive::Locomote,
             TargetSelector::InPlace,
             IntensityPolicy::Normal,
-            crate::agent::actions::motor::Intent::Social,
+            Intent::Social,
         )
     }
 

@@ -2,7 +2,9 @@
 
 use crate::agent::actions::ActionType;
 use crate::agent::actions::channel::{Channel, ChannelUsage, Posture};
-use crate::agent::actions::motor::{ActionPrimitive, Behavior, IntensityPolicy, TargetSelector};
+use crate::agent::actions::motor::{
+    ActionPrimitive, Behavior, IntensityPolicy, Intent, TargetSelector,
+};
 use crate::agent::actions::registry::{Action, ActionKind};
 
 pub struct FleeAction;
@@ -21,7 +23,7 @@ impl Action for FleeAction {
             ActionPrimitive::Locomote,
             TargetSelector::ThreatAvoidant,
             IntensityPolicy::Maximal,
-            crate::agent::actions::motor::Intent::Safety,
+            Intent::Safety,
         )
     }
 

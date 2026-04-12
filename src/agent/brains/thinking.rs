@@ -104,9 +104,6 @@ impl TriplePattern {
 pub struct ActionTemplate {
     pub name: String,
     pub action_type: ActionType,
-    /// The motor configuration: primitive, target strategy, intensity policy,
-    /// and motivational intent. Brains build this directly via
-    /// `Action::default_behavior()` instead of going through ActionType bridges.
     pub behavior: Behavior,
     pub target_entity: Option<Entity>,
     pub target_position: Option<Vec2>,

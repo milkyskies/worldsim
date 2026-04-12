@@ -1,6 +1,8 @@
 use crate::agent::actions::ActionType;
 use crate::agent::actions::channel::{Channel, ChannelUsage, Posture};
-use crate::agent::actions::motor::{ActionPrimitive, Behavior, IntensityPolicy, TargetSelector};
+use crate::agent::actions::motor::{
+    ActionPrimitive, Behavior, IntensityPolicy, Intent, TargetSelector,
+};
 use crate::agent::actions::registry::{Action, ActionKind};
 use crate::agent::mind::knowledge::{Concept, Node, Predicate, Triple, Value};
 
@@ -20,7 +22,7 @@ impl Action for WakeUpAction {
             ActionPrimitive::Rest,
             TargetSelector::InPlace,
             IntensityPolicy::Fixed(0.3),
-            crate::agent::actions::motor::Intent::Fatigue,
+            Intent::Fatigue,
         )
     }
 
