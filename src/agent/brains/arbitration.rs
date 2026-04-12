@@ -258,15 +258,8 @@ mod tests {
         let registry = ActionRegistry::new();
         let behavior = registry
             .get(action_type)
-            .map(|a| a.default_behavior())
-            .unwrap_or_else(|| {
-                crate::agent::actions::motor::Behavior::new(
-                    action_type.motor_primitive(),
-                    Default::default(),
-                    action_type.default_intensity_policy(),
-                    Default::default(),
-                )
-            });
+            .expect("all actions must be registered")
+            .default_behavior();
         let locomotion_intensity = behavior.intensity.resolve();
         BrainProposal {
             brain,
@@ -606,6 +599,39 @@ mod tests {
             admitted[0].action.action_type,
             ActionType::Flee,
             "Survival Flee at critical urgency should be the top-ranked winner"
+        );
+    }
+
+    #[test]
+    fn arbitration_compares_behaviors_by_primitive() {
+        use crate::agent::actions::motor::ActionPrimitive;
+        let powers = unit_powers();
+        let registry = ActionRegistry::new();
+        let capacities = ChannelCapacities::full();
+
+        let walk = make_proposal(
+            BrainType::Rational,
+            ActionType::Walk,
+            60.0,
+            Intent::SatisfyHunger,
+        );
+        let eat = make_proposal(
+            BrainType::Survival,
+            ActionType::Eat,
+            40.0,
+            Intent::SatisfyHunger,
+        );
+
+        // Same intent — only the higher-scoring proposal survives dedup.
+        // The admitted action's behavior should carry the correct primitive.
+        let proposals = [Some(walk), Some(eat), None];
+        let admitted = arbitrate_parallel(&proposals, &powers, &capacities, &registry).admitted;
+
+        assert!(!admitted.is_empty());
+        assert_eq!(
+            admitted[0].action.behavior.primitive,
+            ActionPrimitive::Locomote,
+            "Walk (Locomote) should win over Eat (Ingest) at higher urgency"
         );
     }
 }

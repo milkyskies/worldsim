@@ -506,4 +506,36 @@ mod tests {
             "awake agents route through the urgency ladder, not the sleep gate; got {proposal:?}"
         );
     }
+
+    #[test]
+    fn survival_brain_proposes_behavior_not_action_type() {
+        use crate::agent::actions::motor::{ActionPrimitive, Intent as MotorIntent};
+
+        let ontology = setup_ontology();
+        let physical = PhysicalNeeds::default();
+        let cns = cns_with_top(UrgencySource::Hunger, 0.9);
+        let context = context_with_urgency(&physical, &cns);
+
+        let mut inventory = crate::agent::item_slots::ItemSlots::agent_carry();
+        inventory.add(crate::agent::mind::knowledge::Concept::Apple, 1);
+        let active = ActiveActions::default();
+
+        let mut registry = crate::agent::actions::ActionRegistry::default();
+        registry.register(crate::agent::actions::action::EatAction);
+
+        let proposal = survival_brain_propose(context, &inventory, &active, &ontology, &registry)
+            .expect("should propose Eat");
+
+        let behavior = &proposal.action.behavior;
+        assert_eq!(
+            behavior.primitive,
+            ActionPrimitive::Ingest,
+            "Eat should use the Ingest primitive"
+        );
+        assert_eq!(
+            behavior.intent,
+            MotorIntent::Hunger,
+            "Eat should carry Hunger intent"
+        );
+    }
 }
