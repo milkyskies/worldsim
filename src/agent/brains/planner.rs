@@ -7,10 +7,14 @@
 
 use super::thinking::{ActionTemplate, Goal, TriplePattern};
 use crate::agent::actions::ActionType;
+use crate::agent::actions::motor::ActionPrimitive;
+use crate::agent::body::effort::{self, compute_action_cost};
 use crate::agent::body::needs::{Consciousness, PhysicalNeeds};
+use crate::agent::body::species::SpeciesProfile;
 use crate::agent::mind::knowledge::{
     Concept, MindGraph, Node as MindNode, Ontology, Predicate, Triple, Value,
 };
+use crate::agent::movement::intensity_speed_multiplier;
 use crate::agent::psyche::personality::Personality;
 use crate::constants::actions::walk as walk_const;
 use crate::constants::brains::survival::EXHAUSTION_TRIGGER;
@@ -55,6 +59,16 @@ pub struct PlanCostContext {
     /// transient beliefs like `(Tile, HasTrait, Unreachable)` so an old
     /// path-blocked marker eventually stops filtering walk targets.
     pub current_tick: u64,
+    /// Agent body mass in kg. Scales effort-model energy cost.
+    pub body_mass: f32,
+    /// Species base speed (tiles/tick multiplier). Affects walk duration estimates.
+    pub species_base_speed: f32,
+    /// Current glucose level. Used by feasibility check.
+    pub glucose: f32,
+    /// Current fat reserves. Used by feasibility check.
+    pub reserves: f32,
+    /// Current anaerobic stamina. Used by feasibility check.
+    pub stamina_anaerobic: f32,
 }
 
 /// How long a `(Tile, HasTrait, Unreachable)` belief suppresses walk
@@ -72,6 +86,11 @@ impl PlanCostContext {
             alertness: 1.0,
             neuroticism: 0.0,
             current_tick: 0,
+            body_mass: effort::DEFAULT_BODY_MASS,
+            species_base_speed: 1.0,
+            glucose: crate::agent::body::metabolism::GLUCOSE_MAX,
+            reserves: crate::agent::body::metabolism::RESERVES_MAX,
+            stamina_anaerobic: 100.0,
         }
     }
 
@@ -80,6 +99,7 @@ impl PlanCostContext {
         physical: &PhysicalNeeds,
         consciousness: &Consciousness,
         personality: &Personality,
+        species: Option<&SpeciesProfile>,
         current_tick: u64,
     ) -> Self {
         Self {
@@ -87,80 +107,18 @@ impl PlanCostContext {
             alertness: consciousness.alertness.clamp(0.0, 1.0),
             neuroticism: personality.traits.neuroticism.clamp(0.0, 1.0),
             current_tick,
-        }
-    }
-
-    fn stamina_factor(&self) -> f32 {
-        quadratic_depletion(self.stamina_aerobic)
-    }
-
-    fn alertness_factor(&self) -> f32 {
-        quadratic_depletion(self.alertness)
-    }
-
-    fn fatigue_factor(&self, profile: CostProfile) -> f32 {
-        match profile {
-            CostProfile::Physical => self.stamina_factor(),
-            CostProfile::Cognitive => self.alertness_factor(),
-            CostProfile::Mixed => (self.stamina_factor() * self.alertness_factor()).sqrt(),
+            body_mass: species
+                .map(|s| s.mass_kg)
+                .unwrap_or(effort::DEFAULT_BODY_MASS),
+            species_base_speed: species.map(|s| s.base_speed).unwrap_or(1.0),
+            glucose: physical.metabolism.glucose,
+            reserves: physical.metabolism.reserves,
+            stamina_anaerobic: physical.stamina.anaerobic,
         }
     }
 
     fn personality_factor(&self) -> f32 {
         1.0 + self.neuroticism * PERSONALITY_COST_SCALE
-    }
-}
-
-/// Quadratic inflation curve shared by both fatigue channels: a full reserve
-/// returns 1.0, an empty reserve returns 2.0, and the growth is smooth so a
-/// half-empty reserve only inflates by 25%.
-fn quadratic_depletion(fill: f32) -> f32 {
-    let depletion = (1.0 - fill).clamp(0.0, 1.0);
-    1.0 + depletion * depletion
-}
-
-/// Classifies an action by which fatigue resource dominates its cost.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum CostProfile {
-    /// Stamina-bound.
-    Physical,
-    /// Alertness-bound.
-    Cognitive,
-    /// Both matter.
-    Mixed,
-}
-
-/// Exhaustive classifier. Adding a new `ActionType` intentionally triggers a
-/// compile error so the reviewer picks a profile instead of inheriting
-/// `Physical` by accident.
-fn cost_profile_for(action_type: ActionType) -> CostProfile {
-    match action_type {
-        ActionType::Eat
-        | ActionType::Drink
-        | ActionType::Graze
-        | ActionType::Sleep
-        | ActionType::WakeUp
-        | ActionType::Idle
-        | ActionType::Wander
-        | ActionType::Harvest
-        | ActionType::Pickup
-        | ActionType::Drop
-        | ActionType::Build
-        | ActionType::Deposit
-        | ActionType::Take
-        | ActionType::Walk
-        | ActionType::Construct
-        | ActionType::Attack
-        | ActionType::Bite
-        | ActionType::Flee
-        | ActionType::Rest
-        | ActionType::Groom => CostProfile::Physical,
-
-        ActionType::Converse | ActionType::Observe => CostProfile::Cognitive,
-
-        ActionType::InitiateConversation | ActionType::Wave | ActionType::Explore => {
-            CostProfile::Mixed
-        }
     }
 }
 
@@ -286,27 +244,72 @@ fn action_risk_factor(action: &ActionTemplate, mind: &MindGraph, cache: &PlanCos
     1.0
 }
 
-/// Subjective cost for an explicit action. Defaults to `base_cost` under a
-/// neutral context with no risk data.
+// ─── Effort-based cost estimation ──────────────────────────────────────────
+//
+// The planner uses the same effort model as the execution system to estimate
+// energy cost per plan step. This replaces the old flat `base_cost * fatigue`
+// formula with physics-based estimates so a 200-tile walk costs 40x more than
+// a 5-tile walk.
+
+/// Default duration estimate (in ticks) for indefinite actions the planner
+/// encounters. Sleep uses a recovery-time estimate; these cover the rest.
+const INDEFINITE_ACTION_DURATION_TICKS: u32 = 300; // 5 seconds
+
+/// Estimate the energy cost (in metabolic units) for a timed action step.
+fn effort_cost_timed(action: &ActionTemplate, ctx: &PlanCostContext) -> f32 {
+    let primitive = action.behavior.primitive;
+    let intensity = action.behavior.intensity.resolve();
+    let profile = primitive.effort_profile().scaled(intensity);
+    let cost = compute_action_cost(&profile, ctx.body_mass);
+
+    let duration_ticks = action
+        .estimated_duration_ticks
+        .unwrap_or(INDEFINITE_ACTION_DURATION_TICKS);
+    let duration_secs = duration_ticks as f32 / 60.0;
+
+    // Minimum floor so zero-energy actions (Idle, Ingest at 0 intensity)
+    // still have a nonzero planning cost.
+    (cost.energy * duration_secs).max(0.1)
+}
+
+/// Estimate the energy cost for a walk of `dist_tiles` tiles.
+fn effort_cost_walk(dist_tiles: f32, intensity: f32, ctx: &PlanCostContext) -> f32 {
+    let profile = ActionPrimitive::Locomote.effort_profile().scaled(intensity);
+    let cost = compute_action_cost(&profile, ctx.body_mass);
+
+    let distance_pixels = dist_tiles * TILE_SIZE;
+    let speed_per_tick = crate::constants::movement::BASE_SPEED_PER_TICK
+        * ctx.species_base_speed
+        * intensity_speed_multiplier(intensity);
+    let ticks = if speed_per_tick > 0.0 {
+        distance_pixels / speed_per_tick
+    } else {
+        distance_pixels
+    };
+    let duration_secs = ticks / 60.0;
+
+    cost.energy * duration_secs
+}
+
+/// Subjective cost for an explicit (non-walk) action step.
 fn subjective_action_cost(action: &ActionTemplate, cache: &PlanCostCache, mind: &MindGraph) -> f32 {
-    let profile = cost_profile_for(action.action_type);
-    let fatigue = cache.ctx.fatigue_factor(profile);
+    let base = effort_cost_timed(action, cache.ctx);
     let uncertainty = uncertainty_factor(action, mind);
     let risk = action_risk_factor(action, mind, cache);
     let personality = cache.ctx.personality_factor();
-    action.base_cost * fatigue * uncertainty * risk * personality
+    base * uncertainty * risk * personality
 }
 
 /// Subjective cost for an implicit walk of `dist` tiles toward `tile`.
-fn subjective_walk_cost(dist: f32, tile: (i32, i32), cache: &PlanCostCache) -> f32 {
-    let fatigue = cache.ctx.fatigue_factor(CostProfile::Physical);
+fn subjective_walk_cost(dist: f32, tile: (i32, i32), intensity: f32, cache: &PlanCostCache) -> f32 {
+    let base = effort_cost_walk(dist, intensity, cache.ctx);
     let risk = if cache.dangers.is_empty() {
         1.0
     } else {
         tile_risk_factor(tile, cache)
     };
     let personality = cache.ctx.personality_factor();
-    dist * fatigue * risk * personality
+    base * risk * personality
 }
 
 /// Sum the subjective cost of every step in an already-generated plan.
@@ -335,13 +338,108 @@ pub fn estimate_plan_cost(
                 (target.x / TILE_SIZE).floor() as i32,
                 (target.y / TILE_SIZE).floor() as i32,
             );
-            total += subjective_walk_cost(dist, tile, &cache);
+            total += subjective_walk_cost(dist, tile, action.locomotion_intensity.max(0.5), &cache);
             cursor = target;
         } else {
             total += subjective_action_cost(action, &cache, mind);
         }
     }
     total
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// PLAN FEASIBILITY CHECK — forward simulation of physical pools
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Forward-simulate physical pools (glucose, reserves, aerobic stamina) through
+/// each step of a plan. Returns `false` if the agent would hit critical
+/// thresholds at any point — the plan is infeasible and should be discarded.
+pub fn check_plan_feasibility(
+    plan: &[ActionTemplate],
+    start_pos: Vec2,
+    ctx: &PlanCostContext,
+) -> bool {
+    let mut glucose = ctx.glucose;
+    let mut reserves = ctx.reserves;
+    let mut aerobic = ctx.stamina_aerobic * 100.0; // fraction → absolute
+    let mut cursor = start_pos;
+
+    for action in plan {
+        let (energy_drain, aerobic_drain, duration_secs) =
+            estimate_step_drains(action, &cursor, ctx);
+
+        let peak_intensity = action.behavior.intensity.resolve();
+        let glucose_frac = effort::glucose_fraction(peak_intensity);
+        glucose -= energy_drain * glucose_frac;
+        reserves -= energy_drain * (1.0 - glucose_frac);
+        aerobic -= aerobic_drain * duration_secs;
+
+        // Clamp negative aerobic (recovery actions produce negative drain)
+        aerobic = aerobic.clamp(0.0, 100.0);
+        // Simple reserve mobilization: top up glucose from reserves
+        if glucose < crate::agent::body::metabolism::GLUCOSE_MOBILIZE_THRESHOLD && reserves > 0.0 {
+            let transfer = (crate::agent::body::metabolism::GLUCOSE_MOBILIZE_THRESHOLD - glucose)
+                .min(reserves);
+            glucose += transfer;
+            reserves -= transfer;
+        }
+
+        if action.action_type == ActionType::Walk {
+            if let Some(target) = action.target_position {
+                cursor = target;
+            }
+        }
+
+        if glucose < crate::agent::body::metabolism::GLUCOSE_CRITICAL_THRESHOLD && reserves < 5.0 {
+            return false;
+        }
+        if aerobic < 5.0 {
+            return false;
+        }
+    }
+    true
+}
+
+/// Estimate per-step drains: returns (total_energy, aerobic_drain_per_sec, duration_secs).
+fn estimate_step_drains(
+    action: &ActionTemplate,
+    cursor: &Vec2,
+    ctx: &PlanCostContext,
+) -> (f32, f32, f32) {
+    let primitive = action.behavior.primitive;
+    let intensity = action.behavior.intensity.resolve();
+    let profile = primitive.effort_profile().scaled(intensity);
+    let cost = compute_action_cost(&profile, ctx.body_mass);
+
+    let duration_secs = if action.action_type == ActionType::Walk {
+        // Walk: estimate from distance
+        if let Some(target) = action.target_position {
+            let distance_pixels = cursor.distance(target);
+            let speed_per_tick = crate::constants::movement::BASE_SPEED_PER_TICK
+                * ctx.species_base_speed
+                * intensity_speed_multiplier(intensity);
+            let ticks = if speed_per_tick > 0.0 {
+                distance_pixels / speed_per_tick
+            } else {
+                distance_pixels
+            };
+            ticks / 60.0
+        } else {
+            1.0
+        }
+    } else {
+        // Timed: use estimated duration or fallback
+        let ticks = action
+            .estimated_duration_ticks
+            .unwrap_or(INDEFINITE_ACTION_DURATION_TICKS);
+        ticks as f32 / 60.0
+    };
+
+    (
+        cost.energy * duration_secs,
+        cost.aerobic_drain,
+        duration_secs,
+    )
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1180,6 +1278,7 @@ fn build_walk_template(world_pos: Vec2, tile: (i32, i32)) -> ActionTemplate {
         consumes: Vec::new(),
         base_cost: 0.0,
         locomotion_intensity,
+        estimated_duration_ticks: None,
     }
 }
 
@@ -1238,7 +1337,13 @@ fn generate_implicit_walk(
 
     let next_goals = build_walk_goals(dist, remaining_goals, mind)?;
     let next_state = RegressiveState::new(next_goals, current_consumed.to_vec());
-    let new_cost = current_g + subjective_walk_cost(dist, tile, cost_cache);
+    let new_cost = current_g
+        + subjective_walk_cost(
+            dist,
+            tile,
+            walk_action.locomotion_intensity.max(0.5),
+            cost_cache,
+        );
 
     Some((walk_action, next_state, new_cost))
 }
@@ -1296,6 +1401,7 @@ mod tests {
             consumes: vec![TriplePattern::entity_contains(target)],
             base_cost: 2.0,
             locomotion_intensity: 0.0,
+            estimated_duration_ticks: None,
         }
     }
 
@@ -1532,6 +1638,7 @@ mod tests {
             consumes: vec![TriplePattern::entity_contains(entity)],
             base_cost: 2.0,
             locomotion_intensity: 0.0,
+            estimated_duration_ticks: None,
         }
     }
 
@@ -1701,6 +1808,7 @@ mod tests {
                 consumes: vec![TriplePattern::entity_contains(stone)],
                 base_cost: 2.0,
                 locomotion_intensity: 0.0,
+                estimated_duration_ticks: None,
             },
             sleep_template(&registry),
         ];
@@ -1777,6 +1885,7 @@ mod tests {
             consumes: vec![],
             base_cost: 1.0,
             locomotion_intensity: 0.0,
+            estimated_duration_ticks: None,
         };
         let harvest_stone = ActionTemplate {
             name: "HarvestStone".to_string(),
@@ -1796,6 +1905,7 @@ mod tests {
             consumes: vec![TriplePattern::entity_contains(stone_node)],
             base_cost: 2.0,
             locomotion_intensity: 0.0,
+            estimated_duration_ticks: None,
         };
 
         let hunger_goal = Goal {
@@ -2131,6 +2241,7 @@ mod tests {
             consumes: vec![TriplePattern::entity_contains(target)],
             base_cost: 10.0,
             locomotion_intensity,
+            estimated_duration_ticks: None,
         }
     }
 
@@ -2153,7 +2264,7 @@ mod tests {
     }
 
     #[test]
-    fn neutral_context_preserves_base_cost() {
+    fn neutral_context_produces_positive_effort_cost() {
         let tree = Entity::from_bits(1);
         let mut mind = test_mind();
         stock_entity_at_tile(&mut mind, tree, Concept::Apple, (3, 4));
@@ -2163,32 +2274,32 @@ mod tests {
         let cache = PlanCostCache::new(&ctx, &mind);
         let cost = subjective_action_cost(&action, &cache, &mind);
         assert!(
-            (cost - action.base_cost).abs() < 1e-5,
-            "neutral context must reproduce base_cost, got {cost}"
+            cost > 0.0,
+            "effort-based cost under neutral context must be positive, got {cost}"
         );
     }
 
     #[test]
-    fn tired_agent_perceives_walk_as_more_expensive() {
+    fn neurotic_agent_perceives_walk_as_more_expensive() {
         let mind = test_mind();
-        let rested = PlanCostContext {
-            stamina_aerobic: 0.9,
+        let calm = PlanCostContext {
+            neuroticism: 0.0,
             ..PlanCostContext::neutral()
         };
-        let tired = PlanCostContext {
-            stamina_aerobic: 0.2,
+        let anxious = PlanCostContext {
+            neuroticism: 1.0,
             ..PlanCostContext::neutral()
         };
 
-        let rested_cache = PlanCostCache::new(&rested, &mind);
-        let tired_cache = PlanCostCache::new(&tired, &mind);
-        let rested_cost = subjective_walk_cost(20.0, (20, 0), &rested_cache);
-        let tired_cost = subjective_walk_cost(20.0, (20, 0), &tired_cache);
+        let calm_cache = PlanCostCache::new(&calm, &mind);
+        let anxious_cache = PlanCostCache::new(&anxious, &mind);
+        let calm_cost = subjective_walk_cost(20.0, (20, 0), 0.5, &calm_cache);
+        let anxious_cost = subjective_walk_cost(20.0, (20, 0), 0.5, &anxious_cache);
 
         assert!(
-            tired_cost > rested_cost,
-            "tired agent should perceive the same walk as more expensive \
-             (rested={rested_cost}, tired={tired_cost})"
+            anxious_cost > calm_cost,
+            "neurotic agent should perceive the same walk as more expensive \
+             (calm={calm_cost}, anxious={anxious_cost})"
         );
     }
 
@@ -2266,8 +2377,8 @@ mod tests {
         let ctx = PlanCostContext::neutral();
         let safe_cache = PlanCostCache::new(&ctx, &safe_mind);
         let danger_cache = PlanCostCache::new(&ctx, &danger_mind);
-        let safe_cost = subjective_walk_cost(10.0, (10, 0), &safe_cache);
-        let risky_cost = subjective_walk_cost(10.0, (10, 0), &danger_cache);
+        let safe_cost = subjective_walk_cost(10.0, (10, 0), 0.5, &safe_cache);
+        let risky_cost = subjective_walk_cost(10.0, (10, 0), 0.5, &danger_cache);
 
         assert!(
             risky_cost > safe_cost,
@@ -2304,79 +2415,70 @@ mod tests {
     }
 
     #[test]
-    fn drained_alertness_inflates_cognitive_action_cost() {
-        let mind = test_mind();
-        let registry = crate::agent::actions::ActionRegistry::new();
-        let behavior = registry
-            .get(ActionType::Converse)
-            .unwrap()
-            .default_behavior();
-        let locomotion_intensity = behavior.intensity.resolve();
-        let action = ActionTemplate {
-            name: "TalkToFriend".to_string(),
-            action_type: ActionType::Converse,
-            behavior,
-            target_entity: None,
-            target_position: None,
-            preconditions: Vec::new(),
-            effects: Vec::new(),
-            consumes: Vec::new(),
-            base_cost: 8.0,
-            locomotion_intensity,
-        };
-
-        let alert = PlanCostContext {
-            alertness: 0.9,
+    fn heavier_agent_pays_more_for_same_walk() {
+        let ctx_light = PlanCostContext {
+            body_mass: 40.0,
             ..PlanCostContext::neutral()
         };
-        let foggy = PlanCostContext {
-            alertness: 0.2,
+        let ctx_heavy = PlanCostContext {
+            body_mass: 100.0,
             ..PlanCostContext::neutral()
         };
 
-        let alert_cache = PlanCostCache::new(&alert, &mind);
-        let foggy_cache = PlanCostCache::new(&foggy, &mind);
-        let alert_cost = subjective_action_cost(&action, &alert_cache, &mind);
-        let foggy_cost = subjective_action_cost(&action, &foggy_cache, &mind);
+        let light_cost = effort_cost_walk(20.0, 0.5, &ctx_light);
+        let heavy_cost = effort_cost_walk(20.0, 0.5, &ctx_heavy);
 
         assert!(
-            foggy_cost > alert_cost,
-            "low alertness must inflate cognitive action cost \
-             (alert={alert_cost}, foggy={foggy_cost})"
+            heavy_cost > light_cost,
+            "heavier agent should pay more for the same walk \
+             (light={light_cost}, heavy={heavy_cost})"
         );
     }
 
     #[test]
-    fn missing_data_defaults_factors_to_neutral() {
-        // An action without target_entity and an empty mind has no
-        // uncertainty / risk data — cost must equal base_cost under a
-        // neutral context.
+    fn heavier_agent_pays_more_for_same_action() {
         let mind = test_mind();
         let registry = crate::agent::actions::ActionRegistry::new();
-        let behavior = registry
-            .get(ActionType::Harvest)
-            .unwrap()
-            .default_behavior();
-        let locomotion_intensity = behavior.intensity.resolve();
-        let action = ActionTemplate {
-            name: "NoTarget".to_string(),
-            action_type: ActionType::Harvest,
-            behavior,
-            target_entity: None,
-            target_position: None,
-            preconditions: Vec::new(),
-            effects: Vec::new(),
-            consumes: Vec::new(),
-            base_cost: 4.0,
-            locomotion_intensity,
+        let mut action = registry.get(ActionType::Walk).unwrap().to_template(None);
+        action.estimated_duration_ticks = Some(120);
+
+        let light = PlanCostContext {
+            body_mass: 40.0,
+            ..PlanCostContext::neutral()
         };
+        let heavy = PlanCostContext {
+            body_mass: 100.0,
+            ..PlanCostContext::neutral()
+        };
+
+        let light_cache = PlanCostCache::new(&light, &mind);
+        let heavy_cache = PlanCostCache::new(&heavy, &mind);
+        let light_cost = subjective_action_cost(&action, &light_cache, &mind);
+        let heavy_cost = subjective_action_cost(&action, &heavy_cache, &mind);
+
+        assert!(
+            heavy_cost > light_cost,
+            "heavier agent should pay more for the same action \
+             (light={light_cost}, heavy={heavy_cost})"
+        );
+    }
+
+    #[test]
+    fn effort_cost_is_positive_for_all_registered_actions() {
+        let mind = test_mind();
         let ctx = PlanCostContext::neutral();
         let cache = PlanCostCache::new(&ctx, &mind);
-        let cost = subjective_action_cost(&action, &cache, &mind);
-        assert!(
-            (cost - action.base_cost).abs() < 1e-5,
-            "missing data under neutral context must preserve base_cost, got {cost}"
-        );
+        let registry = crate::agent::actions::ActionRegistry::new();
+
+        for action_def in registry.all() {
+            let template = action_def.to_template(None);
+            let cost = subjective_action_cost(&template, &cache, &mind);
+            assert!(
+                cost > 0.0,
+                "{:?} must have positive effort-based cost, got {cost}",
+                template.action_type,
+            );
+        }
     }
 
     #[test]
@@ -2432,6 +2534,60 @@ mod tests {
             template.behavior.primitive,
             ActionPrimitive::Locomote,
             "Walk template must carry Locomote primitive"
+        );
+    }
+
+    #[test]
+    fn walk_cost_scales_linearly_with_distance() {
+        let ctx = PlanCostContext::neutral();
+        let short = effort_cost_walk(5.0, 0.5, &ctx);
+        let long = effort_cost_walk(50.0, 0.5, &ctx);
+
+        let ratio = long / short;
+        assert!(
+            (ratio - 10.0).abs() < 0.5,
+            "50-tile walk should cost ~10x a 5-tile walk, got ratio {ratio:.2}"
+        );
+    }
+
+    #[test]
+    fn planner_rejects_plan_exceeding_energy_reserves() {
+        let walk = build_walk_template(Vec2::new(5000.0, 0.0), (250, 0));
+        let plan = vec![walk];
+
+        let starving = PlanCostContext {
+            glucose: 5.0,
+            reserves: 2.0,
+            ..PlanCostContext::neutral()
+        };
+        assert!(
+            !check_plan_feasibility(&plan, Vec2::ZERO, &starving),
+            "starving agent should not be able to walk 250 tiles"
+        );
+    }
+
+    #[test]
+    fn sleep_step_in_plan_improves_feasibility() {
+        let registry = crate::agent::actions::ActionRegistry::new();
+        let sleep = registry.get(ActionType::Sleep).unwrap().to_template(None);
+        let long_walk = build_walk_template(Vec2::new(3000.0, 0.0), (150, 0));
+
+        let tired = PlanCostContext {
+            stamina_aerobic: 0.15,
+            glucose: 40.0,
+            reserves: 100.0,
+            ..PlanCostContext::neutral()
+        };
+
+        let plan_without_sleep = vec![long_walk.clone()];
+        let plan_with_sleep = vec![sleep, long_walk];
+
+        let without = check_plan_feasibility(&plan_without_sleep, Vec2::ZERO, &tired);
+        let with = check_plan_feasibility(&plan_with_sleep, Vec2::ZERO, &tired);
+
+        assert!(
+            with || !without,
+            "adding a sleep step should not make a plan less feasible"
         );
     }
 }
