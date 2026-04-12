@@ -39,23 +39,12 @@ impl Action for WakeUpAction {
     }
 
     fn body_channels(&self) -> &'static [ChannelUsage] {
-        // WakeUp is an exclusive transition — eyes opening, body
-        // stretching, the mind re-booting from sleep. It needs to
-        // mutex with every other action for its 30-tick duration:
-        //
-        // - FullBody 0.4 keeps the Sleep→WakeUp preemption path
-        //   working (Sleep holds FullBody 1.0, WakeUp's 0.4 pushes
-        //   total to 1.4 → hard conflict → Sleep is interruptible
-        //   post-#352 → preempted → WakeUp admits).
-        // - Focus 1.0 blocks Observe and any other Focus
-        //   user from running in parallel. The user saw WakeUp and
-        //   Observe both in `active_actions` during the transition
-        //   and flipping in the UI every frame — a waking agent
-        //   isn't also scanning the room, they're re-orienting.
-        const CHANNELS: &[ChannelUsage] = &[
-            ChannelUsage::new(Channel::FullBody, 0.4),
-            ChannelUsage::new(Channel::Focus, 1.0),
-        ];
+        // WakeUp only needs FullBody to preempt Sleep. Focus is NOT
+        // claimed here because cognitive channels scale to zero during
+        // sleep (alertness = 0), and requiring Focus would make WakeUp
+        // inadmissible — the agent needs to wake up to regain focus,
+        // not have focus to wake up (#462).
+        const CHANNELS: &[ChannelUsage] = &[ChannelUsage::new(Channel::FullBody, 0.4)];
         CHANNELS
     }
 

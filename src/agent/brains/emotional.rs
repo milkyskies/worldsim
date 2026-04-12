@@ -101,13 +101,6 @@ pub fn emotional_brain_propose(
         best = Some(proposal);
     }
 
-    // Baseline idle behaviour. No longer gated on in_conversation —
-    // Groom uses Manipulation which doesn't conflict with Converse
-    // (Vocalization + Focus + Awareness).
-    if best.is_none() {
-        best = propose_groom_baseline(action_registry);
-    }
-
     best
 }
 
@@ -116,7 +109,7 @@ pub fn emotional_brain_propose(
 ///
 /// No thresholds. No arbitrary multipliers. `drives.curiosity` is a
 /// real drainable state: it rises during unstimulating activity
-/// (Idle/Sleep/Rest/Groom at ~+0.01/s) and drains from
+/// (Idle/Sleep/Rest at ~+0.01/s) and drains from
 /// Observe/Explore/Wander/Converse (via `RuntimeEffects::curiosity_per_sec`).
 /// The proposal urgency follows the same `value * 40` pattern as
 /// Social — comparable in weight, so the arbitrator picks whichever
@@ -219,22 +212,6 @@ fn propose_patrol(
         urgency,
         intent: Intent::SatisfyTerritoriality,
         reasoning: format!("Patrolling territory ({:.2})", u.value),
-    })
-}
-
-/// Propose `Groom` as the zero-drive baseline. Tiny urgency so any
-/// real proposal from any brain outbids it. This is what an agent
-/// does when genuinely at peace: self-care, not empty waiting.
-fn propose_groom_baseline(
-    action_registry: &crate::agent::actions::ActionRegistry,
-) -> Option<BrainProposal> {
-    let groom = action_registry.get(ActionType::Groom)?;
-    Some(BrainProposal {
-        brain: BrainType::Emotional,
-        action: groom.to_template(None),
-        urgency: 1.0, // below IDLE_WANDER_URGENCY and any real drive
-        intent: Intent::None,
-        reasoning: "At rest — grooming".to_string(),
     })
 }
 
@@ -669,13 +646,7 @@ mod tests {
     }
 
     #[test]
-    fn test_emotional_no_response_returns_none_without_groom_registered() {
-        // Pre-#386, an idle agent produced no Emotional proposal. Post-#386,
-        // Emotional owns the "at rest" baseline and proposes `Groom` at tiny
-        // urgency. This test uses an empty registry (no Groom action) so
-        // the baseline path can't build its template, and Emotional still
-        // returns None — documenting that the baseline degrades gracefully
-        // when its action is unavailable.
+    fn test_emotional_returns_none_when_idle_with_empty_registry() {
         let state = EmotionalState::default();
         let mind = setup_mind();
         let visible = VisibleObjects::default();
@@ -693,37 +664,6 @@ mod tests {
         );
 
         assert!(proposal.is_none());
-    }
-
-    #[test]
-    fn test_emotional_proposes_groom_baseline_when_truly_idle() {
-        // With Groom registered, an idle agent (no visible entities, no
-        // drives, no goals, not in conversation) gets the baseline Groom
-        // proposal — the "alive but at rest" hum from #386.
-        let state = EmotionalState::default();
-        let mind = setup_mind();
-        let visible = VisibleObjects::default();
-
-        let mut registry = crate::agent::actions::ActionRegistry::default();
-        registry.register(crate::agent::actions::action::GroomAction);
-
-        let proposal = emotional_brain_propose(
-            &state,
-            &mind,
-            &visible,
-            None,
-            None,
-            None,
-            &Default::default(),
-            &registry,
-        );
-
-        let proposal = proposal.expect("Groom baseline should fire for a truly idle agent");
-        assert_eq!(proposal.action.action_type, ActionType::Groom);
-        assert!(
-            proposal.urgency < 10.0,
-            "Groom baseline must be very low urgency"
-        );
     }
 
     #[test]

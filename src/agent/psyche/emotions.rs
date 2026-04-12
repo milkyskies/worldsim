@@ -731,6 +731,7 @@ mod tests {
             hydration: 100.0,
             stamina: Stamina::default(),
             health: 100.0,
+            wakefulness: 1.0,
             last_health_damage: None,
         }
     }

@@ -194,6 +194,11 @@ pub struct PhysicalNeeds {
     pub hydration: f32,
     pub stamina: Stamina,
     pub health: f32,
+    /// Homeostatic sleep pressure (adenosine analogue). 1.0 = fully rested,
+    /// 0.0 = must sleep. Decays while awake, accelerates at night (circadian),
+    /// and restores during Sleep. Independent of stamina — a desk worker
+    /// gets sleepy without running a marathon.
+    pub wakefulness: f32,
     /// Most recent non-combat source that damaged `health`. `None` until
     /// anything ticks health down. Injury / combat deaths skip
     /// `check_death` entirely (combat.rs emits `SimEvent::Death`
@@ -209,6 +214,7 @@ impl Default for PhysicalNeeds {
             hydration: 100.0,
             stamina: Stamina::default(),
             health: 100.0,
+            wakefulness: 1.0,
             last_health_damage: None,
         }
     }
@@ -655,6 +661,7 @@ impl StateDisplay for PhysicalNeeds {
             ("Hydration", self.hydration, Scale::Percentage),
             ("Aerobic", self.stamina.aerobic, Scale::Percentage),
             ("Anaerobic", self.stamina.anaerobic, Scale::Percentage),
+            ("Wakefulness", self.wakefulness, Scale::Normalized),
             ("Health", self.health, Scale::Percentage),
         ]
     }
