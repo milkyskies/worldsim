@@ -10,7 +10,7 @@ pub mod registry;
 pub mod types;
 
 pub use channel::{Channel, ChannelCapacities, ChannelLoad, ChannelUsage};
-pub use motor::{ActionPrimitive, Behavior, IntensityPolicy, Intent, TargetSelector};
+pub use motor::{ActionPrimitive, Behavior, IntensityPolicy, Intent, PsychEffect, TargetSelector};
 pub use registry::{
     Action, ActionContext, ActionKind, ActionRegistry, ActionState, ActiveActions, RuntimeEffects,
     TargetCandidate, TargetSource,

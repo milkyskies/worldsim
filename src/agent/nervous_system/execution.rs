@@ -828,9 +828,7 @@ pub fn apply_action_effects(
                     .clamp(0.0, 1.0);
             }
 
-            // --- Side effects from RuntimeEffects ---
-
-            // Stomach fill (ingestion side effect, e.g. Graze).
+            // --- Ingestion side effect (Graze) ---
             let carbs_fill = effects.stomach_carbs_per_sec * dt * degradation;
             if carbs_fill > 0.0 {
                 physical
@@ -840,30 +838,38 @@ pub fn apply_action_effects(
                     ));
             }
 
-            // Behavioural alertness (positive = stimulating, negative = soporific).
+            // --- Psychological effects derived from primitive + intent ---
+            let intent = action_state.action_type.default_intent();
+            let base_psych = primitive.psych_effect();
+            let mut psych = intent.modify_psych(&base_psych, primitive);
+
+            // Rest+Fatigue at high intensity = sleep (consciousness loss).
+            // Below the threshold = conscious recovery (mild alertness gain).
+            if primitive == crate::agent::actions::ActionPrimitive::Rest
+                && intent == crate::agent::actions::Intent::Fatigue
+                && intensity >= 0.8
+            {
+                psych.alertness = -50.0;
+            }
+
+            // WakeUp special case: rapid alertness restoration.
+            if action_state.action_type == ActionType::WakeUp {
+                psych.alertness = 100.0;
+            }
+
             consciousness.alertness = (consciousness.alertness
-                + effects.alertness_per_sec * dt * 0.01 * degradation)
+                + psych.alertness * dt * 0.01 * degradation)
                 .clamp(0.0, 1.0);
 
-            // Psychological drive updates (#386). Every action declares
-            // its effect on social and curiosity; negative values drain
-            // the drive (satisfying it), positive values raise it
-            // (starving it). Drain-only actions like Observe and Converse
-            // close the loop on Curiosity/Social; passive actions like
-            // Idle and Sleep let the drive drift back up. This removes
-            // the old `base_constant` hack for Boredom and replaces it
-            // with a real per-tick state machine that matches how
-            // Hunger/Thirst/Stamina already work.
             if let Some(drives) = drives.as_deref_mut() {
-                if effects.companionship_per_sec != 0.0 {
+                if psych.companionship != 0.0 {
                     drives.companionship = (drives.companionship
-                        + effects.companionship_per_sec * dt * degradation)
+                        + psych.companionship * dt * degradation)
                         .clamp(0.0, 1.0);
                 }
-                if effects.stimulation_per_sec != 0.0 {
-                    drives.stimulation = (drives.stimulation
-                        + effects.stimulation_per_sec * dt * degradation)
-                        .clamp(0.0, 1.0);
+                if psych.stimulation != 0.0 {
+                    drives.stimulation =
+                        (drives.stimulation + psych.stimulation * dt * degradation).clamp(0.0, 1.0);
                 }
             }
         }

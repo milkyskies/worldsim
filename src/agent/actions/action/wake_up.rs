@@ -1,7 +1,7 @@
 use crate::agent::actions::ActionType;
 use crate::agent::actions::channel::{Channel, ChannelUsage, Posture};
 use crate::agent::actions::motor::{ActionPrimitive, Behavior, IntensityPolicy, TargetSelector};
-use crate::agent::actions::registry::{Action, ActionKind, RuntimeEffects};
+use crate::agent::actions::registry::{Action, ActionKind};
 use crate::agent::mind::knowledge::{Concept, Node, Predicate, Triple, Value};
 
 pub struct WakeUpAction;
@@ -64,12 +64,5 @@ impl Action for WakeUpAction {
         // window (previously the gate was missing and a Walk could
         // silently run alongside WakeUp).
         Some(Posture::Stationary)
-    }
-
-    fn runtime_effects(&self) -> RuntimeEffects {
-        RuntimeEffects {
-            alertness_per_sec: 100.0,
-            ..Default::default()
-        }
     }
 }

@@ -17,7 +17,7 @@
 use crate::agent::actions::ActionType;
 use crate::agent::actions::channel::{ChannelSlices, ChannelUsage, Posture};
 use crate::agent::actions::motor::{ActionPrimitive, Behavior, IntensityPolicy, TargetSelector};
-use crate::agent::actions::registry::{Action, ActionKind, RuntimeEffects};
+use crate::agent::actions::registry::{Action, ActionKind};
 
 pub struct RestAction;
 
@@ -59,14 +59,6 @@ impl Action for RestAction {
         // Wander / Flee admission while Rest is active, which is what
         // prevents the "resting + patrolling" nonsense from #386.
         Some(Posture::Stationary)
-    }
-
-    fn runtime_effects(&self) -> RuntimeEffects {
-        RuntimeEffects {
-            alertness_per_sec: 2.0,
-            stimulation_per_sec: -0.008,
-            ..Default::default()
-        }
     }
 
     fn start_log(&self) -> Option<&'static str> {

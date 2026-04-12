@@ -3,7 +3,7 @@
 use crate::agent::actions::ActionType;
 use crate::agent::actions::channel::{Channel, ChannelUsage, Posture};
 use crate::agent::actions::motor::{ActionPrimitive, Behavior, IntensityPolicy, TargetSelector};
-use crate::agent::actions::registry::{Action, ActionKind, RuntimeEffects};
+use crate::agent::actions::registry::{Action, ActionKind};
 use crate::agent::mind::knowledge::{Node, Predicate, Triple, Value};
 
 pub struct SleepAction;
@@ -69,14 +69,6 @@ impl Action for SleepAction {
     // short-circuit in `execution.rs` rejects every non-WakeUp admission
     // while Sleep is active, so interruptibility here only matters for the
     // WakeUp transition itself.
-
-    fn runtime_effects(&self) -> RuntimeEffects {
-        RuntimeEffects {
-            alertness_per_sec: -50.0,
-            stimulation_per_sec: -0.01,
-            ..Default::default()
-        }
-    }
 
     fn start_log(&self) -> Option<&'static str> {
         Some("falling asleep")
