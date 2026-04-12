@@ -540,8 +540,12 @@ fn dump_contributions_headless(
                     }
                     let cost = compute_action_cost(&profile, body_mass);
                     if cost.energy != 0.0 {
-                        let peak = profile.peak_intensity();
-                        let gluc_frac = effort::glucose_fraction(peak);
+                        let reserves = world
+                            .get::<PhysicalNeeds>(agent)
+                            .map(|p| p.metabolism.reserves)
+                            .unwrap_or(0.0);
+                        let gluc_frac =
+                            effort::effective_glucose_fraction(profile.peak_intensity(), reserves);
                         contribs
                             .push((format!("{:?}", state.action_type), -cost.energy * gluc_frac));
                     }

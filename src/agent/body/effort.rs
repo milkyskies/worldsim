@@ -66,7 +66,7 @@ pub const DEFAULT_BODY_MASS: f32 = 70.0;
 /// Actions declare this. The cost model owns all the math.
 ///
 /// Future channel: thermoregulation (shiver/sweat cost).
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct EffortProfile {
     /// Moving the body through space. 0 = stationary, 1 = full sprint.
     pub locomotion: f32,
@@ -79,18 +79,6 @@ pub struct EffortProfile {
     /// Anabolic / restorative activity. Inverts sign in the cost model:
     /// recovery *produces* stamina instead of consuming it.
     pub recovery: f32,
-}
-
-impl Default for EffortProfile {
-    fn default() -> Self {
-        Self {
-            locomotion: 0.0,
-            manipulation: 0.0,
-            isometric: 0.0,
-            cognition: 0.0,
-            recovery: 0.0,
-        }
-    }
 }
 
 impl EffortProfile {
@@ -161,7 +149,7 @@ pub fn compute_action_cost(profile: &EffortProfile, body_mass: f32) -> ActionCos
         let i = profile.locomotion;
         let i2 = i * i;
 
-        cost.energy += LOCOMOTION_ENERGY_RATE * i.powf(1.5) * mass_factor;
+        cost.energy += LOCOMOTION_ENERGY_RATE * (i * i.sqrt()) * mass_factor;
 
         if i > 0.7 {
             // Sprint: heavy anaerobic + aerobic penalty.
@@ -233,6 +221,21 @@ pub fn glucose_fraction(peak_intensity: f32) -> f32 {
         0.9 + (peak_intensity - 0.3) * 0.25
     } else {
         0.85 + peak_intensity * 0.17
+    }
+}
+
+/// Effective glucose fraction accounting for available reserves.
+///
+/// When reserves are nearly depleted, the body can't burn fat — the
+/// remaining drain shifts to glucose. This avoids a divergence between
+/// the execution system (which applies this fallback) and display code.
+pub fn effective_glucose_fraction(peak_intensity: f32, reserves: f32) -> f32 {
+    let base = glucose_fraction(peak_intensity);
+    if reserves < 10.0 {
+        let t = (reserves / 10.0).clamp(0.0, 1.0);
+        base + (1.0 - base) * (1.0 - t)
+    } else {
+        base
     }
 }
 
@@ -365,8 +368,8 @@ mod tests {
         let wander_cost = compute_action_cost(&wander, HUMAN_MASS);
         let explore_cost = compute_action_cost(&explore, HUMAN_MASS);
         // Same locomotion component
-        let wander_loco_energy = LOCOMOTION_ENERGY_RATE * 0.5_f32.powf(1.5);
-        let explore_loco_energy = LOCOMOTION_ENERGY_RATE * 0.5_f32.powf(1.5);
+        let wander_loco_energy = LOCOMOTION_ENERGY_RATE * (0.5_f32 * 0.5_f32.sqrt());
+        let explore_loco_energy = LOCOMOTION_ENERGY_RATE * (0.5_f32 * 0.5_f32.sqrt());
         assert!(
             (wander_loco_energy - explore_loco_energy).abs() < 0.001,
             "locomotion energy should be identical at equal intensity"

@@ -794,25 +794,16 @@ pub fn apply_action_effects(
                 - cost.anaerobic_drain * dt * degradation)
                 .clamp(0.0, physical.stamina.anaerobic_max);
 
-            // Energy cost: split between glucose and reserves based on
-            // peak intensity (fuel partitioning). When reserves are
-            // nearly depleted, the body can't burn fat — shift the
-            // remaining drain to glucose, matching how real metabolism
-            // works when a lean animal has exhausted its fat stores.
+            // Energy cost: split between glucose and reserves via fuel
+            // partitioning (intensity-keyed, reserves-availability-aware).
             let energy_drain = cost.energy * dt * degradation;
             if energy_drain != 0.0 {
-                let peak = profile.peak_intensity();
-                let base_gluc_frac = effort::glucose_fraction(peak);
-                // Reserves below 10 → progressively shift to all-glucose.
-                let reserves_available = physical.metabolism.reserves;
-                let effective_gluc_frac = if reserves_available < 10.0 {
-                    let t = (reserves_available / 10.0).clamp(0.0, 1.0);
-                    base_gluc_frac + (1.0 - base_gluc_frac) * (1.0 - t)
-                } else {
-                    base_gluc_frac
-                };
-                let glucose_drain = energy_drain * effective_gluc_frac;
-                let reserves_drain = energy_drain * (1.0 - effective_gluc_frac);
+                let gluc_frac = effort::effective_glucose_fraction(
+                    profile.peak_intensity(),
+                    physical.metabolism.reserves,
+                );
+                let glucose_drain = energy_drain * gluc_frac;
+                let reserves_drain = energy_drain * (1.0 - gluc_frac);
 
                 physical.metabolism.glucose = (physical.metabolism.glucose - glucose_drain)
                     .clamp(0.0, crate::agent::body::metabolism::GLUCOSE_MAX);
