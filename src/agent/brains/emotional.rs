@@ -56,8 +56,13 @@ pub fn emotional_brain_propose(
     // pre-#260 code so the if-let chain is unchanged.
     if in_conversation.is_none()
         && let Some(d) = drives
-        && let Some(proposal) =
-            seek_social_initiation(d.social, visible, mind, action_registry, best_urgency)
+        && let Some(proposal) = seek_social_initiation(
+            1.0 - d.companionship,
+            visible,
+            mind,
+            action_registry,
+            best_urgency,
+        )
     {
         best_urgency = proposal.urgency;
         best = Some(proposal);
@@ -71,7 +76,7 @@ pub fn emotional_brain_propose(
         && let Some(self_concept) = self_concept
         && self_concept != Concept::Person
         && let Some(proposal) = seek_flock_proximity(
-            d.social,
+            1.0 - d.companionship,
             self_concept,
             visible,
             mind,

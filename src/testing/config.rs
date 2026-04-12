@@ -24,14 +24,15 @@ pub struct AgentConfig {
     /// Tests that need a hungry agent use `Metabolism::at_urgency(0.8)` or
     /// `Metabolism::empty()` for full-on starvation.
     pub metabolism: Metabolism,
-    /// Thirst value (0.0 = hydrated, 100.0 = dehydrated).
-    pub thirst: f32,
+    /// Hydration value (0.0 = parched, 100.0 = fresh).
+    pub hydration: f32,
     /// Stamina value (0.0 = exhausted, 100.0 = fully rested).
     pub stamina: f32,
-    /// Optional override for social drive (0.0 = satisfied, 1.0 = lonely).
-    /// `None` keeps the genome-derived value. `Some(v)` inserts a
-    /// `SocialDriveOverride` component that `develop_phenotype_system` applies
-    /// when deriving drives from the genome.
+    /// Optional override for baseline companionship satisfaction
+    /// (0.0 = desperately lonely, 1.0 = content). `None` keeps the
+    /// genome-derived value. `Some(v)` inserts a `SocialDriveOverride`
+    /// component that `develop_phenotype_system` applies when deriving
+    /// drives from the genome.
     pub social_drive: Option<f32>,
     /// Genome the phenotype, personality, and drives are derived from.
     /// Defaults to the neutral genome (all-zero loci → species baseline).
@@ -48,7 +49,7 @@ impl Default for AgentConfig {
             pos: Vec2::ZERO,
             name: None,
             metabolism: Metabolism::well_fed(),
-            thirst: 0.0,
+            hydration: 100.0,
             stamina: 100.0,
             social_drive: None,
             genome: Genome::default(),

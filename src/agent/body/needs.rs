@@ -188,9 +188,12 @@ pub struct PhysicalNeeds {
     /// Nutrient / energy loop: stomach (carbs+fat) -> glucose -> reserves.
     /// Replaces the flat `hunger` scalar; see `metabolism.rs` for the model.
     pub metabolism: Metabolism,
-    pub thirst: f32,      // 0-100, increases over time
-    pub stamina: Stamina, // two-pool physical fatigue (anaerobic + aerobic)
-    pub health: f32,      // 0-100, damaged by starvation/injuries
+    /// 0..100 hydration — high is good. Drains toward 0 over time,
+    /// refills to 100 when the agent drinks. Replaces the old
+    /// `thirst` field which stored the inverse (high = parched).
+    pub hydration: f32,
+    pub stamina: Stamina,
+    pub health: f32,
     /// Most recent non-combat source that damaged `health`. `None` until
     /// anything ticks health down. Injury / combat deaths skip
     /// `check_death` entirely (combat.rs emits `SimEvent::Death`
@@ -203,7 +206,7 @@ impl Default for PhysicalNeeds {
     fn default() -> Self {
         Self {
             metabolism: Metabolism::default(),
-            thirst: 0.0,
+            hydration: 100.0,
             stamina: Stamina::default(),
             health: 100.0,
             last_health_damage: None,
@@ -234,42 +237,61 @@ impl Default for Consciousness {
     }
 }
 
-/// Post-spawn override for the social drive.
+/// Post-spawn override for baseline companionship satisfaction.
 ///
 /// Normally `develop_phenotype_system` derives drives from genome-derived
-/// personality. Tests that need a specific social drive value (e.g. forcing
-/// two strangers to feel lonely) insert this component; the system reads it
-/// and replaces `drives.social` with the override value.
+/// personality. Tests that need a specific companionship value (e.g.
+/// forcing two strangers to feel lonely) insert this component; the
+/// system reads it and replaces `drives.companionship` with the value.
+/// Name kept as `SocialDriveOverride` for backwards-compat during the
+/// rename pass; consider renaming in a follow-up.
 #[derive(Component, Reflect, Debug, Clone, Copy)]
 #[reflect(Component)]
 pub struct SocialDriveOverride(pub f32);
 
-/// Higher psychological drives (Humans only)
+/// Psychological drives, stored as **satisfaction** in `0..=1`.
+/// High = satisfied, low = unmet need. Matches the "+ = good" polarity
+/// used by `PhysicalNeeds` (hydration, stamina, health). Urgency
+/// generation inverts once at the CNS edge — see
+/// `nervous_system::urgency::generate_urgency`.
+///
+/// All agents with a nervous system carry this — wolves and deer
+/// included (previous comment said "humans only" but was stale).
 #[derive(Component, Reflect, Debug, Clone)]
 #[reflect(Component)]
 pub struct PsychologicalDrives {
-    pub social: f32,    // 0-1
-    pub fun: f32,       // 0-1
-    pub curiosity: f32, // 0-1
-    pub status: f32,    // 0-1
-    pub security: f32,  // 0-1
-    pub autonomy: f32,  // 0-1
-    /// Urge to defend claimed space. Updated each tick by the territoriality
-    /// system based on perceived intruders on owned tiles. Species baseline
-    /// from `SpeciesProfile::territoriality_baseline` determines the floor.
-    pub territoriality: f32, // 0-1
+    /// Social satisfaction. 1.0 = recently connected, 0.0 = desperately lonely.
+    pub companionship: f32,
+    /// Playful enjoyment. 1.0 = content, 0.0 = bored.
+    pub enjoyment: f32,
+    /// Mental stimulation. 1.0 = engaged, 0.0 = starved for novelty.
+    pub stimulation: f32,
+    /// Social standing. 1.0 = respected, 0.0 = disrespected / low-status.
+    pub esteem: f32,
+    /// Felt safety. 1.0 = secure, 0.0 = threatened.
+    pub safety: f32,
+    /// Sense of freedom. 1.0 = self-directed, 0.0 = constrained.
+    pub autonomy: f32,
+    /// Territorial control. 1.0 = uncontested (no intruders),
+    /// 0.0 = actively defending against an intruder. Updated each tick
+    /// by the territoriality system based on perceived intruders.
+    /// Species baseline from `SpeciesProfile::territoriality_baseline`
+    /// determines the floor when threats are present.
+    pub dominion: f32,
 }
 
 impl Default for PsychologicalDrives {
     fn default() -> Self {
+        // Mid-satisfaction by default; territorial control full (no
+        // threats perceived yet).
         Self {
-            social: 0.5,
-            fun: 0.5,
-            curiosity: 0.5,
-            status: 0.5,
-            security: 0.5,
+            companionship: 0.5,
+            enjoyment: 0.5,
+            stimulation: 0.5,
+            esteem: 0.5,
+            safety: 0.5,
             autonomy: 0.5,
-            territoriality: 0.0,
+            dominion: 1.0,
         }
     }
 }
@@ -277,24 +299,29 @@ impl Default for PsychologicalDrives {
 impl PsychologicalDrives {
     /// Initialise drive baselines from Big Five personality traits.
     ///
-    /// Personality shapes what an agent fundamentally wants, not just how
-    /// urgently they pursue it. The urgency system (nervous_system::urgency)
-    /// further modulates moment-to-moment priority via `PersonalityMod`.
+    /// Personality shapes the baseline *deficit* an agent wakes up with —
+    /// an extravert starts with low companionship (wants company sooner),
+    /// an open agent starts with low stimulation (novelty-seeking), etc.
+    /// Stored as satisfaction, so the trait mappings invert the pre-rename
+    /// logic: `companionship = 1 - extraversion` (extraverts start unsatisfied).
     pub fn from_personality(traits: &crate::agent::psyche::personality::PersonalityTraits) -> Self {
         Self {
-            // Extraverts need more social contact as a baseline
-            social: traits.extraversion,
-            // Open personalities are naturally more curious
-            curiosity: traits.openness,
-            // Neurotic personalities have a higher baseline need for security
-            security: traits.neuroticism,
-            // Conscientious personalities care more about status/achievement
-            status: traits.conscientiousness,
-            // Disagreeable personalities need more autonomy
-            autonomy: 1.0 - traits.agreeableness,
-            fun: 0.5,
-            // Starts at 0; raised by the territoriality system when intruders are perceived
-            territoriality: 0.0,
+            // Extraverts start unsatisfied (low companionship) so they
+            // reach toward socializing sooner.
+            companionship: 1.0 - traits.extraversion,
+            // Open personalities start understimulated, driving exploration.
+            stimulation: 1.0 - traits.openness,
+            // Neurotic agents feel less safe at baseline.
+            safety: 1.0 - traits.neuroticism,
+            // Conscientious agents start with lower esteem (more to prove).
+            esteem: 1.0 - traits.conscientiousness,
+            // Disagreeable agents start with low autonomy satisfaction
+            // (feel constrained more easily).
+            autonomy: traits.agreeableness,
+            enjoyment: 0.5,
+            // Starts uncontested; territoriality system lowers this when
+            // intruders appear.
+            dominion: 1.0,
         }
     }
 }
@@ -305,71 +332,71 @@ mod tests {
     use crate::agent::psyche::personality::PersonalityTraits;
 
     #[test]
-    fn high_extraversion_raises_social_drive() {
+    fn high_extraversion_lowers_baseline_companionship() {
         let traits = PersonalityTraits {
             extraversion: 0.9,
             ..Default::default()
         };
         let drives = PsychologicalDrives::from_personality(&traits);
         assert!(
-            drives.social > 0.8,
-            "social should track extraversion (got {})",
-            drives.social
+            drives.companionship < 0.2,
+            "extraverts wake up socially unsatisfied (got {})",
+            drives.companionship
         );
     }
 
     #[test]
-    fn low_extraversion_lowers_social_drive() {
+    fn low_extraversion_raises_baseline_companionship() {
         let traits = PersonalityTraits {
             extraversion: 0.1,
             ..Default::default()
         };
         let drives = PsychologicalDrives::from_personality(&traits);
         assert!(
-            drives.social < 0.2,
-            "introvert should have low social drive (got {})",
-            drives.social
+            drives.companionship > 0.8,
+            "introverts wake up content (got {})",
+            drives.companionship
         );
     }
 
     #[test]
-    fn high_openness_raises_curiosity() {
+    fn high_openness_lowers_baseline_stimulation() {
         let traits = PersonalityTraits {
             openness: 0.9,
             ..Default::default()
         };
         let drives = PsychologicalDrives::from_personality(&traits);
         assert!(
-            drives.curiosity > 0.8,
-            "curiosity should track openness (got {})",
-            drives.curiosity
+            drives.stimulation < 0.2,
+            "open agents wake up understimulated (got {})",
+            drives.stimulation
         );
     }
 
     #[test]
-    fn high_neuroticism_raises_security_need() {
+    fn high_neuroticism_lowers_baseline_safety() {
         let traits = PersonalityTraits {
             neuroticism: 0.9,
             ..Default::default()
         };
         let drives = PsychologicalDrives::from_personality(&traits);
         assert!(
-            drives.security > 0.8,
-            "neurotic agent should have high security need (got {})",
-            drives.security
+            drives.safety < 0.2,
+            "neurotic agent feels less safe at baseline (got {})",
+            drives.safety
         );
     }
 
     #[test]
-    fn high_agreeableness_lowers_autonomy_need() {
+    fn high_agreeableness_raises_baseline_autonomy() {
         let traits = PersonalityTraits {
             agreeableness: 0.9,
             ..Default::default()
         };
         let drives = PsychologicalDrives::from_personality(&traits);
         assert!(
-            drives.autonomy < 0.2,
-            "agreeable agent should have low autonomy need (got {})",
+            drives.autonomy > 0.8,
+            "agreeable agent feels high autonomy satisfaction (got {})",
             drives.autonomy
         );
     }
@@ -625,7 +652,7 @@ impl StateDisplay for PhysicalNeeds {
             ),
             ("Glucose", self.metabolism.glucose, Scale::Percentage),
             ("Reserves", self.metabolism.reserves, Scale::Percentage),
-            ("Thirst", self.thirst, Scale::Percentage),
+            ("Hydration", self.hydration, Scale::Percentage),
             ("Aerobic", self.stamina.aerobic, Scale::Percentage),
             ("Anaerobic", self.stamina.anaerobic, Scale::Percentage),
             ("Health", self.health, Scale::Percentage),
@@ -648,12 +675,13 @@ impl StateDisplay for PsychologicalDrives {
     }
     fn get_values(&self) -> Vec<(&'static str, f32, Scale)> {
         vec![
-            ("Social", self.social, Scale::Normalized),
-            ("Fun", self.fun, Scale::Normalized),
-            ("Curiosity", self.curiosity, Scale::Normalized),
-            ("Status", self.status, Scale::Normalized),
-            ("Security", self.security, Scale::Normalized),
+            ("Companionship", self.companionship, Scale::Normalized),
+            ("Enjoyment", self.enjoyment, Scale::Normalized),
+            ("Stimulation", self.stimulation, Scale::Normalized),
+            ("Esteem", self.esteem, Scale::Normalized),
+            ("Safety", self.safety, Scale::Normalized),
             ("Autonomy", self.autonomy, Scale::Normalized),
+            ("Dominion", self.dominion, Scale::Normalized),
         ]
     }
 }

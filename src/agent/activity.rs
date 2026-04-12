@@ -57,18 +57,25 @@ pub struct ActivityEffects {
     /// Physical Needs
     pub stamina_change: f32, // +gain / -loss
     pub glucose_drain: f32, // glucose burned per sec (BMR + activity cost)
-    pub thirst_change: f32, // +increase (getting thirstier)
+    /// Per-second delta applied to `PhysicalNeeds.hydration`. Negative
+    /// = drying out (default for most activities), positive = refilling
+    /// (Drink). The old field was `thirst_change` with the opposite
+    /// sign convention; flipped during the hydration rename so every
+    /// "_change" field in this struct now has the same "+ = good,
+    /// - = bad" polarity.
+    pub hydration_change: f32,
     pub health_change: f32, // +healing / -damage
 
     /// Consciousness
     pub alertness_change: f32, // +waking up / -falling asleep
 
-    /// Psychological Drives (Satisfiers)
-    /// Negative means satisfying the drive (reducing the need/deficit)
-    /// Positive means increasing the need
-    pub social_change: f32,
-    pub fun_change: f32,
-    pub curiosity_change: f32,
+    /// Psychological Drives — per-second delta applied to the
+    /// corresponding satisfaction field. Positive = satisfying (drive
+    /// becomes more full), negative = starving (drive drains). Matches
+    /// the "+ = good" convention used by every other field here.
+    pub companionship_change: f32,
+    pub enjoyment_change: f32,
+    pub stimulation_change: f32,
 
     /// Emotions
     /// Triggers joy, etc.

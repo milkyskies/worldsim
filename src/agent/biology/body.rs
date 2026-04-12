@@ -696,7 +696,7 @@ pub fn process_starvation(
             physical.last_health_damage = Some(HealthDamageSource::Starvation);
         }
 
-        if physical.thirst >= 90.0 {
+        if physical.hydration <= 10.0 {
             let health_damage = dt * 0.3;
             physical.health = (physical.health - health_damage).clamp(0.0, 100.0);
             physical.last_health_damage = Some(HealthDamageSource::Dehydration);

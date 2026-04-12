@@ -58,7 +58,7 @@ impl Action for RestAction {
             glucose_drain_per_sec: 0.15, // mild metabolic cost — less than Idle
             // Mild curiosity drift — less than Idle (the agent is
             // partly focused on recovering) but non-zero.
-            curiosity_per_sec: 0.008,
+            stimulation_per_sec: -0.008,
             ..Default::default()
         }
     }

@@ -52,7 +52,7 @@ impl Action for GroomAction {
             // Grooming is passive enough that curiosity drifts up
             // slowly — the agent is mentally unstimulated while
             // tending to themselves.
-            curiosity_per_sec: 0.01,
+            stimulation_per_sec: -0.01,
             ..Default::default()
         }
     }

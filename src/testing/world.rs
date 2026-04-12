@@ -1001,7 +1001,7 @@ impl TestWorld {
 
     /// Returns the agent's thirst value (0.0–100.0).
     pub fn agent_thirst(&self, agent: Entity) -> f32 {
-        self.get::<PhysicalNeeds>(agent).thirst
+        100.0 - self.get::<PhysicalNeeds>(agent).hydration
     }
 
     /// Returns the agent's aerobic stamina value (0.0–aerobic_max).
@@ -1126,7 +1126,10 @@ impl TestWorld {
             let starving = if m.is_starving() { "  STARVING" } else { "" };
             eprintln!(
                 "  Vitals:    health={:.1}  thirst={:.1}  stamina(a/an)={:.1}/{:.1}",
-                needs.health, needs.thirst, needs.stamina.aerobic, needs.stamina.anaerobic
+                needs.health,
+                100.0 - needs.hydration,
+                needs.stamina.aerobic,
+                needs.stamina.anaerobic
             );
             eprintln!(
                 "  Metabolism: stomach(c/f)={:.1}/{:.1}  glucose={:.1}/100  reserves={:.0}/500  hunger={:.2}{}",
@@ -1481,12 +1484,12 @@ impl TestWorld {
         if let Some(drives) = world.get::<PsychologicalDrives>(agent) {
             eprintln!(
                 "  Drives:    social={:.2}  fun={:.2}  curiosity={:.2}  status={:.2}  security={:.2}  autonomy={:.2}",
-                drives.social,
-                drives.fun,
-                drives.curiosity,
-                drives.status,
-                drives.security,
-                drives.autonomy
+                1.0 - drives.companionship,
+                1.0 - drives.enjoyment,
+                1.0 - drives.stimulation,
+                1.0 - drives.esteem,
+                1.0 - drives.safety,
+                1.0 - drives.autonomy
             );
         }
 
@@ -2492,9 +2495,9 @@ mod tests {
 
         let drives = world.get::<PsychologicalDrives>(deer);
         assert!(
-            drives.social > 0.6,
-            "extrovert genome should yield high social drive, got {}",
-            drives.social
+            drives.companionship < 0.4,
+            "extrovert genome should yield low baseline companionship (waking up lonely), got {}",
+            drives.companionship
         );
     }
 

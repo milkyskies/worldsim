@@ -502,7 +502,7 @@ pub fn tick_actions(
             // field, so we snapshot the urgency (0..1) as "pre_hunger" on a
             // 0..100 scale to preserve the outcome event semantics.
             let pre_hunger = physical.metabolism.hunger_urgency() * 100.0;
-            let pre_thirst = physical.thirst;
+            let pre_thirst = 100.0 - physical.hydration;
             let pre_aerobic = physical.stamina.aerobic;
             // Snapshot inventory-total so we can detect Harvest/Take
             // completions that yielded nothing (target was empty). Before
@@ -624,7 +624,7 @@ pub fn tick_actions(
             // Walk/Idle/Wander complete with no effects — skip the allocation.
             let post_hunger = physical.metabolism.hunger_urgency() * 100.0;
             let hunger_reduced = pre_hunger - post_hunger;
-            let thirst_reduced = pre_thirst - physical.thirst;
+            let thirst_reduced = pre_thirst - (100.0 - physical.hydration);
             let stamina_gained = physical.stamina.aerobic - pre_aerobic;
             if hunger_reduced > 0.0 || thirst_reduced > 0.0 || stamina_gained > 0.0 {
                 outcome_events.write(ActionOutcomeEvent {
@@ -801,13 +801,14 @@ pub fn apply_action_effects(
             // with a real per-tick state machine that matches how
             // Hunger/Thirst/Stamina already work.
             if let Some(drives) = drives.as_deref_mut() {
-                if effects.social_per_sec != 0.0 {
-                    drives.social =
-                        (drives.social + effects.social_per_sec * dt * degradation).clamp(0.0, 1.0);
+                if effects.companionship_per_sec != 0.0 {
+                    drives.companionship = (drives.companionship
+                        + effects.companionship_per_sec * dt * degradation)
+                        .clamp(0.0, 1.0);
                 }
-                if effects.curiosity_per_sec != 0.0 {
-                    drives.curiosity = (drives.curiosity
-                        + effects.curiosity_per_sec * dt * degradation)
+                if effects.stimulation_per_sec != 0.0 {
+                    drives.stimulation = (drives.stimulation
+                        + effects.stimulation_per_sec * dt * degradation)
                         .clamp(0.0, 1.0);
                 }
             }

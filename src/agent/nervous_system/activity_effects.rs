@@ -129,9 +129,12 @@ pub fn apply_activity_effects(
             .metabolism
             .tick_with_mods(dt, bmr_drain, activity_drain, organ_mods);
 
-        // Thirst
-        let d_thirst = (base_config.thirst_change + config.thirst_change) * dt;
-        physical.thirst = (physical.thirst + d_thirst).clamp(0.0, max_stat);
+        // Hydration — drains toward 0, refilled by Drink. All `_change`
+        // deltas in ActivityEffects use the "+ = good" convention now,
+        // so a thirst-inducing activity declares a *negative*
+        // `hydration_change`.
+        let d_hydration = (base_config.hydration_change + config.hydration_change) * dt;
+        physical.hydration = (physical.hydration + d_hydration).clamp(0.0, max_stat);
 
         // Health
         let d_health = (base_config.health_change + config.health_change) * dt;
@@ -145,24 +148,22 @@ pub fn apply_activity_effects(
         let d_alertness = (base_config.alertness_change + config.alertness_change) * (dt * 0.01); // 0-100 rate to 0-1
         consciousness.alertness = (consciousness.alertness + d_alertness).clamp(0.0, 1.0);
 
-        // --- PSYCHOLOGICAL DRIVES (0-1) ---
+        // --- PSYCHOLOGICAL DRIVES (0-1 satisfaction) ---
+        // Every field stores "high = satisfied"; a positive `_change`
+        // fills the need, negative drains it. Matches the same polarity
+        // as hydration/stamina/health above.
         if let Some(mut drives) = drives {
-            // Social
-            if config.social_change != 0.0 {
-                let d_social = config.social_change * dt;
-                drives.social = (drives.social + d_social).clamp(0.0, max_drive);
+            if config.companionship_change != 0.0 {
+                drives.companionship =
+                    (drives.companionship + config.companionship_change * dt).clamp(0.0, max_drive);
             }
-
-            // Fun
-            if config.fun_change != 0.0 {
-                let d_fun = config.fun_change * dt;
-                drives.fun = (drives.fun + d_fun).clamp(0.0, max_drive);
+            if config.enjoyment_change != 0.0 {
+                drives.enjoyment =
+                    (drives.enjoyment + config.enjoyment_change * dt).clamp(0.0, max_drive);
             }
-
-            // Curiosity
-            if config.curiosity_change != 0.0 {
-                let d_curiosity = config.curiosity_change * dt;
-                drives.curiosity = (drives.curiosity + d_curiosity).clamp(0.0, max_drive);
+            if config.stimulation_change != 0.0 {
+                drives.stimulation =
+                    (drives.stimulation + config.stimulation_change * dt).clamp(0.0, max_drive);
             }
         }
 

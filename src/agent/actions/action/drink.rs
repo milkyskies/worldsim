@@ -86,7 +86,10 @@ impl Action for DrinkAction {
     }
 
     fn on_complete(&self, ctx: &mut CompletionContext) {
-        ctx.physical.thirst = (ctx.physical.thirst - THIRST_REDUCTION).max(0.0);
+        // THIRST_REDUCTION is the legacy "how much thirst drops" value.
+        // Hydration is the inverted satisfaction, so Drink adds that
+        // much hydration (clamped to 100).
+        ctx.physical.hydration = (ctx.physical.hydration + THIRST_REDUCTION).min(100.0);
         ctx.physical.stamina.adjust_aerobic(STAMINA_GAIN);
     }
 
@@ -169,7 +172,7 @@ mod tests {
 
         let agent = world.spawn_agent(AgentConfig {
             pos: Vec2::new(40.0, 40.0),
-            thirst: 90.0,
+            hydration: 10.0,
             ..Default::default()
         });
 

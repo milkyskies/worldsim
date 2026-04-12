@@ -208,7 +208,7 @@ fn thirsty_human_next_to_water_drinks_within_500_ticks() {
             .world_mut()
             .get_mut::<PhysicalNeeds>(thirsty)
             .expect("agent must have PhysicalNeeds");
-        needs.thirst = 90.0;
+        needs.hydration = 10.0;
     }
     world.tick(500);
 

@@ -44,7 +44,7 @@ impl Action for WanderAction {
             // drifts through local space and passively takes in
             // what's around. Weaker than Explore (which actively
             // seeks novelty) and Observe (which focuses on one thing).
-            curiosity_per_sec: -0.02,
+            stimulation_per_sec: 0.02,
             ..Default::default()
         }
     }

@@ -268,7 +268,10 @@ pub fn develop_phenotype_system(
 
         let mut drives = PsychologicalDrives::from_personality(&personality.traits);
         if let Some(SocialDriveOverride(v)) = social_override {
-            drives.social = *v;
+            // Override stores legacy "social drive" semantics
+            // (0 = satisfied, 1 = lonely). Invert to the new
+            // satisfaction-based `companionship` field.
+            drives.companionship = 1.0 - *v;
         }
 
         sim_events.write(SimEvent::PhenotypeDeveloped {

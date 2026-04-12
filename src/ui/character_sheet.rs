@@ -468,7 +468,7 @@ fn render_overview(ui: &mut egui::Ui, world: &World, entity: Entity) {
         vital_row(ui, "Health", needs.health, 100.0, 0.3, 0.7);
         // Thirst is "higher = worse" so flip the bar direction — show
         // hydration instead of the raw thirst integer.
-        let hydration = 1.0 - (needs.thirst / 100.0).clamp(0.0, 1.0);
+        let hydration = (needs.hydration / 100.0).clamp(0.0, 1.0);
         vital_row_fraction(ui, "Hydration", hydration, 0.3, 0.7);
         urgency_line(ui, "Thirst urgency", urgency_for(UrgencySource::Thirst));
         vital_row(
@@ -722,7 +722,7 @@ fn render_needs(ui: &mut egui::Ui, world: &World, entity: Entity) {
                 need_bar(
                     ui,
                     "Thirst",
-                    needs.thirst,
+                    100.0 - needs.hydration,
                     100.0,
                     urgency_for(UrgencySource::Thirst),
                 );
@@ -765,11 +765,16 @@ fn render_needs(ui: &mut egui::Ui, world: &World, entity: Entity) {
                 drive_bar(
                     ui,
                     "Curiosity",
-                    drives.curiosity,
+                    1.0 - drives.stimulation,
                     urgency_for(UrgencySource::Curiosity),
                 );
-                drive_bar(ui, "Fun", drives.fun, urgency_for(UrgencySource::Fun));
-                drive_bar(ui, "Autonomy", drives.autonomy, None);
+                drive_bar(
+                    ui,
+                    "Fun",
+                    1.0 - drives.enjoyment,
+                    urgency_for(UrgencySource::Fun),
+                );
+                drive_bar(ui, "Autonomy", 1.0 - drives.autonomy, None);
             }
         });
 
@@ -783,15 +788,15 @@ fn render_needs(ui: &mut egui::Ui, world: &World, entity: Entity) {
                 drive_bar(
                     ui,
                     "Social",
-                    drives.social,
+                    1.0 - drives.companionship,
                     urgency_for(UrgencySource::Social),
                 );
-                drive_bar(ui, "Status", drives.status, None);
-                drive_bar(ui, "Security", drives.security, None);
+                drive_bar(ui, "Status", 1.0 - drives.esteem, None);
+                drive_bar(ui, "Security", 1.0 - drives.safety, None);
                 drive_bar(
                     ui,
                     "Territoriality",
-                    drives.territoriality,
+                    1.0 - drives.dominion,
                     urgency_for(UrgencySource::Territoriality),
                 );
             }
