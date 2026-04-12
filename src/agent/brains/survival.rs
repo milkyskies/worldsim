@@ -13,8 +13,7 @@ use crate::agent::mind::knowledge::Ontology;
 use crate::agent::nervous_system::cns::CentralNervousSystem;
 use crate::agent::nervous_system::urgency::UrgencySource;
 use crate::constants::brains::survival::{
-    FATIGUE_SLEEP_THRESHOLD, SLEEPINESS_SLEEP_THRESHOLD, WAKE_STAMINA_THRESHOLD,
-    WAKE_WAKEFULNESS_THRESHOLD,
+    SLEEPINESS_SLEEP_THRESHOLD, WAKE_STAMINA_THRESHOLD, WAKE_WAKEFULNESS_THRESHOLD,
 };
 use bevy::prelude::*;
 
@@ -84,31 +83,18 @@ pub fn survival_brain_propose(
             }
         }
         UrgencySource::Stamina => {
-            // Mild fatigue → Rest. The agent sits down to recover without
-            // losing alertness. Only when fatigue escalates past the
-            // `FATIGUE_SLEEP_THRESHOLD` does the agent commit to actual
-            // Sleep, which drops alertness and can't be interrupted by
-            // Rest-class proposals. This mirrors real mammals: a tired
-            // animal rests in place long before it's sleepy enough to
-            // surrender consciousness (#386).
-            let action_type = if top.value >= FATIGUE_SLEEP_THRESHOLD {
-                ActionType::Sleep
-            } else {
-                ActionType::Rest
-            };
-            if let Some(action) = action_registry.get(action_type) {
-                let reasoning = match action_type {
-                    ActionType::Sleep => {
-                        format!("Fatigue urgency {:.2} — sleeping!", top.value)
-                    }
-                    _ => format!("Fatigue urgency {:.2} — resting.", top.value),
-                };
+            // Stamina fatigue only proposes Rest (sit-and-recover). Full
+            // Sleep is now driven exclusively by the Sleepiness urgency
+            // from wakefulness decay (#462). This decouples physical
+            // exhaustion from sleepiness — a tired agent rests, a drowsy
+            // agent sleeps.
+            if let Some(action) = action_registry.get(ActionType::Rest) {
                 return Some(BrainProposal {
                     brain: BrainType::Survival,
                     action: action.to_template(None),
                     urgency: urgency_score,
                     intent,
-                    reasoning,
+                    reasoning: format!("Fatigue urgency {:.2} — resting.", top.value),
                 });
             }
         }
@@ -289,14 +275,13 @@ mod tests {
     }
 
     #[test]
-    fn mild_fatigue_proposes_rest_not_sleep() {
-        // #386: Survival routes Stamina urgency to Rest when urgency is
-        // below FATIGUE_SLEEP_THRESHOLD. A mildly tired agent sits and
-        // recovers without committing to full sleep.
+    fn stamina_fatigue_always_proposes_rest() {
+        // #462: Stamina urgency always routes to Rest, never Sleep.
+        // Sleep is now driven exclusively by the Sleepiness urgency
+        // from wakefulness decay, decoupling physical exhaustion from
+        // sleepiness.
         let ontology = setup_ontology();
         let physical = PhysicalNeeds::default();
-        let cns = cns_with_top(UrgencySource::Stamina, 0.4); // below 0.7 threshold
-        let context = context_with_urgency(&physical, &cns);
         let inventory = crate::agent::item_slots::ItemSlots::agent_carry();
         let active = ActiveActions::default();
 
@@ -304,39 +289,22 @@ mod tests {
         registry.register(crate::agent::actions::action::RestAction);
         registry.register(crate::agent::actions::action::SleepAction);
 
+        // Mild fatigue → Rest
+        let cns = cns_with_top(UrgencySource::Stamina, 0.4);
+        let context = context_with_urgency(&physical, &cns);
         let proposal = survival_brain_propose(context, &inventory, &active, &ontology, &registry);
-
         let proposal = proposal.expect("mild fatigue must produce a proposal");
-        assert_eq!(
-            proposal.action.action_type,
-            ActionType::Rest,
-            "mild fatigue should route to Rest, not Sleep; got {:?}",
-            proposal.action.name,
-        );
-    }
+        assert_eq!(proposal.action.action_type, ActionType::Rest);
 
-    #[test]
-    fn severe_fatigue_proposes_sleep_not_rest() {
-        // #386: Once Stamina urgency crosses FATIGUE_SLEEP_THRESHOLD
-        // (0.7), Survival commits the agent to full Sleep.
-        let ontology = setup_ontology();
-        let physical = PhysicalNeeds::default();
-        let cns = cns_with_top(UrgencySource::Stamina, 0.9); // above 0.7 threshold
+        // Severe fatigue → still Rest (not Sleep)
+        let cns = cns_with_top(UrgencySource::Stamina, 0.9);
         let context = context_with_urgency(&physical, &cns);
-        let inventory = crate::agent::item_slots::ItemSlots::agent_carry();
-        let active = ActiveActions::default();
-
-        let mut registry = crate::agent::actions::ActionRegistry::default();
-        registry.register(crate::agent::actions::action::RestAction);
-        registry.register(crate::agent::actions::action::SleepAction);
-
         let proposal = survival_brain_propose(context, &inventory, &active, &ontology, &registry);
-
         let proposal = proposal.expect("severe fatigue must produce a proposal");
         assert_eq!(
             proposal.action.action_type,
-            ActionType::Sleep,
-            "severe fatigue should escalate to Sleep; got {:?}",
+            ActionType::Rest,
+            "stamina fatigue must never propose Sleep; got {:?}",
             proposal.action.name,
         );
     }

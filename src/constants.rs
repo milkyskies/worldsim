@@ -146,13 +146,6 @@ pub mod brains {
         /// Stamina safety margin used by the planner: if a walk would leave the agent below
         /// this level, Sleep is prepended so the survival brain doesn't interrupt the trip.
         pub const EXHAUSTION_TRIGGER: f32 = 15.0;
-        /// Fatigue urgency above this level commits the agent to Sleep
-        /// (drops alertness, indefinite duration). Below it, the agent
-        /// only needs Rest — sit-and-recover without losing
-        /// consciousness. Tuned so a fresh agent can handle a normal
-        /// day of activity with Rest breaks before needing a real
-        /// sleep cycle (#386).
-        pub const FATIGUE_SLEEP_THRESHOLD: f32 = 0.7;
         /// Wakefulness level at which a sleeping agent wakes up naturally.
         /// Set just below 1.0 so the agent wakes well-rested but doesn't
         /// need to hit the absolute ceiling.
