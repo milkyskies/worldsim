@@ -444,14 +444,12 @@ fn format_sim_event(event: &SimEvent) -> String {
         SimEvent::PhenotypeDeveloped {
             agent,
             tick,
-            speed,
-            vision,
-            metabolism,
-            endurance,
+            phenotype,
         } => {
             format!(
-                "[t{tick}] PhenotypeDeveloped agent={agent:?} speed={speed:.3} \
-                 vision={vision:.3} metabolism={metabolism:.3} endurance={endurance:.3}"
+                "[t{tick}] PhenotypeDeveloped agent={agent:?} speed={:.3} \
+                 vision={:.3} bmr={:.3} aerobic={:.3}",
+                phenotype.speed, phenotype.vision, phenotype.bmr, phenotype.aerobic_capacity,
             )
         }
     }

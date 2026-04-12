@@ -1069,7 +1069,7 @@ fn render_needs(ui: &mut egui::Ui, world: &World, entity: Entity) {
     ui.label(egui::RichText::new("Body").strong());
     vital_row_fraction_explained(
         ui,
-        "Hydration (hydration)",
+        "Hydration",
         (needs.hydration / 100.0).clamp(0.0, 1.0),
         0.3,
         0.7,
@@ -1083,7 +1083,7 @@ fn render_needs(ui: &mut egui::Ui, world: &World, entity: Entity) {
     );
     vital_row_explained(
         ui,
-        "Stamina (aerobic)",
+        "Stamina",
         needs.stamina.aerobic,
         needs.stamina.aerobic_max,
         0.3,
@@ -1098,7 +1098,7 @@ fn render_needs(ui: &mut egui::Ui, world: &World, entity: Entity) {
     );
     vital_row_explained(
         ui,
-        "Sprint (anaerobic)",
+        "Sprint",
         needs.stamina.anaerobic,
         needs.stamina.anaerobic_max,
         0.3,
@@ -1132,15 +1132,7 @@ fn render_drives(ui: &mut egui::Ui, world: &World, entity: Entity) {
     };
 
     if let Some(consc) = world.get::<Consciousness>(entity) {
-        vital_row_fraction_explained(
-            ui,
-            "Alertness (alertness)",
-            consc.alertness,
-            0.3,
-            0.6,
-            None,
-            "",
-        );
+        vital_row_fraction_explained(ui, "Alertness", consc.alertness, 0.3, 0.6, None, "");
     }
 
     let Some(drives) = world.get::<PsychologicalDrives>(entity) else {
@@ -1150,7 +1142,7 @@ fn render_drives(ui: &mut egui::Ui, world: &World, entity: Entity) {
 
     vital_row_fraction_explained(
         ui,
-        "Companionship (social)",
+        "Companionship",
         drives.companionship,
         0.3,
         0.6,
@@ -1158,42 +1150,18 @@ fn render_drives(ui: &mut egui::Ui, world: &World, entity: Entity) {
         "",
     );
     urgency_line(ui, "Social urgency", urgency_for(UrgencySource::Social));
-    vital_row_fraction_explained(ui, "Enjoyment (fun)", drives.enjoyment, 0.3, 0.6, None, "");
+    vital_row_fraction_explained(ui, "Enjoyment", drives.enjoyment, 0.3, 0.6, None, "");
     urgency_line(ui, "Fun urgency", urgency_for(UrgencySource::Fun));
-    vital_row_fraction_explained(
-        ui,
-        "Stimulation (curiosity)",
-        drives.stimulation,
-        0.3,
-        0.6,
-        None,
-        "",
-    );
+    vital_row_fraction_explained(ui, "Stimulation", drives.stimulation, 0.3, 0.6, None, "");
     urgency_line(
         ui,
         "Curiosity urgency",
         urgency_for(UrgencySource::Curiosity),
     );
-    vital_row_fraction_explained(ui, "Esteem (status)", drives.esteem, 0.3, 0.6, None, "");
-    vital_row_fraction_explained(ui, "Safety (security)", drives.safety, 0.3, 0.6, None, "");
-    vital_row_fraction_explained(
-        ui,
-        "Autonomy (autonomy)",
-        drives.autonomy,
-        0.3,
-        0.6,
-        None,
-        "",
-    );
-    vital_row_fraction_explained(
-        ui,
-        "Dominion (territory)",
-        drives.dominion,
-        0.3,
-        0.6,
-        None,
-        "",
-    );
+    vital_row_fraction_explained(ui, "Esteem", drives.esteem, 0.3, 0.6, None, "");
+    vital_row_fraction_explained(ui, "Safety", drives.safety, 0.3, 0.6, None, "");
+    vital_row_fraction_explained(ui, "Autonomy", drives.autonomy, 0.3, 0.6, None, "");
+    vital_row_fraction_explained(ui, "Dominion", drives.dominion, 0.3, 0.6, None, "");
     urgency_line(
         ui,
         "Territorial urgency",

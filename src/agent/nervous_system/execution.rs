@@ -744,6 +744,7 @@ pub fn apply_action_effects(
         Option<&mut crate::agent::body::needs::PsychologicalDrives>,
         Option<&Body>,
         Option<&SpeciesProfile>,
+        Option<&crate::agent::body::genetics::phenotype::Phenotype>,
     )>,
 ) {
     use crate::agent::body::effort::{self, DEFAULT_BODY_MASS, compute_action_cost};
@@ -751,11 +752,14 @@ pub fn apply_action_effects(
 
     let dt = tick.dt();
 
-    for (active, mut physical, mut consciousness, mut drives, body, species) in agents.iter_mut() {
+    for (active, mut physical, mut consciousness, mut drives, body, species, phenotype) in
+        agents.iter_mut()
+    {
         let load = active.channel_load(&registry);
         // Capacities freeze the start-of-tick stamina so degradation doesn't
         // compound as the loop mutates physical.stamina mid-iteration.
         let capacities = ChannelCapacities::compute(body, Some(&*physical), Some(&*consciousness));
+        let bmr_mult = phenotype.map(|p| p.bmr).unwrap_or(1.0);
         let body_mass = species.map(|s| s.mass_kg).unwrap_or(DEFAULT_BODY_MASS);
 
         // Snapshot stamina for effective_intensity computation — the same
@@ -793,18 +797,16 @@ pub fn apply_action_effects(
 
             let cost = compute_action_cost(&profile, body_mass);
 
-            // Stamina drain (aerobic + anaerobic) from the effort model.
-            // Positive cost.aerobic_drain = depletion; negative = recovery.
             physical
                 .stamina
-                .adjust_aerobic(-cost.aerobic_drain * dt * degradation);
+                .adjust_aerobic(-cost.aerobic_drain * dt * degradation * bmr_mult);
             physical.stamina.anaerobic = (physical.stamina.anaerobic
-                - cost.anaerobic_drain * dt * degradation)
+                - cost.anaerobic_drain * dt * degradation * bmr_mult)
                 .clamp(0.0, physical.stamina.anaerobic_max);
 
             // Energy cost: split between glucose and reserves via fuel
             // partitioning (intensity-keyed, reserves-availability-aware).
-            let energy_drain = cost.energy * dt * degradation;
+            let energy_drain = cost.energy * dt * degradation * bmr_mult;
             if energy_drain != 0.0 {
                 let gluc_frac = effort::effective_glucose_fraction(
                     profile.peak_intensity(),
@@ -827,9 +829,7 @@ pub fn apply_action_effects(
                     .clamp(0.0, 1.0);
             }
 
-            // --- Side effects from RuntimeEffects ---
-
-            // Stomach fill (ingestion side effect, e.g. Graze).
+            // --- Ingestion side effect (Graze) ---
             let carbs_fill = effects.stomach_carbs_per_sec * dt * degradation;
             if carbs_fill > 0.0 {
                 physical
@@ -839,30 +839,38 @@ pub fn apply_action_effects(
                     ));
             }
 
-            // Behavioural alertness (positive = stimulating, negative = soporific).
+            // --- Psychological effects derived from primitive + intent ---
+            let intent = action_state.action_type.default_intent();
+            let base_psych = primitive.psych_effect();
+            let mut psych = intent.modify_psych(&base_psych, primitive);
+
+            // Rest+Fatigue at high intensity = sleep (consciousness loss).
+            // Below the threshold = conscious recovery (mild alertness gain).
+            if primitive == crate::agent::actions::ActionPrimitive::Rest
+                && intent == crate::agent::actions::Intent::Fatigue
+                && intensity >= 0.8
+            {
+                psych.alertness = -50.0;
+            }
+
+            // WakeUp special case: rapid alertness restoration.
+            if action_state.action_type == ActionType::WakeUp {
+                psych.alertness = 100.0;
+            }
+
             consciousness.alertness = (consciousness.alertness
-                + effects.alertness_per_sec * dt * 0.01 * degradation)
+                + psych.alertness * dt * 0.01 * degradation)
                 .clamp(0.0, 1.0);
 
-            // Psychological drive updates (#386). Every action declares
-            // its effect on social and curiosity; negative values drain
-            // the drive (satisfying it), positive values raise it
-            // (starving it). Drain-only actions like Observe and Converse
-            // close the loop on Curiosity/Social; passive actions like
-            // Idle and Sleep let the drive drift back up. This removes
-            // the old `base_constant` hack for Boredom and replaces it
-            // with a real per-tick state machine that matches how
-            // Hunger/Thirst/Stamina already work.
             if let Some(drives) = drives.as_deref_mut() {
-                if effects.companionship_per_sec != 0.0 {
+                if psych.companionship != 0.0 {
                     drives.companionship = (drives.companionship
-                        + effects.companionship_per_sec * dt * degradation)
+                        + psych.companionship * dt * degradation)
                         .clamp(0.0, 1.0);
                 }
-                if effects.stimulation_per_sec != 0.0 {
-                    drives.stimulation = (drives.stimulation
-                        + effects.stimulation_per_sec * dt * degradation)
-                        .clamp(0.0, 1.0);
+                if psych.stimulation != 0.0 {
+                    drives.stimulation =
+                        (drives.stimulation + psych.stimulation * dt * degradation).clamp(0.0, 1.0);
                 }
             }
         }
