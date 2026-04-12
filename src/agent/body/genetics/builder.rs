@@ -112,13 +112,23 @@ impl PhysicalBuilder {
         self
     }
 
-    pub fn metabolism(mut self, v: f32) -> Self {
-        self.target.metabolism = v;
+    pub fn digestion(mut self, v: f32) -> Self {
+        self.target.digestion = v;
         self
     }
 
-    pub fn endurance(mut self, v: f32) -> Self {
-        self.target.endurance = v;
+    pub fn bmr(mut self, v: f32) -> Self {
+        self.target.bmr = v;
+        self
+    }
+
+    pub fn aerobic_capacity(mut self, v: f32) -> Self {
+        self.target.aerobic_capacity = v;
+        self
+    }
+
+    pub fn anaerobic_capacity(mut self, v: f32) -> Self {
+        self.target.anaerobic_capacity = v;
         self
     }
 }
@@ -147,13 +157,23 @@ impl GenomeBuilder {
         self
     }
 
-    pub fn metabolism(mut self, v: f32) -> Self {
-        self.target.metabolism = v;
+    pub fn digestion(mut self, v: f32) -> Self {
+        self.target.digestion = v;
         self
     }
 
-    pub fn endurance(mut self, v: f32) -> Self {
-        self.target.endurance = v;
+    pub fn bmr(mut self, v: f32) -> Self {
+        self.target.bmr = v;
+        self
+    }
+
+    pub fn aerobic_capacity(mut self, v: f32) -> Self {
+        self.target.aerobic_capacity = v;
+        self
+    }
+
+    pub fn anaerobic_capacity(mut self, v: f32) -> Self {
+        self.target.anaerobic_capacity = v;
         self
     }
 

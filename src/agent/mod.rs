@@ -192,7 +192,11 @@ impl Plugin for AgentPlugin {
             // brain or personality system reads the derived traits.
             .add_systems(
                 PreUpdate,
-                body::genetics::phenotype::develop_phenotype_system,
+                (
+                    body::genetics::phenotype::develop_phenotype_system,
+                    body::genetics::phenotype::apply_stamina_genetics_system,
+                )
+                    .chain(),
             );
     }
 }

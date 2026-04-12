@@ -743,6 +743,7 @@ pub fn apply_action_effects(
         Option<&mut crate::agent::body::needs::PsychologicalDrives>,
         Option<&Body>,
         Option<&SpeciesProfile>,
+        Option<&crate::agent::body::genetics::phenotype::Phenotype>,
     )>,
 ) {
     use crate::agent::body::effort::{self, DEFAULT_BODY_MASS, compute_action_cost};
@@ -750,11 +751,14 @@ pub fn apply_action_effects(
 
     let dt = tick.dt();
 
-    for (active, mut physical, mut consciousness, mut drives, body, species) in agents.iter_mut() {
+    for (active, mut physical, mut consciousness, mut drives, body, species, phenotype) in
+        agents.iter_mut()
+    {
         let load = active.channel_load(&registry);
         // Capacities freeze the start-of-tick stamina so degradation doesn't
         // compound as the loop mutates physical.stamina mid-iteration.
         let capacities = ChannelCapacities::compute(body, Some(&*physical));
+        let bmr_mult = phenotype.map(|p| p.bmr).unwrap_or(1.0);
         let body_mass = species.map(|s| s.mass_kg).unwrap_or(DEFAULT_BODY_MASS);
 
         // Snapshot stamina for effective_intensity computation — the same
@@ -792,18 +796,16 @@ pub fn apply_action_effects(
 
             let cost = compute_action_cost(&profile, body_mass);
 
-            // Stamina drain (aerobic + anaerobic) from the effort model.
-            // Positive cost.aerobic_drain = depletion; negative = recovery.
             physical
                 .stamina
-                .adjust_aerobic(-cost.aerobic_drain * dt * degradation);
+                .adjust_aerobic(-cost.aerobic_drain * dt * degradation * bmr_mult);
             physical.stamina.anaerobic = (physical.stamina.anaerobic
-                - cost.anaerobic_drain * dt * degradation)
+                - cost.anaerobic_drain * dt * degradation * bmr_mult)
                 .clamp(0.0, physical.stamina.anaerobic_max);
 
             // Energy cost: split between glucose and reserves via fuel
             // partitioning (intensity-keyed, reserves-availability-aware).
-            let energy_drain = cost.energy * dt * degradation;
+            let energy_drain = cost.energy * dt * degradation * bmr_mult;
             if energy_drain != 0.0 {
                 let gluc_frac = effort::effective_glucose_fraction(
                     profile.peak_intensity(),

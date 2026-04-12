@@ -387,10 +387,7 @@ pub enum SimEvent {
     PhenotypeDeveloped {
         agent: Entity,
         tick: u64,
-        speed: f32,
-        vision: f32,
-        metabolism: f32,
-        endurance: f32,
+        phenotype: crate::agent::body::genetics::phenotype::Phenotype,
     },
 }
 
