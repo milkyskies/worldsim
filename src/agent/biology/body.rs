@@ -52,7 +52,7 @@ impl Body {
                     BodyNode::new(BodyNodeKind::LeftEar, 5.0).with_tags(vec![Hear]),
                     BodyNode::new(BodyNodeKind::RightEar, 5.0).with_tags(vec![Hear]),
                     BodyNode::new(BodyNodeKind::Nose, 10.0).with_tags(vec![Smell]),
-                    BodyNode::new(BodyNodeKind::Jaw, 30.0).with_tags(vec![Eat, Speak, Bite]),
+                    BodyNode::new(BodyNodeKind::Jaw, 30.0).with_tags(vec![Eat, Speak]),
                 ]),
                 BodyNode::vital(BodyNodeKind::Torso, 100.0)
                     .with_tags(vec![FullBody])

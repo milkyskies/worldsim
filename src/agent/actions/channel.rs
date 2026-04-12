@@ -550,14 +550,11 @@ mod tests {
     }
 
     #[test]
-    fn healthy_human_has_weak_bite() {
+    fn healthy_human_has_no_bite() {
         let body = Body::human();
         let m = TagChannelMapping::default();
         let bite = Channel::Bite.max_capacity(Some(&body), None, None, &m);
-        assert!(
-            (bite - 0.1).abs() < 1e-6,
-            "humans have weak Bite 0.1 from jaw, got {bite}"
-        );
+        assert_eq!(bite, 0.0, "humans have no Bite tag, got {bite}");
     }
 
     #[test]
