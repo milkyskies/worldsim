@@ -273,34 +273,34 @@ impl Body {
     pub fn death_cause(&self) -> Option<&'static str> {
         if self
             .node(BodyNodeKind::Heart)
-            .map_or(false, |n| n.is_destroyed())
+            .is_some_and(|n| n.is_destroyed())
         {
             return Some("heart failure");
         }
         if self
             .node(BodyNodeKind::Brain)
-            .map_or(false, |n| n.is_destroyed())
+            .is_some_and(|n| n.is_destroyed())
         {
             return Some("brain death");
         }
         let left_lung_dead = self
             .node(BodyNodeKind::LeftLung)
-            .map_or(false, |n| n.is_destroyed());
+            .is_some_and(|n| n.is_destroyed());
         let right_lung_dead = self
             .node(BodyNodeKind::RightLung)
-            .map_or(false, |n| n.is_destroyed());
+            .is_some_and(|n| n.is_destroyed());
         if left_lung_dead && right_lung_dead {
             return Some("respiratory failure");
         }
         if self
             .part(BodyNodeKind::Head)
-            .map_or(false, |n| n.is_destroyed())
+            .is_some_and(|n| n.is_destroyed())
         {
             return Some("head destroyed");
         }
         if self
             .part(BodyNodeKind::Torso)
-            .map_or(false, |n| n.is_destroyed())
+            .is_some_and(|n| n.is_destroyed())
         {
             return Some("torso destroyed");
         }
