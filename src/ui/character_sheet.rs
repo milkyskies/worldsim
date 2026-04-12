@@ -765,9 +765,8 @@ fn render_overview(ui: &mut egui::Ui, world: &World, entity: Entity) {
 
         ui.add_space(4.0);
         ui.label(egui::RichText::new("Body").strong());
-        let body_health = world
-            .get::<crate::agent::biology::body::Body>(entity)
-            .map_or(1.0, |b| b.overall_health());
+        let body_ref = world.get::<crate::agent::biology::body::Body>(entity);
+        let body_health = body_ref.map_or(1.0, |b| b.overall_health());
         vital_row(ui, "Health", body_health * 100.0, 100.0, 0.3, 0.7);
         let hydration = (needs.hydration / 100.0).clamp(0.0, 1.0);
         vital_row_fraction_explained(
@@ -798,10 +797,7 @@ fn render_overview(ui: &mut egui::Ui, world: &World, entity: Entity) {
             urgency_for(UrgencySource::Sleepiness),
         );
 
-        if let Some(cause) = world
-            .get::<crate::agent::biology::body::Body>(entity)
-            .and_then(|b| b.death_cause())
-        {
+        if let Some(cause) = body_ref.and_then(|b| b.death_cause()) {
             ui.label(
                 egui::RichText::new(format!("Critical: {cause}"))
                     .color(Color32::LIGHT_RED)

@@ -23,7 +23,7 @@ impl Plugin for BiologyPlugin {
                 (
                     setup_biology,
                     (
-                        body::process_starvation,
+                        body::process_deprivation,
                         body::check_death,
                         body::process_healing,
                     )

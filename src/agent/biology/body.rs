@@ -6,8 +6,8 @@
 //! Consumption + Bite while a human's arm offers Manipulation + Carry, without
 //! the action system knowing anything about species.
 //!
-//! Reads: PhysicalNeeds (for healing boost + starvation gradient)
-//! Writes: Body (healing/scarring), PhysicalNeeds (starvation damage)
+//! Reads: PhysicalNeeds (for healing boost + deprivation checks)
+//! Writes: Body (healing/scarring, starvation/dehydration cascade)
 //! Upstream: BiologyPlugin (auto-spawn), per-species spawners
 //! Downstream: channel::ChannelCapacities (capability queries),
 //!             movement::calculate_speed (injury penalty), UI/debug
@@ -825,6 +825,9 @@ const CASCADE_STAGE_THRESHOLD: f32 = 0.7;
 /// Condition threshold for the final (brain) cascade stage.
 const CASCADE_SEVERE_THRESHOLD: f32 = 0.3;
 
+/// Moderate degradation threshold — gates liver (from gut) and heart (from liver).
+const CASCADE_MODERATE_THRESHOLD: f32 = 0.5;
+
 /// Apply the starvation/dehydration organ-failure cascade.
 ///
 /// Stages fire sequentially — each is gated by the prior stage's
@@ -837,6 +840,8 @@ const CASCADE_SEVERE_THRESHOLD: f32 = 0.3;
 /// 5. **Lung capacity loss** — Lung HP drops (when Liver condition < 0.3)
 /// 6. **Brain last** — Brain HP drops (when Heart or Lung condition < 0.3)
 fn apply_cascade(body: &mut Body, dt: f32, rate_mult: f32) {
+    let organ_dmg = STARVATION_ORGAN_DAMAGE * rate_mult * dt;
+
     // Stage 1: Muscle wasting — damage all non-vital root parts (limbs)
     // and their children (hands, feet, paws, hooves).
     let limb_dmg = STARVATION_LIMB_DAMAGE * rate_mult * dt;
@@ -850,49 +855,55 @@ fn apply_cascade(body: &mut Body, dt: f32, rate_mult: f32) {
     }
 
     // Stage 2: Gut atrophy — when limbs are weakened
+    let mut gut_cond = 1.0f32;
     if body.avg_limb_condition() < CASCADE_STAGE_THRESHOLD {
-        let organ_dmg = STARVATION_ORGAN_DAMAGE * rate_mult * dt;
         if let Some(gut) = body.node_mut(BodyNodeKind::Gut) {
             gut.damage_hp(organ_dmg);
+            gut_cond = gut.condition();
         }
+    } else {
+        gut_cond = body.node(BodyNodeKind::Gut).map_or(1.0, |n| n.condition());
     }
 
     // Stage 3: Liver deterioration — when gut degraded
-    let gut_cond = body.node(BodyNodeKind::Gut).map_or(1.0, |n| n.condition());
-    if gut_cond < 0.5 {
-        let organ_dmg = STARVATION_ORGAN_DAMAGE * rate_mult * dt;
+    let mut liver_cond = 1.0f32;
+    if gut_cond < CASCADE_MODERATE_THRESHOLD {
         if let Some(liver) = body.node_mut(BodyNodeKind::Liver) {
             liver.damage_hp(organ_dmg);
+            liver_cond = liver.condition();
         }
+    } else {
+        liver_cond = body
+            .node(BodyNodeKind::Liver)
+            .map_or(1.0, |n| n.condition());
     }
 
     // Stage 4: Heart weakening — when liver degraded
-    let liver_cond = body
-        .node(BodyNodeKind::Liver)
-        .map_or(1.0, |n| n.condition());
-    if liver_cond < 0.5 {
-        let organ_dmg = STARVATION_ORGAN_DAMAGE * rate_mult * dt;
+    let mut heart_cond = 1.0f32;
+    if liver_cond < CASCADE_MODERATE_THRESHOLD {
         if let Some(heart) = body.node_mut(BodyNodeKind::Heart) {
             heart.damage_hp(organ_dmg);
+            heart_cond = heart.condition();
         }
+    } else {
+        heart_cond = body
+            .node(BodyNodeKind::Heart)
+            .map_or(1.0, |n| n.condition());
     }
 
     // Stage 5: Lung capacity loss — when liver severely degraded
+    let mut lung_cond = 1.0f32;
     if liver_cond < CASCADE_SEVERE_THRESHOLD {
-        let organ_dmg = STARVATION_ORGAN_DAMAGE * rate_mult * dt;
         if let Some(left) = body.node_mut(BodyNodeKind::LeftLung) {
             left.damage_hp(organ_dmg);
         }
         if let Some(right) = body.node_mut(BodyNodeKind::RightLung) {
             right.damage_hp(organ_dmg);
         }
+        lung_cond = body.lung_condition();
     }
 
     // Stage 6: Brain protected last — when heart or lungs severely damaged
-    let heart_cond = body
-        .node(BodyNodeKind::Heart)
-        .map_or(1.0, |n| n.condition());
-    let lung_cond = body.lung_condition();
     if heart_cond < CASCADE_SEVERE_THRESHOLD || lung_cond < CASCADE_SEVERE_THRESHOLD {
         let brain_dmg = STARVATION_BRAIN_DAMAGE * rate_mult * dt;
         if let Some(brain) = body.node_mut(BodyNodeKind::Brain) {
@@ -901,7 +912,7 @@ fn apply_cascade(body: &mut Body, dt: f32, rate_mult: f32) {
     }
 }
 
-pub fn process_starvation(
+pub fn process_deprivation(
     tick: Res<crate::core::tick::TickCount>,
     mut query: Query<(&mut PhysicalNeeds, &mut Body), With<Alive>>,
 ) {
