@@ -565,8 +565,8 @@ mod tests {
         let manip = Channel::Manipulation.max_capacity(Some(&body), None, None, &m);
         assert!(bite >= 1.0, "wolf jaws should provide Bite 1.0, got {bite}");
         assert!(
-            (manip - 0.4).abs() < 1e-4,
-            "wolf jaws should cap Manipulation at 0.4, got {manip}"
+            (manip - 0.5).abs() < 1e-4,
+            "wolf jaw Grasp gives Manipulation 0.5 via uniform mapping, got {manip}"
         );
     }
 
