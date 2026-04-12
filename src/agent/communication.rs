@@ -728,10 +728,10 @@ pub fn select_turn_intent(
                 c.alertness = (c.alertness - drain).max(0.0);
             }
         }
-        if let Ok(mut d) = drives.get_mut(speaker) {
-            if d.companionship < 1.0 {
-                d.companionship = (d.companionship + SOCIAL_DRIVE_PER_TURN).clamp(0.0, 1.0);
-            }
+        if let Ok(mut d) = drives.get_mut(speaker)
+            && d.companionship < 1.0
+        {
+            d.companionship = (d.companionship + SOCIAL_DRIVE_PER_TURN).clamp(0.0, 1.0);
         }
 
         // Direct question → flag the primary listener so the weighted
@@ -902,26 +902,27 @@ pub(crate) fn select_intent(
         .filter(|t| t.speaker != conv.current_speaker());
 
     // 7. Empathize: last speaker expressed negative emotion.
-    if let Some(last) = other_last {
-        if let Some(emotion) = &last.emotion {
-            let is_negative = matches!(
-                emotion.emotion_type,
-                crate::agent::psyche::emotions::EmotionType::Sadness
-                    | crate::agent::psyche::emotions::EmotionType::Fear
-                    | crate::agent::psyche::emotions::EmotionType::Anger
-                    | crate::agent::psyche::emotions::EmotionType::Disgust
-            );
-            if is_negative && agreeableness > 0.4 {
-                return Intent::Empathize;
-            }
+    if let Some(last) = other_last
+        && let Some(emotion) = &last.emotion
+    {
+        let is_negative = matches!(
+            emotion.emotion_type,
+            crate::agent::psyche::emotions::EmotionType::Sadness
+                | crate::agent::psyche::emotions::EmotionType::Fear
+                | crate::agent::psyche::emotions::EmotionType::Anger
+                | crate::agent::psyche::emotions::EmotionType::Disgust
+        );
+        if is_negative && agreeableness > 0.4 {
+            return Intent::Empathize;
         }
     }
 
     // 8. Agree: last speaker shared content, agreeable agents affirm it.
-    if let Some(last) = other_last {
-        if matches!(last.intent, Intent::Share) && agreeableness > 0.5 {
-            return Intent::Agree;
-        }
+    if let Some(last) = other_last
+        && matches!(last.intent, Intent::Share)
+        && agreeableness > 0.5
+    {
+        return Intent::Agree;
     }
 
     // 9. ChitChat: agents with casual content share it. Lowered from 0.55 so
