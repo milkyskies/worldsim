@@ -106,10 +106,16 @@ pub fn kill_into_corpse(commands: &mut Commands, entity: Entity, meat_qty: u32) 
         };
 
         // Strip the components that make the entity actively alive.
-        // Brain components (RationalBrain, EmotionalState, BrainState, etc.)
-        // are queried `With<Agent>`, so removing the Agent marker alone is
-        // enough to make the brain systems skip the entity. We leave the
-        // mind/body data on the entity as frozen memorial state.
+        // `die()` already removes `Alive` and inserts `Dead` before the
+        // Becomes substrate fires, but we do it defensively here too in
+        // case anything ever calls `kill_into_corpse` directly.
+        // Brain/perception/action systems use `With<Agent>` or
+        // `With<Alive>`, so removing both markers stops all processing.
+        // Mind/body data stays on the entity as frozen memorial state.
+        entity_mut.remove::<crate::agent::Alive>();
+        if !entity_mut.contains::<crate::agent::Dead>() {
+            entity_mut.insert(crate::agent::Dead);
+        }
         entity_mut.remove::<crate::agent::Agent>();
         entity_mut.remove::<crate::agent::mind::perception::Vision>();
         entity_mut.remove::<crate::agent::actions::ActiveActions>();

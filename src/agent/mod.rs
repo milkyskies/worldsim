@@ -23,15 +23,14 @@ pub mod subject;
 use bevy::prelude::*;
 
 /// Marker component for all thinking entities (humans, animals, etc.)
-/// Systems that apply to all agents should query With<Agent>.
+/// Removed by `kill_into_corpse` when the entity becomes a corpse.
+/// For liveness checks, prefer `With<Alive>` — it is removed earlier
+/// (by `die()`) and has no 1-tick gap.
 #[derive(Component, Reflect, Default)]
 #[reflect(Component)]
 pub struct Agent;
 
 /// Marker for a living agent. Inserted at spawn, removed by `die()`.
-/// Prefer `With<Alive>` over `With<Agent>` for liveness checks — it closes
-/// the 1-tick window between `die()` (inserts `Becomes`) and the substrate
-/// run (strips `Agent`).
 #[derive(Component, Reflect, Default)]
 #[reflect(Component)]
 pub struct Alive;
