@@ -446,7 +446,7 @@ mod tests {
     #[test]
     fn graze_profile_triggers_ingestion_side_effect() {
         use crate::agent::actions::action::graze::GrazeAction;
-        use crate::agent::actions::motor::MotorPrimitive;
+        use crate::agent::actions::motor::ActionPrimitive;
         use crate::agent::actions::registry::Action;
 
         let graze = GrazeAction;
@@ -458,7 +458,7 @@ mod tests {
             cost.energy > 0.0,
             "graze effort channels should produce energy cost"
         );
-        assert_eq!(primitive, MotorPrimitive::Ingest);
+        assert_eq!(primitive, ActionPrimitive::Ingest);
         assert!(
             graze.runtime_effects().stomach_carbs_per_sec > 0.0,
             "graze ingestion side effect must be in RuntimeEffects, not the effort model"

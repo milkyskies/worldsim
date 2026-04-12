@@ -262,7 +262,7 @@ pub trait Action: Send + Sync + 'static {
     ///
     /// Default delegates to `ActionType::motor_primitive()` so existing
     /// actions work without override. New code should override directly.
-    fn motor_primitive(&self) -> crate::agent::actions::motor::MotorPrimitive {
+    fn motor_primitive(&self) -> crate::agent::actions::motor::ActionPrimitive {
         self.action_type().motor_primitive()
     }
 

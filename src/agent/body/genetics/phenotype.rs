@@ -319,11 +319,13 @@ pub fn apply_stamina_genetics_system(
     mut query: Query<(&Phenotype, &mut crate::agent::body::needs::PhysicalNeeds), Added<Phenotype>>,
 ) {
     for (phenotype, mut physical) in query.iter_mut() {
+        let aero_frac = physical.stamina.aerobic_fraction();
         physical.stamina.aerobic_max *= phenotype.aerobic_capacity;
-        physical.stamina.aerobic = physical.stamina.aerobic_max;
+        physical.stamina.aerobic = physical.stamina.aerobic_max * aero_frac;
 
+        let anaero_frac = physical.stamina.anaerobic_fraction();
         physical.stamina.anaerobic_max *= phenotype.anaerobic_capacity;
-        physical.stamina.anaerobic = physical.stamina.anaerobic_max;
+        physical.stamina.anaerobic = physical.stamina.anaerobic_max * anaero_frac;
     }
 }
 
