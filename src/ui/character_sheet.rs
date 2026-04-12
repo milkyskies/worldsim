@@ -81,6 +81,52 @@ struct Contribution {
 /// selected agent. Pulled from the same sources the live simulation
 /// reads: BMR from `ActivityConfig.base`, action drains from the
 /// currently running actions' `runtime_effects`.
+/// Per-second contributors to stomach fullness (carbs + fat). Digestion
+/// drains both pools at the constant rates in `metabolism.rs`; Eat
+/// adds in discrete steps (not shown here); Graze adds carbs
+/// continuously via `RuntimeEffects.stomach_carbs_per_sec`.
+fn stomach_contributions(world: &World, entity: Entity) -> Vec<Contribution> {
+    use crate::agent::actions::ActionRegistry;
+    use crate::agent::body::metabolism::{DIGEST_CARB_RATE, DIGEST_FAT_RATE};
+
+    let mut out = Vec::new();
+    if let Some(needs) = world.get::<PhysicalNeeds>(entity) {
+        let m = &needs.metabolism;
+        if m.stomach_carbs > 0.0 {
+            out.push(Contribution {
+                source: "digestion: carbs → glucose".into(),
+                rate: -DIGEST_CARB_RATE.min(m.stomach_carbs),
+            });
+        }
+        if m.stomach_fat > 0.0 {
+            out.push(Contribution {
+                source: "digestion: fat → reserves".into(),
+                rate: -DIGEST_FAT_RATE.min(m.stomach_fat),
+            });
+        }
+    }
+
+    if let (Some(active), Some(registry)) = (
+        world.get::<ActiveActions>(entity),
+        world.get_resource::<ActionRegistry>(),
+    ) {
+        for state in active.iter() {
+            let Some(action) = registry.get(state.action_type) else {
+                continue;
+            };
+            let effects = action.runtime_effects();
+            if effects.stomach_carbs_per_sec != 0.0 {
+                out.push(Contribution {
+                    source: format!("{:?}: carbs in", state.action_type),
+                    rate: effects.stomach_carbs_per_sec,
+                });
+            }
+        }
+    }
+
+    out
+}
+
 fn glucose_contributions(world: &World, entity: Entity) -> Vec<Contribution> {
     use crate::agent::actions::ActionRegistry;
     use crate::agent::activity::ActivityConfig;
@@ -504,24 +550,7 @@ fn visible_tabs_for_entity(
 // ============================================================================
 
 fn render_overview(ui: &mut egui::Ui, world: &World, entity: Entity) {
-    // ── Right now ─────────────────────────────────────────────────────
-    let action_text = current_action_summary(world, entity);
-    let reason_text = world
-        .get::<BrainState>(entity)
-        .and_then(winning_reasoning)
-        .map(|s| s.to_string());
-
-    ui.horizontal(|ui| {
-        ui.label(egui::RichText::new("▶").color(Color32::YELLOW));
-        ui.label(egui::RichText::new(&action_text).strong());
-    });
-    if let Some(reason) = reason_text {
-        ui.label(
-            egui::RichText::new(format!("— {}", reason))
-                .italics()
-                .color(Color32::LIGHT_GRAY),
-        );
-    }
+    render_overview_actions(ui, world, entity);
     if let Some(transform) = world.get::<Transform>(entity) {
         let pos = transform.translation.truncate();
         ui.label(
@@ -829,22 +858,24 @@ fn urgency_line(ui: &mut egui::Ui, label: &str, urgency: f32) {
     });
 }
 
+fn urgency_for_f32(world: &World, entity: Entity, source: UrgencySource) -> f32 {
+    world
+        .get::<CentralNervousSystem>(entity)
+        .map(|cns| {
+            cns.urgencies
+                .iter()
+                .find(|u| u.source == source)
+                .map(|u| u.value)
+                .unwrap_or(0.0)
+        })
+        .unwrap_or(0.0)
+}
+
 // ============================================================================
 // VITALS TAB — PhysicalNeeds only (things that can kill you)
 // ============================================================================
 
 fn render_vitals(ui: &mut egui::Ui, world: &World, entity: Entity) {
-    let urgencies = world
-        .get::<CentralNervousSystem>(entity)
-        .map(|cns| cns.urgencies.as_slice())
-        .unwrap_or(&[]);
-    let urgency_for = |source: UrgencySource| -> Option<f32> {
-        urgencies
-            .iter()
-            .find(|u| u.source == source)
-            .map(|u| u.value)
-    };
-
     let Some(needs) = world.get::<PhysicalNeeds>(entity) else {
         placeholder(ui, "(no physical-needs component on this entity)");
         return;
@@ -852,65 +883,92 @@ fn render_vitals(ui: &mut egui::Ui, world: &World, entity: Entity) {
 
     ui.label(
         egui::RichText::new(
-            "Physical needs — empty any of these for long enough and the agent dies.",
+            "Physical needs. Empty any of these for long enough and the agent dies.",
         )
         .italics()
         .color(Color32::LIGHT_GRAY),
     );
     ui.add_space(4.0);
 
-    egui::CollapsingHeader::new("Fuel")
-        .default_open(true)
-        .show(ui, |ui| {
-            satisfaction_bar(
-                ui,
-                "Satiety (stomach)",
-                needs.metabolism.stomach_fullness(),
-                crate::agent::body::metabolism::STOMACH_CAPACITY,
-                None,
-            );
-            satisfaction_bar(
-                ui,
-                "Energy (glucose)",
-                needs.metabolism.glucose,
-                crate::agent::body::metabolism::GLUCOSE_MAX,
-                urgency_for(UrgencySource::Hunger),
-            );
-            satisfaction_bar(
-                ui,
-                "Reserves",
-                needs.metabolism.reserves,
-                crate::agent::body::metabolism::RESERVES_MAX,
-                None,
-            );
-        });
+    ui.label(egui::RichText::new("Fuel").strong());
+    vital_row_explained(
+        ui,
+        "Satiety (stomach)",
+        needs.metabolism.stomach_fullness(),
+        crate::agent::body::metabolism::STOMACH_CAPACITY,
+        0.1,
+        0.3,
+        Some(stomach_contributions(world, entity)),
+        " /sec",
+    );
+    vital_row_explained(
+        ui,
+        "Energy (glucose)",
+        needs.metabolism.glucose,
+        crate::agent::body::metabolism::GLUCOSE_MAX,
+        0.2,
+        0.4,
+        Some(glucose_contributions(world, entity)),
+        " /sec",
+    );
+    urgency_line(
+        ui,
+        "Hunger urgency",
+        urgency_for_f32(world, entity, UrgencySource::Hunger),
+    );
+    vital_row_explained(
+        ui,
+        "Reserves",
+        needs.metabolism.reserves,
+        crate::agent::body::metabolism::RESERVES_MAX,
+        0.2,
+        0.5,
+        None,
+        "",
+    );
 
-    egui::CollapsingHeader::new("Body")
-        .default_open(true)
-        .show(ui, |ui| {
-            satisfaction_bar(
-                ui,
-                "Hydration",
-                needs.hydration,
-                100.0,
-                urgency_for(UrgencySource::Thirst),
-            );
-            satisfaction_bar(
-                ui,
-                "Stamina (aerobic)",
-                needs.stamina.aerobic,
-                needs.stamina.aerobic_max,
-                urgency_for(UrgencySource::Stamina),
-            );
-            satisfaction_bar(
-                ui,
-                "Sprint (anaerobic)",
-                needs.stamina.anaerobic,
-                needs.stamina.anaerobic_max,
-                None,
-            );
-            satisfaction_bar(ui, "Health", needs.health, 100.0, None);
-        });
+    ui.add_space(6.0);
+    ui.label(egui::RichText::new("Body").strong());
+    vital_row_fraction_explained(
+        ui,
+        "Hydration (hydration)",
+        (needs.hydration / 100.0).clamp(0.0, 1.0),
+        0.3,
+        0.7,
+        Some(hydration_contributions(world, entity)),
+        " /sec",
+    );
+    urgency_line(
+        ui,
+        "Thirst urgency",
+        urgency_for_f32(world, entity, UrgencySource::Thirst),
+    );
+    vital_row_explained(
+        ui,
+        "Stamina (aerobic)",
+        needs.stamina.aerobic,
+        needs.stamina.aerobic_max,
+        0.3,
+        0.6,
+        Some(stamina_contributions(world, entity)),
+        " /sec",
+    );
+    urgency_line(
+        ui,
+        "Fatigue urgency",
+        urgency_for_f32(world, entity, UrgencySource::Stamina),
+    );
+    vital_row_explained(
+        ui,
+        "Sprint (anaerobic)",
+        needs.stamina.anaerobic,
+        needs.stamina.anaerobic_max,
+        0.3,
+        0.6,
+        None,
+        "",
+    );
+    vital_row_explained(ui, "Health", needs.health, 100.0, 0.3, 0.7, None, "");
 
     if let Some(src) = needs.last_health_damage {
         ui.add_space(4.0);
@@ -927,16 +985,17 @@ fn render_drives(ui: &mut egui::Ui, world: &World, entity: Entity) {
         .get::<CentralNervousSystem>(entity)
         .map(|cns| cns.urgencies.as_slice())
         .unwrap_or(&[]);
-    let urgency_for = |source: UrgencySource| -> Option<f32> {
+    let urgency_for = |source: UrgencySource| -> f32 {
         urgencies
             .iter()
             .find(|u| u.source == source)
             .map(|u| u.value)
+            .unwrap_or(0.0)
     };
 
     ui.label(
         egui::RichText::new(
-            "Psychological motivations — push behavior but don't kill on their own.",
+            "Psychological motivations. Push behavior but don't kill on their own.",
         )
         .italics()
         .color(Color32::LIGHT_GRAY),
@@ -944,8 +1003,15 @@ fn render_drives(ui: &mut egui::Ui, world: &World, entity: Entity) {
     ui.add_space(4.0);
 
     if let Some(consc) = world.get::<Consciousness>(entity) {
-        satisfaction_bar(ui, "Alertness", consc.alertness, 1.0, None);
-        ui.add_space(4.0);
+        vital_row_fraction_explained(
+            ui,
+            "Alertness (alertness)",
+            consc.alertness,
+            0.3,
+            0.6,
+            None,
+            "",
+        );
     }
 
     let Some(drives) = world.get::<PsychologicalDrives>(entity) else {
@@ -953,81 +1019,57 @@ fn render_drives(ui: &mut egui::Ui, world: &World, entity: Entity) {
         return;
     };
 
-    satisfaction_bar(
+    vital_row_fraction_explained(
         ui,
         "Companionship (social)",
         drives.companionship,
-        1.0,
-        urgency_for(UrgencySource::Social),
+        0.3,
+        0.6,
+        None,
+        "",
     );
-    satisfaction_bar(
-        ui,
-        "Enjoyment (fun)",
-        drives.enjoyment,
-        1.0,
-        urgency_for(UrgencySource::Fun),
-    );
-    satisfaction_bar(
+    urgency_line(ui, "Social urgency", urgency_for(UrgencySource::Social));
+    vital_row_fraction_explained(ui, "Enjoyment (fun)", drives.enjoyment, 0.3, 0.6, None, "");
+    urgency_line(ui, "Fun urgency", urgency_for(UrgencySource::Fun));
+    vital_row_fraction_explained(
         ui,
         "Stimulation (curiosity)",
         drives.stimulation,
-        1.0,
+        0.3,
+        0.6,
+        None,
+        "",
+    );
+    urgency_line(
+        ui,
+        "Curiosity urgency",
         urgency_for(UrgencySource::Curiosity),
     );
-    satisfaction_bar(ui, "Esteem (status)", drives.esteem, 1.0, None);
-    satisfaction_bar(ui, "Safety (security)", drives.safety, 1.0, None);
-    satisfaction_bar(ui, "Autonomy", drives.autonomy, 1.0, None);
-    satisfaction_bar(
+    vital_row_fraction_explained(ui, "Esteem (status)", drives.esteem, 0.3, 0.6, None, "");
+    vital_row_fraction_explained(ui, "Safety (security)", drives.safety, 0.3, 0.6, None, "");
+    vital_row_fraction_explained(
+        ui,
+        "Autonomy (autonomy)",
+        drives.autonomy,
+        0.3,
+        0.6,
+        None,
+        "",
+    );
+    vital_row_fraction_explained(
         ui,
         "Dominion (territory)",
         drives.dominion,
-        1.0,
+        0.3,
+        0.6,
+        None,
+        "",
+    );
+    urgency_line(
+        ui,
+        "Territorial urgency",
         urgency_for(UrgencySource::Territoriality),
     );
-}
-
-/// Horizontal satisfaction bar: label on the left, a colored bar
-/// filled proportional to `value/max`, and an optional urgency
-/// sub-line. Raw field name shown in parens in the label so the data
-/// stays grep-able. Colors: red below 30%, yellow below 60%, green
-/// above — matches the same convention used on Overview.
-fn satisfaction_bar(ui: &mut egui::Ui, label: &str, value: f32, max: f32, urgency: Option<f32>) {
-    let frac = (value / max).clamp(0.0, 1.0);
-    let color = severity_color(frac, 0.3, 0.6);
-    ui.horizontal(|ui| {
-        ui.add_sized([180.0, 0.0], egui::Label::new(label));
-        ui.add(
-            egui::ProgressBar::new(frac)
-                .desired_width(160.0)
-                .fill(color)
-                .text(format!("{:.0}%", frac * 100.0)),
-        );
-    });
-    if let Some(u) = urgency {
-        urgency_subbar(ui, u);
-    }
-}
-
-/// Secondary thin bar showing the live urgency score from the CNS for the
-/// drive above. This is what the brain actually thinks about the need right
-/// now, after curves, sensitivities, modifiers and gating.
-fn urgency_subbar(ui: &mut egui::Ui, urgency: f32) {
-    let normalized = urgency.clamp(0.0, 1.0);
-    let color = severity_color(1.0 - normalized, 0.3, 0.6);
-    ui.horizontal(|ui| {
-        ui.add_space(28.0);
-        ui.label(
-            egui::RichText::new("urgency")
-                .small()
-                .color(Color32::LIGHT_GRAY),
-        );
-        ui.add(
-            egui::ProgressBar::new(normalized)
-                .desired_width(150.0)
-                .fill(color)
-                .text(egui::RichText::new(format!("{:.2}", urgency)).small()),
-        );
-    });
 }
 
 // ============================================================================
@@ -2381,6 +2423,76 @@ fn render_brain(ui: &mut egui::Ui, world: &World, entity: Entity) {
 // HELPERS
 // ============================================================================
 
+/// Render one row per running (non-Idle) action on the agent, annotated
+/// with the brain that proposed it and that brain's reasoning. When
+/// nothing non-Idle is running, print "Idle". Multi-channel agents
+/// show multiple rows — each row is a truthful (action, brain, reason)
+/// triple instead of the old "one arbitrary action plus one winner
+/// reason" mismatch.
+fn render_overview_actions(ui: &mut egui::Ui, world: &World, entity: Entity) {
+    use crate::agent::actions::registry::ActionState;
+    let Some(active) = world.get::<ActiveActions>(entity) else {
+        ui.label(egui::RichText::new("Idle").strong());
+        return;
+    };
+    let brain = world.get::<BrainState>(entity);
+
+    let brain_for = |action_type: ActionType| -> Option<(&str, &str)> {
+        let brain = brain?;
+        let proposal = brain
+            .proposals
+            .iter()
+            .find(|p| p.action.action_type == action_type)?;
+        Some((proposal.brain.display_name(), proposal.reasoning.as_str()))
+    };
+
+    let render_one = |ui: &mut egui::Ui, state: &ActionState| {
+        let base = state.action_type.verb();
+        let target_str = if let Some(target) = state.target_entity {
+            let name = world
+                .get::<Name>(target)
+                .map(|n| n.to_string())
+                .unwrap_or_else(|| format!("{:?}", target));
+            format!(" {}", name)
+        } else if let Some(pos) = state.target_position
+            && !matches!(state.action_type, ActionType::Flee)
+        {
+            format!(" ({:.0}, {:.0})", pos.x, pos.y)
+        } else {
+            String::new()
+        };
+        ui.horizontal(|ui| {
+            ui.label(egui::RichText::new("▶").color(Color32::YELLOW));
+            ui.label(egui::RichText::new(format!("{}{}", base, target_str)).strong());
+            if let Some((brain_name, reason)) = brain_for(state.action_type) {
+                ui.label(
+                    egui::RichText::new(format!("· {}:", brain_name)).color(Color32::LIGHT_GRAY),
+                );
+                ui.label(
+                    egui::RichText::new(format!("\"{}\"", reason))
+                        .italics()
+                        .color(Color32::LIGHT_GRAY),
+                );
+            }
+        });
+    };
+
+    let non_idle: Vec<&ActionState> = active
+        .iter()
+        .filter(|a| !matches!(a.action_type, ActionType::Idle))
+        .collect();
+    if non_idle.is_empty() {
+        ui.horizontal(|ui| {
+            ui.label(egui::RichText::new("▶").color(Color32::YELLOW));
+            ui.label(egui::RichText::new("Idle").strong());
+        });
+        return;
+    }
+    for state in non_idle {
+        render_one(ui, state);
+    }
+}
+
 fn current_action_summary(world: &World, entity: Entity) -> String {
     let Some(active) = world.get::<ActiveActions>(entity) else {
         return "Idle".into();
@@ -2418,15 +2530,6 @@ fn current_action_summary(world: &World, entity: Entity) -> String {
         .map(|a| render_one(a))
         .collect::<Vec<_>>()
         .join(" + ")
-}
-
-fn winning_reasoning(brain: &BrainState) -> Option<&str> {
-    let winner = brain.winner?;
-    brain
-        .proposals
-        .iter()
-        .find(|p| p.brain == winner)
-        .map(|p| p.reasoning.as_str())
 }
 
 fn mood_descriptor(emotions: &EmotionalState) -> (String, Color32) {
