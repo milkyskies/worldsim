@@ -158,11 +158,11 @@ pub struct CliArgs {
     #[arg(long = "dump-all")]
     pub dump_all: Vec<String>,
 
-    /// Tick at which to perform inspection. If not specified, inspects at the
-    /// final tick (after --ticks). If specified, the simulation stops at this
-    /// tick regardless of --ticks.
+    /// Tick(s) at which to perform inspection. If not specified, inspects at
+    /// the final tick (after --ticks). Can be repeated to inspect at multiple
+    /// points in a single run (e.g. `--at-tick 500 --at-tick 5000`).
     #[arg(long)]
-    pub at_tick: Option<u64>,
+    pub at_tick: Vec<u64>,
 
     /// Generate the default-seed terrain and print it to stdout as an ASCII
     /// matrix, then exit. Useful for inspecting river carving and biome
@@ -221,7 +221,9 @@ impl CliArgs {
     }
 
     fn build_inspect_config(&self) -> InspectConfig {
-        let at_tick = self.at_tick;
+        let mut at_ticks = self.at_tick.clone();
+        at_ticks.sort_unstable();
+        at_ticks.dedup();
 
         let inspect_agents: Vec<String> = self
             .inspect
@@ -279,7 +281,7 @@ impl CliArgs {
             .collect();
 
         InspectConfig {
-            at_tick,
+            at_ticks,
             inspect_agents,
             dump_mind_agents,
             queries,
