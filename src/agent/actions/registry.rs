@@ -435,6 +435,12 @@ pub trait Action: Send + Sync + 'static {
             consumes: self.plan_consumes(),
             base_cost: self.cost(),
             locomotion_intensity,
+            estimated_duration_ticks: match self.kind() {
+                ActionKind::Timed { duration_ticks } if duration_ticks < u32::MAX => {
+                    Some(duration_ticks)
+                }
+                _ => None,
+            },
         }
     }
 
@@ -482,6 +488,12 @@ pub trait Action: Send + Sync + 'static {
             consumes,
             base_cost: self.cost(),
             locomotion_intensity,
+            estimated_duration_ticks: match self.kind() {
+                ActionKind::Timed { duration_ticks } if duration_ticks < u32::MAX => {
+                    Some(duration_ticks)
+                }
+                _ => None,
+            },
         }
     }
 }
@@ -706,9 +718,8 @@ impl ActiveActions {
 
 use super::action::{
     BuildAction, ConstructAction, ConverseAction, DepositAction, DrinkAction, EatAction,
-    ExploreAction, FleeAction, GrazeAction, GroomAction, HarvestAction, IdleAction,
-    InitiateConversationAction, ObserveAction, RestAction, SleepAction, TakeAction, WakeUpAction,
-    WalkAction, WanderAction,
+    ExploreAction, FleeAction, GrazeAction, HarvestAction, IdleAction, InitiateConversationAction,
+    ObserveAction, RestAction, SleepAction, TakeAction, WakeUpAction, WalkAction, WanderAction,
 };
 
 #[derive(Resource, Default)]
@@ -742,7 +753,6 @@ impl ActionRegistry {
         // the sim stays alive instead of freezing on "no proposal".
         registry.register(RestAction);
         registry.register(ObserveAction);
-        registry.register(GroomAction);
         // Conversation actions — owned by the CommunicationPlugin.
         registry.register(InitiateConversationAction);
         registry.register(ConverseAction);

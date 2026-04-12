@@ -33,6 +33,7 @@ fn failing_harvest_template() -> ActionTemplate {
         consumes: vec![],
         base_cost: 1.0,
         locomotion_intensity: 0.0,
+        estimated_duration_ticks: None,
     }
 }
 

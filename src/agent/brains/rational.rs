@@ -184,6 +184,7 @@ pub fn update_rational_planning(
             Option<&Body>,
             &PhysicalNeeds,
             &crate::agent::psyche::personality::Personality,
+            Option<&crate::agent::body::species::SpeciesProfile>,
         ),
         With<RationalBrain>,
     >,
@@ -258,6 +259,7 @@ pub fn update_rational_planning(
         body,
         physical,
         personality,
+        species,
     ) in query.iter_mut()
     {
         let capacities = ChannelCapacities::compute(body, Some(physical), Some(&*consciousness));
@@ -487,12 +489,19 @@ pub fn update_rational_planning(
                 physical,
                 &consciousness,
                 personality,
+                species,
                 tick.current,
             );
             if let Some(steps) =
                 crate::agent::brains::planner::regressive_plan(mind, &goal, &actions, &cost_ctx)
             {
                 let agent_pos = transform.translation.truncate();
+
+                if !crate::agent::brains::planner::check_plan_feasibility(
+                    &steps, agent_pos, &cost_ctx,
+                ) {
+                    continue;
+                }
                 let cost = crate::agent::brains::planner::estimate_plan_cost(
                     &steps, agent_pos, &cost_ctx, mind,
                 );
@@ -669,11 +678,8 @@ pub fn rational_brain_propose(
     // and Rational has nothing useful to say about them — returning
     // empty lets those brains carry the tick (#386).
     //
-    // The old "idle Wander" fallback at the bottom of this function
-    // is gone on purpose. Wander-as-catchall was a cartoon default
-    // that hid the real "no drive is pressing enough" case. Emotional
-    // brain now owns that case with a true idle behaviour (Groom
-    // baseline).
+    // No idle fallback here. Emotional brain owns the "nothing to do"
+    // case via patrol/curiosity proposals.
     if let Some(goal) = &cns.current_goal
         && matches!(cns_intent, Intent::SatisfyHunger | Intent::SatisfyThirst)
     {
@@ -786,6 +792,7 @@ mod tests {
             consumes: vec![],
             base_cost: 1.0,
             locomotion_intensity,
+            estimated_duration_ticks: None,
         }
     }
 
@@ -890,10 +897,7 @@ mod tests {
 
     #[test]
     fn propose_empty_when_no_goal_and_no_plan() {
-        // Rational no longer owns the "nothing to do" case (#386).
-        // Emotional's Groom baseline handles it — this test documents
-        // that Rational correctly keeps silent instead of emitting a
-        // cartoon Wander. The Wander-as-fallback pattern was removed.
+        // Rational does not own the idle fallback — Emotional handles it.
         let cns = CentralNervousSystem::default();
         let memory = PlanMemory::default();
 
@@ -903,7 +907,7 @@ mod tests {
         assert!(
             proposals.is_empty(),
             "Rational must not propose for a plan-less / goal-less agent \
-             (Emotional's Groom baseline owns this case); got {proposals:?}",
+             (Emotional owns the idle case); got {proposals:?}",
         );
     }
 

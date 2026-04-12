@@ -279,6 +279,7 @@ mod tests {
                 consumes: vec![],
                 base_cost: 1.0,
                 locomotion_intensity,
+                estimated_duration_ticks: None,
             },
             urgency,
             intent,

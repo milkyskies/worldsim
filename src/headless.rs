@@ -38,8 +38,10 @@ pub struct WhyQuery {
 /// Configuration for post-run inspection commands.
 #[derive(Debug, Clone, Default)]
 pub struct InspectConfig {
-    /// If set, stop the simulation at this tick (overrides `HeadlessConfig::ticks`).
-    pub at_tick: Option<u64>,
+    /// Ticks at which to pause and run inspection. Sorted ascending at
+    /// parse time. The simulation runs to the last tick in this list (or
+    /// `HeadlessConfig::ticks`, whichever is larger).
+    pub at_ticks: Vec<u64>,
     /// Print full agent state snapshots for these agent names.
     pub inspect_agents: Vec<String>,
     /// Print full MindGraph dumps for these agent names.
@@ -199,18 +201,34 @@ pub fn run_headless(config: HeadlessConfig) -> HeadlessReport {
 
     let spawned = populate(&mut world, &config);
 
-    // If --at-tick is set, stop there; otherwise run the full --ticks count.
-    let ticks_to_run = config
-        .inspect
-        .at_tick
-        .unwrap_or(config.ticks)
-        .min(config.ticks);
-
     let start = Instant::now();
-    world.tick(ticks_to_run);
+
+    if config.inspect.at_ticks.is_empty() {
+        // No --at-tick: run the full --ticks count, inspect at the end.
+        world.tick(config.ticks);
+    } else {
+        // Tick to each --at-tick checkpoint, inspect, then continue.
+        let mut current = 0u64;
+        for &stop in &config.inspect.at_ticks {
+            let stop = stop.min(config.ticks);
+            if stop > current {
+                world.tick(stop - current);
+                current = stop;
+            }
+            if config.inspect.is_active() {
+                println!("\n──── inspection at tick {stop} ────");
+                run_inspection(&mut world, &config.inspect);
+            }
+        }
+        // Run remaining ticks after the last checkpoint.
+        if current < config.ticks {
+            world.tick(config.ticks - current);
+        }
+    }
+
     let elapsed = start.elapsed();
 
-    // Dump trace output before inspection so ordering is predictable.
+    // Dump trace output before final report.
     if config.trace.is_enabled() {
         let buffer = world.app().world().resource::<DecisionTraceBuffer>();
         dump_trace(buffer, &config.trace);
@@ -222,8 +240,8 @@ pub fn run_headless(config: HeadlessConfig) -> HeadlessReport {
         dump_event_log(buffer, log_config);
     }
 
-    // Run inspection commands if any were specified.
-    if config.inspect.is_active() {
+    // Final inspection if no --at-tick was specified.
+    if config.inspect.at_ticks.is_empty() && config.inspect.is_active() {
         run_inspection(&mut world, &config.inspect);
     }
 
