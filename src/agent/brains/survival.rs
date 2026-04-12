@@ -12,9 +12,7 @@ use crate::agent::item_slots::ItemSlots;
 use crate::agent::mind::knowledge::Ontology;
 use crate::agent::nervous_system::cns::CentralNervousSystem;
 use crate::agent::nervous_system::urgency::UrgencySource;
-use crate::constants::brains::survival::{
-    SLEEPINESS_SLEEP_THRESHOLD, WAKE_STAMINA_THRESHOLD, WAKE_WAKEFULNESS_THRESHOLD,
-};
+use crate::constants::brains::survival::{WAKE_STAMINA_THRESHOLD, WAKE_WAKEFULNESS_THRESHOLD};
 use bevy::prelude::*;
 
 pub struct SurvivalBrainContext<'a> {
@@ -143,22 +141,13 @@ fn propose_for_source(
             }
         }
         UrgencySource::Sleepiness => {
-            let action_type = if value >= SLEEPINESS_SLEEP_THRESHOLD {
-                ActionType::Sleep
-            } else {
-                ActionType::Rest
-            };
-            if let Some(action) = action_registry.get(action_type) {
-                let reasoning = match action_type {
-                    ActionType::Sleep => format!("Sleepiness urgency {:.2} — sleeping!", value),
-                    _ => format!("Sleepiness urgency {:.2} — resting.", value),
-                };
+            if let Some(action) = action_registry.get(ActionType::Sleep) {
                 return Some(BrainProposal {
                     brain: BrainType::Survival,
                     action: action.to_template(None),
                     urgency: urgency_score,
                     intent: Intent::SatisfySleepiness,
-                    reasoning,
+                    reasoning: format!("Sleepiness urgency {:.2} — sleeping!", value),
                 });
             }
         }
