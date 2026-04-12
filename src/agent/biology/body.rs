@@ -45,74 +45,29 @@ impl Body {
         use FunctionalTag::*;
         Self {
             parts: vec![
-                BodyNode::vital(BodyNodeKind::Head, 50.0, vec![]).with_children(vec![
-                    BodyNode::vital(
-                        BodyNodeKind::Brain,
-                        30.0,
-                        vec![(Channel::Focus, 1.0), (Channel::Awareness, 0.5)],
-                    )
-                    .with_tags(vec![Think]),
-                    BodyNode::new(
-                        BodyNodeKind::LeftEye,
-                        10.0,
-                        vec![(Channel::Awareness, 0.15)],
-                    )
-                    .with_tags(vec![See]),
-                    BodyNode::new(
-                        BodyNodeKind::RightEye,
-                        10.0,
-                        vec![(Channel::Awareness, 0.15)],
-                    )
-                    .with_tags(vec![See]),
-                    BodyNode::new(BodyNodeKind::LeftEar, 5.0, vec![(Channel::Awareness, 0.1)])
-                        .with_tags(vec![Hear]),
-                    BodyNode::new(BodyNodeKind::RightEar, 5.0, vec![(Channel::Awareness, 0.1)])
-                        .with_tags(vec![Hear]),
-                    BodyNode::new(BodyNodeKind::Nose, 10.0, vec![]).with_tags(vec![Smell]),
-                    BodyNode::new(
-                        BodyNodeKind::Jaw,
-                        30.0,
-                        vec![
-                            (Channel::Consumption, 1.0),
-                            (Channel::Vocalization, 1.0),
-                            (Channel::Bite, 0.1),
-                        ],
-                    )
-                    .with_tags(vec![Eat, Speak, Bite]),
+                BodyNode::vital(BodyNodeKind::Head, 50.0).with_children(vec![
+                    BodyNode::vital(BodyNodeKind::Brain, 30.0).with_tags(vec![Think]),
+                    BodyNode::new(BodyNodeKind::LeftEye, 10.0).with_tags(vec![See]),
+                    BodyNode::new(BodyNodeKind::RightEye, 10.0).with_tags(vec![See]),
+                    BodyNode::new(BodyNodeKind::LeftEar, 5.0).with_tags(vec![Hear]),
+                    BodyNode::new(BodyNodeKind::RightEar, 5.0).with_tags(vec![Hear]),
+                    BodyNode::new(BodyNodeKind::Nose, 10.0).with_tags(vec![Smell]),
+                    BodyNode::new(BodyNodeKind::Jaw, 30.0).with_tags(vec![Eat, Speak]),
                 ]),
-                BodyNode::vital(BodyNodeKind::Torso, 100.0, vec![(Channel::FullBody, 1.0)])
+                BodyNode::vital(BodyNodeKind::Torso, 100.0)
+                    .with_tags(vec![FullBody])
                     .with_children(torso_organs()),
-                BodyNode::new(BodyNodeKind::LeftArm, 60.0, vec![]).with_children(vec![
-                    BodyNode::new(
-                        BodyNodeKind::LeftHand,
-                        30.0,
-                        vec![(Channel::Manipulation, 0.5), (Channel::Carry, 0.25)],
-                    )
-                    .with_tags(vec![Grasp, Carry]),
+                BodyNode::new(BodyNodeKind::LeftArm, 60.0).with_children(vec![
+                    BodyNode::new(BodyNodeKind::LeftHand, 30.0).with_tags(vec![Grasp, Carry]),
                 ]),
-                BodyNode::new(BodyNodeKind::RightArm, 60.0, vec![]).with_children(vec![
-                    BodyNode::new(
-                        BodyNodeKind::RightHand,
-                        30.0,
-                        vec![(Channel::Manipulation, 0.5), (Channel::Carry, 0.25)],
-                    )
-                    .with_tags(vec![Grasp, Carry]),
+                BodyNode::new(BodyNodeKind::RightArm, 60.0).with_children(vec![
+                    BodyNode::new(BodyNodeKind::RightHand, 30.0).with_tags(vec![Grasp, Carry]),
                 ]),
-                BodyNode::new(BodyNodeKind::LeftLeg, 70.0, vec![]).with_children(vec![
-                    BodyNode::new(
-                        BodyNodeKind::LeftFoot,
-                        35.0,
-                        vec![(Channel::Locomotion, 0.5)],
-                    )
-                    .with_tags(vec![Stance]),
+                BodyNode::new(BodyNodeKind::LeftLeg, 70.0).with_children(vec![
+                    BodyNode::new(BodyNodeKind::LeftFoot, 35.0).with_tags(vec![Stance]),
                 ]),
-                BodyNode::new(BodyNodeKind::RightLeg, 70.0, vec![]).with_children(vec![
-                    BodyNode::new(
-                        BodyNodeKind::RightFoot,
-                        35.0,
-                        vec![(Channel::Locomotion, 0.5)],
-                    )
-                    .with_tags(vec![Stance]),
+                BodyNode::new(BodyNodeKind::RightLeg, 70.0).with_children(vec![
+                    BodyNode::new(BodyNodeKind::RightFoot, 35.0).with_tags(vec![Stance]),
                 ]),
             ],
         }
@@ -122,71 +77,29 @@ impl Body {
         use FunctionalTag::*;
         Self {
             parts: vec![
-                BodyNode::vital(BodyNodeKind::Head, 50.0, vec![]).with_children(vec![
-                    BodyNode::vital(
-                        BodyNodeKind::Brain,
-                        30.0,
-                        vec![(Channel::Focus, 0.6), (Channel::Awareness, 0.4)],
-                    )
-                    .with_tags(vec![Think]),
-                    BodyNode::new(BodyNodeKind::LeftEye, 8.0, vec![(Channel::Awareness, 0.15)])
-                        .with_tags(vec![See]),
-                    BodyNode::new(
-                        BodyNodeKind::RightEye,
-                        8.0,
-                        vec![(Channel::Awareness, 0.15)],
-                    )
-                    .with_tags(vec![See]),
-                    BodyNode::new(BodyNodeKind::LeftEar, 5.0, vec![(Channel::Awareness, 0.1)])
-                        .with_tags(vec![Hear]),
-                    BodyNode::new(BodyNodeKind::RightEar, 5.0, vec![(Channel::Awareness, 0.1)])
-                        .with_tags(vec![Hear]),
-                    BodyNode::new(BodyNodeKind::Nose, 8.0, vec![]).with_tags(vec![Smell]),
-                    BodyNode::new(
-                        BodyNodeKind::Jaw,
-                        40.0,
-                        vec![
-                            (Channel::Manipulation, 0.4),
-                            (Channel::Consumption, 1.0),
-                            (Channel::Vocalization, 0.7),
-                            (Channel::Bite, 1.0),
-                        ],
-                    )
-                    .with_tags(vec![Eat, Speak, Bite, Grasp]),
+                BodyNode::vital(BodyNodeKind::Head, 50.0).with_children(vec![
+                    BodyNode::vital(BodyNodeKind::Brain, 30.0).with_tags(vec![Think]),
+                    BodyNode::new(BodyNodeKind::LeftEye, 8.0).with_tags(vec![See]),
+                    BodyNode::new(BodyNodeKind::RightEye, 8.0).with_tags(vec![See]),
+                    BodyNode::new(BodyNodeKind::LeftEar, 5.0).with_tags(vec![Hear]),
+                    BodyNode::new(BodyNodeKind::RightEar, 5.0).with_tags(vec![Hear]),
+                    BodyNode::new(BodyNodeKind::Nose, 8.0).with_tags(vec![Smell]),
+                    BodyNode::new(BodyNodeKind::Jaw, 40.0).with_tags(vec![Eat, Speak, Bite, Grasp]),
                 ]),
-                BodyNode::vital(BodyNodeKind::Torso, 100.0, vec![(Channel::FullBody, 1.0)])
+                BodyNode::vital(BodyNodeKind::Torso, 100.0)
+                    .with_tags(vec![FullBody])
                     .with_children(torso_organs()),
-                BodyNode::new(BodyNodeKind::LeftForeleg, 55.0, vec![]).with_children(vec![
-                    BodyNode::new(
-                        BodyNodeKind::LeftForepaw,
-                        25.0,
-                        vec![(Channel::Locomotion, 0.3)],
-                    )
-                    .with_tags(vec![Stance]),
+                BodyNode::new(BodyNodeKind::LeftForeleg, 55.0).with_children(vec![
+                    BodyNode::new(BodyNodeKind::LeftForepaw, 25.0).with_tags(vec![Stance]),
                 ]),
-                BodyNode::new(BodyNodeKind::RightForeleg, 55.0, vec![]).with_children(vec![
-                    BodyNode::new(
-                        BodyNodeKind::RightForepaw,
-                        25.0,
-                        vec![(Channel::Locomotion, 0.3)],
-                    )
-                    .with_tags(vec![Stance]),
+                BodyNode::new(BodyNodeKind::RightForeleg, 55.0).with_children(vec![
+                    BodyNode::new(BodyNodeKind::RightForepaw, 25.0).with_tags(vec![Stance]),
                 ]),
-                BodyNode::new(BodyNodeKind::LeftHindleg, 55.0, vec![]).with_children(vec![
-                    BodyNode::new(
-                        BodyNodeKind::LeftHindpaw,
-                        25.0,
-                        vec![(Channel::Locomotion, 0.3)],
-                    )
-                    .with_tags(vec![Stance]),
+                BodyNode::new(BodyNodeKind::LeftHindleg, 55.0).with_children(vec![
+                    BodyNode::new(BodyNodeKind::LeftHindpaw, 25.0).with_tags(vec![Stance]),
                 ]),
-                BodyNode::new(BodyNodeKind::RightHindleg, 55.0, vec![]).with_children(vec![
-                    BodyNode::new(
-                        BodyNodeKind::RightHindpaw,
-                        25.0,
-                        vec![(Channel::Locomotion, 0.3)],
-                    )
-                    .with_tags(vec![Stance]),
+                BodyNode::new(BodyNodeKind::RightHindleg, 55.0).with_children(vec![
+                    BodyNode::new(BodyNodeKind::RightHindpaw, 25.0).with_tags(vec![Stance]),
                 ]),
             ],
         }
@@ -196,66 +109,29 @@ impl Body {
         use FunctionalTag::*;
         Self {
             parts: vec![
-                BodyNode::vital(BodyNodeKind::Head, 40.0, vec![]).with_children(vec![
-                    BodyNode::vital(
-                        BodyNodeKind::Brain,
-                        25.0,
-                        vec![(Channel::Focus, 0.4), (Channel::Awareness, 0.4)],
-                    )
-                    .with_tags(vec![Think]),
-                    BodyNode::new(BodyNodeKind::LeftEye, 8.0, vec![(Channel::Awareness, 0.2)])
-                        .with_tags(vec![See]),
-                    BodyNode::new(BodyNodeKind::RightEye, 8.0, vec![(Channel::Awareness, 0.2)])
-                        .with_tags(vec![See]),
-                    BodyNode::new(BodyNodeKind::LeftEar, 5.0, vec![(Channel::Awareness, 0.15)])
-                        .with_tags(vec![Hear]),
-                    BodyNode::new(
-                        BodyNodeKind::RightEar,
-                        5.0,
-                        vec![(Channel::Awareness, 0.15)],
-                    )
-                    .with_tags(vec![Hear]),
-                    BodyNode::new(BodyNodeKind::Nose, 8.0, vec![]).with_tags(vec![Smell]),
-                    BodyNode::new(
-                        BodyNodeKind::Jaw,
-                        20.0,
-                        vec![(Channel::Consumption, 1.0), (Channel::Vocalization, 0.3)],
-                    )
-                    .with_tags(vec![Eat, Speak]),
+                BodyNode::vital(BodyNodeKind::Head, 40.0).with_children(vec![
+                    BodyNode::vital(BodyNodeKind::Brain, 25.0).with_tags(vec![Think]),
+                    BodyNode::new(BodyNodeKind::LeftEye, 8.0).with_tags(vec![See]),
+                    BodyNode::new(BodyNodeKind::RightEye, 8.0).with_tags(vec![See]),
+                    BodyNode::new(BodyNodeKind::LeftEar, 5.0).with_tags(vec![Hear]),
+                    BodyNode::new(BodyNodeKind::RightEar, 5.0).with_tags(vec![Hear]),
+                    BodyNode::new(BodyNodeKind::Nose, 8.0).with_tags(vec![Smell]),
+                    BodyNode::new(BodyNodeKind::Jaw, 20.0).with_tags(vec![Eat, Speak]),
                 ]),
-                BodyNode::vital(BodyNodeKind::Torso, 80.0, vec![(Channel::FullBody, 1.0)])
+                BodyNode::vital(BodyNodeKind::Torso, 80.0)
+                    .with_tags(vec![FullBody])
                     .with_children(torso_organs()),
-                BodyNode::new(BodyNodeKind::LeftForeleg, 50.0, vec![]).with_children(vec![
-                    BodyNode::new(
-                        BodyNodeKind::LeftForehoof,
-                        20.0,
-                        vec![(Channel::Locomotion, 0.3)],
-                    )
-                    .with_tags(vec![Stance]),
+                BodyNode::new(BodyNodeKind::LeftForeleg, 50.0).with_children(vec![
+                    BodyNode::new(BodyNodeKind::LeftForehoof, 20.0).with_tags(vec![Stance]),
                 ]),
-                BodyNode::new(BodyNodeKind::RightForeleg, 50.0, vec![]).with_children(vec![
-                    BodyNode::new(
-                        BodyNodeKind::RightForehoof,
-                        20.0,
-                        vec![(Channel::Locomotion, 0.3)],
-                    )
-                    .with_tags(vec![Stance]),
+                BodyNode::new(BodyNodeKind::RightForeleg, 50.0).with_children(vec![
+                    BodyNode::new(BodyNodeKind::RightForehoof, 20.0).with_tags(vec![Stance]),
                 ]),
-                BodyNode::new(BodyNodeKind::LeftHindleg, 50.0, vec![]).with_children(vec![
-                    BodyNode::new(
-                        BodyNodeKind::LeftHindhoof,
-                        20.0,
-                        vec![(Channel::Locomotion, 0.3)],
-                    )
-                    .with_tags(vec![Stance]),
+                BodyNode::new(BodyNodeKind::LeftHindleg, 50.0).with_children(vec![
+                    BodyNode::new(BodyNodeKind::LeftHindhoof, 20.0).with_tags(vec![Stance]),
                 ]),
-                BodyNode::new(BodyNodeKind::RightHindleg, 50.0, vec![]).with_children(vec![
-                    BodyNode::new(
-                        BodyNodeKind::RightHindhoof,
-                        20.0,
-                        vec![(Channel::Locomotion, 0.3)],
-                    )
-                    .with_tags(vec![Stance]),
+                BodyNode::new(BodyNodeKind::RightHindleg, 50.0).with_children(vec![
+                    BodyNode::new(BodyNodeKind::RightHindhoof, 20.0).with_tags(vec![Stance]),
                 ]),
             ],
         }
@@ -329,21 +205,10 @@ impl Body {
         false
     }
 
-    /// Total intensity this body can deliver on `channel`, summed across
-    /// every node in the tree (root + children).
-    pub fn channel_capacity(&self, channel: Channel) -> f32 {
-        let mut total = 0.0;
-        for part in &self.parts {
-            if let Some(v) = part.channel_intensity(channel) {
-                total += v;
-            }
-            for child in &part.children {
-                if let Some(v) = child.channel_intensity(channel) {
-                    total += v;
-                }
-            }
-        }
-        total
+    /// Total intensity this body can deliver on `channel`, derived from
+    /// functional tags via the mapping.
+    pub fn channel_capacity(&self, channel: Channel, mapping: &TagChannelMapping) -> f32 {
+        mapping.channel_capacity(self, channel)
     }
 
     /// True when any vital node has been reduced to zero HP.
@@ -397,12 +262,12 @@ impl Body {
 fn torso_organs() -> Vec<BodyNode> {
     use FunctionalTag::*;
     vec![
-        BodyNode::vital(BodyNodeKind::Heart, 40.0, vec![]).with_tags(vec![Pump]),
-        BodyNode::vital(BodyNodeKind::LeftLung, 18.0, vec![]).with_tags(vec![Breathe]),
-        BodyNode::vital(BodyNodeKind::RightLung, 17.0, vec![]).with_tags(vec![Breathe]),
-        BodyNode::new(BodyNodeKind::Liver, 30.0, vec![]).with_tags(vec![Filter]),
-        BodyNode::new(BodyNodeKind::Stomach, 25.0, vec![]).with_tags(vec![Digest]),
-        BodyNode::new(BodyNodeKind::Gut, 25.0, vec![]).with_tags(vec![Digest]),
+        BodyNode::vital(BodyNodeKind::Heart, 40.0).with_tags(vec![Pump]),
+        BodyNode::vital(BodyNodeKind::LeftLung, 18.0).with_tags(vec![Breathe]),
+        BodyNode::vital(BodyNodeKind::RightLung, 17.0).with_tags(vec![Breathe]),
+        BodyNode::new(BodyNodeKind::Liver, 30.0).with_tags(vec![Filter]),
+        BodyNode::new(BodyNodeKind::Stomach, 25.0).with_tags(vec![Digest]),
+        BodyNode::new(BodyNodeKind::Gut, 25.0).with_tags(vec![Digest]),
     ]
 }
 
@@ -517,6 +382,116 @@ pub enum FunctionalTag {
     Pump,
     Digest,
     Filter,
+    FullBody,
+}
+
+// ─── TagChannelMapping ─────────────────────────────────────────────────────
+
+/// Maps functional tags to the channels they contribute to and at what
+/// per-node intensity. A node with tag `See` contributes `Awareness` at the
+/// configured intensity per See-tagged node. This is the single source of
+/// truth for tag-to-channel derivation.
+///
+/// Stored as a Bevy Resource so it can be overridden for modding.
+#[derive(Resource, Debug, Clone, Reflect)]
+pub struct TagChannelMapping {
+    entries: Vec<TagChannelEntry>,
+}
+
+#[derive(Debug, Clone, Reflect)]
+struct TagChannelEntry {
+    tag: FunctionalTag,
+    channel: Channel,
+    intensity: f32,
+}
+
+impl Default for TagChannelMapping {
+    fn default() -> Self {
+        use FunctionalTag::*;
+        Self {
+            entries: vec![
+                TagChannelEntry {
+                    tag: Think,
+                    channel: Channel::Focus,
+                    intensity: 1.0,
+                },
+                TagChannelEntry {
+                    tag: Think,
+                    channel: Channel::Awareness,
+                    intensity: 0.5,
+                },
+                TagChannelEntry {
+                    tag: See,
+                    channel: Channel::Awareness,
+                    intensity: 0.15,
+                },
+                TagChannelEntry {
+                    tag: Hear,
+                    channel: Channel::Awareness,
+                    intensity: 0.1,
+                },
+                TagChannelEntry {
+                    tag: Grasp,
+                    channel: Channel::Manipulation,
+                    intensity: 0.5,
+                },
+                TagChannelEntry {
+                    tag: Carry,
+                    channel: Channel::Carry,
+                    intensity: 0.25,
+                },
+                TagChannelEntry {
+                    tag: Stance,
+                    channel: Channel::Locomotion,
+                    intensity: 0.5,
+                },
+                TagChannelEntry {
+                    tag: Speak,
+                    channel: Channel::Vocalization,
+                    intensity: 1.0,
+                },
+                TagChannelEntry {
+                    tag: Eat,
+                    channel: Channel::Consumption,
+                    intensity: 1.0,
+                },
+                TagChannelEntry {
+                    tag: Bite,
+                    channel: Channel::Bite,
+                    intensity: 1.0,
+                },
+                TagChannelEntry {
+                    tag: FullBody,
+                    channel: Channel::FullBody,
+                    intensity: 1.0,
+                },
+            ],
+        }
+    }
+}
+
+impl TagChannelMapping {
+    /// Compute channel capacity for a single channel across the whole body tree.
+    pub fn channel_capacity(&self, body: &Body, channel: Channel) -> f32 {
+        let mut total = 0.0;
+        for part in &body.parts {
+            total += self.node_contribution(part, channel);
+            for child in &part.children {
+                total += self.node_contribution(child, channel);
+            }
+        }
+        total
+    }
+
+    fn node_contribution(&self, node: &BodyNode, channel: Channel) -> f32 {
+        let mut contrib = 0.0;
+        for entry in &self.entries {
+            if entry.channel == channel && node.has_tag(entry.tag) {
+                contrib += entry.intensity;
+            }
+        }
+        contrib * node.function_rate
+    }
 }
 
 // ─── Injury ────────────────────────────────────────────────────────────────
@@ -559,8 +534,6 @@ pub const CLOT_DECAY_PER_SEC: f32 = 1.0 / 300.0;
 #[derive(Debug, Clone, Reflect)]
 pub struct BodyNode {
     pub kind: BodyNodeKind,
-    #[reflect(ignore)]
-    pub provides: Vec<(Channel, f32)>,
     pub tags: Vec<FunctionalTag>,
     pub vital: bool,
     pub max_hp: f32,
@@ -571,10 +544,9 @@ pub struct BodyNode {
 }
 
 impl BodyNode {
-    pub fn new(kind: BodyNodeKind, max_hp: f32, provides: Vec<(Channel, f32)>) -> Self {
+    pub fn new(kind: BodyNodeKind, max_hp: f32) -> Self {
         Self {
             kind,
-            provides,
             tags: Vec::new(),
             vital: false,
             max_hp,
@@ -585,8 +557,8 @@ impl BodyNode {
         }
     }
 
-    pub fn vital(kind: BodyNodeKind, max_hp: f32, provides: Vec<(Channel, f32)>) -> Self {
-        let mut node = Self::new(kind, max_hp, provides);
+    pub fn vital(kind: BodyNodeKind, max_hp: f32) -> Self {
+        let mut node = Self::new(kind, max_hp);
         node.vital = true;
         node
     }
@@ -620,13 +592,6 @@ impl BodyNode {
 
     pub fn is_destroyed(&self) -> bool {
         self.current_hp <= 0.0
-    }
-
-    pub fn channel_intensity(&self, channel: Channel) -> Option<f32> {
-        self.provides
-            .iter()
-            .find(|(c, _)| *c == channel)
-            .map(|(_, intensity)| intensity * self.function_rate)
     }
 
     pub fn add_injury(&mut self, injury: Injury) {
@@ -842,7 +807,7 @@ mod tests {
 
     #[test]
     fn fresh_organ_is_fully_intact() {
-        let heart = BodyNode::vital(BodyNodeKind::Heart, 40.0, vec![]);
+        let heart = BodyNode::vital(BodyNodeKind::Heart, 40.0);
         assert!((heart.condition() - 1.0).abs() < 1e-6);
         assert!(!heart.is_destroyed());
         assert!(heart.vital);
@@ -850,7 +815,7 @@ mod tests {
 
     #[test]
     fn zero_hp_organ_is_destroyed() {
-        let mut lung = BodyNode::vital(BodyNodeKind::LeftLung, 18.0, vec![]);
+        let mut lung = BodyNode::vital(BodyNodeKind::LeftLung, 18.0);
         lung.current_hp = 0.0;
         lung.recalculate_function();
         assert_eq!(lung.condition(), 0.0);
@@ -859,7 +824,7 @@ mod tests {
 
     #[test]
     fn organ_condition_clamps_to_unit_interval() {
-        let mut gut = BodyNode::new(BodyNodeKind::Gut, 25.0, vec![]);
+        let mut gut = BodyNode::new(BodyNodeKind::Gut, 25.0);
         gut.current_hp = 100.0;
         assert!((gut.condition() - 1.0).abs() < 1e-6);
         gut.current_hp = -5.0;
@@ -1007,8 +972,9 @@ mod tests {
 
     #[test]
     fn destroying_one_eye_reduces_awareness() {
+        let m = TagChannelMapping::default();
         let body = Body::human();
-        let full_awareness = body.channel_capacity(Channel::Awareness);
+        let full_awareness = body.channel_capacity(Channel::Awareness, &m);
 
         let mut damaged = Body::human();
         damaged
@@ -1019,7 +985,7 @@ mod tests {
             .node_mut(BodyNodeKind::LeftEye)
             .unwrap()
             .recalculate_function();
-        let reduced = damaged.channel_capacity(Channel::Awareness);
+        let reduced = damaged.channel_capacity(Channel::Awareness, &m);
         assert!(
             reduced < full_awareness,
             "losing an eye should reduce awareness ({full_awareness} -> {reduced})"
@@ -1033,8 +999,9 @@ mod tests {
 
     #[test]
     fn brain_injury_reduces_focus() {
+        let m = TagChannelMapping::default();
         let body = Body::human();
-        let full_focus = body.channel_capacity(Channel::Focus);
+        let full_focus = body.channel_capacity(Channel::Focus, &m);
 
         let mut damaged = Body::human();
         let brain = damaged
@@ -1042,7 +1009,7 @@ mod tests {
             .expect("humans have brain");
         brain.current_hp = brain.max_hp * 0.5;
         brain.recalculate_function();
-        let reduced = damaged.channel_capacity(Channel::Focus);
+        let reduced = damaged.channel_capacity(Channel::Focus, &m);
         assert!(
             reduced < full_focus,
             "brain damage should reduce focus ({full_focus} -> {reduced})"
@@ -1051,8 +1018,9 @@ mod tests {
 
     #[test]
     fn losing_hand_halves_manipulation() {
+        let m = TagChannelMapping::default();
         let body = Body::human();
-        let full = body.channel_capacity(Channel::Manipulation);
+        let full = body.channel_capacity(Channel::Manipulation, &m);
         assert!((full - 1.0).abs() < 1e-6);
 
         let mut damaged = Body::human();
@@ -1064,7 +1032,7 @@ mod tests {
             .node_mut(BodyNodeKind::LeftHand)
             .unwrap()
             .recalculate_function();
-        let reduced = damaged.channel_capacity(Channel::Manipulation);
+        let reduced = damaged.channel_capacity(Channel::Manipulation, &m);
         assert!(
             (reduced - 0.5).abs() < 1e-6,
             "losing a hand should halve manipulation, got {reduced}"
@@ -1088,9 +1056,10 @@ mod tests {
 
     #[test]
     fn head_wound_without_organ_damage_has_no_cognitive_effect() {
+        let m = TagChannelMapping::default();
         let mut body = Body::human();
-        let full_focus = body.channel_capacity(Channel::Focus);
-        let full_awareness = body.channel_capacity(Channel::Awareness);
+        let full_focus = body.channel_capacity(Channel::Focus, &m);
+        let full_awareness = body.channel_capacity(Channel::Awareness, &m);
 
         // Damage head HP but don't touch children
         let head = body.part_mut(BodyNodeKind::Head).unwrap();
@@ -1099,11 +1068,11 @@ mod tests {
 
         // Head itself provides no channels, so cognitive channels unchanged
         assert!(
-            (body.channel_capacity(Channel::Focus) - full_focus).abs() < 1e-6,
+            (body.channel_capacity(Channel::Focus, &m) - full_focus).abs() < 1e-6,
             "head wound alone should not reduce focus"
         );
         assert!(
-            (body.channel_capacity(Channel::Awareness) - full_awareness).abs() < 1e-6,
+            (body.channel_capacity(Channel::Awareness, &m) - full_awareness).abs() < 1e-6,
             "head wound alone should not reduce awareness"
         );
     }

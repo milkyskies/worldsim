@@ -1334,8 +1334,12 @@ fn render_channels(ui: &mut egui::Ui, world: &World, entity: Entity) {
         placeholder(ui, "(this entity has no ActiveActions)");
         return;
     };
+    let mapping = world
+        .get_resource::<crate::agent::biology::body::TagChannelMapping>()
+        .cloned()
+        .unwrap_or_default();
 
-    let capacities = ChannelCapacities::compute(body, physical, consciousness);
+    let capacities = ChannelCapacities::compute(body, physical, consciousness, &mapping);
 
     let mut per_channel: Vec<(Channel, f32, Vec<String>)> =
         Channel::ALL.iter().map(|c| (*c, 0.0, Vec::new())).collect();
@@ -1865,11 +1869,19 @@ fn render_health(ui: &mut egui::Ui, world: &World, entity: Entity) {
 
     ui.separator();
     ui.heading("Capabilities");
-    capability_bar(ui, "Mobility", body.channel_capacity(Channel::Locomotion));
+    let mapping = world
+        .get_resource::<crate::agent::biology::body::TagChannelMapping>()
+        .cloned()
+        .unwrap_or_default();
+    capability_bar(
+        ui,
+        "Mobility",
+        body.channel_capacity(Channel::Locomotion, &mapping),
+    );
     capability_bar(
         ui,
         "Manipulation",
-        body.channel_capacity(Channel::Manipulation),
+        body.channel_capacity(Channel::Manipulation, &mapping),
     );
     if body.is_incapacitated() {
         ui.colored_label(

@@ -8,7 +8,7 @@
 use crate::agent::Agent;
 use crate::agent::actions::ActionType;
 use crate::agent::actions::channel::{ChannelCapacities, ChannelLoad};
-use crate::agent::biology::body::Body;
+use crate::agent::biology::body::{Body, TagChannelMapping};
 use crate::agent::body::needs::{Consciousness, PhysicalNeeds};
 use crate::agent::brains::plan_memory::{
     HeldPlan, PlanMemory, PlanSource, PlanState, max_plans_for,
@@ -199,6 +199,7 @@ pub fn update_rational_planning(
     )>,
     agents: Query<(), With<Agent>>,
     mut completed_actions: MessageReader<crate::agent::events::SimEvent>,
+    mapping: Res<TagChannelMapping>,
 ) {
     let perf_logging = game_log.is_enabled(crate::core::log::LogCategory::Performance);
     let start_time = if perf_logging {
@@ -262,7 +263,8 @@ pub fn update_rational_planning(
         species,
     ) in query.iter_mut()
     {
-        let capacities = ChannelCapacities::compute(body, Some(physical), Some(&*consciousness));
+        let capacities =
+            ChannelCapacities::compute(body, Some(physical), Some(&*consciousness), &mapping);
         let current_tick = tick.current;
 
         // 1. Verify every Executing plan: advance completed steps, drop
@@ -1102,7 +1104,8 @@ mod tests {
         use crate::agent::actions::registry::Action;
         use crate::agent::biology::body::Body;
 
-        let wolf_caps = ChannelCapacities::compute(Some(&Body::wolf()), None, None);
+        let m = TagChannelMapping::default();
+        let wolf_caps = ChannelCapacities::compute(Some(&Body::wolf()), None, None, &m);
         assert!(
             !action_is_anatomically_feasible(AttackAction.body_channels(), &wolf_caps),
             "wolf's Manipulation 0.4 should hard-conflict with Attack's 0.9"
@@ -1119,7 +1122,8 @@ mod tests {
         use crate::agent::actions::registry::Action;
         use crate::agent::biology::body::Body;
 
-        let human_caps = ChannelCapacities::compute(Some(&Body::human()), None, None);
+        let m = TagChannelMapping::default();
+        let human_caps = ChannelCapacities::compute(Some(&Body::human()), None, None, &m);
         assert!(
             action_is_anatomically_feasible(AttackAction.body_channels(), &human_caps),
             "human's two arms (Manipulation 1.0) should fit Attack's 0.9"

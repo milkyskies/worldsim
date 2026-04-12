@@ -12,7 +12,7 @@ use super::plan_memory::{PlanMemory, PlanState};
 use super::proposal::{BrainPowers, BrainState, BrainType};
 use super::rational::rational_brain_propose;
 use super::survival::{SurvivalBrainContext, survival_brain_propose};
-use crate::agent::biology::body::Body;
+use crate::agent::biology::body::{Body, TagChannelMapping};
 use crate::agent::body::needs::{Consciousness, PhysicalNeeds, PsychologicalDrives};
 use crate::agent::mind::perception::VisibleObjects;
 use crate::agent::nervous_system::cns::CentralNervousSystem;
@@ -75,6 +75,7 @@ pub fn arbitrate_every_tick(
     ontology: Res<crate::agent::mind::knowledge::Ontology>,
     mut sim_events: MessageWriter<crate::agent::events::SimEvent>,
     mut brain_histories: Query<&mut BrainHistory>,
+    mapping: Res<TagChannelMapping>,
 ) {
     for (
         entity,
@@ -150,6 +151,7 @@ pub fn arbitrate_every_tick(
             body,
             Some(physical),
             Some(&*consciousness),
+            &mapping,
         );
 
         let result = arbitrate_parallel(&proposals, &powers, &capacities, &action_registry);

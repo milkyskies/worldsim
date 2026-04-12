@@ -11,7 +11,7 @@ use crate::agent::actions::channel::ChannelCapacities;
 use crate::agent::actions::registry::{
     ActionContext, ActionKind, ActionRegistry, ActionState, ActiveActions,
 };
-use crate::agent::biology::body::Body;
+use crate::agent::biology::body::{Body, TagChannelMapping};
 use crate::agent::body::genetics::phenotype::Phenotype;
 use crate::agent::body::needs::{Consciousness, PhysicalNeeds};
 use crate::agent::body::species::SpeciesProfile;
@@ -63,6 +63,7 @@ pub fn start_actions(
     entity_transforms: Query<&GlobalTransform>,
     mut outcome_events: MessageWriter<ActionOutcomeEvent>,
     mut sim_events: MessageWriter<crate::agent::events::SimEvent>,
+    mapping: Res<TagChannelMapping>,
 ) {
     for (
         entity,
@@ -80,7 +81,7 @@ pub fn start_actions(
     {
         // Snapshot capacities once per agent so the channel methods don't
         // recompute incapacitation/exhaustion math per requirement check.
-        let capacities = ChannelCapacities::compute(body, physical, consciousness);
+        let capacities = ChannelCapacities::compute(body, physical, consciousness, &mapping);
 
         for action_template in &brain_state.chosen_actions {
             let wanted_action = action_template.action_type;
@@ -328,6 +329,7 @@ pub fn tick_actions(
     )>,
     mut target_inventories: Query<&mut ItemSlots, Without<PhysicalNeeds>>,
     living_entities: Query<()>,
+    mapping: Res<TagChannelMapping>,
 ) {
     let current_tick = tick.current;
 
@@ -349,7 +351,8 @@ pub fn tick_actions(
     ) in agents.iter_mut()
     {
         let load = active.channel_load(&registry);
-        let capacities = ChannelCapacities::compute(body, Some(&*physical), consciousness);
+        let capacities =
+            ChannelCapacities::compute(body, Some(&*physical), consciousness, &mapping);
 
         let mut completed_types: Vec<ActionType> = Vec::new();
         let mut target_gone_types: Vec<ActionType> = Vec::new();
@@ -746,6 +749,7 @@ pub fn apply_action_effects(
         Option<&SpeciesProfile>,
         Option<&crate::agent::body::genetics::phenotype::Phenotype>,
     )>,
+    mapping: Res<TagChannelMapping>,
 ) {
     use crate::agent::body::effort::{self, DEFAULT_BODY_MASS, compute_action_cost};
     use crate::agent::movement::effective_intensity as cap_intensity;
@@ -758,7 +762,8 @@ pub fn apply_action_effects(
         let load = active.channel_load(&registry);
         // Capacities freeze the start-of-tick stamina so degradation doesn't
         // compound as the loop mutates physical.stamina mid-iteration.
-        let capacities = ChannelCapacities::compute(body, Some(&*physical), Some(&*consciousness));
+        let capacities =
+            ChannelCapacities::compute(body, Some(&*physical), Some(&*consciousness), &mapping);
         let bmr_mult = phenotype.map(|p| p.bmr).unwrap_or(1.0);
         let body_mass = species.map(|s| s.mass_kg).unwrap_or(DEFAULT_BODY_MASS);
 

@@ -86,6 +86,10 @@ pub struct GameLog {
     /// Filter to show only logs from specific entities (empty = show all)
     #[reflect(ignore)]
     pub entity_filter: HashSet<Entity>,
+    /// When true, log entries are still stored but not printed to stdout.
+    /// Used by headless mode when inspection flags are active so inspect
+    /// output isn't buried under brain trace spam.
+    pub quiet: bool,
 }
 
 impl Default for GameLog {
@@ -95,6 +99,7 @@ impl Default for GameLog {
             max_entries: 500,
             enabled: LogCategory::defaults(),
             entity_filter: HashSet::new(),
+            quiet: false,
         }
     }
 }
@@ -106,6 +111,7 @@ impl GameLog {
             max_entries,
             enabled: LogCategory::defaults(),
             entity_filter: HashSet::new(),
+            quiet: false,
         }
     }
 
@@ -163,29 +169,28 @@ impl GameLog {
 
         // Check for deduplication
         if let Some(last_entry) = self.entries.back_mut() {
-            // Check if category, message, and entity match
             if last_entry.category == category
                 && last_entry.message == message
                 && last_entry.entity == entity
             {
                 last_entry.count += 1;
-                // Move cursor up and clear line to overwrite previous log
-                // \x1B[1A = Move up 1 line
-                // \x1B[2K = Clear entire line
-                print!("\x1B[1A\x1B[2K");
-                println!(
-                    "[{}] {} {} (x{})",
-                    timestamp,
-                    category.prefix(),
-                    message,
-                    last_entry.count
-                );
+                if !self.quiet {
+                    print!("\x1B[1A\x1B[2K");
+                    println!(
+                        "[{}] {} {} (x{})",
+                        timestamp,
+                        category.prefix(),
+                        message,
+                        last_entry.count
+                    );
+                }
                 return;
             }
         }
 
-        // Print to console
-        println!("[{}] {} {}", timestamp, category.prefix(), message);
+        if !self.quiet {
+            println!("[{}] {} {}", timestamp, category.prefix(), message);
+        }
 
         // Store entry
         self.entries.push_back(LogEntry {
