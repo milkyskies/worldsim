@@ -50,11 +50,6 @@ pub enum ActionType {
     /// without moving. A cat watching a bird, a wolf watching a deer
     /// from a distance, a human studying a stranger.
     Observe,
-    /// Self-grooming and low-level body tending. The natural default
-    /// when an agent has no drive pressing them toward anything.
-    /// Animals at rest groom themselves; humans fidget, preen, tidy.
-    Groom,
-
     /// Work on a construction site that requires labor to complete.
     /// Targets a world entity with a `Becomes` component whose trigger tree
     /// contains a `LaborAccumulated` variant. Running this action each tick
@@ -111,7 +106,6 @@ impl ActionType {
             ActionType::Idle => "Idle",
             ActionType::Rest => "Resting",
             ActionType::Observe => "Watching",
-            ActionType::Groom => "Grooming",
             ActionType::Wave => "Waving at",
             ActionType::InitiateConversation => "Approaching",
             ActionType::Converse => "Talking to",
