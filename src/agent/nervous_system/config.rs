@@ -378,7 +378,10 @@ impl Default for NervousSystemConfig {
                             factor: 0.8,
                         },
                     ],
-                    min_threshold: 0.01,
+                    // Higher threshold than other drives because Sleepiness
+                    // always proposes Sleep (a serious commitment). Agents
+                    // shouldn't fall asleep from mild drowsiness.
+                    min_threshold: 0.3,
                     bypasses_gating: false,
                     sleep_wake_threshold: None,
                 },
