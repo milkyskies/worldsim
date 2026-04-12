@@ -7,11 +7,11 @@ use crate::agent::actions::ActionType;
 use crate::agent::actions::action::attack::{prey_produces_useful_item, prey_yield_effects};
 use crate::agent::actions::channel::{Channel, ChannelUsage, Posture};
 use crate::agent::actions::registry::{
-    Action, ActionContext, ActionKind, CompletionContext, RuntimeEffects, TargetCandidate,
-    TargetSource,
+    Action, ActionContext, ActionKind, CompletionContext, TargetCandidate, TargetSource,
 };
+use crate::agent::body::effort::EffortProfile;
 use crate::agent::mind::knowledge::{Concept, MindGraph, Triple};
-use crate::constants::actions::attack::{BASE_COST, DURATION_TICKS, STAMINA_PER_SEC};
+use crate::constants::actions::attack::{BASE_COST, DURATION_TICKS};
 
 pub struct BiteAction;
 
@@ -80,9 +80,10 @@ impl Action for BiteAction {
         prey_produces_useful_item(entity, mind)
     }
 
-    fn runtime_effects(&self) -> RuntimeEffects {
-        RuntimeEffects {
-            stamina_per_sec: STAMINA_PER_SEC,
+    fn effort_profile(&self) -> EffortProfile {
+        EffortProfile {
+            isometric: 0.7,
+            cognition: 0.1,
             ..Default::default()
         }
     }

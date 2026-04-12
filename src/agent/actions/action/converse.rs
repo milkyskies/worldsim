@@ -18,6 +18,7 @@
 use crate::agent::actions::ActionType;
 use crate::agent::actions::channel::{Channel, ChannelUsage, Posture};
 use crate::agent::actions::registry::{Action, ActionKind, RuntimeEffects};
+use crate::agent::body::effort::EffortProfile;
 
 pub struct ConverseAction;
 
@@ -53,15 +54,18 @@ impl Action for ConverseAction {
         true
     }
 
+    fn effort_profile(&self) -> EffortProfile {
+        EffortProfile {
+            cognition: 0.2,
+            ..Default::default()
+        }
+    }
+
     fn runtime_effects(&self) -> RuntimeEffects {
         RuntimeEffects {
-            // Gentle background companionship drain while in a
-            // conversation. Most social satisfaction now comes from
-            // the per-turn `SOCIAL_DRIVE_PER_TURN` in
-            // `select_turn_intent`, which rewards active participation
-            // over passive presence. The continuous rate is kept low so
-            // agents don't get fully satisfied before the conversation
-            // develops, and so they seek conversations more often.
+            // Gentle background drain — most social satisfaction now
+            // comes from per-turn SOCIAL_DRIVE_PER_TURN in
+            // select_turn_intent.
             companionship_per_sec: 0.012,
             stimulation_per_sec: 0.015,
             ..Default::default()

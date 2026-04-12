@@ -3,9 +3,7 @@
 use crate::agent::actions::ActionType;
 use crate::agent::actions::channel::{Channel, ChannelUsage, Posture};
 use crate::agent::actions::registry::{Action, ActionKind, RuntimeEffects};
-use crate::constants::actions::flee::{
-    ALERTNESS_PER_SEC, BASE_COST, GLUCOSE_DRAIN_PER_SEC, STAMINA_PER_SEC,
-};
+use crate::agent::body::effort::EffortProfile;
 
 pub struct FleeAction;
 
@@ -23,7 +21,7 @@ impl Action for FleeAction {
     }
 
     fn cost(&self) -> f32 {
-        BASE_COST
+        1.0
     }
 
     fn body_channels(&self) -> &'static [ChannelUsage] {
@@ -38,11 +36,17 @@ impl Action for FleeAction {
         Some(Posture::Moving)
     }
 
+    fn effort_profile(&self) -> EffortProfile {
+        EffortProfile {
+            locomotion: 1.0,
+            cognition: 0.15,
+            ..Default::default()
+        }
+    }
+
     fn runtime_effects(&self) -> RuntimeEffects {
         RuntimeEffects {
-            stamina_per_sec: STAMINA_PER_SEC,
-            glucose_drain_per_sec: GLUCOSE_DRAIN_PER_SEC,
-            alertness_per_sec: ALERTNESS_PER_SEC,
+            alertness_per_sec: 20.0,
             ..Default::default()
         }
     }

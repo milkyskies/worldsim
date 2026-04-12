@@ -17,6 +17,7 @@
 use crate::agent::actions::ActionType;
 use crate::agent::actions::channel::{ChannelSlices, ChannelUsage, Posture};
 use crate::agent::actions::registry::{Action, ActionKind, RuntimeEffects};
+use crate::agent::body::effort::EffortProfile;
 
 pub struct RestAction;
 
@@ -51,13 +52,16 @@ impl Action for RestAction {
         Some(Posture::Stationary)
     }
 
+    fn effort_profile(&self) -> EffortProfile {
+        EffortProfile {
+            recovery: 0.4,
+            ..Default::default()
+        }
+    }
+
     fn runtime_effects(&self) -> RuntimeEffects {
         RuntimeEffects {
-            stamina_per_sec: 8.0,        // slower than Sleep (+20), faster than Idle (0)
-            alertness_per_sec: 2.0,      // gentle alertness gain, no crash
-            glucose_drain_per_sec: 0.15, // mild metabolic cost — less than Idle
-            // Mild curiosity drift — less than Idle (the agent is
-            // partly focused on recovering) but non-zero.
+            alertness_per_sec: 2.0,
             stimulation_per_sec: -0.008,
             companionship_per_sec: -0.006,
             ..Default::default()
