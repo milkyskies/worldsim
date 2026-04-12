@@ -683,9 +683,11 @@ mod tests {
     fn cultural_does_not_decay() {
         let config = MemoryDecayConfig::default();
         let mut mind = MindGraph::default();
-        let mut meta = Metadata::default();
-        meta.memory_type = MemoryType::Cultural;
-        meta.source = crate::agent::mind::knowledge::Source::Cultural;
+        let meta = Metadata {
+            memory_type: MemoryType::Cultural,
+            source: crate::agent::mind::knowledge::Source::Cultural,
+            ..Default::default()
+        };
         mind.add(Triple::with_meta(
             Node::Concept(Concept::Apple),
             Predicate::IsA,
