@@ -12,12 +12,12 @@
 //! Downstream: channel::ChannelCapacities (capability queries),
 //!             movement::calculate_speed (injury penalty), UI/debug
 
-use crate::agent::Agent;
 use crate::agent::actions::channel::Channel;
 use crate::agent::body::metabolism::STARVATION_DAMAGE_PER_SEC;
 use crate::agent::body::needs::PhysicalNeeds;
 use crate::agent::body::species::Species;
 use crate::agent::mind::knowledge::Concept;
+use crate::agent::{Alive, Dead};
 use crate::core::GameLog;
 use crate::world::becomes::{Becomes, BecomesMode, BecomesTrigger};
 use bevy::prelude::*;
@@ -620,7 +620,7 @@ fn heal_duration_seconds(kind: InjuryType) -> f32 {
 }
 
 pub fn process_healing(
-    mut query: Query<(&mut Body, Option<&PhysicalNeeds>)>,
+    mut query: Query<(&mut Body, Option<&PhysicalNeeds>), With<Alive>>,
     tick: Res<crate::core::tick::TickCount>,
 ) {
     let dt = tick.dt();
@@ -684,7 +684,7 @@ pub fn process_healing(
 /// begins. Well-fed agents can fast for days; lean agents die faster.
 pub fn process_starvation(
     tick: Res<crate::core::tick::TickCount>,
-    mut query: Query<&mut PhysicalNeeds>,
+    mut query: Query<&mut PhysicalNeeds, With<Alive>>,
 ) {
     use crate::agent::body::needs::HealthDamageSource;
     let dt = tick.dt();
@@ -732,17 +732,21 @@ pub fn die(
         tick: current_tick,
         cause: cause.clone(),
     });
-    commands.entity(entity).insert(Becomes {
-        target: Concept::Corpse,
-        trigger: BecomesTrigger::AfterTicks(0),
-        started_tick: current_tick,
-        mode: BecomesMode::InPlace,
-    });
+    commands
+        .entity(entity)
+        .remove::<Alive>()
+        .insert(Dead)
+        .insert(Becomes {
+            target: Concept::Corpse,
+            trigger: BecomesTrigger::AfterTicks(0),
+            started_tick: current_tick,
+            mode: BecomesMode::InPlace,
+        });
 }
 
 pub fn check_death(
     mut commands: Commands,
-    query: Query<(Entity, &PhysicalNeeds, Option<&Name>), (With<Agent>, Without<Becomes>)>,
+    query: Query<(Entity, &PhysicalNeeds, Option<&Name>), With<Alive>>,
     mut game_log: ResMut<GameLog>,
     tick: Res<crate::core::tick::TickCount>,
     mut sim_events: MessageWriter<crate::agent::events::SimEvent>,

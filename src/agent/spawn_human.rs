@@ -39,7 +39,7 @@ use crate::agent::psyche::emotions::EmotionalState;
 use crate::agent::psyche::personality::Personality;
 use crate::agent::psyche::relationships::RelationshipHistory;
 use crate::agent::skills::Skills;
-use crate::agent::{Agent, Person, TargetPosition};
+use crate::agent::{Agent, Alive, Person, TargetPosition};
 use crate::world::Physical;
 
 /// Identity, body, and movement components. First of three bundles because
@@ -48,6 +48,7 @@ use crate::world::Physical;
 pub struct PersonCoreBundle {
     pub name: Name,
     pub agent: Agent,
+    pub alive: Alive,
     pub person: Person,
     pub entity_type: EntityType,
     pub species: SpeciesProfile,
@@ -181,6 +182,7 @@ pub fn build_person_logic(
     let core = PersonCoreBundle {
         name: Name::new(init.name),
         agent: Agent,
+        alive: Alive,
         person: Person,
         entity_type: EntityType(Concept::Person),
         species: SpeciesProfile::human(),

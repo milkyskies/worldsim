@@ -28,6 +28,19 @@ use bevy::prelude::*;
 #[reflect(Component)]
 pub struct Agent;
 
+/// Marker for a living agent. Inserted at spawn, removed by `die()`.
+/// Prefer `With<Alive>` over `With<Agent>` for liveness checks — it closes
+/// the 1-tick window between `die()` (inserts `Becomes`) and the substrate
+/// run (strips `Agent`).
+#[derive(Component, Reflect, Default)]
+#[reflect(Component)]
+pub struct Alive;
+
+/// Marker for a dead agent. Inserted by `die()`, persists on the corpse.
+#[derive(Component, Reflect, Default)]
+#[reflect(Component)]
+pub struct Dead;
+
 /// Marker component for human agents specifically.
 /// Use this for human-only behavior (speech, tool use, etc.)
 #[derive(Component, Reflect, Default)]
@@ -45,6 +58,8 @@ impl Plugin for AgentPlugin {
         use crate::core::{every_n_ticks, not_paused};
 
         app.register_type::<Agent>()
+            .register_type::<Alive>()
+            .register_type::<Dead>()
             .register_type::<Person>()
             .register_type::<TargetPosition>()
             .register_type::<movement::MovementState>()

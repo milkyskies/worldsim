@@ -78,6 +78,9 @@ fn update_status_icons(
 
     for (parent, mut text, mut visibility) in icons.iter_mut() {
         let Ok((actions, emotions, needs, in_conversation)) = agents.get(parent.parent()) else {
+            if *visibility != Visibility::Hidden {
+                *visibility = Visibility::Hidden;
+            }
             continue;
         };
 
