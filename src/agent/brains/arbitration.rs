@@ -70,11 +70,10 @@ pub fn calculate_brain_powers(
     let rational_power =
         base_rational * (1.0 - stress_penalty) * (1.0 - needs_penalty) * (1.0 - alertness_penalty);
 
-    // A sleeping agent's survival brain must retain enough power to push
-    // WakeUp through arbitration once rested. Without this floor, a fully
-    // recovered sleeper has zero urgencies -> zero survival power -> the
-    // WakeUp proposal scores 0 and gets filtered out, trapping the agent
-    // in Sleep forever.
+    // A sleeping agent has zero urgencies once fully rested, giving
+    // survival power = 0. But the WakeUp proposal from check_sleep_wake
+    // still needs to score above zero to pass arbitration. This floor
+    // ensures WakeUp can always be admitted during sleep.
     let survival_floor = if consciousness.alertness < 0.1 {
         50.0
     } else {

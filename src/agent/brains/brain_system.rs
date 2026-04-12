@@ -106,7 +106,7 @@ pub fn arbitrate_every_tick(
             most_feared_entity: find_most_feared_visible_entity(visible, mind),
         };
 
-        let survival_proposal = survival_brain_propose(
+        let survival_proposals = survival_brain_propose(
             survival_context,
             inventory,
             active_actions,
@@ -143,7 +143,7 @@ pub fn arbitrate_every_tick(
 
         // 3. Arbitrate - greedy multi-action admission across body channels.
         let mut proposals: Vec<Option<super::proposal::BrainProposal>> = Vec::new();
-        proposals.push(survival_proposal);
+        proposals.extend(survival_proposals.into_iter().map(Some));
         proposals.push(emotional_proposal);
         proposals.extend(rational_proposals.into_iter().map(Some));
         let capacities = crate::agent::actions::ChannelCapacities::compute(
