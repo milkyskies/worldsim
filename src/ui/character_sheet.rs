@@ -65,9 +65,110 @@ fn placeholder(ui: &mut egui::Ui, text: &str) {
     );
 }
 
+/// Render `body` into a height-smoothed container. Natural-height changes
+/// are debounced (100ms) so 1-tick content blips (e.g. a running action
+/// briefly gapping out) never trigger motion, and sustained changes are
+/// animated (250ms) so real transitions don't snap.
+fn smooth_height(
+    ui: &mut egui::Ui,
+    id_salt: impl std::hash::Hash,
+    body: impl FnOnce(&mut egui::Ui),
+) {
+    #[derive(Clone, Copy)]
+    struct AnimState {
+        committed: f32,
+        pending: f32,
+        pending_since: f64,
+    }
+    const DEBOUNCE_SEC: f64 = 0.1;
+    const ANIMATION_SEC: f32 = 0.25;
+
+    let anim_id = ui.id().with(("smooth_height", &id_salt));
+    let now = ui.ctx().input(|i| i.time);
+    let stored: Option<AnimState> = ui.ctx().data(|d| d.get_temp::<AnimState>(anim_id));
+
+    let natural = match stored {
+        None => {
+            let child_max = egui::Rect::from_min_size(
+                ui.cursor().min,
+                egui::vec2(ui.available_width(), f32::INFINITY),
+            );
+            ui.scope_builder(egui::UiBuilder::new().max_rect(child_max), |child| {
+                body(child);
+                child.min_rect().height()
+            })
+            .inner
+        }
+        Some(state) => {
+            let animated =
+                ui.ctx()
+                    .animate_value_with_time(anim_id, state.committed, ANIMATION_SEC);
+            let width = ui.available_width();
+            let (outer_rect, _) =
+                ui.allocate_exact_size(egui::vec2(width, animated.max(0.0)), egui::Sense::hover());
+            let layout = *ui.layout();
+            let mut child = ui.new_child(
+                egui::UiBuilder::new()
+                    .max_rect(egui::Rect::from_min_size(
+                        outer_rect.min,
+                        egui::vec2(width, f32::INFINITY),
+                    ))
+                    .layout(layout),
+            );
+            let mut clip = child.clip_rect();
+            clip.max.y = outer_rect.max.y;
+            child.set_clip_rect(clip);
+            body(&mut child);
+            child.min_rect().height()
+        }
+    };
+
+    let new_state = match stored {
+        None => AnimState {
+            committed: natural,
+            pending: natural,
+            pending_since: now,
+        },
+        Some(state) => {
+            if (natural - state.committed).abs() < 0.5 {
+                AnimState {
+                    committed: state.committed,
+                    pending: state.committed,
+                    pending_since: now,
+                }
+            } else if (natural - state.pending).abs() < 0.5 {
+                if now - state.pending_since >= DEBOUNCE_SEC {
+                    AnimState {
+                        committed: natural,
+                        pending: natural,
+                        pending_since: now,
+                    }
+                } else {
+                    ui.ctx()
+                        .request_repaint_after(std::time::Duration::from_secs_f64(
+                            DEBOUNCE_SEC - (now - state.pending_since),
+                        ));
+                    state
+                }
+            } else {
+                ui.ctx()
+                    .request_repaint_after(std::time::Duration::from_secs_f64(DEBOUNCE_SEC));
+                AnimState {
+                    committed: state.committed,
+                    pending: natural,
+                    pending_since: now,
+                }
+            }
+        }
+    };
+
+    ui.ctx().data_mut(|d| d.insert_temp(anim_id, new_state));
+}
+
 /// Indented, small, muted "Details" collapsible used for every
 /// contributor breakdown in the panel. Consistent look across Overview,
-/// Vitals, Drives, and Mood.
+/// Vitals, Drives, and Mood. Body height is smoothed to avoid flicker
+/// when the underlying contributor list changes transiently.
 fn details_section(
     ui: &mut egui::Ui,
     id_salt: impl std::hash::Hash,
@@ -82,7 +183,11 @@ fn details_section(
         )
         .id_salt(id_salt)
         .default_open(false)
-        .show(ui, body);
+        .show(ui, |ui| {
+            // The collapsing header gives each body its own Ui id, so keying
+            // smooth_height off a constant salt still yields unique storage.
+            smooth_height(ui, "details_body", body);
+        });
     });
 }
 
@@ -2491,20 +2596,22 @@ fn render_overview_actions(ui: &mut egui::Ui, world: &World, entity: Entity) {
         }
     };
 
-    let non_idle: Vec<&ActionState> = active
-        .iter()
-        .filter(|a| !matches!(a.action_type, ActionType::Idle))
-        .collect();
-    if non_idle.is_empty() {
-        ui.horizontal(|ui| {
-            ui.label(egui::RichText::new("▶").color(Color32::YELLOW));
-            ui.label(egui::RichText::new("Idle").strong());
-        });
-        return;
-    }
-    for state in non_idle {
-        render_one(ui, state);
-    }
+    smooth_height(ui, "overview_actions", |ui| {
+        let non_idle: Vec<&ActionState> = active
+            .iter()
+            .filter(|a| !matches!(a.action_type, ActionType::Idle))
+            .collect();
+        if non_idle.is_empty() {
+            ui.horizontal(|ui| {
+                ui.label(egui::RichText::new("▶").color(Color32::YELLOW));
+                ui.label(egui::RichText::new("Idle").strong());
+            });
+        } else {
+            for state in non_idle {
+                render_one(ui, state);
+            }
+        }
+    });
 }
 
 fn emotion_label_color(e: EmotionType, intensity: f32) -> (&'static str, Color32) {
