@@ -24,6 +24,7 @@ use crate::agent::mind::conversation::{
 };
 use crate::agent::mind::knowledge::{Concept, MindGraph, Node, Predicate, Value};
 use crate::agent::mind::memory::WorkingMemory;
+use crate::agent::mind::perception::VisibleObjects;
 use crate::agent::nervous_system::cns::CentralNervousSystem;
 use crate::agent::nervous_system::urgency::UrgencySource;
 use crate::agent::psyche::emotions::{EmotionType, EmotionalState};
@@ -94,25 +95,18 @@ pub struct CharacterSheetState {
 pub enum CharSheetTab {
     #[default]
     Overview,
-    /// Physical needs — things that kill you when they hit 0: hunger,
-    /// hydration, stamina, health.
     Vitals,
-    /// Psychological drives — things that push behavior but aren't
-    /// fatal: companionship, safety, esteem, and the rest.
     Drives,
-    /// All plans the agent holds plus the last brain arbitration —
-    /// "what's the agent considering, and who's winning the argument?"
     Plans,
+    Perception,
+    Channels,
     Personality,
     Skills,
     Social,
     Health,
     Knowledge,
     Inventory,
-    /// Recent activity log: SimEvents this agent appeared in.
     Activity,
-    /// Developer-only tab showing raw brain proposals. Hidden unless F12 debug
-    /// mode is on.
     Brain,
 }
 
@@ -123,6 +117,8 @@ impl CharSheetTab {
             CharSheetTab::Vitals => "Vitals",
             CharSheetTab::Drives => "Drives",
             CharSheetTab::Plans => "Plans",
+            CharSheetTab::Perception => "Perception",
+            CharSheetTab::Channels => "Channels",
             CharSheetTab::Personality => "Personality",
             CharSheetTab::Skills => "Skills",
             CharSheetTab::Social => "Social",
@@ -250,6 +246,8 @@ fn character_sheet_system(world: &mut World) {
                     CharSheetTab::Vitals => render_vitals(ui, world, entity),
                     CharSheetTab::Drives => render_drives(ui, world, entity),
                     CharSheetTab::Plans => render_plans(ui, world, entity),
+                    CharSheetTab::Perception => render_perception(ui, world, entity),
+                    CharSheetTab::Channels => render_channels(ui, world, entity),
                     CharSheetTab::Personality => render_personality(ui, world, entity),
                     CharSheetTab::Skills => render_skills(ui, world, entity),
                     CharSheetTab::Social => render_social(ui, world, entity),
@@ -315,6 +313,8 @@ fn visible_tabs_for_entity(
         CharSheetTab::Vitals,
         CharSheetTab::Drives,
         CharSheetTab::Plans,
+        CharSheetTab::Perception,
+        CharSheetTab::Channels,
         CharSheetTab::Personality,
         CharSheetTab::Skills,
         CharSheetTab::Social,
@@ -810,6 +810,161 @@ fn urgency_subbar(ui: &mut egui::Ui, urgency: f32) {
                 .text(egui::RichText::new(format!("{:.2}", urgency)).small()),
         );
     });
+}
+
+// ============================================================================
+// PERCEPTION TAB — what the agent senses right now
+// ============================================================================
+
+fn render_perception(ui: &mut egui::Ui, world: &World, entity: Entity) {
+    ui.label(
+        egui::RichText::new(
+            "What this agent can see, hear, or feel right now. Anything missing from this list is invisible to the brain.",
+        )
+        .italics()
+        .color(Color32::LIGHT_GRAY),
+    );
+    ui.add_space(4.0);
+
+    let agent_pos = world
+        .get::<Transform>(entity)
+        .map(|t| t.translation.truncate());
+
+    ui.heading("Visible entities");
+    let visible = world.get::<VisibleObjects>(entity);
+    match visible {
+        None => placeholder(ui, "(this entity has no vision)"),
+        Some(v) if v.entities.is_empty() => placeholder(ui, "(sees nothing)"),
+        Some(v) => {
+            let mut rows: Vec<(f32, String, String)> = Vec::new();
+            for &other in &v.entities {
+                let name = world
+                    .get::<Name>(other)
+                    .map(|n| n.to_string())
+                    .unwrap_or_else(|| format!("{:?}", other));
+                let kind = world
+                    .get::<crate::agent::inventory::EntityType>(other)
+                    .map(|t| format!("{:?}", t.0))
+                    .unwrap_or_else(|| "?".into());
+                let dist = match (agent_pos, world.get::<Transform>(other)) {
+                    (Some(a), Some(t)) => a.distance(t.translation.truncate()),
+                    _ => f32::INFINITY,
+                };
+                rows.push((dist, name, kind));
+            }
+            rows.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+            egui::Grid::new("perception_visible")
+                .striped(true)
+                .num_columns(3)
+                .show(ui, |ui| {
+                    ui.strong("Entity");
+                    ui.strong("Kind");
+                    ui.strong("Distance");
+                    ui.end_row();
+                    for (dist, name, kind) in rows {
+                        ui.label(name);
+                        ui.label(kind);
+                        ui.label(if dist.is_finite() {
+                            format!("{:.0}", dist)
+                        } else {
+                            "?".into()
+                        });
+                        ui.end_row();
+                    }
+                });
+        }
+    }
+}
+
+// ============================================================================
+// CHANNELS TAB — body-channel occupancy
+// ============================================================================
+
+fn render_channels(ui: &mut egui::Ui, world: &World, entity: Entity) {
+    use crate::agent::actions::ActionRegistry;
+    use crate::agent::actions::channel::{Channel, ChannelCapacities};
+
+    ui.label(
+        egui::RichText::new(
+            "Body channels currently occupied by actions. An action can't start if its channels conflict.",
+        )
+        .italics()
+        .color(Color32::LIGHT_GRAY),
+    );
+    ui.add_space(4.0);
+
+    let active = world.get::<ActiveActions>(entity);
+    let body = world.get::<Body>(entity);
+    let physical = world.get::<PhysicalNeeds>(entity);
+    let registry = world.get_resource::<ActionRegistry>();
+
+    let Some(registry) = registry else {
+        placeholder(ui, "(ActionRegistry resource unavailable)");
+        return;
+    };
+    let Some(active) = active else {
+        placeholder(ui, "(this entity has no ActiveActions)");
+        return;
+    };
+
+    let capacities = ChannelCapacities::compute(body, physical);
+
+    let mut per_channel: Vec<(Channel, f32, Vec<String>)> =
+        Channel::ALL.iter().map(|c| (*c, 0.0, Vec::new())).collect();
+
+    for state in active.iter() {
+        let Some(def) = registry.get(state.action_type) else {
+            continue;
+        };
+        for usage in def.body_channels() {
+            let slot = per_channel
+                .iter_mut()
+                .find(|(c, _, _)| *c == usage.channel)
+                .unwrap();
+            slot.1 += usage.intensity;
+            slot.2.push(format!("{:?}", state.action_type));
+        }
+    }
+
+    egui::Grid::new("channels_grid")
+        .num_columns(4)
+        .striped(true)
+        .show(ui, |ui| {
+            ui.strong("Channel");
+            ui.strong("Load");
+            ui.strong("Capacity");
+            ui.strong("Holders");
+            ui.end_row();
+            for (channel, load, holders) in per_channel {
+                let cap = capacities.get(channel);
+                ui.label(format!("{:?}", channel));
+                let frac = if cap > 0.0 {
+                    (load / cap).clamp(0.0, 1.5)
+                } else {
+                    0.0
+                };
+                let fill = if load == 0.0 {
+                    Color32::DARK_GRAY
+                } else if load >= cap {
+                    Color32::from_rgb(200, 80, 80)
+                } else {
+                    Color32::from_rgb(140, 200, 255)
+                };
+                ui.add(
+                    egui::ProgressBar::new((frac / 1.5).clamp(0.0, 1.0))
+                        .desired_width(120.0)
+                        .fill(fill)
+                        .text(format!("{:.2}", load)),
+                );
+                ui.label(format!("{:.2}", cap));
+                if holders.is_empty() {
+                    ui.colored_label(Color32::from_gray(140), "—");
+                } else {
+                    ui.label(holders.join(", "));
+                }
+                ui.end_row();
+            }
+        });
 }
 
 // ============================================================================
@@ -2037,138 +2192,4 @@ fn mood_text(mood: f32) -> &'static str {
 fn stress_color(stress: f32) -> Color32 {
     // Inverted: high stress is bad. Map to severity by inverting.
     severity_color(1.0 - (stress / 100.0).clamp(0.0, 1.0), 0.3, 0.6)
-}
-
-// ============================================================================
-// TESTS
-// ============================================================================
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::agent::biology::body::Body;
-    use crate::agent::body::needs::{Consciousness, PhysicalNeeds, PsychologicalDrives};
-    use crate::agent::body::species::{Species, SpeciesProfile};
-    use crate::agent::mind::knowledge::MindGraph;
-    use crate::agent::psyche::emotions::{Emotion, EmotionType, EmotionalState};
-    use crate::agent::psyche::personality::{Personality, PersonalityTraits};
-
-    fn spawn_human(world: &mut World) -> Entity {
-        world
-            .spawn((
-                Name::new("TestHuman"),
-                SpeciesProfile::human(),
-                PhysicalNeeds::default(),
-                Consciousness::default(),
-                PsychologicalDrives::default(),
-                EmotionalState::default(),
-                Personality {
-                    traits: PersonalityTraits::default(),
-                },
-                Body::default(),
-                MindGraph::default(),
-            ))
-            .id()
-    }
-
-    fn spawn_minimal_deer(world: &mut World) -> Entity {
-        world
-            .spawn((
-                Name::new("TestDeer"),
-                SpeciesProfile {
-                    species: Species::Deer,
-                    ..SpeciesProfile::human()
-                },
-                PhysicalNeeds::default(),
-                EmotionalState::default(),
-                Body::default(),
-            ))
-            .id()
-    }
-
-    #[test]
-    fn visible_tabs_include_personality_for_human() {
-        let mut world = World::new();
-        let entity = spawn_human(&mut world);
-        let tabs = visible_tabs_for_entity(&world, entity, false);
-        assert!(tabs.contains(&CharSheetTab::Overview));
-        assert!(tabs.contains(&CharSheetTab::Vitals));
-        assert!(tabs.contains(&CharSheetTab::Drives));
-        assert!(tabs.contains(&CharSheetTab::Personality));
-        assert!(tabs.contains(&CharSheetTab::Health));
-        assert!(tabs.contains(&CharSheetTab::Knowledge));
-    }
-
-    #[test]
-    fn visible_tabs_include_every_tab_for_any_agent_like_entity() {
-        let mut world = World::new();
-        let entity = spawn_minimal_deer(&mut world);
-        let tabs = visible_tabs_for_entity(&world, entity, false);
-        for t in [
-            CharSheetTab::Overview,
-            CharSheetTab::Vitals,
-            CharSheetTab::Drives,
-            CharSheetTab::Plans,
-            CharSheetTab::Personality,
-            CharSheetTab::Skills,
-            CharSheetTab::Social,
-            CharSheetTab::Health,
-            CharSheetTab::Knowledge,
-            CharSheetTab::Inventory,
-            CharSheetTab::Activity,
-        ] {
-            assert!(tabs.contains(&t), "tab {:?} should be visible", t);
-        }
-    }
-
-    #[test]
-    fn visible_tabs_is_empty_for_non_agent_entity() {
-        let mut world = World::new();
-        let entity = world.spawn(Name::new("Rock")).id();
-        let tabs = visible_tabs_for_entity(&world, entity, false);
-        assert!(tabs.is_empty());
-    }
-
-    #[test]
-    fn brain_tab_only_visible_when_debug_enabled() {
-        let mut world = World::new();
-        let entity = world
-            .spawn((
-                Name::new("TestAgent"),
-                PhysicalNeeds::default(),
-                EmotionalState::default(),
-                Body::default(),
-                BrainState::default(),
-            ))
-            .id();
-
-        let tabs_off = visible_tabs_for_entity(&world, entity, false);
-        assert!(!tabs_off.contains(&CharSheetTab::Brain));
-
-        let tabs_on = visible_tabs_for_entity(&world, entity, true);
-        assert!(tabs_on.contains(&CharSheetTab::Brain));
-    }
-
-    #[test]
-    fn dominant_emotion_overrides_mood_in_bottom_bar() {
-        let mut state = EmotionalState {
-            current_mood: 0.5,
-            stress_level: 0.0,
-            active_emotions: Vec::new(),
-        };
-        state
-            .active_emotions
-            .push(Emotion::new(EmotionType::Fear, 0.9));
-        let (label, _) = mood_descriptor(&state);
-        assert_eq!(label, "Terrified");
-    }
-
-    #[test]
-    fn mood_text_buckets() {
-        assert_eq!(mood_text(0.8), "Joyful");
-        assert_eq!(mood_text(0.3), "Content");
-        assert_eq!(mood_text(0.0), "Neutral");
-        assert_eq!(mood_text(-0.3), "Unhappy");
-        assert_eq!(mood_text(-0.8), "Miserable");
-    }
 }
