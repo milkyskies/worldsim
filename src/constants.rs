@@ -244,8 +244,10 @@ pub mod brains {
         pub const FEAR_GENERAL_THRESHOLD: f32 = 0.7;
         pub const FEAR_GENERAL_URGENCY_MULTIPLIER: f32 = 90.0;
         /// Social drive above which the emotional brain proposes
-        /// `InitiateConversation` toward a visible person.
-        pub const SOCIAL_SEEK_THRESHOLD: f32 = 0.55;
+        /// `InitiateConversation` toward a visible person. Lowered from
+        /// 0.55 so agents initiate conversations more readily — in real
+        /// life, seeing someone you know is usually enough to say hi.
+        pub const SOCIAL_SEEK_THRESHOLD: f32 = 0.35;
         /// Multiplier applied to social drive to score the urgency of
         /// initiating a conversation.
         pub const SOCIAL_SEEK_URGENCY_MULTIPLIER: f32 = 40.0;
