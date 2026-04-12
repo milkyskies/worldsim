@@ -1586,17 +1586,37 @@ fn capability_bar(ui: &mut egui::Ui, label: &str, value: f32) {
 // KNOWLEDGE TAB
 // ============================================================================
 
-fn render_knowledge(ui: &mut egui::Ui, world: &World, entity: Entity) {
-    let Some(mind) = world.get::<MindGraph>(entity) else {
+fn render_knowledge(ui: &mut egui::Ui, world: &mut World, entity: Entity) {
+    if world.get::<MindGraph>(entity).is_none() {
         placeholder(ui, "(no mind on this entity — can't know anything)");
+        return;
+    }
+
+    render_knowledge_summary(ui, world, entity);
+
+    ui.add_space(8.0);
+    ui.separator();
+    egui::CollapsingHeader::new("Full inspector (filter, search, navigate)")
+        .default_open(false)
+        .show(ui, |ui| {
+            world.resource_scope::<super::debug_knowledge::KnowledgeInspectorState, _>(
+                |world, mut state| {
+                    state.target_agent = Some(entity);
+                    super::debug_knowledge::render_mind_inspector(ui, &mut state, world);
+                },
+            );
+        });
+}
+
+fn render_knowledge_summary(ui: &mut egui::Ui, world: &World, entity: Entity) {
+    let Some(mind) = world.get::<MindGraph>(entity) else {
         return;
     };
 
-    // Places I know — things with LocatedAt
-    ui.collapsing("📍 Places I know", |ui| {
+    ui.collapsing("Places I know", |ui| {
         let located = mind.query(None, Some(Predicate::LocatedAt), None);
         if located.is_empty() {
-            ui.label(egui::RichText::new("None").italics());
+            placeholder(ui, "(none)");
         } else {
             for triple in located.iter().take(30) {
                 if let Value::Tile(pos) = triple.object {
@@ -1607,11 +1627,10 @@ fn render_knowledge(ui: &mut egui::Ui, world: &World, entity: Entity) {
         }
     });
 
-    // People I know
-    ui.collapsing("👤 People I know", |ui| {
+    ui.collapsing("People I know", |ui| {
         let known = mind.query(None, Some(Predicate::Knows), Some(&Value::Boolean(true)));
         if known.is_empty() {
-            ui.label(egui::RichText::new("None").italics());
+            placeholder(ui, "(none)");
         } else {
             for triple in &known {
                 if let Node::Entity(other) = triple.subject {
@@ -1630,15 +1649,14 @@ fn render_knowledge(ui: &mut egui::Ui, world: &World, entity: Entity) {
         }
     });
 
-    // Dangers
-    ui.collapsing("⚠ Dangers", |ui| {
+    ui.collapsing("Dangers", |ui| {
         let dangerous = mind.query(
             None,
             Some(Predicate::HasTrait),
             Some(&Value::Concept(Concept::Dangerous)),
         );
         if dangerous.is_empty() {
-            ui.label(egui::RichText::new("No known dangers").italics());
+            placeholder(ui, "(no known dangers)");
         } else {
             for triple in &dangerous {
                 let label = node_label(world, &triple.subject);
@@ -1647,11 +1665,10 @@ fn render_knowledge(ui: &mut egui::Ui, world: &World, entity: Entity) {
         }
     });
 
-    // Beliefs — HasTrait triples
-    ui.collapsing("💭 Beliefs", |ui| {
+    ui.collapsing("Beliefs", |ui| {
         let beliefs = mind.query(None, Some(Predicate::HasTrait), None);
         if beliefs.is_empty() {
-            ui.label(egui::RichText::new("No beliefs yet").italics());
+            placeholder(ui, "(none)");
         } else {
             for triple in beliefs.iter().take(30) {
                 if let (Node::Entity(_) | Node::Concept(_), Value::Concept(c)) =
@@ -1664,11 +1681,10 @@ fn render_knowledge(ui: &mut egui::Ui, world: &World, entity: Entity) {
         }
     });
 
-    // Memories from working memory
     if let Some(wm) = world.get::<WorkingMemory>(entity) {
-        ui.collapsing("📜 Recent Memories", |ui| {
+        ui.collapsing("Recent memories", |ui| {
             if wm.buffer.is_empty() {
-                ui.label(egui::RichText::new("Nothing recent").italics());
+                placeholder(ui, "(nothing recent)");
             } else {
                 for item in wm.buffer.iter().rev().take(20) {
                     ui.label(format!("• {:?}", item.event));
