@@ -14,8 +14,10 @@ impl Plugin for BiologyPlugin {
             .register_type::<body::BodyNode>()
             .register_type::<body::BodyNodeKind>()
             .register_type::<body::FunctionalTag>()
+            .register_type::<body::TagChannelMapping>()
             .register_type::<body::Injury>()
             .register_type::<body::InjuryType>()
+            .init_resource::<body::TagChannelMapping>()
             .add_systems(
                 Update,
                 (
