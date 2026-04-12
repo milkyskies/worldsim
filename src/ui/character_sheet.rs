@@ -2418,7 +2418,7 @@ fn render_brain(ui: &mut egui::Ui, world: &World, entity: Entity) {
 
 /// Fixed-height action block so the rest of the panel doesn't shift
 /// each time an action completes and another one is about to start.
-const ACTION_BLOCK_HEIGHT: f32 = 200.0;
+const ACTION_BLOCK_HEIGHT: f32 = 110.0;
 
 fn render_overview_actions(ui: &mut egui::Ui, world: &World, entity: Entity) {
     let width = ui.available_width();
