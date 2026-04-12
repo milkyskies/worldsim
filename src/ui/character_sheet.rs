@@ -552,7 +552,7 @@ fn render_overview(ui: &mut egui::Ui, world: &World, entity: Entity) {
         // with zero reserves = starving but eating; all three empty =
         // imminent death. A single "hunger %" bar can't disambiguate.
         let m = &needs.metabolism;
-        ui.label(egui::RichText::new("Fuel  (hover a bar for why)").strong());
+        ui.label(egui::RichText::new("Fuel").strong());
         vital_row(
             ui,
             "Stomach",
@@ -715,7 +715,7 @@ fn render_overview(ui: &mut egui::Ui, world: &World, entity: Entity) {
                 ui.colored_label(stress_color(stress), format!("stress {:.0}", stress));
             }
         });
-        egui::CollapsingHeader::new("why Mood is like this")
+        egui::CollapsingHeader::new("Details")
             .id_salt(egui::Id::new("mood_why"))
             .default_open(false)
             .show(ui, |ui| {
@@ -777,7 +777,7 @@ fn vital_row_explained(
         );
     });
     if let Some(contribs) = contribs {
-        egui::CollapsingHeader::new(format!("why {} is moving", label))
+        egui::CollapsingHeader::new("Details")
             .id_salt(egui::Id::new(("vital_why", label)))
             .default_open(false)
             .show(ui, |ui| render_contributions(ui, unit, &contribs));
@@ -804,7 +804,7 @@ fn vital_row_fraction_explained(
         );
     });
     if let Some(contribs) = contribs {
-        egui::CollapsingHeader::new(format!("why {} is moving", label))
+        egui::CollapsingHeader::new("Details")
             .id_salt(egui::Id::new(("vital_frac_why", label)))
             .default_open(false)
             .show(ui, |ui| render_contributions(ui, unit, &contribs));
