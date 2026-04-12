@@ -485,6 +485,7 @@ enum ContributionKind {
     Glucose,
     Stamina,
     Hydration,
+    Stomach,
 }
 
 fn dump_contributions_headless(
@@ -549,6 +550,39 @@ fn dump_contributions_headless(
                     let activity_delta = cfg.get(activity).effects.hydration_change;
                     if activity_delta != 0.0 {
                         contribs.push((format!("{:?}", activity), activity_delta));
+                    }
+                }
+            }
+        }
+        ContributionKind::Stomach => {
+            use crate::agent::body::metabolism::{DIGEST_CARB_RATE, DIGEST_FAT_RATE};
+            use crate::agent::body::needs::PhysicalNeeds;
+            if let Some(needs) = world.get::<PhysicalNeeds>(agent) {
+                let m = &needs.metabolism;
+                if m.stomach_carbs > 0.0 {
+                    contribs.push((
+                        "digestion: carbs → glucose".into(),
+                        -DIGEST_CARB_RATE.min(m.stomach_carbs),
+                    ));
+                }
+                if m.stomach_fat > 0.0 {
+                    contribs.push((
+                        "digestion: fat → reserves".into(),
+                        -DIGEST_FAT_RATE.min(m.stomach_fat),
+                    ));
+                }
+            }
+            if let (Some(active), Some(reg)) = (
+                world.get::<ActiveActions>(agent),
+                world.get_resource::<ActionRegistry>(),
+            ) {
+                for state in active.iter() {
+                    let Some(action) = reg.get(state.action_type) else {
+                        continue;
+                    };
+                    let rate = action.runtime_effects().stomach_carbs_per_sec;
+                    if rate != 0.0 {
+                        contribs.push((format!("{:?}: carbs in", state.action_type), rate));
                     }
                 }
             }
@@ -1896,6 +1930,60 @@ impl TestWorld {
         print_section_footer();
     }
 
+    /// Print what the agent currently perceives: every entity in
+    /// VisibleObjects with name, kind, and distance. Mirrors the
+    /// Perception tab in the interactive panel.
+    pub fn print_perception(&self, agent: Entity) {
+        use crate::agent::inventory::EntityType;
+        use crate::agent::mind::perception::VisibleObjects;
+
+        let world = self.app.world();
+        let tick = world.resource::<TickCount>().current;
+        let name = entity_name(world, agent);
+        print_section_header("Perception", &name, agent, tick);
+
+        let Some(visible) = world.get::<VisibleObjects>(agent) else {
+            eprintln!("  (this entity has no Vision/VisibleObjects)");
+            print_section_footer();
+            return;
+        };
+        let agent_pos = world
+            .get::<bevy::prelude::Transform>(agent)
+            .map(|t| t.translation.truncate());
+        if visible.entities.is_empty() {
+            eprintln!("  (sees nothing)");
+            print_section_footer();
+            return;
+        }
+
+        let mut rows: Vec<(f32, String, String)> = Vec::new();
+        for &other in &visible.entities {
+            let n = world
+                .get::<bevy::prelude::Name>(other)
+                .map(|n| n.to_string())
+                .unwrap_or_else(|| format!("{:?}", other));
+            let kind = world
+                .get::<EntityType>(other)
+                .map(|t| format!("{:?}", t.0))
+                .unwrap_or_else(|| "?".into());
+            let dist = match (agent_pos, world.get::<bevy::prelude::Transform>(other)) {
+                (Some(a), Some(t)) => a.distance(t.translation.truncate()),
+                _ => f32::INFINITY,
+            };
+            rows.push((dist, n, kind));
+        }
+        rows.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+        for (dist, n, kind) in rows {
+            let dist_str = if dist.is_finite() {
+                format!("{:.0}", dist)
+            } else {
+                "?".into()
+            };
+            eprintln!("  {:<20}  {:<14}  dist={}", n, kind, dist_str);
+        }
+        print_section_footer();
+    }
+
     /// Print body-channel occupancy for the agent to stderr: each channel
     /// with its current load, capacity, and which running actions are
     /// claiming it.
@@ -1985,6 +2073,13 @@ impl TestWorld {
                 " /sec",
                 ContributionKind::Hydration,
             ),
+            "stomach" | "satiety" => dump_contributions_headless(
+                world,
+                agent,
+                "stomach",
+                " /sec",
+                ContributionKind::Stomach,
+            ),
             "mood" => {
                 use crate::agent::psyche::emotions::EmotionalState;
                 if let Some(emo) = world.get::<EmotionalState>(agent) {
@@ -2006,7 +2101,7 @@ impl TestWorld {
             }
             other => {
                 eprintln!(
-                    "  unknown metric {:?} — try glucose / stamina / hydration / mood",
+                    "  unknown metric {:?}. try glucose / stamina / hydration / stomach / mood",
                     other
                 );
             }

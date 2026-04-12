@@ -50,6 +50,8 @@ pub struct InspectConfig {
     pub why_queries: Vec<WhyQuery>,
     /// Print body-channel occupancy for these agents.
     pub dump_channels_agents: Vec<String>,
+    /// Print VisibleObjects + distance for these agents.
+    pub dump_perception_agents: Vec<String>,
     /// Print every available diagnostic for these agents.
     pub dump_all_agents: Vec<String>,
 }
@@ -62,6 +64,7 @@ impl InspectConfig {
             || !self.queries.is_empty()
             || !self.why_queries.is_empty()
             || !self.dump_channels_agents.is_empty()
+            || !self.dump_perception_agents.is_empty()
             || !self.dump_all_agents.is_empty()
     }
 }
@@ -291,12 +294,20 @@ fn run_inspection(world: &mut TestWorld, inspect: &InspectConfig) {
         }
     }
 
+    for selector in &inspect.dump_perception_agents {
+        match world.find_agent(selector) {
+            Some(entity) => world.print_perception(entity),
+            None => eprintln!("dump-perception: no agent matching {selector:?} found"),
+        }
+    }
+
     for selector in &inspect.dump_all_agents {
         match world.find_agent(selector) {
             Some(entity) => {
                 world.print_agent_state(entity);
                 world.print_brain_decision(entity);
                 world.print_channels(entity);
+                world.print_perception(entity);
                 world.print_mind_graph(entity);
             }
             None => eprintln!("dump-all: no agent matching {selector:?} found"),

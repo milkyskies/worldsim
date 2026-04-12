@@ -146,6 +146,12 @@ pub struct CliArgs {
     #[arg(long = "dump-channels")]
     pub dump_channels: Vec<String>,
 
+    /// Print the agent's current perception snapshot (every entity in
+    /// their VisibleObjects with name, kind, and distance) at --at-tick.
+    /// Format: `agent:<selector>`. Can be repeated.
+    #[arg(long = "dump-perception")]
+    pub dump_perception: Vec<String>,
+
     /// Shortcut for "print everything we know about this agent": full
     /// state snapshot, brain decision, full MindGraph, channels. Format:
     /// `agent:<selector>`. Can be repeated.
@@ -260,6 +266,12 @@ impl CliArgs {
             .filter_map(|s| s.strip_prefix("agent:").map(|n| n.to_string()))
             .collect();
 
+        let dump_perception_agents: Vec<String> = self
+            .dump_perception
+            .iter()
+            .filter_map(|s| s.strip_prefix("agent:").map(|n| n.to_string()))
+            .collect();
+
         let dump_all_agents: Vec<String> = self
             .dump_all
             .iter()
@@ -273,6 +285,7 @@ impl CliArgs {
             queries,
             why_queries,
             dump_channels_agents,
+            dump_perception_agents,
             dump_all_agents,
         }
     }
