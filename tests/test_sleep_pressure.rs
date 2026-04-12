@@ -187,7 +187,7 @@ fn stamina_and_wakefulness_are_independent() {
         .noise_biomes(false)
         .agent("desk_worker")
         .pos(Vec2::new(50.0, 50.0))
-        .wakefulness(0.15) // drowsy
+        .wakefulness(0.05) // very drowsy
         .stamina(100.0) // physically fresh
         .done()
         .build();
@@ -213,6 +213,71 @@ fn stamina_and_wakefulness_are_independent() {
          current action = {:?}, wakefulness = {:.3}",
         world.current_action(agent),
         world.agent_wakefulness(agent),
+    );
+}
+
+// ── Sleep/wake cycle ─────────────────────────────────────────────────────
+
+#[test]
+fn drowsy_agent_sleeps_and_wakes_after_recovery() {
+    // An agent with low wakefulness enters Sleep, recovers, and wakes up.
+    // This is the core sleep/wake cycle test.
+    let (mut world, agents) = TestWorld::scenario(42)
+        .map_size(32, 32)
+        .noise_biomes(false)
+        .agent("sleeper")
+        .pos(Vec2::new(50.0, 50.0))
+        .wakefulness(0.05)
+        .stamina(5.0)
+        .done()
+        .build();
+    let sleeper = agents["sleeper"];
+
+    // Phase 1: enter Sleep.
+    let mut entered = false;
+    for _ in 0..600 {
+        world.tick(1);
+        if world
+            .get::<ActiveActions>(sleeper)
+            .contains(ActionType::Sleep)
+        {
+            entered = true;
+            break;
+        }
+    }
+    assert!(
+        entered,
+        "agent should enter Sleep; action={:?}, wakefulness={:.3}",
+        world.current_action(sleeper),
+        world.agent_wakefulness(sleeper),
+    );
+
+    // Phase 2: wakefulness recovers and agent wakes.
+    // SLEEP_RESTORE_RATE is 0.00278/rate-sec. From 0.05 to 0.9 threshold
+    // takes ~305 rate-seconds = ~305 game minutes = ~18300 ticks.
+    // Allow generous headroom.
+    let mut woke = false;
+    for _ in 0..25000 {
+        world.tick(1);
+        if !world
+            .get::<ActiveActions>(sleeper)
+            .contains(ActionType::Sleep)
+        {
+            woke = true;
+            break;
+        }
+    }
+    let final_wake = world.agent_wakefulness(sleeper);
+    assert!(
+        woke,
+        "agent should wake after wakefulness recovers; wakefulness={final_wake:.3}, \
+         aerobic={:.1}, action={:?}",
+        world.agent_aerobic(sleeper),
+        world.current_action(sleeper),
+    );
+    assert!(
+        final_wake > 0.8,
+        "wakefulness should be high after waking; got {final_wake:.3}"
     );
 }
 
