@@ -127,12 +127,7 @@ pub fn arbitrate_every_tick(
 
         // Rational brain now surfaces one proposal per Executing plan in
         // `PlanMemory`, so the output is variable-length and joins the
-        let rational_proposals = rational_brain_propose(
-            &plan_memory,
-            cns,
-            mind,
-            &action_registry,
-        );
+        let rational_proposals = rational_brain_propose(&plan_memory, cns, mind, &action_registry);
 
         // 2. Calculate brain powers, then apply history-based multiplier
         let base_powers = calculate_brain_powers(cns, &consciousness, emotions, personality);
@@ -151,7 +146,11 @@ pub fn arbitrate_every_tick(
         proposals.push(survival_proposal);
         proposals.push(emotional_proposal);
         proposals.extend(rational_proposals.into_iter().map(Some));
-        let capacities = crate::agent::actions::ChannelCapacities::compute(body, Some(physical), Some(&*consciousness));
+        let capacities = crate::agent::actions::ChannelCapacities::compute(
+            body,
+            Some(physical),
+            Some(&*consciousness),
+        );
 
         let result = arbitrate_parallel(&proposals, &powers, &capacities, &action_registry);
         let admitted = result.admitted;
