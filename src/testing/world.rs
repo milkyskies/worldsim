@@ -513,13 +513,37 @@ fn dump_contributions_headless(
                 world.get::<ActiveActions>(agent),
                 world.get_resource::<ActionRegistry>(),
             ) {
+                use crate::agent::actions::registry::ActionKind;
+                use crate::agent::body::effort::{self, DEFAULT_BODY_MASS, compute_action_cost};
+                use crate::agent::body::species::SpeciesProfile;
+                use crate::agent::movement::effective_intensity;
+
+                let body_mass = world
+                    .get::<SpeciesProfile>(agent)
+                    .map(|s| s.mass_kg)
+                    .unwrap_or(DEFAULT_BODY_MASS);
+                let stamina = world
+                    .get::<PhysicalNeeds>(agent)
+                    .map(|p| p.stamina.clone())
+                    .unwrap_or_default();
+
                 for state in active.iter() {
                     let Some(action) = reg.get(state.action_type) else {
                         continue;
                     };
-                    let rate = action.runtime_effects().glucose_drain_per_sec;
-                    if rate != 0.0 {
-                        contribs.push((format!("{:?}", state.action_type), -rate));
+                    let mut profile = action.effort_profile();
+                    if matches!(action.kind(), ActionKind::Movement)
+                        && state.locomotion_intensity > 0.0
+                    {
+                        profile.locomotion =
+                            effective_intensity(state.locomotion_intensity, &stamina);
+                    }
+                    let cost = compute_action_cost(&profile, body_mass);
+                    if cost.energy != 0.0 {
+                        let peak = profile.peak_intensity();
+                        let gluc_frac = effort::glucose_fraction(peak);
+                        contribs
+                            .push((format!("{:?}", state.action_type), -cost.energy * gluc_frac));
                     }
                 }
             }
@@ -529,13 +553,34 @@ fn dump_contributions_headless(
                 world.get::<ActiveActions>(agent),
                 world.get_resource::<ActionRegistry>(),
             ) {
+                use crate::agent::actions::registry::ActionKind;
+                use crate::agent::body::effort::{DEFAULT_BODY_MASS, compute_action_cost};
+                use crate::agent::body::species::SpeciesProfile;
+                use crate::agent::movement::effective_intensity;
+
+                let body_mass = world
+                    .get::<SpeciesProfile>(agent)
+                    .map(|s| s.mass_kg)
+                    .unwrap_or(DEFAULT_BODY_MASS);
+                let stamina = world
+                    .get::<PhysicalNeeds>(agent)
+                    .map(|p| p.stamina.clone())
+                    .unwrap_or_default();
+
                 for state in active.iter() {
                     let Some(action) = reg.get(state.action_type) else {
                         continue;
                     };
-                    let rate = action.runtime_effects().stamina_per_sec;
-                    if rate != 0.0 {
-                        contribs.push((format!("{:?}", state.action_type), rate));
+                    let mut profile = action.effort_profile();
+                    if matches!(action.kind(), ActionKind::Movement)
+                        && state.locomotion_intensity > 0.0
+                    {
+                        profile.locomotion =
+                            effective_intensity(state.locomotion_intensity, &stamina);
+                    }
+                    let cost = compute_action_cost(&profile, body_mass);
+                    if cost.aerobic_drain != 0.0 {
+                        contribs.push((format!("{:?}", state.action_type), -cost.aerobic_drain));
                     }
                 }
             }

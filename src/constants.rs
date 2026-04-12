@@ -80,42 +80,19 @@ pub mod actions {
 
     pub mod harvest {
         pub const DURATION_TICKS: u32 = 30;
-        pub const STAMINA_PER_SEC: f32 = -0.2;
-        // Halved from 2.0 in #416. Original rate was tuned for an
-        // implicit world where `apply_activity_effects` was also
-        // burning BMR every tick — but that system silently no-op'd
-        // because it required `CurrentActivity` which agents don't
-        // carry, so action drains were the *only* drains. With BMR
-        // re-enabled via `tick_metabolism`, the original 2.0 + 0.2
-        // BMR put agents into starvation faster than they could eat.
-        pub const GLUCOSE_DRAIN_PER_SEC: f32 = 1.0;
     }
 
     pub mod deposit {
-        /// Ticks to transfer items into a target entity's slots.
         pub const DURATION_TICKS: u32 = 15;
-        /// Stamina drained per second while depositing.
-        pub const STAMINA_PER_SEC: f32 = -0.1;
-        /// Hunger cost per second while depositing.
-        pub const GLUCOSE_DRAIN_PER_SEC: f32 = 0.5;
     }
 
     pub mod take {
-        /// Ticks to extract items from a target entity's slots.
         pub const DURATION_TICKS: u32 = 15;
-        /// Stamina drained per second while taking.
-        pub const STAMINA_PER_SEC: f32 = -0.1;
-        /// Hunger cost per second while taking.
-        pub const GLUCOSE_DRAIN_PER_SEC: f32 = 0.5;
     }
 
     pub mod construct {
         /// Interaction distance (pixels) to start constructing a site.
         pub const INTERACTION_DISTANCE: f32 = 32.0;
-        /// Stamina drained per second while constructing.
-        pub const STAMINA_PER_SEC: f32 = -0.3;
-        /// Hunger cost per second while constructing.
-        pub const GLUCOSE_DRAIN_PER_SEC: f32 = 1.5;
         /// Labor ticks required to complete a campfire. Each tick one active
         /// constructor contributes 1 labor unit; multiple agents add up linearly.
         pub const CAMPFIRE_LABOR_TICKS: u32 = 120;
@@ -134,85 +111,30 @@ pub mod actions {
         pub const LEAN_TO_WOOD_REQUIRED: u32 = 5;
         /// Large leaves required to build a lean-to.
         pub const LEAN_TO_LEAVES_REQUIRED: u32 = 2;
-        /// Stamina drained per second while building.
-        pub const STAMINA_PER_SEC: f32 = -0.3;
-        /// Hunger cost per second while building.
-        pub const GLUCOSE_DRAIN_PER_SEC: f32 = 1.5;
     }
 
     pub mod attack {
         pub const DURATION_TICKS: u32 = 30;
         pub const BASE_COST: f32 = 10.0;
-        pub const STAMINA_PER_SEC: f32 = -2.0;
     }
 
     pub mod walk {
-        pub const STAMINA_PER_SEC: f32 = -0.3;
-        pub const GLUCOSE_DRAIN_PER_SEC: f32 = 0.5;
-        pub const ALERTNESS_PER_SEC: f32 = 10.0;
-
         /// Estimated stamina cost per tile at normal speed (for planner estimation).
-        /// Derived: (TILE_SIZE / BASE_SPEED_PER_TICK) * |STAMINA_PER_SEC| * (DEFAULT_TICKS_PER_SEC / 3600)
-        /// = (16 / 0.8) * 0.3 * (60 / 3600) = 20 * 0.005 = 0.1
         pub const STAMINA_PER_TILE_NORMAL: f32 = 0.1;
 
         /// Estimated stamina cost per tile at tired speed (below TIRED_STAMINA_THRESHOLD).
-        /// Doubles compared to normal because TIRED_SPEED_MULTIPLIER = 0.5.
         pub const STAMINA_PER_TILE_TIRED: f32 = 0.2;
     }
 
-    pub mod explore {
-        pub const BASE_COST: f32 = 3.0;
-        pub const STAMINA_PER_SEC: f32 = -0.25;
-        // Halved from 2.5 in #416 (see `harvest::GLUCOSE_DRAIN_PER_SEC`
-        // for the BMR-double-drain story).
-        pub const GLUCOSE_DRAIN_PER_SEC: f32 = 1.25;
-        pub const ALERTNESS_PER_SEC: f32 = 5.0;
-    }
-
-    pub mod wander {
-        pub const BASE_COST: f32 = 5.0;
-        pub const STAMINA_PER_SEC: f32 = -0.2;
-        // Halved from 2.0 in #416 (see `harvest::GLUCOSE_DRAIN_PER_SEC`).
-        pub const GLUCOSE_DRAIN_PER_SEC: f32 = 1.0;
-        pub const ALERTNESS_PER_SEC: f32 = 5.0;
-    }
-
     pub mod graze {
-        /// Slightly cheaper than wander so a hungry herbivore standing on grass
-        /// prefers grazing over ambient wandering.
-        pub const BASE_COST: f32 = 2.0;
         /// Drifting range (pixels) for a single graze session before the
         /// movement completes and the brain proposes another drift.
         pub const DRIFT_RANGE_MIN: f32 = 8.0;
         pub const DRIFT_RANGE_MAX: f32 = 20.0;
-        /// Walking burns a little stamina.
-        pub const STAMINA_PER_SEC: f32 = -0.15;
         /// Plant carbs ingested per second while grazing. Grass is low-calorie,
         /// so a full graze-loop trickles into the stomach rather than replacing
         /// a berry-sized meal.
         pub const STOMACH_CARBS_PER_SEC: f32 = 4.0;
-        /// Grazing still burns a small amount of glucose for the locomotion
-        /// component (the animal is walking while it eats).
-        pub const GLUCOSE_DRAIN_PER_SEC: f32 = 0.1;
-        pub const ALERTNESS_PER_SEC: f32 = 2.0;
-    }
-
-    pub mod flee {
-        pub const BASE_COST: f32 = 1.0;
-        pub const STAMINA_PER_SEC: f32 = -0.5;
-        // Halved from 3.0 in #416 (see `harvest::GLUCOSE_DRAIN_PER_SEC`).
-        // Flee stays the highest-cost action, just at a reasonable
-        // multiple of BMR.
-        pub const GLUCOSE_DRAIN_PER_SEC: f32 = 1.5;
-        pub const ALERTNESS_PER_SEC: f32 = 20.0;
-    }
-
-    pub mod sleep {
-        pub const BASE_COST: f32 = 0.1;
-        pub const STAMINA_PER_SEC: f32 = 20.0;
-        pub const GLUCOSE_DRAIN_PER_SEC: f32 = 0.2;
-        pub const ALERTNESS_PER_SEC: f32 = -50.0;
     }
 }
 

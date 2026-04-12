@@ -18,6 +18,7 @@
 use crate::agent::actions::ActionType;
 use crate::agent::actions::channel::{Channel, ChannelUsage, Posture};
 use crate::agent::actions::registry::{Action, ActionKind, RuntimeEffects};
+use crate::agent::body::effort::EffortProfile;
 
 pub struct ConverseAction;
 
@@ -53,13 +54,15 @@ impl Action for ConverseAction {
         true
     }
 
+    fn effort_profile(&self) -> EffortProfile {
+        EffortProfile {
+            cognition: 0.2,
+            ..Default::default()
+        }
+    }
+
     fn runtime_effects(&self) -> RuntimeEffects {
         RuntimeEffects {
-            // Being in a conversation drains both social (the whole
-            // point) and curiosity (chatting is a form of novelty
-            // exchange). Lets an active conversation satisfy both
-            // drives, which is why real social time leaves someone
-            // feeling "filled up" on both fronts.
             companionship_per_sec: 0.04,
             stimulation_per_sec: 0.02,
             ..Default::default()

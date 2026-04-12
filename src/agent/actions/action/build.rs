@@ -3,15 +3,13 @@
 use crate::agent::actions::ActionType;
 use crate::agent::actions::channel::{Channel, ChannelUsage, Posture};
 use crate::agent::actions::registry::{
-    Action, ActionContext, ActionKind, CompletionContext, RuntimeEffects, SpawnRequest,
-    TargetCandidate,
+    Action, ActionContext, ActionKind, CompletionContext, SpawnRequest, TargetCandidate,
 };
+use crate::agent::body::effort::EffortProfile;
 use crate::agent::brains::thinking::TriplePattern;
 use crate::agent::events::FailureReason;
 use crate::agent::mind::knowledge::{Concept, MindGraph, Node, Predicate, Triple, Value};
-use crate::constants::actions::build::{
-    CAMPFIRE_DURATION_TICKS, CAMPFIRE_WOOD_REQUIRED, GLUCOSE_DRAIN_PER_SEC, STAMINA_PER_SEC,
-};
+use crate::constants::actions::build::{CAMPFIRE_DURATION_TICKS, CAMPFIRE_WOOD_REQUIRED};
 
 pub struct BuildAction;
 
@@ -116,10 +114,10 @@ impl Action for BuildAction {
             .is_empty()
     }
 
-    fn runtime_effects(&self) -> RuntimeEffects {
-        RuntimeEffects {
-            stamina_per_sec: STAMINA_PER_SEC,
-            glucose_drain_per_sec: GLUCOSE_DRAIN_PER_SEC,
+    fn effort_profile(&self) -> EffortProfile {
+        EffortProfile {
+            manipulation: 0.7,
+            isometric: 0.2,
             ..Default::default()
         }
     }

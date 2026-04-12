@@ -150,7 +150,12 @@ fn stomach_contributions(world: &World, entity: Entity) -> Vec<Contribution> {
 
 fn glucose_contributions(world: &World, entity: Entity) -> Vec<Contribution> {
     use crate::agent::actions::ActionRegistry;
+    use crate::agent::actions::registry::ActionKind;
     use crate::agent::activity::ActivityConfig;
+    use crate::agent::body::effort::{self, DEFAULT_BODY_MASS, compute_action_cost};
+    use crate::agent::body::species::SpeciesProfile;
+    use crate::agent::movement::effective_intensity;
+
     let mut out = Vec::new();
 
     if let Some(cfg) = world.get_resource::<ActivityConfig>() {
@@ -167,15 +172,30 @@ fn glucose_contributions(world: &World, entity: Entity) -> Vec<Contribution> {
         world.get::<ActiveActions>(entity),
         world.get_resource::<ActionRegistry>(),
     ) {
+        let body_mass = world
+            .get::<SpeciesProfile>(entity)
+            .map(|s| s.mass_kg)
+            .unwrap_or(DEFAULT_BODY_MASS);
+        let stamina = world
+            .get::<PhysicalNeeds>(entity)
+            .map(|p| p.stamina.clone())
+            .unwrap_or_default();
+
         for state in active.iter() {
             let Some(action) = registry.get(state.action_type) else {
                 continue;
             };
-            let effects = action.runtime_effects();
-            if effects.glucose_drain_per_sec != 0.0 {
+            let mut profile = action.effort_profile();
+            if matches!(action.kind(), ActionKind::Movement) && state.locomotion_intensity > 0.0 {
+                profile.locomotion = effective_intensity(state.locomotion_intensity, &stamina);
+            }
+            let cost = compute_action_cost(&profile, body_mass);
+            if cost.energy != 0.0 {
+                let peak = profile.peak_intensity();
+                let gluc_frac = effort::glucose_fraction(peak);
                 out.push(Contribution {
                     source: format!("{:?}", state.action_type),
-                    rate: -effects.glucose_drain_per_sec,
+                    rate: -cost.energy * gluc_frac,
                 });
             }
         }
@@ -187,21 +207,39 @@ fn glucose_contributions(world: &World, entity: Entity) -> Vec<Contribution> {
 /// Per-second contributors to `PhysicalNeeds.stamina.aerobic`.
 fn stamina_contributions(world: &World, entity: Entity) -> Vec<Contribution> {
     use crate::agent::actions::ActionRegistry;
+    use crate::agent::actions::registry::ActionKind;
+    use crate::agent::body::effort::{DEFAULT_BODY_MASS, compute_action_cost};
+    use crate::agent::body::species::SpeciesProfile;
+    use crate::agent::movement::effective_intensity;
+
     let mut out = Vec::new();
 
     if let (Some(active), Some(registry)) = (
         world.get::<ActiveActions>(entity),
         world.get_resource::<ActionRegistry>(),
     ) {
+        let body_mass = world
+            .get::<SpeciesProfile>(entity)
+            .map(|s| s.mass_kg)
+            .unwrap_or(DEFAULT_BODY_MASS);
+        let stamina = world
+            .get::<PhysicalNeeds>(entity)
+            .map(|p| p.stamina.clone())
+            .unwrap_or_default();
+
         for state in active.iter() {
             let Some(action) = registry.get(state.action_type) else {
                 continue;
             };
-            let effects = action.runtime_effects();
-            if effects.stamina_per_sec != 0.0 {
+            let mut profile = action.effort_profile();
+            if matches!(action.kind(), ActionKind::Movement) && state.locomotion_intensity > 0.0 {
+                profile.locomotion = effective_intensity(state.locomotion_intensity, &stamina);
+            }
+            let cost = compute_action_cost(&profile, body_mass);
+            if cost.aerobic_drain != 0.0 {
                 out.push(Contribution {
                     source: format!("{:?}", state.action_type),
-                    rate: effects.stamina_per_sec,
+                    rate: -cost.aerobic_drain,
                 });
             }
         }

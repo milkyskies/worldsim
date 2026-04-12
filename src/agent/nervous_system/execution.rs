@@ -440,11 +440,10 @@ pub fn tick_actions(
                                     * degradation
                                     * intensity_mult;
 
-                                // Stamina drain routes through the intensity-aware
-                                // drain formula from #331. Non-movement activities
-                                // still drain via activity_effects.
-                                let dt_sec = ticks as f32 * tick.dt();
-                                physical.stamina.drain(effective, dt_sec);
+                                // Stamina and energy drain now route through the
+                                // effort model in `apply_action_effects` via
+                                // `compute_action_cost`. The effective intensity
+                                // is stored on the ActionState and read there.
 
                                 match move_toward(
                                     current_pos,
@@ -730,6 +729,10 @@ pub fn tick_actions(
 }
 
 /// Per-tick stat drain summed across every running action.
+///
+/// Physical costs (stamina, energy) are derived from each action's
+/// `EffortProfile` via `compute_action_cost`. Behavioural side effects
+/// (alertness, ingestion, social, curiosity) come from `RuntimeEffects`.
 pub fn apply_action_effects(
     registry: Res<ActionRegistry>,
     tick: Res<TickCount>,
@@ -739,15 +742,25 @@ pub fn apply_action_effects(
         &mut Consciousness,
         Option<&mut crate::agent::body::needs::PsychologicalDrives>,
         Option<&Body>,
+        Option<&SpeciesProfile>,
     )>,
 ) {
+    use crate::agent::body::effort::{self, DEFAULT_BODY_MASS, compute_action_cost};
+    use crate::agent::movement::effective_intensity as cap_intensity;
+
     let dt = tick.dt();
 
-    for (active, mut physical, mut consciousness, mut drives, body) in agents.iter_mut() {
+    for (active, mut physical, mut consciousness, mut drives, body, species) in agents.iter_mut() {
         let load = active.channel_load(&registry);
         // Capacities freeze the start-of-tick stamina so degradation doesn't
         // compound as the loop mutates physical.stamina mid-iteration.
         let capacities = ChannelCapacities::compute(body, Some(&*physical));
+        let body_mass = species.map(|s| s.mass_kg).unwrap_or(DEFAULT_BODY_MASS);
+
+        // Snapshot stamina for effective_intensity computation — the same
+        // frozen snapshot as ChannelCapacities, so all actions in this
+        // tick see the same body state.
+        let stamina_snapshot = physical.stamina.clone();
 
         for action_state in active.iter() {
             let Some(action_def) = registry.get(action_state.action_type) else {
@@ -757,27 +770,67 @@ pub fn apply_action_effects(
             let degradation = load.degradation_factor(action_def.body_channels(), &capacities);
             let is_movement = matches!(action_def.kind(), ActionKind::Movement);
 
-            // Runtime stamina effects route through aerobic for non-movement
-            // actions. Movement actions (#339) drain stamina through the
-            // intensity-aware path in `tick_actions` instead, so skipping
-            // here avoids double-dipping.
-            if !is_movement {
-                physical
-                    .stamina
-                    .adjust_aerobic(effects.stamina_per_sec * dt * degradation);
+            // --- Effort model: derive physical costs from profile ---
+            let mut profile = action_def.effort_profile();
+
+            // For Movement actions, override the profile's locomotion with
+            // the brain's desired intensity (capped by body state). This
+            // replaces the old `stamina.drain(effective, dt)` call in
+            // `tick_actions`.
+            if is_movement && action_state.locomotion_intensity > 0.0 {
+                let desired = action_state.locomotion_intensity;
+                let effective = cap_intensity(desired, &stamina_snapshot);
+                profile.locomotion = effective;
             }
 
-            // Action-level glucose drain stacks on top of the activity-level
-            // BMR drain handled by `apply_activity_effects`. Each drain pushes
-            // through `Metabolism::tick`-equivalent accounting: we deduct the
-            // glucose directly because the overflow/mobilize pass already ran
-            // this tick via the activity system. Stomach fill (grazing, etc.)
-            // adds raw carbs that `activity_effects.tick` will digest next tick.
-            let drain = effects.glucose_drain_per_sec * dt * degradation;
-            if drain != 0.0 {
-                physical.metabolism.glucose = (physical.metabolism.glucose - drain)
+            let cost = compute_action_cost(&profile, body_mass);
+
+            // Stamina drain (aerobic + anaerobic) from the effort model.
+            // Positive cost.aerobic_drain = depletion; negative = recovery.
+            physical
+                .stamina
+                .adjust_aerobic(-cost.aerobic_drain * dt * degradation);
+            physical.stamina.anaerobic = (physical.stamina.anaerobic
+                - cost.anaerobic_drain * dt * degradation)
+                .clamp(0.0, physical.stamina.anaerobic_max);
+
+            // Energy cost: split between glucose and reserves based on
+            // peak intensity (fuel partitioning). When reserves are
+            // nearly depleted, the body can't burn fat — shift the
+            // remaining drain to glucose, matching how real metabolism
+            // works when a lean animal has exhausted its fat stores.
+            let energy_drain = cost.energy * dt * degradation;
+            if energy_drain != 0.0 {
+                let peak = profile.peak_intensity();
+                let base_gluc_frac = effort::glucose_fraction(peak);
+                // Reserves below 10 → progressively shift to all-glucose.
+                let reserves_available = physical.metabolism.reserves;
+                let effective_gluc_frac = if reserves_available < 10.0 {
+                    let t = (reserves_available / 10.0).clamp(0.0, 1.0);
+                    base_gluc_frac + (1.0 - base_gluc_frac) * (1.0 - t)
+                } else {
+                    base_gluc_frac
+                };
+                let glucose_drain = energy_drain * effective_gluc_frac;
+                let reserves_drain = energy_drain * (1.0 - effective_gluc_frac);
+
+                physical.metabolism.glucose = (physical.metabolism.glucose - glucose_drain)
                     .clamp(0.0, crate::agent::body::metabolism::GLUCOSE_MAX);
+                physical.metabolism.reserves = (physical.metabolism.reserves - reserves_drain)
+                    .clamp(0.0, crate::agent::body::metabolism::RESERVES_MAX);
             }
+
+            // Cognitive drain from the effort model (distinct from
+            // behavioural alertness_per_sec below).
+            if cost.cognitive_drain != 0.0 {
+                consciousness.alertness = (consciousness.alertness
+                    - cost.cognitive_drain * dt * 0.01 * degradation)
+                    .clamp(0.0, 1.0);
+            }
+
+            // --- Side effects from RuntimeEffects ---
+
+            // Stomach fill (ingestion side effect, e.g. Graze).
             let carbs_fill = effects.stomach_carbs_per_sec * dt * degradation;
             if carbs_fill > 0.0 {
                 physical
@@ -787,6 +840,7 @@ pub fn apply_action_effects(
                     ));
             }
 
+            // Behavioural alertness (positive = stimulating, negative = soporific).
             consciousness.alertness = (consciousness.alertness
                 + effects.alertness_per_sec * dt * 0.01 * degradation)
                 .clamp(0.0, 1.0);
