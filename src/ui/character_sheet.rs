@@ -2418,16 +2418,18 @@ fn render_brain(ui: &mut egui::Ui, world: &World, entity: Entity) {
 
 /// Fixed-height action block so the rest of the panel doesn't shift
 /// each time an action completes and another one is about to start.
-/// Three slots is enough for every species body-channel configuration
-/// (a human typically runs at most Locomotion + Senses + one manipulation).
-const ACTION_BLOCK_MIN_HEIGHT: f32 = 110.0;
+const ACTION_BLOCK_HEIGHT: f32 = 200.0;
 
 fn render_overview_actions(ui: &mut egui::Ui, world: &World, entity: Entity) {
-    ui.allocate_ui_with_layout(
-        egui::vec2(ui.available_width(), ACTION_BLOCK_MIN_HEIGHT),
-        egui::Layout::top_down(egui::Align::LEFT),
-        |ui| render_overview_actions_inner(ui, world, entity),
+    let width = ui.available_width();
+    let (rect, _resp) =
+        ui.allocate_exact_size(egui::vec2(width, ACTION_BLOCK_HEIGHT), egui::Sense::hover());
+    let mut child = ui.new_child(
+        egui::UiBuilder::new()
+            .max_rect(rect)
+            .layout(egui::Layout::top_down(egui::Align::LEFT)),
     );
+    render_overview_actions_inner(&mut child, world, entity);
 }
 
 fn render_overview_actions_inner(ui: &mut egui::Ui, world: &World, entity: Entity) {
