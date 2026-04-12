@@ -39,6 +39,7 @@ pub fn tick_metabolism(
     mut query: Query<
         (
             &mut PhysicalNeeds,
+            &crate::agent::body::needs::Consciousness,
             Option<&Body>,
             Option<&crate::agent::body::genetics::phenotype::Phenotype>,
         ),
@@ -47,15 +48,23 @@ pub fn tick_metabolism(
 ) {
     let dt = tick.dt();
     let bmr_drain = activity_config.base.effects.glucose_drain;
-    for (mut physical, body, phenotype) in query.iter_mut() {
+    for (mut physical, consciousness, body, phenotype) in query.iter_mut() {
         let mut organ_mods = body.map(Body::organ_mods).unwrap_or_default();
         let digestion_mult = phenotype.map(|p| p.digestion).unwrap_or(1.0);
         organ_mods.stomach *= digestion_mult;
         organ_mods.gut *= digestion_mult;
         let bmr_mult = phenotype.map(|p| p.bmr).unwrap_or(1.0);
-        physical
-            .metabolism
-            .tick_with_mods(dt, bmr_drain * bmr_mult, 0.0, organ_mods);
+        // BMR splits into somatic floor (60% — organs, thermoregulation)
+        // and consciousness cost (40% — brain processing). During sleep
+        // alertness drops to ~0, reducing effective BMR to ~60% of awake
+        // rate. Matches the real ~15-20% metabolic reduction during sleep.
+        let consciousness_factor = 0.6 + 0.4 * consciousness.alertness;
+        physical.metabolism.tick_with_mods(
+            dt,
+            bmr_drain * bmr_mult * consciousness_factor,
+            0.0,
+            organ_mods,
+        );
 
         // Slow passive anaerobic refill so a Flee sprint doesn't leave
         // the pool stuck at 0 forever. The rate is low enough that the
