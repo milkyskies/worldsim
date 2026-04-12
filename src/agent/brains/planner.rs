@@ -1144,8 +1144,8 @@ fn build_walk_goals(
 
     let mut goals = remaining_goals.to_vec();
 
-    // If the agent can't complete the walk without risking exhaustion sleep-interruption,
-    // add an stamina precondition so the planner prepends Sleep.
+    // If the agent can't complete the walk without risking exhaustion,
+    // add a stamina precondition so the planner prepends Rest.
     if current_stamina - stamina_needed < EXHAUSTION_TRIGGER {
         goals.insert(0, energy_full_pattern());
     }
@@ -1184,8 +1184,8 @@ fn build_walk_template(world_pos: Vec2, tile: (i32, i32)) -> ActionTemplate {
 /// at template-build time, and this generator chains a Walk to satisfy it.
 ///
 /// Stamina-aware: if the agent cannot complete the walk on current stamina,
-/// prepends a Sleep precondition so the planner inserts Sleep before Walk.
-/// Returns None if the walk is impossible even after sleeping.
+/// prepends a Rest precondition so the planner inserts Rest before Walk.
+/// Returns None if the walk is impossible even after resting.
 fn generate_implicit_walk(
     target_goal: &TriplePattern,
     remaining_goals: &[TriplePattern],
@@ -1552,16 +1552,16 @@ mod tests {
     }
 
     /// Returns a registry-sourced Sleep template (no target).
-    fn sleep_template(registry: &ActionRegistry) -> ActionTemplate {
+    fn rest_template(registry: &ActionRegistry) -> ActionTemplate {
         registry
-            .get(ActionType::Sleep)
+            .get(ActionType::Rest)
             .map(|a| a.to_template(None))
-            .expect("Sleep must be registered")
+            .expect("Rest must be registered")
     }
 
     #[test]
-    fn short_walk_with_high_energy_needs_no_sleep() {
-        // Agent stamina 80, food 10 tiles away — should plan Walk → Harvest, no Sleep.
+    fn short_walk_with_high_energy_needs_no_rest() {
+        // Agent stamina 80, food 10 tiles away — should plan Walk -> Harvest, no Rest.
         let food = Entity::from_bits(10);
         let food_tile = (10i32, 0i32); // 10 tiles from origin
         let mind = mind_with_food_and_energy(food, food_tile, 80);
@@ -1569,7 +1569,7 @@ mod tests {
         let registry = minimal_registry();
         let actions = vec![
             harvest_at_tile(food, Concept::Apple, food_tile),
-            sleep_template(&registry),
+            rest_template(&registry),
         ];
         let goal = goal_self_contains(Concept::Apple);
 
@@ -1578,8 +1578,8 @@ mod tests {
         let plan = plan.unwrap();
 
         assert!(
-            !plan.iter().any(|a| a.action_type == ActionType::Sleep),
-            "no sleep needed when stamina is sufficient"
+            !plan.iter().any(|a| a.action_type == ActionType::Rest),
+            "no rest needed when stamina is sufficient"
         );
         assert!(
             plan.iter().any(|a| a.action_type == ActionType::Walk),
@@ -1592,8 +1592,8 @@ mod tests {
     }
 
     #[test]
-    fn long_walk_with_low_energy_inserts_sleep() {
-        // Agent stamina 20, food 60 tiles away — should plan Sleep → Walk → Harvest.
+    fn long_walk_with_low_energy_inserts_rest() {
+        // Agent stamina 20, food 60 tiles away — should plan Rest -> Walk -> Harvest.
         let food = Entity::from_bits(11);
         let food_tile = (60i32, 0i32); // 60 tiles from origin, costs 12 stamina at tired rate
         let mind = mind_with_food_and_energy(food, food_tile, 20);
@@ -1601,30 +1601,30 @@ mod tests {
         let registry = minimal_registry();
         let actions = vec![
             harvest_at_tile(food, Concept::Apple, food_tile),
-            sleep_template(&registry),
+            rest_template(&registry),
         ];
         let goal = goal_self_contains(Concept::Apple);
 
         let plan = regressive_plan(&mind, &goal, &actions, &PlanCostContext::neutral());
         assert!(
             plan.is_some(),
-            "should produce a plan (Sleep makes it feasible)"
+            "should produce a plan (Rest makes it feasible)"
         );
         let plan = plan.unwrap();
 
-        let sleep_idx = plan.iter().position(|a| a.action_type == ActionType::Sleep);
+        let rest_idx = plan.iter().position(|a| a.action_type == ActionType::Rest);
         let walk_idx = plan.iter().position(|a| a.action_type == ActionType::Walk);
-        assert!(sleep_idx.is_some(), "plan must include Sleep");
+        assert!(rest_idx.is_some(), "plan must include Rest");
         assert!(walk_idx.is_some(), "plan must include Walk");
         assert!(
-            sleep_idx.unwrap() < walk_idx.unwrap(),
-            "Sleep must come before Walk"
+            rest_idx.unwrap() < walk_idx.unwrap(),
+            "Rest must come before Walk"
         );
     }
 
     #[test]
     fn impossibly_long_walk_returns_no_plan() {
-        // Food 500 tiles away — impossible even after sleeping (stamina cost > 85).
+        // Food 500 tiles away — impossible even after resting (stamina cost > 85).
         let food = Entity::from_bits(12);
         let food_tile = (500i32, 0i32);
         let mind = mind_with_food_and_energy(food, food_tile, 20);
@@ -1632,7 +1632,7 @@ mod tests {
         let registry = minimal_registry();
         let actions = vec![
             harvest_at_tile(food, Concept::Apple, food_tile),
-            sleep_template(&registry),
+            rest_template(&registry),
         ];
         let goal = goal_self_contains(Concept::Apple);
 
@@ -1646,7 +1646,7 @@ mod tests {
     #[test]
     fn energy_check_applies_to_non_food_harvest() {
         // Same stamina logic applies to any walk, not just food plans.
-        // Agent stamina 20, stone node 60 tiles away — Sleep should be prepended.
+        // Agent stamina 20, stone node 60 tiles away — Rest should be prepended.
         let stone = Entity::from_bits(13);
         let stone_tile = (60i32, 0i32);
         let mut mind = test_mind();
@@ -1691,7 +1691,7 @@ mod tests {
                 base_cost: 2.0,
                 locomotion_intensity: 0.0,
             },
-            sleep_template(&registry),
+            rest_template(&registry),
         ];
         let goal = Goal {
             conditions: vec![TriplePattern::new(
@@ -1706,15 +1706,15 @@ mod tests {
         assert!(plan.is_some(), "should produce a plan for stone harvest");
         let plan = plan.unwrap();
 
-        let sleep_idx = plan.iter().position(|a| a.action_type == ActionType::Sleep);
+        let rest_idx = plan.iter().position(|a| a.action_type == ActionType::Rest);
         let walk_idx = plan.iter().position(|a| a.action_type == ActionType::Walk);
         assert!(
-            sleep_idx.is_some(),
-            "Sleep must be inserted before long walk to stone"
+            rest_idx.is_some(),
+            "Rest must be inserted before long walk to stone"
         );
         assert!(
-            sleep_idx.unwrap() < walk_idx.unwrap(),
-            "Sleep must come before Walk"
+            rest_idx.unwrap() < walk_idx.unwrap(),
+            "Rest must come before Walk"
         );
     }
 

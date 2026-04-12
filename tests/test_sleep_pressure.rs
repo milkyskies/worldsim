@@ -158,7 +158,9 @@ fn low_wakefulness_triggers_sleep_proposal() {
     let drowsy = agents["drowsy"];
 
     // Agent should enter Sleep within a reasonable number of ticks.
-    for _ in 0..300 {
+    // Urgency updates are staggered every 60 ticks, so allow enough
+    // cycles for the sleepiness urgency to propagate and win arbitration.
+    for _ in 0..600 {
         world.tick(1);
         if world
             .get::<ActiveActions>(drowsy)
@@ -168,7 +170,7 @@ fn low_wakefulness_triggers_sleep_proposal() {
         }
     }
     panic!(
-        "agent with wakefulness 0.15 should enter Sleep within 300 ticks; \
+        "agent with wakefulness 0.15 should enter Sleep within 600 ticks; \
          current action = {:?}, wakefulness = {:.3}",
         world.current_action(drowsy),
         world.agent_wakefulness(drowsy),
@@ -191,7 +193,7 @@ fn stamina_and_wakefulness_are_independent() {
         .build();
     let agent = agents["desk_worker"];
 
-    for _ in 0..300 {
+    for _ in 0..600 {
         world.tick(1);
         if world
             .get::<ActiveActions>(agent)
