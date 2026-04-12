@@ -58,7 +58,6 @@ impl Action for WakeUpAction {
 
     fn runtime_effects(&self) -> RuntimeEffects {
         RuntimeEffects {
-            alertness_per_sec: 100.0,
             ..Default::default()
         }
     }

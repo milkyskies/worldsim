@@ -86,6 +86,45 @@ impl ActionPrimitive {
         }
     }
 
+    /// Base psychological effect of this primitive at intensity 1.0.
+    ///
+    /// The actual effect is scaled by intensity and modified by Intent.
+    /// This replaces the per-action hand-tuned alertness_per_sec /
+    /// stimulation_per_sec / companionship_per_sec constants.
+    pub fn psych_effect(self) -> PsychEffect {
+        match self {
+            ActionPrimitive::Locomote => PsychEffect {
+                alertness: 10.0,
+                stimulation: 0.02,
+                ..Default::default()
+            },
+            ActionPrimitive::Manipulate => PsychEffect {
+                alertness: 1.0,
+                stimulation: -0.01,
+                ..Default::default()
+            },
+            ActionPrimitive::Ingest => PsychEffect {
+                alertness: 2.0,
+                ..Default::default()
+            },
+            ActionPrimitive::Rest => PsychEffect {
+                alertness: 3.0,
+                stimulation: -0.01,
+                ..Default::default()
+            },
+            ActionPrimitive::Observe => PsychEffect {
+                alertness: 3.0,
+                stimulation: 0.08,
+                ..Default::default()
+            },
+            ActionPrimitive::Vocalize => PsychEffect {
+                alertness: 1.0,
+                stimulation: 0.015,
+                companionship: 0.012,
+            },
+        }
+    }
+
     /// Human-readable name for UI/debug display.
     pub fn label(self) -> &'static str {
         match self {
@@ -186,6 +225,35 @@ pub enum TargetSelector {
 }
 
 // ---------------------------------------------------------------------------
+// PsychEffect
+// ---------------------------------------------------------------------------
+
+/// Psychological side effects of an action, per second.
+///
+/// Declared per ActionPrimitive, modified by Intent, scaled by intensity.
+/// Replaces the per-action hand-tuned alertness_per_sec /
+/// stimulation_per_sec / companionship_per_sec in RuntimeEffects.
+#[derive(Debug, Clone, Default)]
+pub struct PsychEffect {
+    /// Consciousness change. Positive = keeps agent alert, negative = soporific.
+    pub alertness: f32,
+    /// Curiosity/novelty satisfaction. Positive = satisfies, negative = breeds boredom.
+    pub stimulation: f32,
+    /// Social satisfaction. Positive = satisfies companionship drive.
+    pub companionship: f32,
+}
+
+impl PsychEffect {
+    pub fn scaled(&self, factor: f32) -> Self {
+        Self {
+            alertness: self.alertness * factor,
+            stimulation: self.stimulation * factor,
+            companionship: self.companionship * factor,
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Intent
 // ---------------------------------------------------------------------------
 
@@ -203,6 +271,38 @@ pub enum Intent {
     Territoriality,
     #[default]
     Goal,
+}
+
+impl Intent {
+    /// Modify a base PsychEffect based on the motivational context.
+    ///
+    /// Safety amplifies alertness (threat-driven hyper-vigilance).
+    /// Curiosity amplifies stimulation (novelty-seeking satisfaction).
+    /// Social amplifies companionship.
+    /// Fatigue on Rest primitive flips alertness negative (sleep).
+    pub fn modify_psych(&self, base: &PsychEffect, primitive: ActionPrimitive) -> PsychEffect {
+        let mut effect = base.clone();
+        match self {
+            Intent::Safety => {
+                effect.alertness *= 2.0;
+                effect.stimulation = 0.0;
+            }
+            Intent::Curiosity => {
+                effect.alertness *= 0.5;
+                effect.stimulation *= 2.5;
+            }
+            Intent::Social => {
+                effect.companionship *= 2.0;
+            }
+            Intent::Fatigue if primitive == ActionPrimitive::Rest => {
+                // Rest+Fatigue at high intensity = Sleep (consciousness loss).
+                // The execution system checks intensity to flip the sign.
+                // At low intensity = conscious recovery (mild alertness gain).
+            }
+            _ => {}
+        }
+        effect
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -288,6 +388,21 @@ impl ActionType {
             ActionType::Groom | ActionType::Observe => IntensityPolicy::Ambient,
             ActionType::Sleep => IntensityPolicy::Fixed(1.0),
             ActionType::WakeUp => IntensityPolicy::Fixed(0.3),
+        }
+    }
+
+    /// The default motivational intent for this action.
+    pub fn default_intent(self) -> Intent {
+        match self {
+            ActionType::Eat | ActionType::Graze | ActionType::Harvest => Intent::Hunger,
+            ActionType::Drink => Intent::Thirst,
+            ActionType::Sleep | ActionType::WakeUp | ActionType::Rest => Intent::Fatigue,
+            ActionType::Flee => Intent::Safety,
+            ActionType::Explore | ActionType::Wander | ActionType::Observe => Intent::Curiosity,
+            ActionType::InitiateConversation | ActionType::Converse | ActionType::Wave => {
+                Intent::Social
+            }
+            _ => Intent::Goal,
         }
     }
 

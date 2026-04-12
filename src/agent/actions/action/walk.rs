@@ -44,7 +44,6 @@ impl Action for WalkAction {
 
     fn runtime_effects(&self) -> RuntimeEffects {
         RuntimeEffects {
-            alertness_per_sec: 10.0,
             ..Default::default()
         }
     }

@@ -37,7 +37,6 @@ impl Action for FleeAction {
 
     fn runtime_effects(&self) -> RuntimeEffects {
         RuntimeEffects {
-            alertness_per_sec: 20.0,
             ..Default::default()
         }
     }

@@ -36,8 +36,6 @@ impl Action for IdleAction {
 
     fn runtime_effects(&self) -> RuntimeEffects {
         RuntimeEffects {
-            alertness_per_sec: 5.0,
-            stimulation_per_sec: -0.015,
             ..Default::default()
         }
     }

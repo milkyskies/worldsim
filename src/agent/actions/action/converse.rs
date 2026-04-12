@@ -58,8 +58,6 @@ impl Action for ConverseAction {
             // Gentle background drain — most social satisfaction now
             // comes from per-turn SOCIAL_DRIVE_PER_TURN in
             // select_turn_intent.
-            companionship_per_sec: 0.012,
-            stimulation_per_sec: 0.015,
             ..Default::default()
         }
     }

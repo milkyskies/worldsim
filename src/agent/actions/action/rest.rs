@@ -53,8 +53,6 @@ impl Action for RestAction {
 
     fn runtime_effects(&self) -> RuntimeEffects {
         RuntimeEffects {
-            alertness_per_sec: 2.0,
-            stimulation_per_sec: -0.008,
             ..Default::default()
         }
     }
