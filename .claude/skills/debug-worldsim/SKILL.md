@@ -49,11 +49,16 @@ cargo run --release -- --headless --ticks 5000 --seed 42 --log events.jsonl \
   --log-filter tick:1000-2000
 ```
 
+Every event in the log carries both `agent` (display name, e.g. `"alice"`) and `agent_id` (stable Entity debug string, e.g. `"0v0"`). Filter by whichever you have — `agent_id` is safer when names repeat or the agent dies and gets despawned.
+
 **jq patterns:**
 
 ```bash
-# All decisions for one agent
+# All decisions for one agent (by name)
 cat events.jsonl | jq 'select(.agent == "alice" and .type == "Decision")'
+
+# Same, filtering by entity id instead (works after death / renames)
+cat events.jsonl | jq 'select(.agent_id == "0v0" and .type == "Decision")'
 
 # All deaths
 cat events.jsonl | jq 'select(.type == "Death")'
@@ -73,7 +78,8 @@ cat events.jsonl | jq 'select(.type == "RelationshipChanged" and .agent == "alic
 A ring buffer of brain decisions and recent events for one agent. Best for "why does this specific agent keep making bad choices?"
 
 ```bash
-# Trace one agent to stderr (text format)
+# Trace one agent to stderr (text format). Selector accepts name OR entity id
+# — same rules as --inspect: `agent:alice` or `agent:0v0`.
 cargo run --release -- --headless --ticks 5000 --seed 42 --trace agent:alice
 
 # Trace ALL agents (verbose, only useful for small populations)
@@ -94,6 +100,8 @@ The trace shows brain proposals, the winning brain, urgencies, powers, and recen
 
 When you already know roughly where the bug is and want to take a hard look at agent state at one moment.
 
+All `--inspect` / `--dump-*` / `--why` / `--trace` flags accept an agent selector as either a display name (`agent:alice`) or a stable entity id (`agent:0v0`). `find_agent` tries id first, then falls back to name, so either works — prefer the id when you're scripting or when the same name might appear twice.
+
 ```bash
 # Full state snapshot of an agent at a specific tick
 cargo run --release -- --headless --ticks 5000 --seed 42 \
@@ -110,9 +118,26 @@ cargo run --release -- --headless --ticks 5000 --seed 42 \
 # Search the MindGraph for specific knowledge
 cargo run --release -- --headless --ticks 5000 --seed 42 \
   --query "alice Wolf" --at-tick 4521
+
+# Body-channel occupancy (which running actions are holding which channels)
+cargo run --release -- --headless --ticks 5000 --seed 42 \
+  --dump-channels agent:alice --at-tick 4521
+
+# What does the agent currently perceive (VisibleObjects with distance + kind)
+cargo run --release -- --headless --ticks 5000 --seed 42 \
+  --dump-perception agent:alice --at-tick 4521
+
+# Why is a metric moving? Supported: glucose, stamina, hydration, stomach, mood.
+# Prints every signed per-second contributor and the net rate.
+cargo run --release -- --headless --ticks 5000 --seed 42 \
+  --why "alice metric:glucose" --at-tick 4521
+
+# Everything at once — state, brain decision, channels, perception, mind graph
+cargo run --release -- --headless --ticks 5000 --seed 42 \
+  --dump-all agent:alice --at-tick 4521
 ```
 
-`--inspect`, `--dump-mind`, and `--query` are all repeatable — combine them in one run to get a full picture.
+`--inspect`, `--dump-mind`, `--query`, `--why`, `--dump-channels`, `--dump-perception`, `--dump-all` are all repeatable — combine them in one run to get a full picture.
 
 ### 4. TestWorld inspection methods — when debugging from inside a test
 
@@ -123,6 +148,9 @@ If you're debugging a failing test (not a headless run), call these BEFORE the f
 - `world.print_mind_graph(agent)` — full MindGraph dump
 - `world.print_relationships(agent)` — all relationships with trust/affection/respect
 - `world.print_conversation(agent)` — current conversation state
+- `world.print_channels(agent)` — body-channel occupancy (which action holds which channel)
+- `world.print_perception(agent)` — visible entities with kind and distance
+- `world.print_why(agent, "glucose")` — signed contributor breakdown for one metric. Supported metrics: `glucose`, `stamina`, `hydration`, `stomach`, `mood`.
 - `world.query_knowledge(agent, "Wolf") -> Vec<String>` — text search
 - `world.print_recent_events(N)` — SimEvents from last N ticks
 - `world.print_agent_events(agent, N)` — SimEvents for one agent in last N ticks
@@ -194,6 +222,24 @@ cat events.jsonl | jq 'select(.type == "RelationshipChanged" and .agent == "alic
 ```bash
 cat events.jsonl | jq -r 'select(.type == "Decision") | .agent' | sort | uniq -c | sort -rn
 ```
+
+### "Why is Alice's glucose / stamina / hydration dropping?"
+
+```bash
+cargo run --release -- --headless --game-defaults --seed 42 --ticks 30000 \
+  --why "alice metric:glucose" --at-tick 30000
+```
+
+Prints every signed per-second contributor (BMR, each running action's drain, digestion) and the net rate. The same breakdown is under "Details" on each bar in the in-game agent panel. Works for `glucose`, `stamina`, `hydration`, `stomach`, `mood`.
+
+### "Why can't this agent start X right now?"
+
+```bash
+cargo run --release -- --headless --game-defaults --seed 42 --ticks 30000 \
+  --dump-channels agent:alice --at-tick 30000
+```
+
+Shows every body channel with its current load and capacity plus which actions are holding it. An agent can't start a new action whose channel requirements exceed what's free.
 
 ## Notes
 
