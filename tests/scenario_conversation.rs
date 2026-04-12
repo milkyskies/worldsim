@@ -16,7 +16,7 @@ use bevy::math::Vec2;
 use worldsim::agent::actions::ActionType;
 use worldsim::agent::body::needs::PsychologicalDrives;
 use worldsim::agent::events::SimEvent;
-use worldsim::agent::mind::conversation::{ConversationManager, ConversationState, Intent};
+use worldsim::agent::mind::conversation::{ConversationManager, Intent};
 use worldsim::agent::mind::knowledge::{
     Concept, MemoryType, Metadata, MindGraph, Node, Predicate, Source, Triple, Value,
 };
