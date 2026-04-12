@@ -75,9 +75,8 @@ pub const URGENT_INTERVAL_TICKS: u64 = 15;
 pub const FAREWELL_INTERVAL_TICKS: u64 = 15;
 
 /// Conversations enter the Wrapping state after this many turns when
-/// neither side has a competing urgency. Higher values let conversations
-/// develop naturally before agents say goodbye.
-pub const NATURAL_END_TURN_COUNT: usize = 14;
+/// neither side has a competing urgency.
+pub const NATURAL_END_TURN_COUNT: usize = 6;
 
 /// Reduction in companionship drive each successful conversation turn
 /// satisfies. Applied per-turn inside `select_turn_intent` so agents
