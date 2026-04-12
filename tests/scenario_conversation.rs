@@ -779,6 +779,7 @@ fn knowledge_flows_through_turn_content() {
             evidence: Vec::new(),
             salience: 0.8,
             source_sense: None,
+            strength: 1.0,
         },
     );
 
