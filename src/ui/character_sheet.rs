@@ -86,7 +86,12 @@ pub struct CharacterSheetState {
 pub enum CharSheetTab {
     #[default]
     Overview,
-    Needs,
+    /// Physical needs — things that kill you when they hit 0: hunger,
+    /// hydration, stamina, health.
+    Vitals,
+    /// Psychological drives — things that push behavior but aren't
+    /// fatal: companionship, safety, esteem, and the rest.
+    Drives,
     /// All plans the agent holds plus the last brain arbitration —
     /// "what's the agent considering, and who's winning the argument?"
     Plans,
@@ -107,7 +112,8 @@ impl CharSheetTab {
     pub fn label(self) -> &'static str {
         match self {
             CharSheetTab::Overview => "Overview",
-            CharSheetTab::Needs => "Needs",
+            CharSheetTab::Vitals => "Vitals",
+            CharSheetTab::Drives => "Drives",
             CharSheetTab::Plans => "Plans",
             CharSheetTab::Personality => "Personality",
             CharSheetTab::Skills => "Skills",
@@ -215,21 +221,6 @@ fn character_sheet_system(world: &mut World) {
                 ui.label(egui::RichText::new(&summary.action_text).italics());
             });
 
-            ui.horizontal(|ui| {
-                ui.label("❤");
-                ui.add(
-                    egui::ProgressBar::new(summary.hp_pct)
-                        .desired_width(110.0)
-                        .text(format!("{:.0}", summary.hp_pct * 100.0)),
-                );
-                ui.label("⚡");
-                ui.add(
-                    egui::ProgressBar::new(summary.stamina_pct)
-                        .desired_width(110.0)
-                        .text(format!("{:.0}", summary.stamina_pct * 100.0)),
-                );
-            });
-
             ui.add_space(4.0);
             ui.separator();
 
@@ -248,7 +239,8 @@ fn character_sheet_system(world: &mut World) {
                 .auto_shrink([false, false])
                 .show(ui, |ui| match new_tab {
                     CharSheetTab::Overview => render_overview(ui, world, entity),
-                    CharSheetTab::Needs => render_needs(ui, world, entity),
+                    CharSheetTab::Vitals => render_vitals(ui, world, entity),
+                    CharSheetTab::Drives => render_drives(ui, world, entity),
                     CharSheetTab::Plans => render_plans(ui, world, entity),
                     CharSheetTab::Personality => render_personality(ui, world, entity),
                     CharSheetTab::Skills => render_skills(ui, world, entity),
@@ -276,8 +268,6 @@ struct HeaderSummary {
     mood_label: String,
     mood_color: Color32,
     action_text: String,
-    hp_pct: f32,
-    stamina_pct: f32,
 }
 
 fn build_header_summary(world: &World, entity: Entity) -> HeaderSummary {
@@ -288,17 +278,10 @@ fn build_header_summary(world: &World, entity: Entity) -> HeaderSummary {
 
     let action_text = current_action_summary(world, entity);
 
-    let (hp_pct, stamina_pct) = world
-        .get::<PhysicalNeeds>(entity)
-        .map(|n| (n.health / 100.0, n.stamina.aerobic_fraction()))
-        .unwrap_or((0.0, 0.0));
-
     HeaderSummary {
         mood_label,
         mood_color,
         action_text,
-        hp_pct,
-        stamina_pct,
     }
 }
 
@@ -322,7 +305,13 @@ fn visible_tabs_for_entity(
     }
 
     if world.get::<PhysicalNeeds>(entity).is_some() {
-        tabs.push(CharSheetTab::Needs);
+        tabs.push(CharSheetTab::Vitals);
+    }
+
+    if world.get::<PsychologicalDrives>(entity).is_some()
+        || world.get::<Consciousness>(entity).is_some()
+    {
+        tabs.push(CharSheetTab::Drives);
     }
 
     if world.get::<PlanMemory>(entity).is_some() || world.get::<BrainState>(entity).is_some() {
@@ -661,10 +650,10 @@ fn urgency_line(ui: &mut egui::Ui, label: &str, urgency: f32) {
 }
 
 // ============================================================================
-// NEEDS TAB
+// VITALS TAB — PhysicalNeeds only (things that can kill you)
 // ============================================================================
 
-fn render_needs(ui: &mut egui::Ui, world: &World, entity: Entity) {
+fn render_vitals(ui: &mut egui::Ui, world: &World, entity: Entity) {
     let urgencies = world
         .get::<CentralNervousSystem>(entity)
         .map(|cns| cns.urgencies.as_slice())
@@ -676,159 +665,143 @@ fn render_needs(ui: &mut egui::Ui, world: &World, entity: Entity) {
             .map(|u| u.value)
     };
 
-    let needs = world.get::<PhysicalNeeds>(entity);
-    let consc = world.get::<Consciousness>(entity);
-    let drives = world.get::<PsychologicalDrives>(entity);
+    let Some(needs) = world.get::<PhysicalNeeds>(entity) else {
+        ui.label("No physical needs.");
+        return;
+    };
 
-    // ── Stomach / metabolism ────────────────────────────────────────────
-    // Everything tied to food and fuel: stomach content, short-term
-    // glucose, long-term reserves. Hunger urgency surfaces under Glucose
-    // because that's the primary pool the brain's hunger drive watches.
-    egui::CollapsingHeader::new("Stomach")
+    egui::CollapsingHeader::new("Fuel")
         .default_open(true)
         .show(ui, |ui| {
-            if let Some(needs) = needs {
-                need_bar(
-                    ui,
-                    "Stomach",
-                    needs.metabolism.stomach_fullness(),
-                    crate::agent::body::metabolism::STOMACH_CAPACITY,
-                    None,
-                );
-                need_bar(
-                    ui,
-                    "Glucose",
-                    needs.metabolism.glucose,
-                    crate::agent::body::metabolism::GLUCOSE_MAX,
-                    urgency_for(UrgencySource::Hunger),
-                );
-                need_bar(
-                    ui,
-                    "Reserves",
-                    needs.metabolism.reserves,
-                    crate::agent::body::metabolism::RESERVES_MAX,
-                    None,
-                );
-            }
+            satisfaction_bar(
+                ui,
+                "Satiety (stomach)",
+                needs.metabolism.stomach_fullness(),
+                crate::agent::body::metabolism::STOMACH_CAPACITY,
+                None,
+            );
+            satisfaction_bar(
+                ui,
+                "Energy (glucose)",
+                needs.metabolism.glucose,
+                crate::agent::body::metabolism::GLUCOSE_MAX,
+                urgency_for(UrgencySource::Hunger),
+            );
+            satisfaction_bar(
+                ui,
+                "Reserves",
+                needs.metabolism.reserves,
+                crate::agent::body::metabolism::RESERVES_MAX,
+                None,
+            );
         });
 
-    // ── Body ────────────────────────────────────────────────────────────
-    // Physical condition: fluids (thirst), stamina pools, health.
-    // Thirst urgency surfaces here next to the raw thirst value.
     egui::CollapsingHeader::new("Body")
         .default_open(true)
         .show(ui, |ui| {
-            if let Some(needs) = needs {
-                need_bar(
-                    ui,
-                    "Thirst",
-                    100.0 - needs.hydration,
-                    100.0,
-                    urgency_for(UrgencySource::Thirst),
-                );
-                need_bar(
-                    ui,
-                    "Aerobic",
-                    needs.stamina.aerobic,
-                    needs.stamina.aerobic_max,
-                    urgency_for(UrgencySource::Stamina),
-                );
-                need_bar(
-                    ui,
-                    "Anaerobic",
-                    needs.stamina.anaerobic,
-                    needs.stamina.anaerobic_max,
-                    None,
-                );
-                need_bar(ui, "Health", needs.health, 100.0, None);
-            }
+            satisfaction_bar(
+                ui,
+                "Hydration",
+                needs.hydration,
+                100.0,
+                urgency_for(UrgencySource::Thirst),
+            );
+            satisfaction_bar(
+                ui,
+                "Stamina (aerobic)",
+                needs.stamina.aerobic,
+                needs.stamina.aerobic_max,
+                urgency_for(UrgencySource::Stamina),
+            );
+            satisfaction_bar(
+                ui,
+                "Sprint (anaerobic)",
+                needs.stamina.anaerobic,
+                needs.stamina.anaerobic_max,
+                None,
+            );
+            satisfaction_bar(ui, "Health", needs.health, 100.0, None);
         });
 
-    // ── Mind ────────────────────────────────────────────────────────────
-    // Cognitive state and individual-facing drives: alertness is how
-    // clear-headed the agent is right now, curiosity and fun are the
-    // internal pressures toward novelty and play.
-    egui::CollapsingHeader::new("Mind")
-        .default_open(true)
-        .show(ui, |ui| {
-            if let Some(consc) = consc {
-                ui.horizontal(|ui| {
-                    ui.label(egui::RichText::new("Alertness").strong());
-                    ui.add(
-                        egui::ProgressBar::new(consc.alertness)
-                            .desired_width(180.0)
-                            .text(format!("{:.2}", consc.alertness)),
-                    );
-                });
-            }
-            if let Some(drives) = drives {
-                drive_bar(
-                    ui,
-                    "Curiosity",
-                    1.0 - drives.stimulation,
-                    urgency_for(UrgencySource::Curiosity),
-                );
-                drive_bar(
-                    ui,
-                    "Fun",
-                    1.0 - drives.enjoyment,
-                    urgency_for(UrgencySource::Fun),
-                );
-                drive_bar(ui, "Autonomy", 1.0 - drives.autonomy, None);
-            }
-        });
-
-    // ── Social ──────────────────────────────────────────────────────────
-    // Outward-facing drives: being with others, standing in the group,
-    // holding territory. Social urgency surfaces under Social drive.
-    egui::CollapsingHeader::new("Social")
-        .default_open(true)
-        .show(ui, |ui| {
-            if let Some(drives) = drives {
-                drive_bar(
-                    ui,
-                    "Social",
-                    1.0 - drives.companionship,
-                    urgency_for(UrgencySource::Social),
-                );
-                drive_bar(ui, "Status", 1.0 - drives.esteem, None);
-                drive_bar(ui, "Security", 1.0 - drives.safety, None);
-                drive_bar(
-                    ui,
-                    "Territoriality",
-                    1.0 - drives.dominion,
-                    urgency_for(UrgencySource::Territoriality),
-                );
-            }
-        });
-}
-
-/// Draws a need bar with the raw need value (e.g. hunger 0..100). When the
-/// nervous system has emitted an urgency for this drive, the score is shown
-/// as a thin secondary bar underneath — that's the brain's actual opinion of
-/// how much it cares right now, not a hand-picked threshold.
-fn need_bar(ui: &mut egui::Ui, label: &str, value: f32, max: f32, urgency: Option<f32>) {
-    let pct = (value / max).clamp(0.0, 1.0);
-    ui.horizontal(|ui| {
-        ui.label(egui::RichText::new(label).strong());
-        ui.add(
-            egui::ProgressBar::new(pct)
-                .desired_width(180.0)
-                .text(format!("{:.0}/{:.0}", value, max)),
-        );
-    });
-    if let Some(u) = urgency {
-        urgency_subbar(ui, u);
+    if let Some(src) = needs.last_health_damage {
+        ui.add_space(4.0);
+        ui.colored_label(Color32::LIGHT_RED, format!("Last damage: {:?}", src));
     }
 }
 
-fn drive_bar(ui: &mut egui::Ui, label: &str, value: f32, urgency: Option<f32>) {
+// ============================================================================
+// DRIVES TAB — psychological drives + consciousness
+// ============================================================================
+
+fn render_drives(ui: &mut egui::Ui, world: &World, entity: Entity) {
+    let urgencies = world
+        .get::<CentralNervousSystem>(entity)
+        .map(|cns| cns.urgencies.as_slice())
+        .unwrap_or(&[]);
+    let urgency_for = |source: UrgencySource| -> Option<f32> {
+        urgencies
+            .iter()
+            .find(|u| u.source == source)
+            .map(|u| u.value)
+    };
+
+    if let Some(consc) = world.get::<Consciousness>(entity) {
+        satisfaction_bar(ui, "Alertness", consc.alertness, 1.0, None);
+        ui.add_space(4.0);
+    }
+
+    let Some(drives) = world.get::<PsychologicalDrives>(entity) else {
+        return;
+    };
+
+    satisfaction_bar(
+        ui,
+        "Companionship (social)",
+        drives.companionship,
+        1.0,
+        urgency_for(UrgencySource::Social),
+    );
+    satisfaction_bar(
+        ui,
+        "Enjoyment (fun)",
+        drives.enjoyment,
+        1.0,
+        urgency_for(UrgencySource::Fun),
+    );
+    satisfaction_bar(
+        ui,
+        "Stimulation (curiosity)",
+        drives.stimulation,
+        1.0,
+        urgency_for(UrgencySource::Curiosity),
+    );
+    satisfaction_bar(ui, "Esteem (status)", drives.esteem, 1.0, None);
+    satisfaction_bar(ui, "Safety (security)", drives.safety, 1.0, None);
+    satisfaction_bar(ui, "Autonomy", drives.autonomy, 1.0, None);
+    satisfaction_bar(
+        ui,
+        "Dominion (territory)",
+        drives.dominion,
+        1.0,
+        urgency_for(UrgencySource::Territoriality),
+    );
+}
+
+/// Horizontal satisfaction bar: label on the left, a colored bar
+/// filled proportional to `value/max`, and an optional urgency
+/// sub-line. Raw field name shown in parens in the label so the data
+/// stays grep-able. Colors: red below 30%, yellow below 60%, green
+/// above — matches the same convention used on Overview.
+fn satisfaction_bar(ui: &mut egui::Ui, label: &str, value: f32, max: f32, urgency: Option<f32>) {
+    let frac = (value / max).clamp(0.0, 1.0);
+    let color = severity_color(frac, 0.3, 0.6);
     ui.horizontal(|ui| {
-        ui.label(egui::RichText::new(label).strong());
+        ui.add_sized([180.0, 0.0], egui::Label::new(label));
         ui.add(
-            egui::ProgressBar::new(value.clamp(0.0, 1.0))
-                .desired_width(180.0)
-                .text(format!("{:.2}", value)),
+            egui::ProgressBar::new(frac)
+                .desired_width(160.0)
+                .fill(color)
+                .text(format!("{:.0}%", frac * 100.0)),
         );
     });
     if let Some(u) = urgency {
@@ -2132,7 +2105,8 @@ mod tests {
         let entity = spawn_human(&mut world);
         let tabs = visible_tabs_for_entity(&world, entity, false);
         assert!(tabs.contains(&CharSheetTab::Overview));
-        assert!(tabs.contains(&CharSheetTab::Needs));
+        assert!(tabs.contains(&CharSheetTab::Vitals));
+        assert!(tabs.contains(&CharSheetTab::Drives));
         assert!(tabs.contains(&CharSheetTab::Personality));
         assert!(tabs.contains(&CharSheetTab::Health));
         assert!(tabs.contains(&CharSheetTab::Knowledge));
@@ -2144,7 +2118,8 @@ mod tests {
         let entity = spawn_minimal_deer(&mut world);
         let tabs = visible_tabs_for_entity(&world, entity, false);
         assert!(tabs.contains(&CharSheetTab::Overview));
-        assert!(tabs.contains(&CharSheetTab::Needs));
+        assert!(tabs.contains(&CharSheetTab::Vitals));
+        assert!(tabs.contains(&CharSheetTab::Drives));
         assert!(tabs.contains(&CharSheetTab::Health));
         assert!(!tabs.contains(&CharSheetTab::Personality));
         assert!(!tabs.contains(&CharSheetTab::Knowledge));
