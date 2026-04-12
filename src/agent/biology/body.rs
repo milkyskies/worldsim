@@ -42,6 +42,7 @@ impl Default for Body {
 
 impl Body {
     pub fn human() -> Self {
+        use FunctionalTag::*;
         Self {
             parts: vec![
                 BodyNode::vital(BodyNodeKind::Head, 50.0, vec![]).with_children(vec![
@@ -49,20 +50,25 @@ impl Body {
                         BodyNodeKind::Brain,
                         30.0,
                         vec![(Channel::Focus, 1.0), (Channel::Awareness, 0.5)],
-                    ),
+                    )
+                    .with_tags(vec![Think]),
                     BodyNode::new(
                         BodyNodeKind::LeftEye,
                         10.0,
                         vec![(Channel::Awareness, 0.15)],
-                    ),
+                    )
+                    .with_tags(vec![See]),
                     BodyNode::new(
                         BodyNodeKind::RightEye,
                         10.0,
                         vec![(Channel::Awareness, 0.15)],
-                    ),
-                    BodyNode::new(BodyNodeKind::LeftEar, 5.0, vec![(Channel::Awareness, 0.1)]),
-                    BodyNode::new(BodyNodeKind::RightEar, 5.0, vec![(Channel::Awareness, 0.1)]),
-                    BodyNode::new(BodyNodeKind::Nose, 10.0, vec![]),
+                    )
+                    .with_tags(vec![See]),
+                    BodyNode::new(BodyNodeKind::LeftEar, 5.0, vec![(Channel::Awareness, 0.1)])
+                        .with_tags(vec![Hear]),
+                    BodyNode::new(BodyNodeKind::RightEar, 5.0, vec![(Channel::Awareness, 0.1)])
+                        .with_tags(vec![Hear]),
+                    BodyNode::new(BodyNodeKind::Nose, 10.0, vec![]).with_tags(vec![Smell]),
                     BodyNode::new(
                         BodyNodeKind::Jaw,
                         30.0,
@@ -71,7 +77,8 @@ impl Body {
                             (Channel::Vocalization, 1.0),
                             (Channel::Bite, 0.1),
                         ],
-                    ),
+                    )
+                    .with_tags(vec![Eat, Speak, Bite]),
                 ]),
                 BodyNode::vital(BodyNodeKind::Torso, 100.0, vec![(Channel::FullBody, 1.0)])
                     .with_children(torso_organs()),
@@ -80,34 +87,39 @@ impl Body {
                         BodyNodeKind::LeftHand,
                         30.0,
                         vec![(Channel::Manipulation, 0.5), (Channel::Carry, 0.25)],
-                    ),
+                    )
+                    .with_tags(vec![Grasp, Carry]),
                 ]),
                 BodyNode::new(BodyNodeKind::RightArm, 60.0, vec![]).with_children(vec![
                     BodyNode::new(
                         BodyNodeKind::RightHand,
                         30.0,
                         vec![(Channel::Manipulation, 0.5), (Channel::Carry, 0.25)],
-                    ),
+                    )
+                    .with_tags(vec![Grasp, Carry]),
                 ]),
                 BodyNode::new(BodyNodeKind::LeftLeg, 70.0, vec![]).with_children(vec![
                     BodyNode::new(
                         BodyNodeKind::LeftFoot,
                         35.0,
                         vec![(Channel::Locomotion, 0.5)],
-                    ),
+                    )
+                    .with_tags(vec![Stance]),
                 ]),
                 BodyNode::new(BodyNodeKind::RightLeg, 70.0, vec![]).with_children(vec![
                     BodyNode::new(
                         BodyNodeKind::RightFoot,
                         35.0,
                         vec![(Channel::Locomotion, 0.5)],
-                    ),
+                    )
+                    .with_tags(vec![Stance]),
                 ]),
             ],
         }
     }
 
     pub fn wolf() -> Self {
+        use FunctionalTag::*;
         Self {
             parts: vec![
                 BodyNode::vital(BodyNodeKind::Head, 50.0, vec![]).with_children(vec![
@@ -115,16 +127,21 @@ impl Body {
                         BodyNodeKind::Brain,
                         30.0,
                         vec![(Channel::Focus, 0.6), (Channel::Awareness, 0.4)],
-                    ),
-                    BodyNode::new(BodyNodeKind::LeftEye, 8.0, vec![(Channel::Awareness, 0.15)]),
+                    )
+                    .with_tags(vec![Think]),
+                    BodyNode::new(BodyNodeKind::LeftEye, 8.0, vec![(Channel::Awareness, 0.15)])
+                        .with_tags(vec![See]),
                     BodyNode::new(
                         BodyNodeKind::RightEye,
                         8.0,
                         vec![(Channel::Awareness, 0.15)],
-                    ),
-                    BodyNode::new(BodyNodeKind::LeftEar, 5.0, vec![(Channel::Awareness, 0.1)]),
-                    BodyNode::new(BodyNodeKind::RightEar, 5.0, vec![(Channel::Awareness, 0.1)]),
-                    BodyNode::new(BodyNodeKind::Nose, 8.0, vec![]),
+                    )
+                    .with_tags(vec![See]),
+                    BodyNode::new(BodyNodeKind::LeftEar, 5.0, vec![(Channel::Awareness, 0.1)])
+                        .with_tags(vec![Hear]),
+                    BodyNode::new(BodyNodeKind::RightEar, 5.0, vec![(Channel::Awareness, 0.1)])
+                        .with_tags(vec![Hear]),
+                    BodyNode::new(BodyNodeKind::Nose, 8.0, vec![]).with_tags(vec![Smell]),
                     BodyNode::new(
                         BodyNodeKind::Jaw,
                         40.0,
@@ -134,7 +151,8 @@ impl Body {
                             (Channel::Vocalization, 0.7),
                             (Channel::Bite, 1.0),
                         ],
-                    ),
+                    )
+                    .with_tags(vec![Eat, Speak, Bite, Grasp]),
                 ]),
                 BodyNode::vital(BodyNodeKind::Torso, 100.0, vec![(Channel::FullBody, 1.0)])
                     .with_children(torso_organs()),
@@ -143,34 +161,39 @@ impl Body {
                         BodyNodeKind::LeftForepaw,
                         25.0,
                         vec![(Channel::Locomotion, 0.3)],
-                    ),
+                    )
+                    .with_tags(vec![Stance]),
                 ]),
                 BodyNode::new(BodyNodeKind::RightForeleg, 55.0, vec![]).with_children(vec![
                     BodyNode::new(
                         BodyNodeKind::RightForepaw,
                         25.0,
                         vec![(Channel::Locomotion, 0.3)],
-                    ),
+                    )
+                    .with_tags(vec![Stance]),
                 ]),
                 BodyNode::new(BodyNodeKind::LeftHindleg, 55.0, vec![]).with_children(vec![
                     BodyNode::new(
                         BodyNodeKind::LeftHindpaw,
                         25.0,
                         vec![(Channel::Locomotion, 0.3)],
-                    ),
+                    )
+                    .with_tags(vec![Stance]),
                 ]),
                 BodyNode::new(BodyNodeKind::RightHindleg, 55.0, vec![]).with_children(vec![
                     BodyNode::new(
                         BodyNodeKind::RightHindpaw,
                         25.0,
                         vec![(Channel::Locomotion, 0.3)],
-                    ),
+                    )
+                    .with_tags(vec![Stance]),
                 ]),
             ],
         }
     }
 
     pub fn deer() -> Self {
+        use FunctionalTag::*;
         Self {
             parts: vec![
                 BodyNode::vital(BodyNodeKind::Head, 40.0, vec![]).with_children(vec![
@@ -178,21 +201,27 @@ impl Body {
                         BodyNodeKind::Brain,
                         25.0,
                         vec![(Channel::Focus, 0.4), (Channel::Awareness, 0.4)],
-                    ),
-                    BodyNode::new(BodyNodeKind::LeftEye, 8.0, vec![(Channel::Awareness, 0.2)]),
-                    BodyNode::new(BodyNodeKind::RightEye, 8.0, vec![(Channel::Awareness, 0.2)]),
-                    BodyNode::new(BodyNodeKind::LeftEar, 5.0, vec![(Channel::Awareness, 0.15)]),
+                    )
+                    .with_tags(vec![Think]),
+                    BodyNode::new(BodyNodeKind::LeftEye, 8.0, vec![(Channel::Awareness, 0.2)])
+                        .with_tags(vec![See]),
+                    BodyNode::new(BodyNodeKind::RightEye, 8.0, vec![(Channel::Awareness, 0.2)])
+                        .with_tags(vec![See]),
+                    BodyNode::new(BodyNodeKind::LeftEar, 5.0, vec![(Channel::Awareness, 0.15)])
+                        .with_tags(vec![Hear]),
                     BodyNode::new(
                         BodyNodeKind::RightEar,
                         5.0,
                         vec![(Channel::Awareness, 0.15)],
-                    ),
-                    BodyNode::new(BodyNodeKind::Nose, 8.0, vec![]),
+                    )
+                    .with_tags(vec![Hear]),
+                    BodyNode::new(BodyNodeKind::Nose, 8.0, vec![]).with_tags(vec![Smell]),
                     BodyNode::new(
                         BodyNodeKind::Jaw,
                         20.0,
                         vec![(Channel::Consumption, 1.0), (Channel::Vocalization, 0.3)],
-                    ),
+                    )
+                    .with_tags(vec![Eat, Speak]),
                 ]),
                 BodyNode::vital(BodyNodeKind::Torso, 80.0, vec![(Channel::FullBody, 1.0)])
                     .with_children(torso_organs()),
@@ -201,28 +230,32 @@ impl Body {
                         BodyNodeKind::LeftForehoof,
                         20.0,
                         vec![(Channel::Locomotion, 0.3)],
-                    ),
+                    )
+                    .with_tags(vec![Stance]),
                 ]),
                 BodyNode::new(BodyNodeKind::RightForeleg, 50.0, vec![]).with_children(vec![
                     BodyNode::new(
                         BodyNodeKind::RightForehoof,
                         20.0,
                         vec![(Channel::Locomotion, 0.3)],
-                    ),
+                    )
+                    .with_tags(vec![Stance]),
                 ]),
                 BodyNode::new(BodyNodeKind::LeftHindleg, 50.0, vec![]).with_children(vec![
                     BodyNode::new(
                         BodyNodeKind::LeftHindhoof,
                         20.0,
                         vec![(Channel::Locomotion, 0.3)],
-                    ),
+                    )
+                    .with_tags(vec![Stance]),
                 ]),
                 BodyNode::new(BodyNodeKind::RightHindleg, 50.0, vec![]).with_children(vec![
                     BodyNode::new(
                         BodyNodeKind::RightHindhoof,
                         20.0,
                         vec![(Channel::Locomotion, 0.3)],
-                    ),
+                    )
+                    .with_tags(vec![Stance]),
                 ]),
             ],
         }
@@ -258,6 +291,22 @@ impl Body {
 
     pub fn node_mut(&mut self, kind: BodyNodeKind) -> Option<&mut BodyNode> {
         self.parts.iter_mut().find_map(|p| p.find_mut(kind))
+    }
+
+    /// All nodes in the tree that carry the given tag.
+    pub fn nodes_with_tag(&self, tag: FunctionalTag) -> Vec<&BodyNode> {
+        let mut result = Vec::new();
+        for part in &self.parts {
+            if part.has_tag(tag) {
+                result.push(part);
+            }
+            for child in &part.children {
+                if child.has_tag(tag) {
+                    result.push(child);
+                }
+            }
+        }
+        result
     }
 
     /// Sum of pain across every node in the tree.
@@ -346,13 +395,14 @@ impl Body {
 
 /// Torso organ seed — heart and split lungs vital.
 fn torso_organs() -> Vec<BodyNode> {
+    use FunctionalTag::*;
     vec![
-        BodyNode::vital(BodyNodeKind::Heart, 40.0, vec![]),
-        BodyNode::vital(BodyNodeKind::LeftLung, 18.0, vec![]),
-        BodyNode::vital(BodyNodeKind::RightLung, 17.0, vec![]),
-        BodyNode::new(BodyNodeKind::Liver, 30.0, vec![]),
-        BodyNode::new(BodyNodeKind::Stomach, 25.0, vec![]),
-        BodyNode::new(BodyNodeKind::Gut, 25.0, vec![]),
+        BodyNode::vital(BodyNodeKind::Heart, 40.0, vec![]).with_tags(vec![Pump]),
+        BodyNode::vital(BodyNodeKind::LeftLung, 18.0, vec![]).with_tags(vec![Breathe]),
+        BodyNode::vital(BodyNodeKind::RightLung, 17.0, vec![]).with_tags(vec![Breathe]),
+        BodyNode::new(BodyNodeKind::Liver, 30.0, vec![]).with_tags(vec![Filter]),
+        BodyNode::new(BodyNodeKind::Stomach, 25.0, vec![]).with_tags(vec![Digest]),
+        BodyNode::new(BodyNodeKind::Gut, 25.0, vec![]).with_tags(vec![Digest]),
     ]
 }
 
@@ -445,6 +495,30 @@ impl BodyNodeKind {
     }
 }
 
+// ─── FunctionalTag ─────────────────────────────────────────────────────────
+
+/// What a body node *does* biologically. Tags are declarative labels that
+/// describe function without specifying magnitude — the mapping layer (#452)
+/// will derive channel capacities from tags. For now they coexist with the
+/// existing `provides` channel declarations.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect)]
+pub enum FunctionalTag {
+    Think,
+    See,
+    Hear,
+    Smell,
+    Grasp,
+    Stance,
+    Speak,
+    Eat,
+    Bite,
+    Carry,
+    Breathe,
+    Pump,
+    Digest,
+    Filter,
+}
+
 // ─── Injury ────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Copy, PartialEq, Reflect)]
@@ -487,6 +561,7 @@ pub struct BodyNode {
     pub kind: BodyNodeKind,
     #[reflect(ignore)]
     pub provides: Vec<(Channel, f32)>,
+    pub tags: Vec<FunctionalTag>,
     pub vital: bool,
     pub max_hp: f32,
     pub current_hp: f32,
@@ -500,6 +575,7 @@ impl BodyNode {
         Self {
             kind,
             provides,
+            tags: Vec::new(),
             vital: false,
             max_hp,
             current_hp: max_hp,
@@ -515,9 +591,18 @@ impl BodyNode {
         node
     }
 
+    pub fn with_tags(mut self, tags: Vec<FunctionalTag>) -> Self {
+        self.tags = tags;
+        self
+    }
+
     pub fn with_children(mut self, children: Vec<BodyNode>) -> Self {
         self.children = children;
         self
+    }
+
+    pub fn has_tag(&self, tag: FunctionalTag) -> bool {
+        self.tags.contains(&tag)
     }
 
     pub fn name(&self) -> &'static str {
@@ -1020,6 +1105,121 @@ mod tests {
         assert!(
             (body.channel_capacity(Channel::Awareness) - full_awareness).abs() < 1e-6,
             "head wound alone should not reduce awareness"
+        );
+    }
+
+    // ─── Functional tag tests ──────────────────────────────────────────
+
+    #[test]
+    fn each_species_has_expected_tags_on_key_nodes() {
+        use FunctionalTag::*;
+        for (name, body) in [
+            ("human", Body::human()),
+            ("wolf", Body::wolf()),
+            ("deer", Body::deer()),
+        ] {
+            let brain = body.node(BodyNodeKind::Brain).unwrap();
+            assert!(brain.has_tag(Think), "{name} brain should have Think");
+
+            let left_eye = body.node(BodyNodeKind::LeftEye).unwrap();
+            assert!(left_eye.has_tag(See), "{name} left eye should have See");
+
+            let left_ear = body.node(BodyNodeKind::LeftEar).unwrap();
+            assert!(left_ear.has_tag(Hear), "{name} left ear should have Hear");
+
+            let nose = body.node(BodyNodeKind::Nose).unwrap();
+            assert!(nose.has_tag(Smell), "{name} nose should have Smell");
+
+            let heart = body.node(BodyNodeKind::Heart).unwrap();
+            assert!(heart.has_tag(Pump), "{name} heart should have Pump");
+
+            let left_lung = body.node(BodyNodeKind::LeftLung).unwrap();
+            assert!(
+                left_lung.has_tag(Breathe),
+                "{name} left lung should have Breathe"
+            );
+
+            let stomach = body.node(BodyNodeKind::Stomach).unwrap();
+            assert!(stomach.has_tag(Digest), "{name} stomach should have Digest");
+
+            let liver = body.node(BodyNodeKind::Liver).unwrap();
+            assert!(liver.has_tag(Filter), "{name} liver should have Filter");
+
+            let jaw = body.node(BodyNodeKind::Jaw).unwrap();
+            assert!(jaw.has_tag(Eat), "{name} jaw should have Eat");
+            assert!(jaw.has_tag(Speak), "{name} jaw should have Speak");
+        }
+    }
+
+    #[test]
+    fn nodes_with_tag_returns_both_eyes() {
+        use FunctionalTag::*;
+        let body = Body::human();
+        let see_nodes = body.nodes_with_tag(See);
+        assert_eq!(see_nodes.len(), 2, "human has two See nodes (L/R eyes)");
+        let kinds: Vec<BodyNodeKind> = see_nodes.iter().map(|n| n.kind).collect();
+        assert!(kinds.contains(&BodyNodeKind::LeftEye));
+        assert!(kinds.contains(&BodyNodeKind::RightEye));
+    }
+
+    #[test]
+    fn tags_survive_injury() {
+        use FunctionalTag::*;
+        let mut body = Body::human();
+        let eye = body.node_mut(BodyNodeKind::LeftEye).unwrap();
+        eye.current_hp = 0.0;
+        eye.recalculate_function();
+        assert!(
+            body.node(BodyNodeKind::LeftEye).unwrap().has_tag(See),
+            "destroyed eye still has See tag"
+        );
+    }
+
+    #[test]
+    fn wolf_jaw_has_bite_and_grasp_but_deer_jaw_does_not() {
+        use FunctionalTag::*;
+        let wolf = Body::wolf();
+        let wolf_jaw = wolf.node(BodyNodeKind::Jaw).unwrap();
+        assert!(wolf_jaw.has_tag(Bite));
+        assert!(wolf_jaw.has_tag(Grasp));
+
+        let deer = Body::deer();
+        let deer_jaw = deer.node(BodyNodeKind::Jaw).unwrap();
+        assert!(!deer_jaw.has_tag(Bite), "deer jaw should not have Bite");
+        assert!(!deer_jaw.has_tag(Grasp), "deer jaw should not have Grasp");
+    }
+
+    #[test]
+    fn human_hands_have_grasp_and_carry() {
+        use FunctionalTag::*;
+        let body = Body::human();
+        let grasp_nodes = body.nodes_with_tag(Grasp);
+        assert_eq!(
+            grasp_nodes.len(),
+            2,
+            "human has two Grasp nodes (L/R hands)"
+        );
+        let carry_nodes = body.nodes_with_tag(Carry);
+        assert_eq!(
+            carry_nodes.len(),
+            2,
+            "human has two Carry nodes (L/R hands)"
+        );
+    }
+
+    #[test]
+    fn stance_nodes_match_species_locomotion() {
+        use FunctionalTag::*;
+        assert_eq!(
+            Body::human().nodes_with_tag(Stance).len(),
+            2,
+            "human: 2 feet"
+        );
+        assert_eq!(Body::wolf().nodes_with_tag(Stance).len(), 4, "wolf: 4 paws");
+        assert_eq!(
+            Body::deer().nodes_with_tag(Stance).len(),
+            4,
+            "deer: 4 hooves"
         );
     }
 }
