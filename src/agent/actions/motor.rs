@@ -191,8 +191,6 @@ impl IntensityPolicy {
     /// Resolve with an urgency boost. Urgency in [0, 1] pushes the
     /// intensity up by up to 0.3, so an ambient walk can accelerate
     /// toward sprint without jumping straight to 1.0.
-    ///
-    /// Replaces the old `ActionType::pick_locomotion_intensity(urgency)`.
     pub fn resolve_with_urgency(&self, urgency_unit: f32) -> f32 {
         let base = self.resolve();
         if base == 0.0 {
@@ -200,6 +198,31 @@ impl IntensityPolicy {
         }
         let boost = urgency_unit.clamp(0.0, 1.0) * 0.3;
         (base + boost).clamp(0.0, 1.0)
+    }
+
+    /// Escalate the policy based on drive urgency (0-1).
+    ///
+    /// Low urgency keeps the default. Moderate urgency upgrades to
+    /// Sustained. High urgency upgrades to Maximal. Policies that are
+    /// already at or above the escalation target are unchanged.
+    /// Fixed/Matched/TimeBudget policies are never escalated.
+    pub fn escalate_for_urgency(self, urgency: f32) -> Self {
+        match &self {
+            // Never escalate non-locomotion or already-maximal policies
+            IntensityPolicy::Fixed(_)
+            | IntensityPolicy::Matched(_)
+            | IntensityPolicy::TimeBudget(_)
+            | IntensityPolicy::Maximal => self,
+            _ => {
+                if urgency >= 0.8 {
+                    IntensityPolicy::Maximal
+                } else if urgency >= 0.5 {
+                    IntensityPolicy::Sustained
+                } else {
+                    self
+                }
+            }
+        }
     }
 }
 
@@ -476,5 +499,50 @@ mod tests {
         );
         // If this compiles and doesn't panic, the test passes.
         // The point: no new cost constants needed for a new locomotion behavior.
+    }
+
+    #[test]
+    fn high_urgency_escalates_normal_to_maximal() {
+        let policy = IntensityPolicy::Normal.escalate_for_urgency(0.9);
+        assert!(
+            matches!(policy, IntensityPolicy::Maximal),
+            "urgency 0.9 should escalate Normal to Maximal"
+        );
+    }
+
+    #[test]
+    fn moderate_urgency_escalates_normal_to_sustained() {
+        let policy = IntensityPolicy::Normal.escalate_for_urgency(0.6);
+        assert!(
+            matches!(policy, IntensityPolicy::Sustained),
+            "urgency 0.6 should escalate Normal to Sustained"
+        );
+    }
+
+    #[test]
+    fn low_urgency_keeps_normal() {
+        let policy = IntensityPolicy::Normal.escalate_for_urgency(0.3);
+        assert!(
+            matches!(policy, IntensityPolicy::Normal),
+            "urgency 0.3 should keep Normal unchanged"
+        );
+    }
+
+    #[test]
+    fn maximal_never_escalates_further() {
+        let policy = IntensityPolicy::Maximal.escalate_for_urgency(0.99);
+        assert!(
+            matches!(policy, IntensityPolicy::Maximal),
+            "Maximal should stay Maximal regardless of urgency"
+        );
+    }
+
+    #[test]
+    fn fixed_never_escalates() {
+        let policy = IntensityPolicy::Fixed(0.0).escalate_for_urgency(0.99);
+        assert!(
+            matches!(policy, IntensityPolicy::Fixed(_)),
+            "Fixed should never escalate"
+        );
     }
 }
