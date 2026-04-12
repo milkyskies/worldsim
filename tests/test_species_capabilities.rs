@@ -18,7 +18,7 @@ use worldsim::agent::actions::ChannelCapacities;
 use worldsim::agent::actions::ChannelLoad;
 use worldsim::agent::actions::ChannelUsage;
 use worldsim::agent::actions::{ActionRegistry, ActionType};
-use worldsim::agent::biology::body::{Body, BodyNodeKind, Injury, InjuryType};
+use worldsim::agent::biology::body::{Body, BodyNodeKind, Injury, InjuryType, TagChannelMapping};
 
 fn requirements_for(registry: &ActionRegistry, action: ActionType) -> &'static [ChannelUsage] {
     registry
@@ -28,7 +28,8 @@ fn requirements_for(registry: &ActionRegistry, action: ActionType) -> &'static [
 }
 
 fn can_perform(body: &Body, requirements: &[ChannelUsage]) -> bool {
-    let caps = ChannelCapacities::compute(Some(body), None, None);
+    let m = TagChannelMapping::default();
+    let caps = ChannelCapacities::compute(Some(body), None, None, &m);
     let load = ChannelLoad::new();
     !load.would_hard_conflict(requirements, &caps)
 }
@@ -137,8 +138,9 @@ fn deer_can_eat() {
 fn wolf_quadruped_has_higher_locomotion_than_human() {
     let wolf = Body::wolf();
     let human = Body::human();
-    let wolf_loc = wolf.channel_capacity(Channel::Locomotion);
-    let human_loc = human.channel_capacity(Channel::Locomotion);
+    let m = worldsim::agent::biology::body::TagChannelMapping::default();
+    let wolf_loc = wolf.channel_capacity(Channel::Locomotion, &m);
+    let human_loc = human.channel_capacity(Channel::Locomotion, &m);
     // Both bodies use `max` across parts (best part wins) per
     // Body::channel_capacity, so four legs vs two legs is not an automatic
     // advantage — wolves gain their speed via SpeciesProfile::base_speed,
@@ -161,27 +163,28 @@ fn wolf_broken_jaw_loses_manipulation_consumption_vocalization_and_bite() {
         bleed_rate: 0.0,
     });
 
+    let m = TagChannelMapping::default();
     // A single anatomical injury collapses multiple capabilities at once,
     // because they all lived on the same part.
     assert!(
-        body.channel_capacity(Channel::Manipulation) < 0.1,
+        body.channel_capacity(Channel::Manipulation, &m) < 0.1,
         "broken jaws must knock out Manipulation"
     );
     assert!(
-        body.channel_capacity(Channel::Bite) < 0.1,
+        body.channel_capacity(Channel::Bite, &m) < 0.1,
         "broken jaws must knock out Bite"
     );
     assert!(
-        body.channel_capacity(Channel::Consumption) < 0.1,
+        body.channel_capacity(Channel::Consumption, &m) < 0.1,
         "broken jaws must knock out Consumption"
     );
     assert!(
-        body.channel_capacity(Channel::Vocalization) < 0.1,
+        body.channel_capacity(Channel::Vocalization, &m) < 0.1,
         "broken jaws must knock out Vocalization"
     );
     // Locomotion lives on the legs — unrelated to a jaw injury.
     assert!(
-        body.channel_capacity(Channel::Locomotion) > 0.0,
+        body.channel_capacity(Channel::Locomotion, &m) > 0.0,
         "jaw injury must not affect locomotion"
     );
 }
@@ -199,10 +202,11 @@ fn human_one_broken_hand_halves_manipulation() {
         healed_amount: 0.0,
         bleed_rate: 0.0,
     });
-    let manip = body.channel_capacity(Channel::Manipulation);
+    let m = TagChannelMapping::default();
+    let manip = body.channel_capacity(Channel::Manipulation, &m);
     assert!(
         (manip - 0.5).abs() < 1e-4,
         "expected 0.5 Manipulation after one broken arm, got {manip}"
     );
-    assert!(body.channel_capacity(Channel::Locomotion) > 0.0);
+    assert!(body.channel_capacity(Channel::Locomotion, &m) > 0.0);
 }

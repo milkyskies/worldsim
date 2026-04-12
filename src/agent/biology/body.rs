@@ -807,7 +807,7 @@ mod tests {
 
     #[test]
     fn fresh_organ_is_fully_intact() {
-        let heart = BodyNode::vital(BodyNodeKind::Heart, 40.0, vec![]);
+        let heart = BodyNode::vital(BodyNodeKind::Heart, 40.0);
         assert!((heart.condition() - 1.0).abs() < 1e-6);
         assert!(!heart.is_destroyed());
         assert!(heart.vital);
@@ -815,7 +815,7 @@ mod tests {
 
     #[test]
     fn zero_hp_organ_is_destroyed() {
-        let mut lung = BodyNode::vital(BodyNodeKind::LeftLung, 18.0, vec![]);
+        let mut lung = BodyNode::vital(BodyNodeKind::LeftLung, 18.0);
         lung.current_hp = 0.0;
         lung.recalculate_function();
         assert_eq!(lung.condition(), 0.0);
@@ -824,7 +824,7 @@ mod tests {
 
     #[test]
     fn organ_condition_clamps_to_unit_interval() {
-        let mut gut = BodyNode::new(BodyNodeKind::Gut, 25.0, vec![]);
+        let mut gut = BodyNode::new(BodyNodeKind::Gut, 25.0);
         gut.current_hp = 100.0;
         assert!((gut.condition() - 1.0).abs() < 1e-6);
         gut.current_hp = -5.0;
@@ -985,7 +985,7 @@ mod tests {
             .node_mut(BodyNodeKind::LeftEye)
             .unwrap()
             .recalculate_function();
-        let reduced = damaged.channel_capacity(Channel::Awareness);
+        let reduced = damaged.channel_capacity(Channel::Awareness, &m);
         assert!(
             reduced < full_awareness,
             "losing an eye should reduce awareness ({full_awareness} -> {reduced})"
@@ -1009,7 +1009,7 @@ mod tests {
             .expect("humans have brain");
         brain.current_hp = brain.max_hp * 0.5;
         brain.recalculate_function();
-        let reduced = damaged.channel_capacity(Channel::Focus);
+        let reduced = damaged.channel_capacity(Channel::Focus, &m);
         assert!(
             reduced < full_focus,
             "brain damage should reduce focus ({full_focus} -> {reduced})"
@@ -1032,7 +1032,7 @@ mod tests {
             .node_mut(BodyNodeKind::LeftHand)
             .unwrap()
             .recalculate_function();
-        let reduced = damaged.channel_capacity(Channel::Manipulation);
+        let reduced = damaged.channel_capacity(Channel::Manipulation, &m);
         assert!(
             (reduced - 0.5).abs() < 1e-6,
             "losing a hand should halve manipulation, got {reduced}"

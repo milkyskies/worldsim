@@ -1110,7 +1110,8 @@ mod tests {
         use crate::agent::actions::registry::Action;
         use crate::agent::biology::body::Body;
 
-        let wolf_caps = ChannelCapacities::compute(Some(&Body::wolf()), None, None);
+        let m = TagChannelMapping::default();
+        let wolf_caps = ChannelCapacities::compute(Some(&Body::wolf()), None, None, &m);
         assert!(
             !action_is_anatomically_feasible(AttackAction.body_channels(), &wolf_caps),
             "wolf's Manipulation 0.4 should hard-conflict with Attack's 0.9"
@@ -1127,7 +1128,8 @@ mod tests {
         use crate::agent::actions::registry::Action;
         use crate::agent::biology::body::Body;
 
-        let human_caps = ChannelCapacities::compute(Some(&Body::human()), None, None);
+        let m = TagChannelMapping::default();
+        let human_caps = ChannelCapacities::compute(Some(&Body::human()), None, None, &m);
         assert!(
             action_is_anatomically_feasible(AttackAction.body_channels(), &human_caps),
             "human's two arms (Manipulation 1.0) should fit Attack's 0.9"
