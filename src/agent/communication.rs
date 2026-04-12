@@ -728,14 +728,10 @@ pub fn select_turn_intent(
                 c.alertness = (c.alertness - drain).max(0.0);
             }
         }
-        // Per-turn social drive satisfaction. Each turn the speaker
-        // participated in drains a bit of companionship need — talking
-        // feels rewarding. This replaces the old model where the
-        // continuous `companionship_per_sec` did all the work; now
-        // agents get most of their social satisfaction from active
-        // participation rather than passive presence.
         if let Ok(mut d) = drives.get_mut(speaker) {
-            d.companionship = (d.companionship + SOCIAL_DRIVE_PER_TURN).min(1.0);
+            if d.companionship < 1.0 {
+                d.companionship = (d.companionship + SOCIAL_DRIVE_PER_TURN).clamp(0.0, 1.0);
+            }
         }
 
         // Direct question → flag the primary listener so the weighted
@@ -899,31 +895,31 @@ pub(crate) fn select_intent(
         return Intent::Share;
     }
 
-    // 7. Empathize: if the last speaker expressed negative emotion, agreeable
-    //    agents respond with empathy rather than pivoting to a new topic.
     let agreeableness = personality.map(|p| p.traits.agreeableness).unwrap_or(0.5);
-    if let Some(last) = conv.turns.last() {
-        if last.speaker != conv.current_speaker() {
-            if let Some(emotion) = &last.emotion {
-                let is_negative = matches!(
-                    emotion.emotion_type,
-                    crate::agent::psyche::emotions::EmotionType::Sadness
-                        | crate::agent::psyche::emotions::EmotionType::Fear
-                        | crate::agent::psyche::emotions::EmotionType::Anger
-                );
-                if is_negative && agreeableness > 0.4 {
-                    return Intent::Empathize;
-                }
+    let other_last = conv
+        .turns
+        .last()
+        .filter(|t| t.speaker != conv.current_speaker());
+
+    // 7. Empathize: last speaker expressed negative emotion.
+    if let Some(last) = other_last {
+        if let Some(emotion) = &last.emotion {
+            let is_negative = matches!(
+                emotion.emotion_type,
+                crate::agent::psyche::emotions::EmotionType::Sadness
+                    | crate::agent::psyche::emotions::EmotionType::Fear
+                    | crate::agent::psyche::emotions::EmotionType::Anger
+                    | crate::agent::psyche::emotions::EmotionType::Disgust
+            );
+            if is_negative && agreeableness > 0.4 {
+                return Intent::Empathize;
             }
         }
     }
 
-    // 8. Agree: if the last speaker shared content, agreeable agents affirm it.
-    if let Some(last) = conv.turns.last() {
-        if last.speaker != conv.current_speaker()
-            && matches!(last.intent, Intent::Share)
-            && agreeableness > 0.5
-        {
+    // 8. Agree: last speaker shared content, agreeable agents affirm it.
+    if let Some(last) = other_last {
+        if matches!(last.intent, Intent::Share) && agreeableness > 0.5 {
             return Intent::Agree;
         }
     }

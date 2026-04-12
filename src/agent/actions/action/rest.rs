@@ -59,7 +59,6 @@ impl Action for RestAction {
             // Mild curiosity drift — less than Idle (the agent is
             // partly focused on recovering) but non-zero.
             stimulation_per_sec: -0.008,
-            // Resting alone erodes social satisfaction.
             companionship_per_sec: -0.006,
             ..Default::default()
         }

@@ -45,8 +45,6 @@ impl Action for WanderAction {
             // what's around. Weaker than Explore (which actively
             // seeks novelty) and Observe (which focuses on one thing).
             stimulation_per_sec: 0.02,
-            // Solo wandering erodes social satisfaction — drifting
-            // alone makes you want company.
             companionship_per_sec: -0.006,
             ..Default::default()
         }
