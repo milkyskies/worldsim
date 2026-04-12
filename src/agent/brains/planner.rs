@@ -2416,7 +2416,6 @@ mod tests {
 
     #[test]
     fn heavier_agent_pays_more_for_same_walk() {
-        let mind = test_mind();
         let ctx_light = PlanCostContext {
             body_mass: 40.0,
             ..PlanCostContext::neutral()
