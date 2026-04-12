@@ -53,11 +53,7 @@ impl Action for RestAction {
 
     fn runtime_effects(&self) -> RuntimeEffects {
         RuntimeEffects {
-            stamina_per_sec: 8.0,        // slower than Sleep (+20), faster than Idle (0)
-            alertness_per_sec: 2.0,      // gentle alertness gain, no crash
-            glucose_drain_per_sec: 0.15, // mild metabolic cost — less than Idle
-            // Mild curiosity drift — less than Idle (the agent is
-            // partly focused on recovering) but non-zero.
+            alertness_per_sec: 2.0,
             stimulation_per_sec: -0.008,
             ..Default::default()
         }

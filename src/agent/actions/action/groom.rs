@@ -48,10 +48,7 @@ impl Action for GroomAction {
 
     fn runtime_effects(&self) -> RuntimeEffects {
         RuntimeEffects {
-            alertness_per_sec: 1.0, // mild self-regulation
-            // Grooming is passive enough that curiosity drifts up
-            // slowly — the agent is mentally unstimulated while
-            // tending to themselves.
+            alertness_per_sec: 1.0,
             stimulation_per_sec: -0.01,
             ..Default::default()
         }

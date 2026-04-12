@@ -63,6 +63,11 @@ pub struct SpeciesProfile {
     /// Dietary requirements
     pub diet: Diet,
 
+    /// Body mass in kilograms. Locomotion energy cost scales linearly with
+    /// mass — heavier bodies burn more calories to move. Used by the effort
+    /// model in `body::effort::compute_action_cost`.
+    pub mass_kg: f32,
+
     // === Drives ===
     /// Floor value for the territoriality drive. The `update_territoriality`
     /// system raises this further when intruders are perceived on owned tiles.
@@ -93,6 +98,7 @@ impl SpeciesProfile {
             base_speed: 1.0,
             vision_range: 100.0,
             diet: Diet::Omnivore,
+            mass_kg: 70.0,
 
             territoriality_baseline: 0.1,
         }
@@ -114,6 +120,7 @@ impl SpeciesProfile {
             base_speed: 1.2,
             vision_range: 80.0,
             diet: Diet::Herbivore,
+            mass_kg: 80.0,
 
             territoriality_baseline: 0.0,
         }
@@ -135,6 +142,7 @@ impl SpeciesProfile {
             base_speed: 1.4,
             vision_range: 120.0,
             diet: Diet::Carnivore,
+            mass_kg: 40.0,
 
             territoriality_baseline: 0.7,
         }
@@ -156,6 +164,7 @@ impl SpeciesProfile {
             base_speed: 1.5,
             vision_range: 60.0,
             diet: Diet::Herbivore,
+            mass_kg: 2.0,
 
             territoriality_baseline: 0.0,
         }

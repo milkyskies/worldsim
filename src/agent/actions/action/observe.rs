@@ -53,12 +53,7 @@ impl Action for ObserveAction {
 
     fn runtime_effects(&self) -> RuntimeEffects {
         RuntimeEffects {
-            alertness_per_sec: 3.0, // attending keeps the agent sharp
-            // Strong curiosity drain: watching something novel is the
-            // clearest way to satisfy the drive. Scales so a ~2s Observe
-            // window (120 ticks) erases ~0.16 of the drive — enough to
-            // cross below the `min_threshold: 0.05` gate if curiosity
-            // was mild to start with.
+            alertness_per_sec: 3.0,
             stimulation_per_sec: 0.08,
             ..Default::default()
         }

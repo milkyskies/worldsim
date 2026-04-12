@@ -55,11 +55,6 @@ impl Action for ConverseAction {
 
     fn runtime_effects(&self) -> RuntimeEffects {
         RuntimeEffects {
-            // Being in a conversation drains both social (the whole
-            // point) and curiosity (chatting is a form of novelty
-            // exchange). Lets an active conversation satisfy both
-            // drives, which is why real social time leaves someone
-            // feeling "filled up" on both fronts.
             companionship_per_sec: 0.04,
             stimulation_per_sec: 0.02,
             ..Default::default()

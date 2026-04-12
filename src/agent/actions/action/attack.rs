@@ -1,11 +1,10 @@
 use crate::agent::actions::ActionType;
 use crate::agent::actions::channel::{Channel, ChannelUsage, Posture};
 use crate::agent::actions::registry::{
-    Action, ActionContext, ActionKind, CompletionContext, RuntimeEffects, TargetCandidate,
-    TargetSource,
+    Action, ActionContext, ActionKind, CompletionContext, TargetCandidate, TargetSource,
 };
 use crate::agent::mind::knowledge::{Concept, MindGraph, Node, Predicate, Triple, Value};
-use crate::constants::actions::attack::{BASE_COST, DURATION_TICKS, STAMINA_PER_SEC};
+use crate::constants::actions::attack::{BASE_COST, DURATION_TICKS};
 
 pub struct AttackAction;
 
@@ -71,13 +70,6 @@ impl Action for AttackAction {
             return false;
         };
         prey_produces_useful_item(entity, mind)
-    }
-
-    fn runtime_effects(&self) -> RuntimeEffects {
-        RuntimeEffects {
-            stamina_per_sec: STAMINA_PER_SEC,
-            ..Default::default()
-        }
     }
 
     // Damage, dodge, death, and meat deposit all live in

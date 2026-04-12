@@ -780,7 +780,7 @@ mod tests {
             effects: vec![],
             consumes: vec![],
             base_cost: 1.0,
-            locomotion_intensity: action_type.default_locomotion_intensity(),
+            locomotion_intensity: action_type.default_intensity_policy().resolve(),
         }
     }
 

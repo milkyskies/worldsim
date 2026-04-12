@@ -116,7 +116,7 @@ pub struct ActionTemplate {
     pub base_cost: f32,
     /// Desired locomotion intensity in [0, 1] for Movement-class actions (#339).
     /// `0.0` means "use the action's default". Brains populate this at
-    /// admission time from `ActionType::pick_locomotion_intensity(urgency)`
+    /// admission time from `IntensityPolicy::resolve_with_urgency()`
     /// so the body gets an urgency-scaled push.
     pub locomotion_intensity: f32,
 }

@@ -8,13 +8,12 @@
 use crate::agent::actions::ActionType;
 use crate::agent::actions::channel::{Channel, ChannelUsage, Posture};
 use crate::agent::actions::registry::{
-    Action, ActionContext, ActionKind, CompletionContext, RuntimeEffects, TargetCandidate,
-    TargetSource,
+    Action, ActionContext, ActionKind, CompletionContext, TargetCandidate, TargetSource,
 };
 use crate::agent::brains::thinking::TriplePattern;
 use crate::agent::events::FailureReason;
 use crate::agent::mind::knowledge::{MindGraph, Node, Predicate, Triple, Value};
-use crate::constants::actions::construct::{BASE_COST, GLUCOSE_DRAIN_PER_SEC, STAMINA_PER_SEC};
+use crate::constants::actions::construct::BASE_COST;
 
 pub struct ConstructAction;
 
@@ -104,14 +103,6 @@ impl Action for ConstructAction {
             return Err(FailureReason::TargetGone);
         }
         Ok(())
-    }
-
-    fn runtime_effects(&self) -> RuntimeEffects {
-        RuntimeEffects {
-            stamina_per_sec: STAMINA_PER_SEC,
-            glucose_drain_per_sec: GLUCOSE_DRAIN_PER_SEC,
-            ..Default::default()
-        }
     }
 
     /// `on_complete` is intentionally empty: the site transforms (and despawns)

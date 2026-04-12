@@ -3,15 +3,14 @@
 use crate::agent::actions::ActionType;
 use crate::agent::actions::channel::{Channel, ChannelUsage, Posture};
 use crate::agent::actions::registry::{
-    Action, ActionContext, ActionKind, CompletionContext, RuntimeEffects, TargetCandidate,
-    TargetSource,
+    Action, ActionContext, ActionKind, CompletionContext, TargetCandidate, TargetSource,
 };
 use crate::agent::brains::thinking::TriplePattern;
 use crate::agent::events::FailureReason;
 use crate::agent::item_slots::{Thing, perishable_decay_rate};
 use crate::agent::mind::knowledge::{Concept, MindGraph, Node, Predicate, Triple, Value};
 use crate::agent::skills::SkillKind;
-use crate::constants::actions::harvest::{DURATION_TICKS, GLUCOSE_DRAIN_PER_SEC, STAMINA_PER_SEC};
+use crate::constants::actions::harvest::DURATION_TICKS;
 
 pub struct HarvestAction;
 
@@ -193,15 +192,6 @@ impl Action for HarvestAction {
                 false
             }
         })
-    }
-
-    // Per-tick effects while harvesting
-    fn runtime_effects(&self) -> RuntimeEffects {
-        RuntimeEffects {
-            stamina_per_sec: STAMINA_PER_SEC,
-            glucose_drain_per_sec: GLUCOSE_DRAIN_PER_SEC,
-            ..Default::default()
-        }
     }
 
     // Execution: What happens when harvest completes
