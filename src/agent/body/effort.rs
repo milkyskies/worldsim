@@ -100,6 +100,22 @@ impl EffortProfile {
             .max(self.isometric)
             .max(self.cognition)
     }
+
+    /// Scale all channels by a scalar intensity in [0, 1].
+    ///
+    /// Used to derive the effective profile from a motor primitive's base
+    /// profile and the behavior's resolved intensity. At intensity 0.5,
+    /// a Locomote primitive (locomotion: 1.0) becomes locomotion: 0.5.
+    pub fn scaled(&self, intensity: f32) -> Self {
+        let i = intensity.clamp(0.0, 1.0);
+        Self {
+            locomotion: self.locomotion * i,
+            manipulation: self.manipulation * i,
+            isometric: self.isometric * i,
+            cognition: self.cognition * i,
+            recovery: self.recovery * i,
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -430,16 +446,19 @@ mod tests {
     #[test]
     fn graze_profile_triggers_ingestion_side_effect() {
         use crate::agent::actions::action::graze::GrazeAction;
+        use crate::agent::actions::motor::MotorPrimitive;
         use crate::agent::actions::registry::Action;
 
         let graze = GrazeAction;
-        let profile = graze.effort_profile();
+        let primitive = graze.motor_primitive();
+        let profile = primitive.effort_profile().scaled(0.25); // Graze = Ambient intensity
         let cost = compute_action_cost(&profile, HUMAN_MASS);
 
         assert!(
             cost.energy > 0.0,
             "graze effort channels should produce energy cost"
         );
+        assert_eq!(primitive, MotorPrimitive::Ingest);
         assert!(
             graze.runtime_effects().stomach_carbs_per_sec > 0.0,
             "graze ingestion side effect must be in RuntimeEffects, not the effort model"

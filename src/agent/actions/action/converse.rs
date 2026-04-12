@@ -18,7 +18,6 @@
 use crate::agent::actions::ActionType;
 use crate::agent::actions::channel::{Channel, ChannelUsage, Posture};
 use crate::agent::actions::registry::{Action, ActionKind, RuntimeEffects};
-use crate::agent::body::effort::EffortProfile;
 
 pub struct ConverseAction;
 
@@ -52,13 +51,6 @@ impl Action for ConverseAction {
     fn interruptible(&self) -> bool {
         // Sleep / Flee / Fight should be able to preempt a conversation.
         true
-    }
-
-    fn effort_profile(&self) -> EffortProfile {
-        EffortProfile {
-            cognition: 0.2,
-            ..Default::default()
-        }
     }
 
     fn runtime_effects(&self) -> RuntimeEffects {

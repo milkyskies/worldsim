@@ -424,7 +424,7 @@ pub fn tick_actions(
                                 let desired = if action_state.locomotion_intensity > 0.0 {
                                     action_state.locomotion_intensity
                                 } else {
-                                    action_type.default_locomotion_intensity()
+                                    action_type.default_intensity_policy().resolve()
                                 };
                                 let effective = effective_intensity(desired, &physical.stamina);
                                 let intensity_mult = intensity_speed_multiplier(effective);
@@ -770,18 +770,25 @@ pub fn apply_action_effects(
             let degradation = load.degradation_factor(action_def.body_channels(), &capacities);
             let is_movement = matches!(action_def.kind(), ActionKind::Movement);
 
-            // --- Effort model: derive physical costs from profile ---
-            let mut profile = action_def.effort_profile();
+            // --- Effort model: primitive-based profile scaled by intensity ---
+            let primitive = action_def.motor_primitive();
+            let base_profile = primitive.effort_profile();
 
-            // For Movement actions, override the profile's locomotion with
-            // the brain's desired intensity (capped by body state). This
-            // replaces the old `stamina.drain(effective, dt)` call in
-            // `tick_actions`.
-            if is_movement && action_state.locomotion_intensity > 0.0 {
-                let desired = action_state.locomotion_intensity;
-                let effective = cap_intensity(desired, &stamina_snapshot);
-                profile.locomotion = effective;
-            }
+            // Resolve intensity from either the brain's locomotion override
+            // (for Movement actions) or the action's default policy.
+            let intensity = if is_movement && action_state.locomotion_intensity > 0.0 {
+                cap_intensity(action_state.locomotion_intensity, &stamina_snapshot)
+            } else {
+                action_state
+                    .action_type
+                    .default_intensity_policy()
+                    .resolve()
+            };
+            let profile = if intensity > 0.0 {
+                base_profile.scaled(intensity)
+            } else {
+                crate::agent::body::effort::EffortProfile::ZERO
+            };
 
             let cost = compute_action_cost(&profile, body_mass);
 

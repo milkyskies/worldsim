@@ -21,7 +21,6 @@ use crate::agent::actions::channel::{Channel, ChannelUsage, Posture};
 use crate::agent::actions::registry::{
     Action, ActionContext, ActionKind, RuntimeEffects, TargetSource,
 };
-use crate::agent::body::effort::EffortProfile;
 use crate::agent::events::FailureReason;
 use crate::agent::mind::knowledge::{Concept, Node, Predicate, Triple, Value};
 use crate::constants::actions::graze::STOMACH_CARBS_PER_SEC;
@@ -66,14 +65,6 @@ impl Action for GrazeAction {
         // Graze is the fused walk-and-eat action — the animal is
         // continuously drifting, not committed in place.
         Some(Posture::Moving)
-    }
-
-    fn effort_profile(&self) -> EffortProfile {
-        EffortProfile {
-            locomotion: 0.15,
-            cognition: 0.05,
-            ..Default::default()
-        }
     }
 
     fn runtime_effects(&self) -> RuntimeEffects {

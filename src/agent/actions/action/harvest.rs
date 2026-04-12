@@ -5,7 +5,6 @@ use crate::agent::actions::channel::{Channel, ChannelUsage, Posture};
 use crate::agent::actions::registry::{
     Action, ActionContext, ActionKind, CompletionContext, TargetCandidate, TargetSource,
 };
-use crate::agent::body::effort::EffortProfile;
 use crate::agent::brains::thinking::TriplePattern;
 use crate::agent::events::FailureReason;
 use crate::agent::item_slots::{Thing, perishable_decay_rate};
@@ -134,13 +133,6 @@ impl Action for HarvestAction {
                 false
             }
         })
-    }
-
-    fn effort_profile(&self) -> EffortProfile {
-        EffortProfile {
-            manipulation: 0.6,
-            ..Default::default()
-        }
     }
 
     // Execution: What happens when harvest completes

@@ -13,7 +13,6 @@
 use crate::agent::actions::ActionType;
 use crate::agent::actions::channel::{Channel, ChannelUsage, Posture};
 use crate::agent::actions::registry::{Action, ActionKind, RuntimeEffects};
-use crate::agent::body::effort::EffortProfile;
 
 pub struct GroomAction;
 
@@ -45,13 +44,6 @@ impl Action for GroomAction {
         // while hopping, humans fidget with a sleeve mid-stride. The
         // action is about self-care, not about being planted.
         None
-    }
-
-    fn effort_profile(&self) -> EffortProfile {
-        EffortProfile {
-            manipulation: 0.15,
-            ..Default::default()
-        }
     }
 
     fn runtime_effects(&self) -> RuntimeEffects {

@@ -18,7 +18,6 @@
 use crate::agent::actions::ActionType;
 use crate::agent::actions::channel::{Channel, ChannelUsage, Posture};
 use crate::agent::actions::registry::{Action, ActionContext, ActionKind, TargetSource};
-use crate::agent::body::effort::EffortProfile;
 use crate::agent::events::FailureReason;
 
 pub struct InitiateConversationAction;
@@ -61,14 +60,6 @@ impl Action for InitiateConversationAction {
 
     fn posture(&self) -> Option<Posture> {
         Some(Posture::Moving)
-    }
-
-    fn effort_profile(&self) -> EffortProfile {
-        EffortProfile {
-            locomotion: 0.5,
-            cognition: 0.1,
-            ..Default::default()
-        }
     }
 
     fn can_start(&self, ctx: &ActionContext) -> Result<(), FailureReason> {

@@ -5,7 +5,6 @@ use crate::agent::actions::channel::{Channel, ChannelUsage, Posture};
 use crate::agent::actions::registry::{
     Action, ActionContext, ActionKind, CompletionContext, SpawnRequest, TargetCandidate,
 };
-use crate::agent::body::effort::EffortProfile;
 use crate::agent::brains::thinking::TriplePattern;
 use crate::agent::events::FailureReason;
 use crate::agent::mind::knowledge::{Concept, MindGraph, Node, Predicate, Triple, Value};
@@ -112,14 +111,6 @@ impl Action for BuildAction {
                 None,
             )
             .is_empty()
-    }
-
-    fn effort_profile(&self) -> EffortProfile {
-        EffortProfile {
-            manipulation: 0.7,
-            isometric: 0.2,
-            ..Default::default()
-        }
     }
 
     fn on_complete(&self, ctx: &mut CompletionContext) {

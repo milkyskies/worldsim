@@ -258,6 +258,14 @@ pub trait Action: Send + Sync + 'static {
     /// Human-readable name
     fn name(&self) -> &'static str;
 
+    /// The motor primitive this action resolves to.
+    ///
+    /// Default delegates to `ActionType::motor_primitive()` so existing
+    /// actions work without override. New code should override directly.
+    fn motor_primitive(&self) -> crate::agent::actions::motor::MotorPrimitive {
+        self.action_type().motor_primitive()
+    }
+
     // === FOR PLANNING (GOAP) ===
 
     /// Preconditions as TriplePatterns - what must be true before action
@@ -339,23 +347,10 @@ pub trait Action: Send + Sync + 'static {
         true
     }
 
-    /// The physical effort channels this action engages.
-    ///
-    /// Returned profile feeds [`compute_action_cost`] which derives all
-    /// stamina drain and energy cost. Override this instead of
-    /// hard-coding physical drain constants.
-    ///
-    /// Default: zero profile (BMR only, no action cost).
-    ///
-    /// [`compute_action_cost`]: crate::agent::body::effort::compute_action_cost
-    fn effort_profile(&self) -> crate::agent::body::effort::EffortProfile {
-        crate::agent::body::effort::EffortProfile::ZERO
-    }
-
     /// Per-tick side effects: alertness, ingestion, social, curiosity.
     ///
-    /// Physical costs (stamina, energy) are derived from [`Self::effort_profile`]
-    /// via the effort model. This method holds only non-physical side effects.
+    /// Physical costs (stamina, energy) are derived from the action's
+    /// motor primitive's effort profile, scaled by intensity.
     fn runtime_effects(&self) -> RuntimeEffects {
         RuntimeEffects::default()
     }
@@ -457,7 +452,7 @@ pub trait Action: Send + Sync + 'static {
             base_cost: self.cost(),
             // Start with the action's default locomotion intensity. The
             // brain may override it based on urgency before admission.
-            locomotion_intensity: action_type.default_locomotion_intensity(),
+            locomotion_intensity: action_type.default_intensity_policy().resolve(),
         }
     }
 
@@ -502,7 +497,7 @@ pub trait Action: Send + Sync + 'static {
             effects: self.plan_effects_for_target(target, mind),
             consumes,
             base_cost: self.cost(),
-            locomotion_intensity: action_type.default_locomotion_intensity(),
+            locomotion_intensity: action_type.default_intensity_policy().resolve(),
         }
     }
 }
@@ -538,7 +533,7 @@ pub struct ActionState {
     /// Desired locomotion intensity in [0, 1] for Movement-class actions (#339).
     /// `0.0` means this action isn't locomotion and the field is unused.
     /// The brain sets this from the action's default plus an urgency boost
-    /// (see `ActionType::pick_locomotion_intensity`). The *effective*
+    /// (see `IntensityPolicy::resolve_with_urgency`). The *effective*
     /// intensity used by the body may be lower when stamina is exhausted,
     /// but the desired intensity stored here stays put so the intent stays
     /// clear (e.g. an exhausted Flee is still trying to Flee at 1.0).
@@ -555,7 +550,7 @@ impl ActionState {
             progress_accumulator: 0.0,
             target_entity: None,
             target_position: None,
-            locomotion_intensity: action_type.default_locomotion_intensity(),
+            locomotion_intensity: action_type.default_intensity_policy().resolve(),
         }
     }
 

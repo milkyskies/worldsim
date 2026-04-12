@@ -14,7 +14,6 @@
 use crate::agent::actions::ActionType;
 use crate::agent::actions::channel::{Channel, ChannelUsage, Posture};
 use crate::agent::actions::registry::{Action, ActionKind, RuntimeEffects};
-use crate::agent::body::effort::EffortProfile;
 
 pub struct ObserveAction;
 
@@ -50,13 +49,6 @@ impl Action for ObserveAction {
     fn posture(&self) -> Option<Posture> {
         // Watching works from a standstill or mid-walk — both are real.
         None
-    }
-
-    fn effort_profile(&self) -> EffortProfile {
-        EffortProfile {
-            cognition: 0.5,
-            ..Default::default()
-        }
     }
 
     fn runtime_effects(&self) -> RuntimeEffects {

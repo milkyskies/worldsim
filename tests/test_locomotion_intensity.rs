@@ -17,8 +17,8 @@ use worldsim::testing::{AgentConfig, TestWorld};
 /// maps to 2.0x — the calibration the issue spells out.
 #[test]
 fn default_intensities_match_issue_calibration() {
-    let walk_default = ActionType::Walk.default_locomotion_intensity();
-    let flee_default = ActionType::Flee.default_locomotion_intensity();
+    let walk_default = ActionType::Walk.default_intensity_policy().resolve();
+    let flee_default = ActionType::Flee.default_intensity_policy().resolve();
     assert_eq!(walk_default, 0.5, "Walk default is 0.5");
     assert_eq!(flee_default, 1.0, "Flee default is 1.0");
 
@@ -39,8 +39,12 @@ fn default_intensities_match_issue_calibration() {
 #[test]
 fn urgency_boosts_same_action_intensity() {
     // Urgency inputs are on [0, 1] (the arbitration 0-100 scale divided)
-    let calm_walk = ActionType::Walk.pick_locomotion_intensity(0.0);
-    let urgent_walk = ActionType::Walk.pick_locomotion_intensity(0.9);
+    let calm_walk = ActionType::Walk
+        .default_intensity_policy()
+        .resolve_with_urgency(0.0);
+    let urgent_walk = ActionType::Walk
+        .default_intensity_policy()
+        .resolve_with_urgency(0.9);
 
     assert!(
         urgent_walk > calm_walk,
@@ -51,7 +55,12 @@ fn urgency_boosts_same_action_intensity() {
     assert!((urgent_walk - 0.77).abs() < 1e-5);
 
     // Non-locomotion actions stay at 0 regardless of urgency.
-    assert_eq!(ActionType::Eat.pick_locomotion_intensity(1.0), 0.0);
+    assert_eq!(
+        ActionType::Eat
+            .default_intensity_policy()
+            .resolve_with_urgency(1.0),
+        0.0
+    );
 }
 
 /// Flee's hardcoded 1.5x speed multiplier is gone. A Flee action running at
@@ -65,7 +74,7 @@ fn flee_speed_is_intensity_driven_not_hardcoded() {
     // would not catch it — but this invariant check pins the whole
     // speed pipeline through intensity_speed_multiplier.
     let flee_default_mult =
-        intensity_speed_multiplier(ActionType::Flee.default_locomotion_intensity());
+        intensity_speed_multiplier(ActionType::Flee.default_intensity_policy().resolve());
     // 2.0 is the issue's calibration target. 1.5x (the old hardcoded
     // value) should NOT appear anywhere as a Flee-specific constant.
     assert_eq!(flee_default_mult, 2.0);
