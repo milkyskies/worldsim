@@ -6,8 +6,8 @@
 //! Consumption + Bite while a human's arm offers Manipulation + Carry, without
 //! the action system knowing anything about species.
 //!
-//! Reads: PhysicalNeeds (for healing boost + deprivation checks)
-//! Writes: Body (healing/scarring, starvation/dehydration cascade)
+//! Reads: PhysicalNeeds (healing boost, starvation/dehydration checks)
+//! Writes: Body (healing/scarring, deprivation cascade)
 //! Upstream: BiologyPlugin (auto-spawn), per-species spawners
 //! Downstream: channel::ChannelCapacities (capability queries),
 //!             movement::calculate_speed (injury penalty), UI/debug
