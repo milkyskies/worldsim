@@ -43,6 +43,9 @@ impl Action for IdleAction {
             // Scaled so a fully-satisfied agent takes ~60 seconds of
             // pure Idle to saturate from 0 → 1.
             stimulation_per_sec: -0.015,
+            // Being alone erodes social satisfaction. Agents doing
+            // nothing by themselves gradually get lonelier.
+            companionship_per_sec: -0.008,
             ..Default::default()
         }
     }

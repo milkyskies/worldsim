@@ -43,6 +43,8 @@ impl Action for ExploreAction {
             // Exploring is peak novelty-seeking — the agent is actively
             // covering new ground. Strongest curiosity satisfier.
             stimulation_per_sec: 0.05,
+            // Solo exploration erodes social satisfaction.
+            companionship_per_sec: -0.006,
             ..Default::default()
         }
     }

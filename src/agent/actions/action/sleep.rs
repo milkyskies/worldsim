@@ -71,6 +71,9 @@ impl Action for SleepAction {
             // Dreams feed the mind. Sleep gently drains stimulation
             // satisfaction so the agent wakes with fresh novelty-seeking urge.
             stimulation_per_sec: -0.01,
+            // Sleeping alone slowly erodes social satisfaction so
+            // agents wake up wanting company.
+            companionship_per_sec: -0.004,
             ..Default::default()
         }
     }
