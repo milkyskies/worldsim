@@ -11,7 +11,7 @@ use bevy::prelude::*;
 use crate::agent::body::genetics::genome::{
     AEROBIC_CAPACITY_START, AGREEABLENESS_START, ANAEROBIC_CAPACITY_START, BMR_START,
     CONSCIENTIOUSNESS_START, DIGESTION_START, EXTRAVERSION_START, Genome, LOCI_PER_TRAIT, N_LOCI,
-    NEUROTICISM_START, OPENNESS_START, SPEED_START, VISION_START,
+    NEUROTICISM_START, OPENNESS_START, SLEEP_EFFICIENCY_START, SPEED_START, VISION_START,
 };
 use crate::agent::body::needs::{PsychologicalDrives, SocialDriveOverride};
 use crate::agent::body::species::SpeciesProfile;
@@ -60,6 +60,9 @@ pub struct Phenotype {
     /// Anaerobic capacity multiplier. Scales anaerobic stamina pool size.
     /// High = longer sprints (sprinter). Low = burns out fast.
     pub anaerobic_capacity: f32,
+    /// Sleep efficiency multiplier. Scales wakefulness restore rate during
+    /// sleep. High = short sleeper (recovers fast). Low = needs more sleep.
+    pub sleep_efficiency: f32,
     // Personality scores (0..1, centered at 0.5)
     pub openness: f32,
     pub conscientiousness: f32,
@@ -77,6 +80,7 @@ impl Default for Phenotype {
             bmr: 1.0,
             aerobic_capacity: 1.0,
             anaerobic_capacity: 1.0,
+            sleep_efficiency: 1.0,
             openness: 0.5,
             conscientiousness: 0.5,
             extraversion: 0.5,
@@ -95,6 +99,7 @@ impl Phenotype {
             bmr: develop_physical(genome.locus_sum(BMR_START)),
             aerobic_capacity: develop_physical(genome.locus_sum(AEROBIC_CAPACITY_START)),
             anaerobic_capacity: develop_physical(genome.locus_sum(ANAEROBIC_CAPACITY_START)),
+            sleep_efficiency: develop_physical(genome.locus_sum(SLEEP_EFFICIENCY_START)),
             openness: develop_personality(genome.locus_sum(OPENNESS_START)),
             conscientiousness: develop_personality(genome.locus_sum(CONSCIENTIOUSNESS_START)),
             extraversion: develop_personality(genome.locus_sum(EXTRAVERSION_START)),
@@ -140,6 +145,12 @@ impl Genome {
             &mut paternal,
             ANAEROBIC_CAPACITY_START,
             target.anaerobic_capacity,
+        );
+        fill_physical(
+            &mut maternal,
+            &mut paternal,
+            SLEEP_EFFICIENCY_START,
+            target.sleep_efficiency,
         );
 
         fill_personality(
@@ -332,7 +343,7 @@ pub fn apply_stamina_genetics_system(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::agent::body::genetics::genome::Genome;
+    use crate::agent::body::genetics::genome::{Genome, N_PHYSICAL_LOCI};
 
     #[test]
     fn neutral_genome_produces_baseline_phenotype() {
@@ -426,8 +437,9 @@ mod tests {
     #[test]
     fn personality_loci_do_not_affect_physical_traits() {
         let mut g = Genome::default();
-        // Set all personality loci to max
-        for i in 16..36 {
+        // Set all personality loci to max (use N_PHYSICAL_LOCI..N_LOCI
+        // so the range stays correct when new physical traits are added).
+        for i in N_PHYSICAL_LOCI..N_LOCI {
             g.maternal[i] = 10.0;
             g.paternal[i] = 10.0;
         }

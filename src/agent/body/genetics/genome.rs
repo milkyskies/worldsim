@@ -9,8 +9,8 @@ use bevy::prelude::*;
 
 /// Total number of loci per haplotype.
 ///
-/// Layout: 4 loci × 6 physical traits (0..24) + 4 loci × 5 personality traits (24..44) = 44.
-pub const N_LOCI: usize = 44;
+/// Layout: 4 loci × 7 physical traits (0..28) + 4 loci × 5 personality traits (28..48) = 48.
+pub const N_LOCI: usize = 48;
 
 /// Number of loci per trait per haplotype (4 loci × 2 haplotypes = 8 values summed per trait).
 pub const LOCI_PER_TRAIT: usize = 4;
@@ -22,16 +22,17 @@ pub const DIGESTION_START: usize = 8;
 pub const BMR_START: usize = 12;
 pub const AEROBIC_CAPACITY_START: usize = 16;
 pub const ANAEROBIC_CAPACITY_START: usize = 20;
+pub const SLEEP_EFFICIENCY_START: usize = 24;
 
-/// Number of physical trait loci (6 traits × 4 loci each).
-pub const N_PHYSICAL_LOCI: usize = 24;
+/// Number of physical trait loci (7 traits × 4 loci each).
+pub const N_PHYSICAL_LOCI: usize = 28;
 
-// Personality trait locus start offsets (loci 24..44)
-pub const OPENNESS_START: usize = 24;
-pub const CONSCIENTIOUSNESS_START: usize = 28;
-pub const EXTRAVERSION_START: usize = 32;
-pub const AGREEABLENESS_START: usize = 36;
-pub const NEUROTICISM_START: usize = 40;
+// Personality trait locus start offsets (loci 28..48)
+pub const OPENNESS_START: usize = 28;
+pub const CONSCIENTIOUSNESS_START: usize = 32;
+pub const EXTRAVERSION_START: usize = 36;
+pub const AGREEABLENESS_START: usize = 40;
+pub const NEUROTICISM_START: usize = 44;
 
 /// Diploid genome: two haplotypes of [`N_LOCI`] loci each.
 ///

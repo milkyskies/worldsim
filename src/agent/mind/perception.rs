@@ -761,6 +761,7 @@ mod threat_tests {
             hydration: 100.0,
             stamina: Stamina::default(),
             health: 100.0,
+            wakefulness: 1.0,
             last_health_damage: None,
         }
     }
@@ -855,6 +856,7 @@ mod threat_tests {
             hydration: 100.0,
             stamina: Stamina::default(),
             health: 0.0,
+            wakefulness: 1.0,
             last_health_damage: None,
         };
         let score = assess_threat(&personality, &needs, None);

@@ -122,6 +122,8 @@ fn controls_panel_system(world: &mut World) {
                     ("3x", 180.0),
                     ("5x", 300.0),
                     ("10x", 600.0),
+                    ("30x", 1800.0),
+                    ("60x", 3600.0),
                 ] {
                     let selected = (speed - rate / 60.0).abs() < 0.1;
                     let btn = egui::Button::new(label);
@@ -556,6 +558,8 @@ impl<'a> egui_dock::TabViewer for UiViewer<'a> {
                         ("3x", 180.0),
                         ("5x", 300.0),
                         ("10x", 600.0),
+                        ("30x", 1800.0),
+                        ("60x", 3600.0),
                     ] {
                         let selected = (speed - rate / 60.0).abs() < 0.1;
                         let btn = egui::Button::new(label);

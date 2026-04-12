@@ -32,6 +32,8 @@ impl Plugin for NervousSystemPlugin {
                     // the legacy `CurrentActivity` component still
                     // metabolize (#416).
                     activity_effects::tick_metabolism,
+                    crate::agent::body::wakefulness::tick_wakefulness
+                        .after(activity_effects::tick_metabolism),
                     activity_effects::apply_activity_effects
                         .after(activity_effects::tick_metabolism),
                     // Territoriality reads MindGraph, which is written by

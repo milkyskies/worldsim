@@ -28,6 +28,8 @@ pub struct AgentConfig {
     pub hydration: f32,
     /// Stamina value (0.0 = exhausted, 100.0 = fully rested).
     pub stamina: f32,
+    /// Wakefulness (0.0 = must sleep, 1.0 = fully rested).
+    pub wakefulness: f32,
     /// Optional override for baseline companionship satisfaction
     /// (0.0 = desperately lonely, 1.0 = content). `None` keeps the
     /// genome-derived value. `Some(v)` inserts a `SocialDriveOverride`
@@ -51,6 +53,7 @@ impl Default for AgentConfig {
             metabolism: Metabolism::well_fed(),
             hydration: 100.0,
             stamina: 100.0,
+            wakefulness: 1.0,
             social_drive: None,
             genome: Genome::default(),
             knowledge: Vec::new(),

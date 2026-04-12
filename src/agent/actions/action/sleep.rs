@@ -34,11 +34,10 @@ impl Action for SleepAction {
         }
     }
 
-    // Planning: Sleep leads to full stamina
     fn plan_effects(&self) -> Vec<Triple> {
         vec![Triple::new(
             Node::Self_,
-            Predicate::Stamina,
+            Predicate::Wakefulness,
             Value::Int(100),
         )]
     }

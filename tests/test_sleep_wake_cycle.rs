@@ -25,6 +25,7 @@ fn tired_sleeper() -> (TestWorld, bevy::prelude::Entity) {
         .agent("sleeper")
         .pos(Vec2::new(50.0, 50.0))
         .stamina(5.0)
+        .wakefulness(0.1)
         .done()
         .build();
     let sleeper = agents["sleeper"];
