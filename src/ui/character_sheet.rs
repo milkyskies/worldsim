@@ -779,7 +779,7 @@ fn render_overview(ui: &mut egui::Ui, world: &World, entity: Entity) {
         urgency_line(ui, "Thirst urgency", urgency_for(UrgencySource::Thirst));
         vital_row_explained(
             ui,
-            "Stamina",
+            "Aerobic",
             needs.stamina.aerobic,
             needs.stamina.aerobic_max,
             0.3,
@@ -1083,7 +1083,7 @@ fn render_needs(ui: &mut egui::Ui, world: &World, entity: Entity) {
     );
     vital_row_explained(
         ui,
-        "Stamina",
+        "Aerobic",
         needs.stamina.aerobic,
         needs.stamina.aerobic_max,
         0.3,
@@ -1098,7 +1098,7 @@ fn render_needs(ui: &mut egui::Ui, world: &World, entity: Entity) {
     );
     vital_row_explained(
         ui,
-        "Sprint",
+        "Anaerobic",
         needs.stamina.anaerobic,
         needs.stamina.anaerobic_max,
         0.3,
