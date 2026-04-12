@@ -469,7 +469,6 @@ fn character_sheet_system(world: &mut World) {
             // Tab content
             egui::ScrollArea::both()
                 .auto_shrink([false, false])
-                .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysVisible)
                 .show(ui, |ui| match new_tab {
                     CharSheetTab::Overview => render_overview(ui, world, entity),
                     CharSheetTab::Vitals => render_vitals(ui, world, entity),
@@ -1096,31 +1095,29 @@ fn render_trace(ui: &mut egui::Ui, world: &World, entity: Entity) {
     let mut records: Vec<&TraceRecord> = trace.records.iter().collect();
     records.reverse();
 
-    egui::ScrollArea::vertical()
-        .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysVisible)
-        .show(ui, |ui| {
-            for record in records.iter().take(200) {
-                let tick = record.tick();
-                let ago = tick_now.saturating_sub(tick);
-                let line_color = match record {
-                    TraceRecord::DecisionWinner { .. } => Color32::YELLOW,
-                    TraceRecord::ActionFailed { .. } => Color32::from_rgb(220, 120, 120),
-                    TraceRecord::ActionStarted { .. } => Color32::from_rgb(140, 200, 255),
-                    TraceRecord::ActionCompleted { .. } => Color32::from_rgb(120, 200, 140),
-                    TraceRecord::EmotionTriggered { .. } => Color32::from_rgb(255, 160, 210),
-                    TraceRecord::EntityPerceived { .. } => Color32::from_rgb(200, 200, 140),
-                    _ => Color32::LIGHT_GRAY,
-                };
-                ui.horizontal(|ui| {
-                    ui.label(
-                        egui::RichText::new(format!("t-{:<5}", ago))
-                            .small()
-                            .color(Color32::from_gray(140)),
-                    );
-                    ui.colored_label(line_color, record.to_text());
-                });
-            }
-        });
+    egui::ScrollArea::vertical().show(ui, |ui| {
+        for record in records.iter().take(200) {
+            let tick = record.tick();
+            let ago = tick_now.saturating_sub(tick);
+            let line_color = match record {
+                TraceRecord::DecisionWinner { .. } => Color32::YELLOW,
+                TraceRecord::ActionFailed { .. } => Color32::from_rgb(220, 120, 120),
+                TraceRecord::ActionStarted { .. } => Color32::from_rgb(140, 200, 255),
+                TraceRecord::ActionCompleted { .. } => Color32::from_rgb(120, 200, 140),
+                TraceRecord::EmotionTriggered { .. } => Color32::from_rgb(255, 160, 210),
+                TraceRecord::EntityPerceived { .. } => Color32::from_rgb(200, 200, 140),
+                _ => Color32::LIGHT_GRAY,
+            };
+            ui.horizontal(|ui| {
+                ui.label(
+                    egui::RichText::new(format!("t-{:<5}", ago))
+                        .small()
+                        .color(Color32::from_gray(140)),
+                );
+                ui.colored_label(line_color, record.to_text());
+            });
+        }
+    });
 }
 
 // ============================================================================
@@ -2416,23 +2413,7 @@ fn render_brain(ui: &mut egui::Ui, world: &World, entity: Entity) {
 // HELPERS
 // ============================================================================
 
-/// Fixed-height action block so the rest of the panel doesn't shift
-/// each time an action completes and another one is about to start.
-const ACTION_BLOCK_HEIGHT: f32 = 110.0;
-
 fn render_overview_actions(ui: &mut egui::Ui, world: &World, entity: Entity) {
-    let width = ui.available_width();
-    let (rect, _resp) =
-        ui.allocate_exact_size(egui::vec2(width, ACTION_BLOCK_HEIGHT), egui::Sense::hover());
-    let mut child = ui.new_child(
-        egui::UiBuilder::new()
-            .max_rect(rect)
-            .layout(egui::Layout::top_down(egui::Align::LEFT)),
-    );
-    render_overview_actions_inner(&mut child, world, entity);
-}
-
-fn render_overview_actions_inner(ui: &mut egui::Ui, world: &World, entity: Entity) {
     use crate::agent::actions::registry::ActionState;
     use crate::agent::brains::history::BrainHistory;
 

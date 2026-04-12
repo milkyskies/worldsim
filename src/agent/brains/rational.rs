@@ -440,95 +440,94 @@ pub fn update_rational_planning(
             continue;
         }
 
-        if let Some(goal) = cns_goal_snapshot {
-            if plan_memory.needs_replan_for(&goal) {
-                let cooldown_ok = plan_memory
-                    .last_plan_attempt_tick
-                    .is_none_or(|t| current_tick.saturating_sub(t) >= ns_config.thinking_interval);
-                if !cooldown_ok {
-                    continue;
-                }
+        if let Some(goal) = cns_goal_snapshot
+            && plan_memory.needs_replan_for(&goal)
+        {
+            let cooldown_ok = plan_memory
+                .last_plan_attempt_tick
+                .is_none_or(|t| current_tick.saturating_sub(t) >= ns_config.thinking_interval);
+            if !cooldown_ok {
+                continue;
+            }
 
-                let actions = collect_planning_actions(
-                    &action_registry,
-                    mind,
-                    &affordances,
-                    PlanningMode::Generate,
-                    &capacities,
+            let actions = collect_planning_actions(
+                &action_registry,
+                mind,
+                &affordances,
+                PlanningMode::Generate,
+                &capacities,
+            );
+
+            plan_attempts += 1;
+            plan_memory.plans_generated_total += 1;
+            plan_memory.last_plan_attempt_tick = Some(current_tick);
+
+            if perf_logging && actions.len() > 20 {
+                let action_names: Vec<String> = actions.iter().map(|a| a.name.clone()).collect();
+                game_log.performance(format!(
+                    "[RationalBrain] Ent {:?} planning with {} actions: {:?}",
+                    entity,
+                    actions.len(),
+                    action_names
+                ));
+            }
+
+            // GOAP search drains alertness. Curious (high-openness)
+            // agents pay less. The cooldown gate above ensures this
+            // drain fires at most once per `thinking_interval`, so
+            // the per-wallclock cost is constant regardless of
+            // tick rate.
+            let openness_relief = personality.traits.openness
+                * crate::constants::brains::cognition::OPENNESS_PLANNING_RELIEF;
+            let plan_drain = crate::constants::brains::rational::PLAN_GENERATION_ALERTNESS_DRAIN
+                * (1.0 - openness_relief);
+            consciousness.alertness = (consciousness.alertness - plan_drain).max(0.0);
+
+            let cost_ctx = crate::agent::brains::planner::PlanCostContext::from_agent(
+                physical,
+                &consciousness,
+                personality,
+                tick.current,
+            );
+            if let Some(steps) =
+                crate::agent::brains::planner::regressive_plan(mind, &goal, &actions, &cost_ctx)
+            {
+                let agent_pos = transform.translation.truncate();
+                let cost = crate::agent::brains::planner::estimate_plan_cost(
+                    &steps, agent_pos, &cost_ctx, mind,
                 );
-
-                plan_attempts += 1;
-                plan_memory.plans_generated_total += 1;
-                plan_memory.last_plan_attempt_tick = Some(current_tick);
-
-                if perf_logging && actions.len() > 20 {
-                    let action_names: Vec<String> =
-                        actions.iter().map(|a| a.name.clone()).collect();
-                    game_log.performance(format!(
-                        "[RationalBrain] Ent {:?} planning with {} actions: {:?}",
-                        entity,
-                        actions.len(),
-                        action_names
-                    ));
-                }
-
-                // GOAP search drains alertness. Curious (high-openness)
-                // agents pay less. The cooldown gate above ensures this
-                // drain fires at most once per `thinking_interval`, so
-                // the per-wallclock cost is constant regardless of
-                // tick rate.
-                let openness_relief = personality.traits.openness
-                    * crate::constants::brains::cognition::OPENNESS_PLANNING_RELIEF;
-                let plan_drain = crate::constants::brains::rational::PLAN_GENERATION_ALERTNESS_DRAIN
-                    * (1.0 - openness_relief);
-                consciousness.alertness = (consciousness.alertness - plan_drain).max(0.0);
-
-                let cost_ctx = crate::agent::brains::planner::PlanCostContext::from_agent(
-                    physical,
-                    &consciousness,
-                    personality,
-                    tick.current,
-                );
-                if let Some(steps) =
-                    crate::agent::brains::planner::regressive_plan(mind, &goal, &actions, &cost_ctx)
-                {
-                    let agent_pos = transform.translation.truncate();
-                    let cost = crate::agent::brains::planner::estimate_plan_cost(
-                        &steps, agent_pos, &cost_ctx, mind,
-                    );
-                    let id = plan_memory.mint_plan_id();
-                    // Self-generated goal-directed plans have their urgency
-                    // and cost folded into the initial commitment so the
-                    // plan's starting state reflects how quickly it should
-                    // begin running. Background is reserved for passively
-                    // held plans (verbal commitments etc.); goal-directed
-                    // plans skip straight into Considering or Executing
-                    // depending on how strongly the goal drives them.
-                    let threshold =
-                        compute_commit_threshold(cost, personality.traits.conscientiousness);
-                    // Seed commitment with urgency-weighted boost so urgent
-                    // plans cross the threshold immediately and non-urgent
-                    // ones still get a head start — matches the pre-#338
-                    // "commit same tick" behaviour for hunger/thirst.
-                    let initial_commitment = threshold * (0.5 + goal.priority.clamp(0.0, 1.0));
-                    let initial_state = if initial_commitment >= threshold {
-                        PlanState::Executing
-                    } else {
-                        PlanState::Considering
-                    };
-                    plan_memory.insert(HeldPlan {
-                        id,
-                        goal,
-                        steps,
-                        state: initial_state,
-                        commitment: initial_commitment,
-                        subjective_cost: cost,
-                        source: PlanSource::Brain(BrainType::Rational),
-                        created_at: current_tick,
-                        last_touched: current_tick,
-                        current_step: 0,
-                    });
-                }
+                let id = plan_memory.mint_plan_id();
+                // Self-generated goal-directed plans have their urgency
+                // and cost folded into the initial commitment so the
+                // plan's starting state reflects how quickly it should
+                // begin running. Background is reserved for passively
+                // held plans (verbal commitments etc.); goal-directed
+                // plans skip straight into Considering or Executing
+                // depending on how strongly the goal drives them.
+                let threshold =
+                    compute_commit_threshold(cost, personality.traits.conscientiousness);
+                // Seed commitment with urgency-weighted boost so urgent
+                // plans cross the threshold immediately and non-urgent
+                // ones still get a head start — matches the pre-#338
+                // "commit same tick" behaviour for hunger/thirst.
+                let initial_commitment = threshold * (0.5 + goal.priority.clamp(0.0, 1.0));
+                let initial_state = if initial_commitment >= threshold {
+                    PlanState::Executing
+                } else {
+                    PlanState::Considering
+                };
+                plan_memory.insert(HeldPlan {
+                    id,
+                    goal,
+                    steps,
+                    state: initial_state,
+                    commitment: initial_commitment,
+                    subjective_cost: cost,
+                    source: PlanSource::Brain(BrainType::Rational),
+                    created_at: current_tick,
+                    last_touched: current_tick,
+                    current_step: 0,
+                });
             }
         }
 
