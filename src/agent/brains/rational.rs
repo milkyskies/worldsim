@@ -260,7 +260,7 @@ pub fn update_rational_planning(
         personality,
     ) in query.iter_mut()
     {
-        let capacities = ChannelCapacities::compute(body, Some(physical));
+        let capacities = ChannelCapacities::compute(body, Some(physical), Some(&*consciousness));
         let current_tick = tick.current;
 
         // 1. Verify every Executing plan: advance completed steps, drop
@@ -621,7 +621,6 @@ pub fn rational_brain_propose(
     cns: &crate::agent::nervous_system::cns::CentralNervousSystem,
     mind: &MindGraph,
     action_registry: &crate::agent::actions::ActionRegistry,
-    in_conversation: bool,
 ) -> Vec<BrainProposal> {
     let cns_intent = cns
         .urgencies
@@ -677,7 +676,6 @@ pub fn rational_brain_propose(
     // baseline).
     if let Some(goal) = &cns.current_goal
         && matches!(cns_intent, Intent::SatisfyHunger | Intent::SatisfyThirst)
-        && !in_conversation
     {
         let explore_action = action_registry
             .get(ActionType::Explore)
@@ -837,13 +835,8 @@ mod tests {
             template("WalkToApple", ActionType::Walk),
         );
 
-        let proposals = rational_brain_propose(
-            &memory,
-            &cns,
-            &MindGraph::default(),
-            &test_registry(),
-            false,
-        );
+        let proposals =
+            rational_brain_propose(&memory, &cns, &MindGraph::default(), &test_registry());
 
         assert_eq!(proposals.len(), 1);
         assert_eq!(proposals[0].brain, BrainType::Rational);
@@ -865,13 +858,8 @@ mod tests {
         });
         let memory = PlanMemory::default();
 
-        let proposals = rational_brain_propose(
-            &memory,
-            &cns,
-            &MindGraph::default(),
-            &test_registry(),
-            false,
-        );
+        let proposals =
+            rational_brain_propose(&memory, &cns, &MindGraph::default(), &test_registry());
 
         assert!(
             proposals.is_empty(),
@@ -884,13 +872,8 @@ mod tests {
         let cns = cns_with_hunger(1.0);
         let memory = PlanMemory::default();
 
-        let proposals = rational_brain_propose(
-            &memory,
-            &cns,
-            &MindGraph::default(),
-            &test_registry(),
-            false,
-        );
+        let proposals =
+            rational_brain_propose(&memory, &cns, &MindGraph::default(), &test_registry());
 
         assert_eq!(proposals.len(), 1);
         assert_eq!(proposals[0].action.action_type, ActionType::Explore);
@@ -907,13 +890,8 @@ mod tests {
         let cns = CentralNervousSystem::default();
         let memory = PlanMemory::default();
 
-        let proposals = rational_brain_propose(
-            &memory,
-            &cns,
-            &MindGraph::default(),
-            &test_registry(),
-            false,
-        );
+        let proposals =
+            rational_brain_propose(&memory, &cns, &MindGraph::default(), &test_registry());
 
         assert!(
             proposals.is_empty(),
@@ -937,13 +915,8 @@ mod tests {
             template("Converse", ActionType::Converse),
         );
 
-        let proposals = rational_brain_propose(
-            &memory,
-            &cns,
-            &MindGraph::default(),
-            &test_registry(),
-            false,
-        );
+        let proposals =
+            rational_brain_propose(&memory, &cns, &MindGraph::default(), &test_registry());
 
         assert_eq!(
             proposals.len(),
@@ -1096,13 +1069,8 @@ mod tests {
             current_step: 0,
         });
 
-        let proposals = rational_brain_propose(
-            &memory,
-            &cns,
-            &MindGraph::default(),
-            &test_registry(),
-            false,
-        );
+        let proposals =
+            rational_brain_propose(&memory, &cns, &MindGraph::default(), &test_registry());
 
         // Background plans aren't proposed — Explore fallback fires because
         // hunger is a resource goal with no executing plan yet.
@@ -1123,7 +1091,7 @@ mod tests {
         use crate::agent::actions::registry::Action;
         use crate::agent::biology::body::Body;
 
-        let wolf_caps = ChannelCapacities::compute(Some(&Body::wolf()), None);
+        let wolf_caps = ChannelCapacities::compute(Some(&Body::wolf()), None, None);
         assert!(
             !action_is_anatomically_feasible(AttackAction.body_channels(), &wolf_caps),
             "wolf's Manipulation 0.4 should hard-conflict with Attack's 0.9"
@@ -1140,7 +1108,7 @@ mod tests {
         use crate::agent::actions::registry::Action;
         use crate::agent::biology::body::Body;
 
-        let human_caps = ChannelCapacities::compute(Some(&Body::human()), None);
+        let human_caps = ChannelCapacities::compute(Some(&Body::human()), None, None);
         assert!(
             action_is_anatomically_feasible(AttackAction.body_channels(), &human_caps),
             "human's two arms (Manipulation 1.0) should fit Attack's 0.9"

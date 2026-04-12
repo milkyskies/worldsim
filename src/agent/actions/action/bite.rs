@@ -47,6 +47,8 @@ impl Action for BiteAction {
         const CHANNELS: &[ChannelUsage] = &[
             ChannelUsage::new(Channel::Bite, 1.0),
             ChannelUsage::new(Channel::FullBody, 0.7),
+            ChannelUsage::new(Channel::Focus, 0.3),
+            ChannelUsage::new(Channel::Awareness, 0.5),
         ];
         CHANNELS
     }
