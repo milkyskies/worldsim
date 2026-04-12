@@ -58,6 +58,7 @@ pub fn start_actions(
         &ItemSlots,
         Option<&Body>,
         Option<&PhysicalNeeds>,
+        Option<&Consciousness>,
     )>,
     entity_transforms: Query<&GlobalTransform>,
     mut outcome_events: MessageWriter<ActionOutcomeEvent>,
@@ -74,11 +75,12 @@ pub fn start_actions(
         inventory,
         body,
         physical,
+        consciousness,
     ) in agents.iter_mut()
     {
         // Snapshot capacities once per agent so the channel methods don't
         // recompute incapacitation/exhaustion math per requirement check.
-        let capacities = ChannelCapacities::compute(body, physical);
+        let capacities = ChannelCapacities::compute(body, physical, consciousness);
 
         for action_template in &brain_state.chosen_actions {
             let wanted_action = action_template.action_type;
@@ -322,6 +324,7 @@ pub fn tick_actions(
         Option<&crate::agent::skills::Skills>,
         Option<&SpeciesProfile>,
         Option<&Phenotype>,
+        Option<&Consciousness>,
     )>,
     mut target_inventories: Query<&mut ItemSlots, Without<PhysicalNeeds>>,
     living_entities: Query<()>,
@@ -342,13 +345,11 @@ pub fn tick_actions(
         skills,
         species,
         phenotype,
+        consciousness,
     ) in agents.iter_mut()
     {
-        // Snapshot the load and capacities at the start of the tick. Capacities
-        // freeze the start-of-tick stamina so degradation doesn't compound as
-        // physical needs are mutated by per-action effects.
         let load = active.channel_load(&registry);
-        let capacities = ChannelCapacities::compute(body, Some(&*physical));
+        let capacities = ChannelCapacities::compute(body, Some(&*physical), consciousness);
 
         let mut completed_types: Vec<ActionType> = Vec::new();
         let mut target_gone_types: Vec<ActionType> = Vec::new();
@@ -754,7 +755,7 @@ pub fn apply_action_effects(
         let load = active.channel_load(&registry);
         // Capacities freeze the start-of-tick stamina so degradation doesn't
         // compound as the loop mutates physical.stamina mid-iteration.
-        let capacities = ChannelCapacities::compute(body, Some(&*physical));
+        let capacities = ChannelCapacities::compute(body, Some(&*physical), Some(&*consciousness));
         let body_mass = species.map(|s| s.mass_kg).unwrap_or(DEFAULT_BODY_MASS);
 
         // Snapshot stamina for effective_intensity computation — the same

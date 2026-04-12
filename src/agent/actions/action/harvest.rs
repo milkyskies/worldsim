@@ -117,7 +117,10 @@ impl Action for HarvestAction {
     fn body_channels(&self) -> &'static [ChannelUsage] {
         // Hands only — the legs are planted and the posture gate handles
         // the "you can't harvest while walking" mutex.
-        const CHANNELS: &[ChannelUsage] = &[ChannelUsage::new(Channel::Manipulation, 0.9)];
+        const CHANNELS: &[ChannelUsage] = &[
+            ChannelUsage::new(Channel::Manipulation, 0.9),
+            ChannelUsage::new(Channel::Focus, 0.1),
+        ];
         CHANNELS
     }
 

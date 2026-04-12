@@ -260,7 +260,7 @@ pub fn update_rational_planning(
         personality,
     ) in query.iter_mut()
     {
-        let capacities = ChannelCapacities::compute(body, Some(physical));
+        let capacities = ChannelCapacities::compute(body, Some(physical), Some(&*consciousness));
         let current_tick = tick.current;
 
         // 1. Verify every Executing plan: advance completed steps, drop
@@ -1123,7 +1123,7 @@ mod tests {
         use crate::agent::actions::registry::Action;
         use crate::agent::biology::body::Body;
 
-        let wolf_caps = ChannelCapacities::compute(Some(&Body::wolf()), None);
+        let wolf_caps = ChannelCapacities::compute(Some(&Body::wolf()), None, None);
         assert!(
             !action_is_anatomically_feasible(AttackAction.body_channels(), &wolf_caps),
             "wolf's Manipulation 0.4 should hard-conflict with Attack's 0.9"
@@ -1140,7 +1140,7 @@ mod tests {
         use crate::agent::actions::registry::Action;
         use crate::agent::biology::body::Body;
 
-        let human_caps = ChannelCapacities::compute(Some(&Body::human()), None);
+        let human_caps = ChannelCapacities::compute(Some(&Body::human()), None, None);
         assert!(
             action_is_anatomically_feasible(AttackAction.body_channels(), &human_caps),
             "human's two arms (Manipulation 1.0) should fit Attack's 0.9"

@@ -155,7 +155,7 @@ pub fn arbitrate_every_tick(
         proposals.push(survival_proposal);
         proposals.push(emotional_proposal);
         proposals.extend(rational_proposals.into_iter().map(Some));
-        let capacities = crate::agent::actions::ChannelCapacities::compute(body, Some(physical));
+        let capacities = crate::agent::actions::ChannelCapacities::compute(body, Some(physical), Some(&*consciousness));
 
         let result = arbitrate_parallel(&proposals, &powers, &capacities, &action_registry);
         let admitted = result.admitted;

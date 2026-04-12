@@ -42,7 +42,7 @@ impl Action for WakeUpAction {
         //   isn't also scanning the room, they're re-orienting.
         const CHANNELS: &[ChannelUsage] = &[
             ChannelUsage::new(Channel::FullBody, 0.4),
-            ChannelUsage::new(Channel::Cognition, 1.0),
+            ChannelUsage::new(Channel::Focus, 1.0),
         ];
         CHANNELS
     }

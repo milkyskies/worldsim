@@ -1343,6 +1343,7 @@ fn render_channels(ui: &mut egui::Ui, world: &World, entity: Entity) {
     let active = world.get::<ActiveActions>(entity);
     let body = world.get::<Body>(entity);
     let physical = world.get::<PhysicalNeeds>(entity);
+    let consciousness = world.get::<crate::agent::body::needs::Consciousness>(entity);
     let registry = world.get_resource::<ActionRegistry>();
 
     let Some(registry) = registry else {
@@ -1354,7 +1355,7 @@ fn render_channels(ui: &mut egui::Ui, world: &World, entity: Entity) {
         return;
     };
 
-    let capacities = ChannelCapacities::compute(body, physical);
+    let capacities = ChannelCapacities::compute(body, physical, consciousness);
 
     let mut per_channel: Vec<(Channel, f32, Vec<String>)> =
         Channel::ALL.iter().map(|c| (*c, 0.0, Vec::new())).collect();

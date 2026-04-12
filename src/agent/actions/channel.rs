@@ -12,12 +12,13 @@
 //! owns which parts offer which channels; this module just consumes the
 //! aggregate `channel_capacity`.
 //!
-//! Reads: Body (per-channel capacity after injury), PhysicalNeeds (stamina for exhaustion)
+//! Reads: Body (per-channel capacity after injury), PhysicalNeeds (stamina for exhaustion), Consciousness (alertness for cognitive channels)
 //! Writes: nothing - this is a pure helper module
 //! Upstream: actions::registry (Action trait body_channels()), biology::body, body::needs
 //! Downstream: nervous_system::execution, brains::arbitration
 
 use crate::agent::biology::body::Body;
+use crate::agent::body::needs::Consciousness;
 use crate::agent::body::needs::PhysicalNeeds;
 use crate::constants::movement::{TIRED_SPEED_MULTIPLIER, TIRED_STAMINA_THRESHOLD};
 use bevy::prelude::*;
@@ -29,11 +30,16 @@ pub const SOFT_CONFLICT_THRESHOLD: f32 = 1.0;
 pub const HARD_CONFLICT_THRESHOLD: f32 = 1.4;
 
 /// Number of distinct capability channels - used for fixed-size load arrays.
-pub const CHANNEL_COUNT: usize = 8;
+pub const CHANNEL_COUNT: usize = 9;
 
-/// A capability an action occupies. Channels describe *what the body is
-/// doing*, not *which part is doing it* — a wolf and a human can both
-/// satisfy `Manipulation`, but via different anatomy.
+/// A capability an action occupies. Channels describe *what the body or
+/// mind is doing*, not *which part is doing it* — a wolf and a human can
+/// both satisfy `Manipulation`, but via different anatomy.
+///
+/// Physical channels (0-6) represent anatomical capabilities. Cognitive
+/// channels (7-8) represent mental capacity — Focus for deliberate
+/// processing and Awareness for environmental monitoring. Cognitive
+/// channels are exempt from physical exhaustion but scale with alertness.
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect)]
 pub enum Channel {
@@ -52,8 +58,14 @@ pub enum Channel {
     /// Whole-body engagement — sleep, flee posture, falling. Abstract: not
     /// an anatomical part, but a "the whole animal is committed" gate.
     FullBody = 6,
-    /// Cognition — planning always runs, never occupied.
-    Cognition = 7,
+    /// Deliberate processing — planning, deep conversation, complex
+    /// problem-solving. Limited capacity: two Focus-heavy activities
+    /// conflict. Capacity scales with `Consciousness.alertness`.
+    Focus = 7,
+    /// Environmental monitoring — threat detection, noticing nearby
+    /// movement, ambient awareness. Deep focus reduces it (tunnel vision);
+    /// fear demands it (hypervigilance). Capacity scales with alertness.
+    Awareness = 8,
 }
 
 impl Channel {
@@ -66,7 +78,8 @@ impl Channel {
         Channel::Bite,
         Channel::Carry,
         Channel::FullBody,
-        Channel::Cognition,
+        Channel::Focus,
+        Channel::Awareness,
     ];
 
     #[inline]
@@ -74,28 +87,45 @@ impl Channel {
         self as usize
     }
 
-    /// Is this channel subject to exhaustion scaling? Abstract channels
-    /// (FullBody, Cognition) are exempt so Sleep and planning stay reachable
-    /// at zero stamina.
+    /// Is this channel subject to physical exhaustion scaling? Abstract and
+    /// cognitive channels are exempt so Sleep and planning stay reachable at
+    /// zero stamina. Focus and Awareness scale with alertness instead (see
+    /// `max_capacity`).
     #[inline]
     fn exhausts(self) -> bool {
-        !matches!(self, Channel::FullBody | Channel::Cognition)
+        !matches!(
+            self,
+            Channel::FullBody | Channel::Focus | Channel::Awareness
+        )
     }
 
-    /// Maximum intensity available for this channel given the current body
-    /// and physical-needs state.
+    /// Is this a cognitive channel whose capacity scales with alertness
+    /// rather than physical stamina?
+    #[inline]
+    pub fn is_cognitive(self) -> bool {
+        matches!(self, Channel::Focus | Channel::Awareness)
+    }
+
+    /// Maximum intensity available for this channel given the current body,
+    /// physical-needs, and consciousness state.
     ///
-    /// The body supplies the per-channel base capacity via
-    /// [`Body::channel_capacity`], and this function layers incapacitation
-    /// and exhaustion on top. Cognition is always 1.0 (planning is free),
-    /// and an agent without a `Body` component also defaults to 1.0 so tests
-    /// and bodyless entities still work.
+    /// Physical channels get their base capacity from [`Body::channel_capacity`]
+    /// scaled by physical exhaustion. Cognitive channels (Focus, Awareness)
+    /// get their base from the body and scale with `Consciousness.alertness`
+    /// instead — a tired agent has reduced cognitive capacity.
     ///
     /// Per-tick callers should use [`ChannelCapacities::compute`] to evaluate
     /// every channel once and reuse the array.
-    pub fn max_capacity(&self, body: Option<&Body>, physical: Option<&PhysicalNeeds>) -> f32 {
-        if matches!(self, Channel::Cognition) {
-            return 1.0;
+    pub fn max_capacity(
+        &self,
+        body: Option<&Body>,
+        physical: Option<&PhysicalNeeds>,
+        consciousness: Option<&Consciousness>,
+    ) -> f32 {
+        if self.is_cognitive() {
+            let base = body.map(|b| b.channel_capacity(*self)).unwrap_or(1.0);
+            let alertness = consciousness.map(|c| c.alertness).unwrap_or(1.0);
+            return base * alertness.clamp(0.0, 1.0);
         }
 
         let Some(body) = body else {
@@ -104,7 +134,8 @@ impl Channel {
 
         if body.is_incapacitated() {
             return match self {
-                Channel::FullBody | Channel::Cognition => 1.0,
+                Channel::FullBody => 1.0,
+                ch if ch.is_cognitive() => 1.0,
                 _ => 0.0,
             };
         }
@@ -163,10 +194,14 @@ impl ChannelCapacities {
     }
 
     /// Compute the per-channel capacity snapshot for an agent's current state.
-    pub fn compute(body: Option<&Body>, physical: Option<&PhysicalNeeds>) -> Self {
+    pub fn compute(
+        body: Option<&Body>,
+        physical: Option<&PhysicalNeeds>,
+        consciousness: Option<&Consciousness>,
+    ) -> Self {
         let mut caps = [1.0; CHANNEL_COUNT];
         for ch in Channel::ALL {
-            caps[ch.idx()] = ch.max_capacity(body, physical);
+            caps[ch.idx()] = ch.max_capacity(body, physical, consciousness);
         }
         Self(caps)
     }
@@ -355,7 +390,7 @@ mod tests {
     }
 
     fn caps_for(body: &Body, physical: Option<&PhysicalNeeds>) -> ChannelCapacities {
-        ChannelCapacities::compute(Some(body), physical)
+        ChannelCapacities::compute(Some(body), physical, None)
     }
 
     /// Push two severe head injuries to cross the 0.2 incapacitation threshold.
@@ -459,7 +494,7 @@ mod tests {
     #[test]
     fn body_max_capacity_defaults_to_one_when_no_body() {
         for ch in Channel::ALL {
-            assert_eq!(ch.max_capacity(None, None), 1.0);
+            assert_eq!(ch.max_capacity(None, None, None), 1.0);
         }
     }
 
@@ -483,10 +518,10 @@ mod tests {
             Channel::Consumption,
             Channel::Vocalization,
             Channel::FullBody,
-            Channel::Cognition,
+            Channel::Focus,
         ] {
             assert_eq!(
-                ch.max_capacity(Some(&body), None),
+                ch.max_capacity(Some(&body), None, None),
                 1.0,
                 "{ch:?} should be 1.0 on a healthy human body"
             );
@@ -497,7 +532,7 @@ mod tests {
     fn healthy_human_has_no_bite_capability() {
         let body = Body::human();
         assert_eq!(
-            Channel::Bite.max_capacity(Some(&body), None),
+            Channel::Bite.max_capacity(Some(&body), None, None),
             0.0,
             "humans should not provide Bite — no anatomy declares it"
         );
@@ -506,8 +541,8 @@ mod tests {
     #[test]
     fn wolf_has_bite_but_limited_manipulation() {
         let body = Body::wolf();
-        let bite = Channel::Bite.max_capacity(Some(&body), None);
-        let manip = Channel::Manipulation.max_capacity(Some(&body), None);
+        let bite = Channel::Bite.max_capacity(Some(&body), None, None);
+        let manip = Channel::Manipulation.max_capacity(Some(&body), None, None);
         assert!(bite >= 1.0, "wolf jaws should provide Bite 1.0, got {bite}");
         assert!(
             (manip - 0.4).abs() < 1e-4,
@@ -518,8 +553,8 @@ mod tests {
     #[test]
     fn deer_has_no_manipulation_or_bite() {
         let body = Body::deer();
-        assert_eq!(Channel::Manipulation.max_capacity(Some(&body), None), 0.0);
-        assert_eq!(Channel::Bite.max_capacity(Some(&body), None), 0.0);
+        assert_eq!(Channel::Manipulation.max_capacity(Some(&body), None, None), 0.0);
+        assert_eq!(Channel::Bite.max_capacity(Some(&body), None, None), 0.0);
     }
 
     #[test]
@@ -531,7 +566,7 @@ mod tests {
         injure(leg, 1.0);
         // channel_capacity takes the best part, so the healthy right leg
         // still returns 0.5 (its provided intensity).
-        let cap = Channel::Locomotion.max_capacity(Some(&body), None);
+        let cap = Channel::Locomotion.max_capacity(Some(&body), None, None);
         assert!((cap - 0.5).abs() < 1e-4, "expected 0.5, got {cap}");
     }
 
@@ -545,7 +580,7 @@ mod tests {
         // With additive capability, losing one arm halves Manipulation to
         // 0.5 — enough to eat or wave but below Harvest's 0.9 threshold, so
         // a one-armed human can't reliably pluck a berry.
-        let one_arm = Channel::Manipulation.max_capacity(Some(&body), None);
+        let one_arm = Channel::Manipulation.max_capacity(Some(&body), None, None);
         assert!(
             (one_arm - 0.5).abs() < 1e-4,
             "expected 0.5 after one broken arm, got {one_arm}"
@@ -555,7 +590,7 @@ mod tests {
             .part_mut(BodyPartKind::LeftArm)
             .expect("human body has left arm");
         injure(arm, 1.0);
-        let cap_both = Channel::Manipulation.max_capacity(Some(&body), None);
+        let cap_both = Channel::Manipulation.max_capacity(Some(&body), None, None);
         assert!(
             cap_both < 1e-4,
             "both arms broken should zero Manipulation, got {cap_both}"
@@ -567,11 +602,11 @@ mod tests {
         let mut body = Body::human();
         incapacitate(&mut body);
 
-        assert_eq!(Channel::Locomotion.max_capacity(Some(&body), None), 0.0);
-        assert_eq!(Channel::Manipulation.max_capacity(Some(&body), None), 0.0);
-        assert_eq!(Channel::Consumption.max_capacity(Some(&body), None), 0.0);
-        assert_eq!(Channel::FullBody.max_capacity(Some(&body), None), 1.0);
-        assert_eq!(Channel::Cognition.max_capacity(Some(&body), None), 1.0);
+        assert_eq!(Channel::Locomotion.max_capacity(Some(&body), None, None), 0.0);
+        assert_eq!(Channel::Manipulation.max_capacity(Some(&body), None, None), 0.0);
+        assert_eq!(Channel::Consumption.max_capacity(Some(&body), None, None), 0.0);
+        assert_eq!(Channel::FullBody.max_capacity(Some(&body), None, None), 1.0);
+        assert_eq!(Channel::Focus.max_capacity(Some(&body), None, None), 1.0);
     }
 
     #[test]
@@ -622,18 +657,18 @@ mod tests {
             ..Default::default()
         };
         // Active channels collapse to TIRED_SPEED_MULTIPLIER at zero stamina.
-        let legs = Channel::Locomotion.max_capacity(Some(&body), Some(&exhausted));
+        let legs = Channel::Locomotion.max_capacity(Some(&body), Some(&exhausted), None);
         assert!((legs - TIRED_SPEED_MULTIPLIER).abs() < 1e-4);
-        let hands = Channel::Manipulation.max_capacity(Some(&body), Some(&exhausted));
+        let hands = Channel::Manipulation.max_capacity(Some(&body), Some(&exhausted), None);
         assert!((hands - TIRED_SPEED_MULTIPLIER).abs() < 1e-4);
         // FullBody and Cognition are exempt so Sleep and planning are
         // always reachable.
         assert_eq!(
-            Channel::FullBody.max_capacity(Some(&body), Some(&exhausted)),
+            Channel::FullBody.max_capacity(Some(&body), Some(&exhausted), None),
             1.0
         );
         assert_eq!(
-            Channel::Cognition.max_capacity(Some(&body), Some(&exhausted)),
+            Channel::Focus.max_capacity(Some(&body), Some(&exhausted), None),
             1.0
         );
     }
@@ -654,9 +689,9 @@ mod tests {
             Channel::Manipulation,
             Channel::Consumption,
             Channel::FullBody,
-            Channel::Cognition,
+            Channel::Focus,
         ] {
-            assert_eq!(ch.max_capacity(Some(&body), Some(&rested)), 1.0);
+            assert_eq!(ch.max_capacity(Some(&body), Some(&rested), None), 1.0);
         }
     }
 
@@ -674,7 +709,7 @@ mod tests {
             ..Default::default()
         };
         let expected = TIRED_SPEED_MULTIPLIER + 0.5 * (1.0 - TIRED_SPEED_MULTIPLIER);
-        let cap = Channel::Locomotion.max_capacity(Some(&body), Some(&half));
+        let cap = Channel::Locomotion.max_capacity(Some(&body), Some(&half), None);
         assert!(
             (cap - expected).abs() < 1e-4,
             "expected {expected}, got {cap}"
@@ -746,9 +781,9 @@ mod tests {
             },
             ..Default::default()
         };
-        let caps = ChannelCapacities::compute(Some(&body), Some(&physical));
+        let caps = ChannelCapacities::compute(Some(&body), Some(&physical), None);
         for ch in Channel::ALL {
-            assert_eq!(caps.get(ch), ch.max_capacity(Some(&body), Some(&physical)));
+            assert_eq!(caps.get(ch), ch.max_capacity(Some(&body), Some(&physical), None));
         }
     }
 }
