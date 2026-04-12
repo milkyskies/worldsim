@@ -758,8 +758,6 @@ pub fn apply_action_effects(
         // Capacities freeze the start-of-tick stamina so degradation doesn't
         // compound as the loop mutates physical.stamina mid-iteration.
         let capacities = ChannelCapacities::compute(body, Some(&*physical));
-        // Genetic BMR multiplier scales effort-model energy drain and
-        // stamina recovery rate. High BMR = burns more AND recovers faster.
         let bmr_mult = phenotype.map(|p| p.bmr).unwrap_or(1.0);
         let body_mass = species.map(|s| s.mass_kg).unwrap_or(DEFAULT_BODY_MASS);
 
@@ -798,9 +796,6 @@ pub fn apply_action_effects(
 
             let cost = compute_action_cost(&profile, body_mass);
 
-            // Stamina drain/recovery from the effort model, scaled by genetic
-            // BMR. High BMR = faster drain AND faster recovery (both sides
-            // of the metabolic coin — the sign is already in the cost fields).
             physical
                 .stamina
                 .adjust_aerobic(-cost.aerobic_drain * dt * degradation * bmr_mult);

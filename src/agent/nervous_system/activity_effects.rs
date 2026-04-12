@@ -45,12 +45,9 @@ pub fn tick_metabolism(
     let bmr_drain = activity_config.base.effects.glucose_drain;
     for (mut physical, body, phenotype) in query.iter_mut() {
         let mut organ_mods = body.map(Body::organ_mods).unwrap_or_default();
-        // Genetic digestion multiplier scales stomach→glucose conversion
-        // rate. High digestion = faster nutrient extraction.
         let digestion_mult = phenotype.map(|p| p.digestion).unwrap_or(1.0);
         organ_mods.stomach *= digestion_mult;
         organ_mods.gut *= digestion_mult;
-        // Genetic BMR multiplier scales basal metabolic rate.
         let bmr_mult = phenotype.map(|p| p.bmr).unwrap_or(1.0);
         physical
             .metabolism

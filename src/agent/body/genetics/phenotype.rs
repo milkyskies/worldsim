@@ -319,17 +319,11 @@ pub fn apply_stamina_genetics_system(
     mut query: Query<(&Phenotype, &mut crate::agent::body::needs::PhysicalNeeds), Added<Phenotype>>,
 ) {
     for (phenotype, mut physical) in query.iter_mut() {
-        // Scale aerobic pool by genetic aerobic capacity
-        let base_aerobic = physical.stamina.aerobic_max;
-        let scaled_aerobic = base_aerobic * phenotype.aerobic_capacity;
-        physical.stamina.aerobic_max = scaled_aerobic;
-        physical.stamina.aerobic = scaled_aerobic;
+        physical.stamina.aerobic_max *= phenotype.aerobic_capacity;
+        physical.stamina.aerobic = physical.stamina.aerobic_max;
 
-        // Scale anaerobic pool by genetic anaerobic capacity
-        let base_anaerobic = physical.stamina.anaerobic_max;
-        let scaled_anaerobic = base_anaerobic * phenotype.anaerobic_capacity;
-        physical.stamina.anaerobic_max = scaled_anaerobic;
-        physical.stamina.anaerobic = scaled_anaerobic;
+        physical.stamina.anaerobic_max *= phenotype.anaerobic_capacity;
+        physical.stamina.anaerobic = physical.stamina.anaerobic_max;
     }
 }
 
@@ -346,14 +340,20 @@ mod tests {
         assert!((p.speed - 1.0).abs() < 1e-6, "speed={}", p.speed);
         assert!((p.vision - 1.0).abs() < 1e-6, "vision={}", p.vision);
         assert!(
-            (p.metabolism - 1.0).abs() < 1e-6,
-            "metabolism={}",
-            p.metabolism
+            (p.digestion - 1.0).abs() < 1e-6,
+            "digestion={}",
+            p.digestion
+        );
+        assert!((p.bmr - 1.0).abs() < 1e-6, "bmr={}", p.bmr);
+        assert!(
+            (p.aerobic_capacity - 1.0).abs() < 1e-6,
+            "aerobic_capacity={}",
+            p.aerobic_capacity
         );
         assert!(
-            (p.endurance - 1.0).abs() < 1e-6,
-            "endurance={}",
-            p.endurance
+            (p.anaerobic_capacity - 1.0).abs() < 1e-6,
+            "anaerobic_capacity={}",
+            p.anaerobic_capacity
         );
         // All personality traits should be exactly 0.5 (neutral)
         assert!((p.openness - 0.5).abs() < 1e-6, "openness={}", p.openness);

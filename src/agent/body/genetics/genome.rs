@@ -18,17 +18,9 @@ pub const LOCI_PER_TRAIT: usize = 4;
 // Physical trait locus start offsets (loci 0..24)
 pub const SPEED_START: usize = 0;
 pub const VISION_START: usize = 4;
-/// Digestion efficiency: scales digestion rate and absorption yield.
-/// High = fast digester, low = slow but fuel-efficient.
 pub const DIGESTION_START: usize = 8;
-/// Base metabolic rate: scales BMR drain and recovery rates.
-/// High = burns fast at rest but recovers stamina faster.
 pub const BMR_START: usize = 12;
-/// Aerobic capacity: scales aerobic stamina pool size.
-/// High = sustains effort longer before exhaustion.
 pub const AEROBIC_CAPACITY_START: usize = 16;
-/// Anaerobic capacity: scales anaerobic stamina pool size.
-/// High = longer sprints before oxygen debt.
 pub const ANAEROBIC_CAPACITY_START: usize = 20;
 
 /// Number of physical trait loci (6 traits × 4 loci each).
