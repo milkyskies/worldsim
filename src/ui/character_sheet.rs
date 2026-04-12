@@ -56,6 +56,14 @@ fn severity_color(value: f32, bad_below: f32, warn_above: f32) -> Color32 {
     }
 }
 
+fn placeholder(ui: &mut egui::Ui, text: &str) {
+    ui.label(
+        egui::RichText::new(text)
+            .italics()
+            .color(Color32::from_gray(140)),
+    );
+}
+
 // ============================================================================
 // PLUGIN
 // ============================================================================
@@ -294,75 +302,29 @@ fn visible_tabs_for_entity(
     entity: Entity,
     debug_enabled: bool,
 ) -> Vec<CharSheetTab> {
-    let mut tabs = Vec::new();
-
-    // Overview - always visible if agent has any core components
-    if world.get::<EmotionalState>(entity).is_some()
+    let is_agent_like = world.get::<EmotionalState>(entity).is_some()
         || world.get::<PhysicalNeeds>(entity).is_some()
         || world.get::<ActiveActions>(entity).is_some()
-    {
-        tabs.push(CharSheetTab::Overview);
+        || world.get::<MindGraph>(entity).is_some();
+    if !is_agent_like {
+        return Vec::new();
     }
 
-    if world.get::<PhysicalNeeds>(entity).is_some() {
-        tabs.push(CharSheetTab::Vitals);
-    }
+    let mut tabs = vec![
+        CharSheetTab::Overview,
+        CharSheetTab::Vitals,
+        CharSheetTab::Drives,
+        CharSheetTab::Plans,
+        CharSheetTab::Personality,
+        CharSheetTab::Skills,
+        CharSheetTab::Social,
+        CharSheetTab::Health,
+        CharSheetTab::Knowledge,
+        CharSheetTab::Inventory,
+        CharSheetTab::Activity,
+    ];
 
-    if world.get::<PsychologicalDrives>(entity).is_some()
-        || world.get::<Consciousness>(entity).is_some()
-    {
-        tabs.push(CharSheetTab::Drives);
-    }
-
-    if world.get::<PlanMemory>(entity).is_some() || world.get::<BrainState>(entity).is_some() {
-        tabs.push(CharSheetTab::Plans);
-    }
-
-    if world.get::<Personality>(entity).is_some() {
-        tabs.push(CharSheetTab::Personality);
-    }
-
-    if world.get::<Skills>(entity).is_some() {
-        tabs.push(CharSheetTab::Skills);
-    }
-
-    // Social: has interaction history OR any known entities in MindGraph
-    let has_history = world
-        .get::<RelationshipHistory>(entity)
-        .map(|r| !r.logs.is_empty())
-        .unwrap_or(false);
-    let has_known = world
-        .get::<MindGraph>(entity)
-        .map(|m| {
-            !m.query(None, Some(Predicate::Knows), Some(&Value::Boolean(true)))
-                .is_empty()
-        })
-        .unwrap_or(false);
-    if has_history || has_known {
-        tabs.push(CharSheetTab::Social);
-    }
-
-    if world.get::<Body>(entity).is_some() {
-        tabs.push(CharSheetTab::Health);
-    }
-
-    if world.get::<MindGraph>(entity).is_some() {
-        tabs.push(CharSheetTab::Knowledge);
-    }
-
-    let has_items = world
-        .get::<ItemSlots>(entity)
-        .map(|i| i.all_items().next().is_some())
-        .unwrap_or(false);
-    if has_items {
-        tabs.push(CharSheetTab::Inventory);
-    }
-
-    // Activity is always available — even a fresh agent has at least the
-    // spawn event in the GameLog.
-    tabs.push(CharSheetTab::Activity);
-
-    if debug_enabled && world.get::<BrainState>(entity).is_some() {
+    if debug_enabled {
         tabs.push(CharSheetTab::Brain);
     }
 
@@ -666,7 +628,7 @@ fn render_vitals(ui: &mut egui::Ui, world: &World, entity: Entity) {
     };
 
     let Some(needs) = world.get::<PhysicalNeeds>(entity) else {
-        ui.label("No physical needs.");
+        placeholder(ui, "(no physical-needs component on this entity)");
         return;
     };
 
@@ -769,6 +731,7 @@ fn render_drives(ui: &mut egui::Ui, world: &World, entity: Entity) {
     }
 
     let Some(drives) = world.get::<PsychologicalDrives>(entity) else {
+        placeholder(ui, "(no psychological drives on this entity)");
         return;
     };
 
@@ -855,7 +818,7 @@ fn urgency_subbar(ui: &mut egui::Ui, urgency: f32) {
 
 fn render_personality(ui: &mut egui::Ui, world: &World, entity: Entity) {
     let Some(p) = world.get::<Personality>(entity) else {
-        ui.label("No personality data.");
+        placeholder(ui, "(this entity has no personality — probably an animal)");
         return;
     };
     ui.heading("Big Five Traits");
@@ -910,7 +873,7 @@ const SKILL_DISPLAY_LEVELS: u32 = 20;
 
 fn render_skills(ui: &mut egui::Ui, world: &World, entity: Entity) {
     let Some(skills) = world.get::<Skills>(entity) else {
-        ui.label("No skills data.");
+        placeholder(ui, "(this entity has no learned skills)");
         return;
     };
 
@@ -995,13 +958,13 @@ fn render_social(ui: &mut egui::Ui, world: &World, entity: Entity) {
     ui.heading("Relationships");
 
     let Some(mind) = world.get::<MindGraph>(entity) else {
-        ui.label("No social knowledge.");
+        placeholder(ui, "(no social knowledge — this entity has no mind)");
         return;
     };
 
     let known = mind.query(None, Some(Predicate::Knows), Some(&Value::Boolean(true)));
     if known.is_empty() {
-        ui.label(egui::RichText::new("Has not met anyone yet.").italics());
+        placeholder(ui, "(has not met anyone yet)");
         return;
     }
 
@@ -1116,17 +1079,20 @@ fn render_social(ui: &mut egui::Ui, world: &World, entity: Entity) {
 }
 
 fn render_current_conversation(ui: &mut egui::Ui, world: &World, entity: Entity, now: u64) {
+    ui.heading("Conversation");
     let Some(in_conv) = world.get::<InConversation>(entity) else {
+        placeholder(ui, "(not currently in a conversation)");
+        ui.add_space(6.0);
         return;
     };
     let Some(manager) = world.get_resource::<ConversationManager>() else {
+        placeholder(ui, "(conversation manager unavailable)");
         return;
     };
     let Some(conv) = manager.get(in_conv.conversation_id) else {
+        placeholder(ui, "(conversation record missing)");
         return;
     };
-
-    ui.heading("💬 In Conversation");
     ui.group(|ui| {
         let participants: Vec<String> = conv
             .participants
@@ -1291,7 +1257,10 @@ fn query_float(mind: &MindGraph, other: Entity, predicate: Predicate) -> Option<
 
 fn render_health(ui: &mut egui::Ui, world: &World, entity: Entity) {
     let Some(body) = world.get::<Body>(entity) else {
-        ui.label("No body data.");
+        placeholder(
+            ui,
+            "(this entity has no body — disembodied or substrate-only)",
+        );
         return;
     };
 
@@ -1395,7 +1364,7 @@ fn capability_bar(ui: &mut egui::Ui, label: &str, value: f32) {
 
 fn render_knowledge(ui: &mut egui::Ui, world: &World, entity: Entity) {
     let Some(mind) = world.get::<MindGraph>(entity) else {
-        ui.label("No knowledge.");
+        placeholder(ui, "(no mind on this entity — can't know anything)");
         return;
     };
 
@@ -1508,7 +1477,7 @@ fn node_label(world: &World, node: &Node) -> String {
 
 fn render_inventory(ui: &mut egui::Ui, world: &World, entity: Entity) {
     let Some(slots) = world.get::<ItemSlots>(entity) else {
-        ui.label("No inventory.");
+        placeholder(ui, "(this entity has no inventory slots)");
         return;
     };
     ui.heading("Carrying");
@@ -1529,7 +1498,7 @@ fn render_inventory(ui: &mut egui::Ui, world: &World, entity: Entity) {
     }
 
     if grouped.is_empty() {
-        ui.label(egui::RichText::new("Empty").italics());
+        placeholder(ui, "(not carrying anything)");
         return;
     }
     egui::Grid::new("inventory_grid")
@@ -1560,7 +1529,7 @@ fn render_inventory(ui: &mut egui::Ui, world: &World, entity: Entity) {
 
 fn render_activity(ui: &mut egui::Ui, world: &World, entity: Entity) {
     let Some(log) = world.get_resource::<GameLog>() else {
-        ui.label("No game log available.");
+        placeholder(ui, "(game log unavailable)");
         return;
     };
 
@@ -1580,7 +1549,7 @@ fn render_activity(ui: &mut egui::Ui, world: &World, entity: Entity) {
     entries.truncate(60);
 
     if entries.is_empty() {
-        ui.label(egui::RichText::new("Nothing logged for this agent yet.").italics());
+        placeholder(ui, "(nothing logged for this agent yet)");
         return;
     }
 
@@ -1908,7 +1877,7 @@ fn render_held_plan(
 
 fn render_brain(ui: &mut egui::Ui, world: &World, entity: Entity) {
     let Some(brain) = world.get::<BrainState>(entity) else {
-        ui.label("No brain state.");
+        placeholder(ui, "(no brain state on this entity)");
         return;
     };
     ui.heading("Arbitration Powers");
@@ -2131,17 +2100,33 @@ mod tests {
     }
 
     #[test]
-    fn visible_tabs_exclude_personality_for_deer_without_component() {
+    fn visible_tabs_include_every_tab_for_any_agent_like_entity() {
         let mut world = World::new();
         let entity = spawn_minimal_deer(&mut world);
         let tabs = visible_tabs_for_entity(&world, entity, false);
-        assert!(tabs.contains(&CharSheetTab::Overview));
-        assert!(tabs.contains(&CharSheetTab::Vitals));
-        assert!(tabs.contains(&CharSheetTab::Drives));
-        assert!(tabs.contains(&CharSheetTab::Health));
-        assert!(!tabs.contains(&CharSheetTab::Personality));
-        assert!(!tabs.contains(&CharSheetTab::Knowledge));
-        assert!(!tabs.contains(&CharSheetTab::Inventory));
+        for t in [
+            CharSheetTab::Overview,
+            CharSheetTab::Vitals,
+            CharSheetTab::Drives,
+            CharSheetTab::Plans,
+            CharSheetTab::Personality,
+            CharSheetTab::Skills,
+            CharSheetTab::Social,
+            CharSheetTab::Health,
+            CharSheetTab::Knowledge,
+            CharSheetTab::Inventory,
+            CharSheetTab::Activity,
+        ] {
+            assert!(tabs.contains(&t), "tab {:?} should be visible", t);
+        }
+    }
+
+    #[test]
+    fn visible_tabs_is_empty_for_non_agent_entity() {
+        let mut world = World::new();
+        let entity = world.spawn(Name::new("Rock")).id();
+        let tabs = visible_tabs_for_entity(&world, entity, false);
+        assert!(tabs.is_empty());
     }
 
     #[test]
