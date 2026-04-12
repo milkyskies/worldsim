@@ -2045,4 +2045,200 @@ mod tests {
         );
         assert_eq!(indexed.len(), 25);
     }
+
+    // ─── Reinforcement tests ───────────────────────────────────────────────
+
+    #[test]
+    fn reinforcement_boosts_strength_on_reassert() {
+        let mut mind = MindGraph::default();
+        let tree = Entity::from_bits(42);
+
+        mind.assert(Triple::with_meta(
+            Node::Entity(tree),
+            Predicate::LocatedAt,
+            Value::Tile((5, 5)),
+            Metadata::perception(0),
+        ));
+
+        // Re-assert after cooldown (60 ticks)
+        mind.assert(Triple::with_meta(
+            Node::Entity(tree),
+            Predicate::LocatedAt,
+            Value::Tile((5, 5)),
+            Metadata::perception(60),
+        ));
+
+        let results = mind.query(Some(&Node::Entity(tree)), Some(Predicate::LocatedAt), None);
+        assert_eq!(results.len(), 1);
+        assert!(
+            results[0].meta.strength > 1.0,
+            "strength should increase after reinforcement, got {}",
+            results[0].meta.strength
+        );
+    }
+
+    #[test]
+    fn reinforcement_cooldown_prevents_rapid_boost() {
+        let mut mind = MindGraph::default();
+        let tree = Entity::from_bits(42);
+
+        mind.assert(Triple::with_meta(
+            Node::Entity(tree),
+            Predicate::LocatedAt,
+            Value::Tile((5, 5)),
+            Metadata::perception(0),
+        ));
+
+        // Re-assert within cooldown (10 ticks < 60)
+        mind.assert(Triple::with_meta(
+            Node::Entity(tree),
+            Predicate::LocatedAt,
+            Value::Tile((5, 5)),
+            Metadata::perception(10),
+        ));
+
+        let results = mind.query(Some(&Node::Entity(tree)), Some(Predicate::LocatedAt), None);
+        assert!(
+            (results[0].meta.strength - 1.0).abs() < f32::EPSILON,
+            "strength should not change within cooldown, got {}",
+            results[0].meta.strength
+        );
+    }
+
+    #[test]
+    fn reinforcement_caps_at_max_strength() {
+        let mut mind = MindGraph::default();
+        let tree = Entity::from_bits(42);
+
+        mind.assert(Triple::with_meta(
+            Node::Entity(tree),
+            Predicate::LocatedAt,
+            Value::Tile((5, 5)),
+            Metadata::perception(0),
+        ));
+
+        // Re-assert 100 times, each past cooldown
+        for i in 1..=100 {
+            mind.assert(Triple::with_meta(
+                Node::Entity(tree),
+                Predicate::LocatedAt,
+                Value::Tile((5, 5)),
+                Metadata::perception(i * REINFORCE_COOLDOWN_TICKS),
+            ));
+        }
+
+        let results = mind.query(Some(&Node::Entity(tree)), Some(Predicate::LocatedAt), None);
+        assert!(
+            (results[0].meta.strength - MAX_STRENGTH).abs() < f32::EPSILON,
+            "strength should cap at {MAX_STRENGTH}, got {}",
+            results[0].meta.strength
+        );
+    }
+
+    #[test]
+    fn reinforcement_scales_with_salience() {
+        let mut mind = MindGraph::default();
+
+        // Triple with salience 0.0 (default perception)
+        let tree_a = Entity::from_bits(10);
+        mind.assert(Triple::with_meta(
+            Node::Entity(tree_a),
+            Predicate::LocatedAt,
+            Value::Tile((1, 1)),
+            Metadata::perception(0),
+        ));
+        mind.assert(Triple::with_meta(
+            Node::Entity(tree_a),
+            Predicate::LocatedAt,
+            Value::Tile((1, 1)),
+            Metadata::perception(60),
+        ));
+
+        // Triple with salience 0.5 (emotional)
+        let tree_b = Entity::from_bits(20);
+        let mut meta_salient = Metadata::perception(0);
+        meta_salient.salience = 0.5;
+        mind.assert(Triple::with_meta(
+            Node::Entity(tree_b),
+            Predicate::LocatedAt,
+            Value::Tile((2, 2)),
+            meta_salient,
+        ));
+        let mut meta_salient2 = Metadata::perception(60);
+        meta_salient2.salience = 0.5;
+        mind.assert(Triple::with_meta(
+            Node::Entity(tree_b),
+            Predicate::LocatedAt,
+            Value::Tile((2, 2)),
+            meta_salient2,
+        ));
+
+        let a = mind.query(
+            Some(&Node::Entity(tree_a)),
+            Some(Predicate::LocatedAt),
+            None,
+        );
+        let b = mind.query(
+            Some(&Node::Entity(tree_b)),
+            Some(Predicate::LocatedAt),
+            None,
+        );
+
+        assert!(
+            b[0].meta.strength > a[0].meta.strength,
+            "salient memory should get bigger boost: {} vs {}",
+            b[0].meta.strength,
+            a[0].meta.strength,
+        );
+    }
+
+    #[test]
+    fn stronger_source_preserves_accumulated_strength() {
+        let mut mind = MindGraph::default();
+        let tree = Entity::from_bits(42);
+
+        // Cultural belief about tree trait
+        let mut cultural_meta = Metadata {
+            source: Source::Cultural,
+            memory_type: MemoryType::Cultural,
+            timestamp: 0,
+            confidence: 0.8,
+            ..Default::default()
+        };
+        cultural_meta.strength = 5.0;
+        mind.assert(Triple::with_meta(
+            Node::Entity(tree),
+            Predicate::HasTrait,
+            Value::Concept(Concept::Dangerous),
+            cultural_meta,
+        ));
+
+        // Personal experience overrides source but should keep the higher strength
+        mind.assert(Triple::with_meta(
+            Node::Entity(tree),
+            Predicate::HasTrait,
+            Value::Concept(Concept::Dangerous),
+            Metadata {
+                source: Source::Experienced,
+                memory_type: MemoryType::Semantic,
+                timestamp: 100,
+                confidence: 1.0,
+                strength: 1.0,
+                ..Default::default()
+            },
+        ));
+
+        let results = mind.query(
+            Some(&Node::Entity(tree)),
+            Some(Predicate::HasTrait),
+            Some(&Value::Concept(Concept::Dangerous)),
+        );
+        assert_eq!(results.len(), 1);
+        assert!(
+            results[0].meta.strength >= 5.0,
+            "stronger source should preserve accumulated strength, got {}",
+            results[0].meta.strength
+        );
+        assert_eq!(results[0].meta.source, Source::Experienced);
+    }
 }

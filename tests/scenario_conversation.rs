@@ -484,6 +484,7 @@ fn shared_knowledge_broadcasts_to_all_group_listeners() {
             evidence: Vec::new(),
             salience: 0.9,
             source_sense: None,
+            strength: 1.0,
         },
     );
 
