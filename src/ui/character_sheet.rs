@@ -74,6 +74,13 @@ pub struct CharacterSheetPlugin;
 impl Plugin for CharacterSheetPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<CharacterSheetState>()
+            // Enable the decision trace for every agent so the Trace
+            // tab has data the moment the panel opens. CLI headless
+            // runs set their own TraceConfig and overwrite this.
+            .insert_resource(crate::agent::brains::trace::TraceConfig {
+                agent_filter: crate::agent::brains::trace::AgentFilter::All,
+                ..Default::default()
+            })
             .add_systems(EguiPrimaryContextPass, character_sheet_system);
     }
 }
@@ -98,6 +105,7 @@ pub enum CharSheetTab {
     Vitals,
     Drives,
     Plans,
+    Trace,
     Perception,
     Channels,
     Personality,
@@ -117,6 +125,7 @@ impl CharSheetTab {
             CharSheetTab::Vitals => "Vitals",
             CharSheetTab::Drives => "Drives",
             CharSheetTab::Plans => "Plans",
+            CharSheetTab::Trace => "Trace",
             CharSheetTab::Perception => "Perception",
             CharSheetTab::Channels => "Channels",
             CharSheetTab::Personality => "Personality",
@@ -246,6 +255,7 @@ fn character_sheet_system(world: &mut World) {
                     CharSheetTab::Vitals => render_vitals(ui, world, entity),
                     CharSheetTab::Drives => render_drives(ui, world, entity),
                     CharSheetTab::Plans => render_plans(ui, world, entity),
+                    CharSheetTab::Trace => render_trace(ui, world, entity),
                     CharSheetTab::Perception => render_perception(ui, world, entity),
                     CharSheetTab::Channels => render_channels(ui, world, entity),
                     CharSheetTab::Personality => render_personality(ui, world, entity),
@@ -313,6 +323,7 @@ fn visible_tabs_for_entity(
         CharSheetTab::Vitals,
         CharSheetTab::Drives,
         CharSheetTab::Plans,
+        CharSheetTab::Trace,
         CharSheetTab::Perception,
         CharSheetTab::Channels,
         CharSheetTab::Personality,
@@ -809,6 +820,64 @@ fn urgency_subbar(ui: &mut egui::Ui, urgency: f32) {
                 .fill(color)
                 .text(egui::RichText::new(format!("{:.2}", urgency)).small()),
         );
+    });
+}
+
+// ============================================================================
+// TRACE TAB — decision timeline from the per-agent ring buffer
+// ============================================================================
+
+fn render_trace(ui: &mut egui::Ui, world: &World, entity: Entity) {
+    use crate::agent::brains::trace::{DecisionTraceBuffer, TraceRecord};
+
+    ui.label(
+        egui::RichText::new(
+            "Every brain decision, action, and perception for this agent, newest first. Ring-buffered — old entries roll off.",
+        )
+        .italics()
+        .color(Color32::LIGHT_GRAY),
+    );
+    ui.add_space(4.0);
+
+    let Some(buffer) = world.get_resource::<DecisionTraceBuffer>() else {
+        placeholder(ui, "(trace buffer unavailable)");
+        return;
+    };
+    let Some(trace) = buffer.agents.get(&entity) else {
+        placeholder(ui, "(no trace records for this agent yet)");
+        return;
+    };
+    if trace.records.is_empty() {
+        placeholder(ui, "(trace buffer is empty — agent hasn't acted)");
+        return;
+    }
+
+    let tick_now = world.resource::<TickCount>().current;
+    let mut records: Vec<&TraceRecord> = trace.records.iter().collect();
+    records.reverse();
+
+    egui::ScrollArea::vertical().show(ui, |ui| {
+        for record in records.iter().take(200) {
+            let tick = record.tick();
+            let ago = tick_now.saturating_sub(tick);
+            let line_color = match record {
+                TraceRecord::DecisionWinner { .. } => Color32::YELLOW,
+                TraceRecord::ActionFailed { .. } => Color32::from_rgb(220, 120, 120),
+                TraceRecord::ActionStarted { .. } => Color32::from_rgb(140, 200, 255),
+                TraceRecord::ActionCompleted { .. } => Color32::from_rgb(120, 200, 140),
+                TraceRecord::EmotionTriggered { .. } => Color32::from_rgb(255, 160, 210),
+                TraceRecord::EntityPerceived { .. } => Color32::from_rgb(200, 200, 140),
+                _ => Color32::LIGHT_GRAY,
+            };
+            ui.horizontal(|ui| {
+                ui.label(
+                    egui::RichText::new(format!("t-{:<5}", ago))
+                        .small()
+                        .color(Color32::from_gray(140)),
+                );
+                ui.colored_label(line_color, record.to_text());
+            });
+        }
     });
 }
 
