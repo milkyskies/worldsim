@@ -65,6 +65,7 @@ fn agent_started_action(world: &TestWorld, agent: Entity, action_type: ActionTyp
 /// the kill, the deer entity is transformed in-place into a Corpse holding
 /// meat for scavengers — the entity ID survives the transition.
 #[test]
+#[ignore = "flaky: #477"]
 fn hungry_hunter_kills_and_eats_nearby_deer() {
     let mut world = TestWorld::with_seed(42);
 

@@ -44,39 +44,65 @@ impl Body {
     pub fn human() -> Self {
         Self {
             parts: vec![
-                BodyNode::vital(
-                    BodyNodeKind::Head,
-                    50.0,
-                    vec![(Channel::Focus, 1.0), (Channel::Awareness, 1.0)],
-                )
-                .with_children(head_organs()),
+                BodyNode::vital(BodyNodeKind::Head, 50.0, vec![]).with_children(vec![
+                    BodyNode::vital(
+                        BodyNodeKind::Brain,
+                        30.0,
+                        vec![(Channel::Focus, 1.0), (Channel::Awareness, 0.5)],
+                    ),
+                    BodyNode::new(
+                        BodyNodeKind::LeftEye,
+                        10.0,
+                        vec![(Channel::Awareness, 0.15)],
+                    ),
+                    BodyNode::new(
+                        BodyNodeKind::RightEye,
+                        10.0,
+                        vec![(Channel::Awareness, 0.15)],
+                    ),
+                    BodyNode::new(BodyNodeKind::LeftEar, 5.0, vec![(Channel::Awareness, 0.1)]),
+                    BodyNode::new(BodyNodeKind::RightEar, 5.0, vec![(Channel::Awareness, 0.1)]),
+                    BodyNode::new(BodyNodeKind::Nose, 10.0, vec![]),
+                    BodyNode::new(
+                        BodyNodeKind::Jaw,
+                        30.0,
+                        vec![
+                            (Channel::Consumption, 1.0),
+                            (Channel::Vocalization, 1.0),
+                            (Channel::Bite, 0.1),
+                        ],
+                    ),
+                ]),
                 BodyNode::vital(BodyNodeKind::Torso, 100.0, vec![(Channel::FullBody, 1.0)])
                     .with_children(torso_organs()),
-                BodyNode::new(
-                    BodyNodeKind::LeftArm,
-                    60.0,
-                    vec![(Channel::Manipulation, 0.5), (Channel::Carry, 0.25)],
-                ),
-                BodyNode::new(
-                    BodyNodeKind::RightArm,
-                    60.0,
-                    vec![(Channel::Manipulation, 0.5), (Channel::Carry, 0.25)],
-                ),
-                BodyNode::new(
-                    BodyNodeKind::LeftLeg,
-                    70.0,
-                    vec![(Channel::Locomotion, 0.5)],
-                ),
-                BodyNode::new(
-                    BodyNodeKind::RightLeg,
-                    70.0,
-                    vec![(Channel::Locomotion, 0.5)],
-                ),
-                BodyNode::new(
-                    BodyNodeKind::Mouth,
-                    30.0,
-                    vec![(Channel::Consumption, 1.0), (Channel::Vocalization, 1.0)],
-                ),
+                BodyNode::new(BodyNodeKind::LeftArm, 60.0, vec![]).with_children(vec![
+                    BodyNode::new(
+                        BodyNodeKind::LeftHand,
+                        30.0,
+                        vec![(Channel::Manipulation, 0.5), (Channel::Carry, 0.25)],
+                    ),
+                ]),
+                BodyNode::new(BodyNodeKind::RightArm, 60.0, vec![]).with_children(vec![
+                    BodyNode::new(
+                        BodyNodeKind::RightHand,
+                        30.0,
+                        vec![(Channel::Manipulation, 0.5), (Channel::Carry, 0.25)],
+                    ),
+                ]),
+                BodyNode::new(BodyNodeKind::LeftLeg, 70.0, vec![]).with_children(vec![
+                    BodyNode::new(
+                        BodyNodeKind::LeftFoot,
+                        35.0,
+                        vec![(Channel::Locomotion, 0.5)],
+                    ),
+                ]),
+                BodyNode::new(BodyNodeKind::RightLeg, 70.0, vec![]).with_children(vec![
+                    BodyNode::new(
+                        BodyNodeKind::RightFoot,
+                        35.0,
+                        vec![(Channel::Locomotion, 0.5)],
+                    ),
+                ]),
             ],
         }
     }
@@ -84,44 +110,62 @@ impl Body {
     pub fn wolf() -> Self {
         Self {
             parts: vec![
-                BodyNode::vital(
-                    BodyNodeKind::Head,
-                    50.0,
-                    vec![(Channel::Focus, 0.6), (Channel::Awareness, 0.8)],
-                )
-                .with_children(head_organs()),
+                BodyNode::vital(BodyNodeKind::Head, 50.0, vec![]).with_children(vec![
+                    BodyNode::vital(
+                        BodyNodeKind::Brain,
+                        30.0,
+                        vec![(Channel::Focus, 0.6), (Channel::Awareness, 0.4)],
+                    ),
+                    BodyNode::new(BodyNodeKind::LeftEye, 8.0, vec![(Channel::Awareness, 0.15)]),
+                    BodyNode::new(
+                        BodyNodeKind::RightEye,
+                        8.0,
+                        vec![(Channel::Awareness, 0.15)],
+                    ),
+                    BodyNode::new(BodyNodeKind::LeftEar, 5.0, vec![(Channel::Awareness, 0.1)]),
+                    BodyNode::new(BodyNodeKind::RightEar, 5.0, vec![(Channel::Awareness, 0.1)]),
+                    BodyNode::new(BodyNodeKind::Nose, 8.0, vec![]),
+                    BodyNode::new(
+                        BodyNodeKind::Jaw,
+                        40.0,
+                        vec![
+                            (Channel::Manipulation, 0.4),
+                            (Channel::Consumption, 1.0),
+                            (Channel::Vocalization, 0.7),
+                            (Channel::Bite, 1.0),
+                        ],
+                    ),
+                ]),
                 BodyNode::vital(BodyNodeKind::Torso, 100.0, vec![(Channel::FullBody, 1.0)])
                     .with_children(torso_organs()),
-                BodyNode::new(
-                    BodyNodeKind::LeftForeleg,
-                    55.0,
-                    vec![(Channel::Locomotion, 0.3)],
-                ),
-                BodyNode::new(
-                    BodyNodeKind::RightForeleg,
-                    55.0,
-                    vec![(Channel::Locomotion, 0.3)],
-                ),
-                BodyNode::new(
-                    BodyNodeKind::LeftHindleg,
-                    55.0,
-                    vec![(Channel::Locomotion, 0.3)],
-                ),
-                BodyNode::new(
-                    BodyNodeKind::RightHindleg,
-                    55.0,
-                    vec![(Channel::Locomotion, 0.3)],
-                ),
-                BodyNode::new(
-                    BodyNodeKind::Jaws,
-                    40.0,
-                    vec![
-                        (Channel::Manipulation, 0.4),
-                        (Channel::Consumption, 1.0),
-                        (Channel::Vocalization, 0.7),
-                        (Channel::Bite, 1.0),
-                    ],
-                ),
+                BodyNode::new(BodyNodeKind::LeftForeleg, 55.0, vec![]).with_children(vec![
+                    BodyNode::new(
+                        BodyNodeKind::LeftForepaw,
+                        25.0,
+                        vec![(Channel::Locomotion, 0.3)],
+                    ),
+                ]),
+                BodyNode::new(BodyNodeKind::RightForeleg, 55.0, vec![]).with_children(vec![
+                    BodyNode::new(
+                        BodyNodeKind::RightForepaw,
+                        25.0,
+                        vec![(Channel::Locomotion, 0.3)],
+                    ),
+                ]),
+                BodyNode::new(BodyNodeKind::LeftHindleg, 55.0, vec![]).with_children(vec![
+                    BodyNode::new(
+                        BodyNodeKind::LeftHindpaw,
+                        25.0,
+                        vec![(Channel::Locomotion, 0.3)],
+                    ),
+                ]),
+                BodyNode::new(BodyNodeKind::RightHindleg, 55.0, vec![]).with_children(vec![
+                    BodyNode::new(
+                        BodyNodeKind::RightHindpaw,
+                        25.0,
+                        vec![(Channel::Locomotion, 0.3)],
+                    ),
+                ]),
             ],
         }
     }
@@ -129,39 +173,57 @@ impl Body {
     pub fn deer() -> Self {
         Self {
             parts: vec![
-                BodyNode::vital(
-                    BodyNodeKind::Head,
-                    40.0,
-                    vec![(Channel::Focus, 0.4), (Channel::Awareness, 1.0)],
-                )
-                .with_children(head_organs()),
+                BodyNode::vital(BodyNodeKind::Head, 40.0, vec![]).with_children(vec![
+                    BodyNode::vital(
+                        BodyNodeKind::Brain,
+                        25.0,
+                        vec![(Channel::Focus, 0.4), (Channel::Awareness, 0.4)],
+                    ),
+                    BodyNode::new(BodyNodeKind::LeftEye, 8.0, vec![(Channel::Awareness, 0.2)]),
+                    BodyNode::new(BodyNodeKind::RightEye, 8.0, vec![(Channel::Awareness, 0.2)]),
+                    BodyNode::new(BodyNodeKind::LeftEar, 5.0, vec![(Channel::Awareness, 0.15)]),
+                    BodyNode::new(
+                        BodyNodeKind::RightEar,
+                        5.0,
+                        vec![(Channel::Awareness, 0.15)],
+                    ),
+                    BodyNode::new(BodyNodeKind::Nose, 8.0, vec![]),
+                    BodyNode::new(
+                        BodyNodeKind::Jaw,
+                        20.0,
+                        vec![(Channel::Consumption, 1.0), (Channel::Vocalization, 0.3)],
+                    ),
+                ]),
                 BodyNode::vital(BodyNodeKind::Torso, 80.0, vec![(Channel::FullBody, 1.0)])
                     .with_children(torso_organs()),
-                BodyNode::new(
-                    BodyNodeKind::LeftForeleg,
-                    50.0,
-                    vec![(Channel::Locomotion, 0.3)],
-                ),
-                BodyNode::new(
-                    BodyNodeKind::RightForeleg,
-                    50.0,
-                    vec![(Channel::Locomotion, 0.3)],
-                ),
-                BodyNode::new(
-                    BodyNodeKind::LeftHindleg,
-                    50.0,
-                    vec![(Channel::Locomotion, 0.3)],
-                ),
-                BodyNode::new(
-                    BodyNodeKind::RightHindleg,
-                    50.0,
-                    vec![(Channel::Locomotion, 0.3)],
-                ),
-                BodyNode::new(
-                    BodyNodeKind::Mouth,
-                    25.0,
-                    vec![(Channel::Consumption, 1.0), (Channel::Vocalization, 0.3)],
-                ),
+                BodyNode::new(BodyNodeKind::LeftForeleg, 50.0, vec![]).with_children(vec![
+                    BodyNode::new(
+                        BodyNodeKind::LeftForehoof,
+                        20.0,
+                        vec![(Channel::Locomotion, 0.3)],
+                    ),
+                ]),
+                BodyNode::new(BodyNodeKind::RightForeleg, 50.0, vec![]).with_children(vec![
+                    BodyNode::new(
+                        BodyNodeKind::RightForehoof,
+                        20.0,
+                        vec![(Channel::Locomotion, 0.3)],
+                    ),
+                ]),
+                BodyNode::new(BodyNodeKind::LeftHindleg, 50.0, vec![]).with_children(vec![
+                    BodyNode::new(
+                        BodyNodeKind::LeftHindhoof,
+                        20.0,
+                        vec![(Channel::Locomotion, 0.3)],
+                    ),
+                ]),
+                BodyNode::new(BodyNodeKind::RightHindleg, 50.0, vec![]).with_children(vec![
+                    BodyNode::new(
+                        BodyNodeKind::RightHindhoof,
+                        20.0,
+                        vec![(Channel::Locomotion, 0.3)],
+                    ),
+                ]),
             ],
         }
     }
@@ -268,29 +330,26 @@ impl Body {
         }
     }
 
-    /// Respiration multiplier: lung condition in `[0, 1]`.
+    /// Respiration multiplier: average condition of both lungs in `[0, 1]`.
     pub fn lung_condition(&self) -> f32 {
-        self.node(BodyNodeKind::Lungs)
+        let left = self
+            .node(BodyNodeKind::LeftLung)
             .map(|o| o.condition())
-            .unwrap_or(1.0)
+            .unwrap_or(1.0);
+        let right = self
+            .node(BodyNodeKind::RightLung)
+            .map(|o| o.condition())
+            .unwrap_or(1.0);
+        (left + right) / 2.0
     }
 }
 
-/// Head organ seed — brain (vital), eyes, ears, nose.
-fn head_organs() -> Vec<BodyNode> {
-    vec![
-        BodyNode::vital(BodyNodeKind::Brain, 30.0, vec![]),
-        BodyNode::new(BodyNodeKind::Eyes, 10.0, vec![]),
-        BodyNode::new(BodyNodeKind::Ears, 10.0, vec![]),
-        BodyNode::new(BodyNodeKind::Nose, 10.0, vec![]),
-    ]
-}
-
-/// Torso organ seed — heart and lungs vital.
+/// Torso organ seed — heart and split lungs vital.
 fn torso_organs() -> Vec<BodyNode> {
     vec![
         BodyNode::vital(BodyNodeKind::Heart, 40.0, vec![]),
-        BodyNode::vital(BodyNodeKind::Lungs, 35.0, vec![]),
+        BodyNode::vital(BodyNodeKind::LeftLung, 18.0, vec![]),
+        BodyNode::vital(BodyNodeKind::RightLung, 17.0, vec![]),
         BodyNode::new(BodyNodeKind::Liver, 30.0, vec![]),
         BodyNode::new(BodyNodeKind::Stomach, 25.0, vec![]),
         BodyNode::new(BodyNodeKind::Gut, 25.0, vec![]),
@@ -314,18 +373,34 @@ pub enum BodyNodeKind {
     RightForeleg,
     LeftHindleg,
     RightHindleg,
-    Mouth,
-    Jaws,
-    // Internal organs
+    // Internal organs — head
     Brain,
-    Eyes,
-    Ears,
+    LeftEye,
+    RightEye,
+    LeftEar,
+    RightEar,
     Nose,
+    Jaw,
+    // Internal organs — torso
     Heart,
-    Lungs,
+    LeftLung,
+    RightLung,
     Liver,
     Stomach,
     Gut,
+    // Extremities (children of limbs)
+    LeftHand,
+    RightHand,
+    LeftFoot,
+    RightFoot,
+    LeftForepaw,
+    RightForepaw,
+    LeftHindpaw,
+    RightHindpaw,
+    LeftForehoof,
+    RightForehoof,
+    LeftHindhoof,
+    RightHindhoof,
 }
 
 impl BodyNodeKind {
@@ -341,17 +416,31 @@ impl BodyNodeKind {
             Self::RightForeleg => "front right leg",
             Self::LeftHindleg => "back left leg",
             Self::RightHindleg => "back right leg",
-            Self::Mouth => "mouth",
-            Self::Jaws => "jaws",
             Self::Brain => "brain",
-            Self::Eyes => "eyes",
-            Self::Ears => "ears",
+            Self::LeftEye => "left eye",
+            Self::RightEye => "right eye",
+            Self::LeftEar => "left ear",
+            Self::RightEar => "right ear",
             Self::Nose => "nose",
+            Self::Jaw => "jaw",
             Self::Heart => "heart",
-            Self::Lungs => "lungs",
+            Self::LeftLung => "left lung",
+            Self::RightLung => "right lung",
             Self::Liver => "liver",
             Self::Stomach => "stomach",
             Self::Gut => "gut",
+            Self::LeftHand => "left hand",
+            Self::RightHand => "right hand",
+            Self::LeftFoot => "left foot",
+            Self::RightFoot => "right foot",
+            Self::LeftForepaw => "left forepaw",
+            Self::RightForepaw => "right forepaw",
+            Self::LeftHindpaw => "left hindpaw",
+            Self::RightHindpaw => "right hindpaw",
+            Self::LeftForehoof => "left forehoof",
+            Self::RightForehoof => "right forehoof",
+            Self::LeftHindhoof => "left hindhoof",
+            Self::RightHindhoof => "right hindhoof",
         }
     }
 }
@@ -676,11 +765,11 @@ mod tests {
 
     #[test]
     fn zero_hp_organ_is_destroyed() {
-        let mut lungs = BodyNode::vital(BodyNodeKind::Lungs, 35.0, vec![]);
-        lungs.current_hp = 0.0;
-        lungs.recalculate_function();
-        assert_eq!(lungs.condition(), 0.0);
-        assert!(lungs.is_destroyed());
+        let mut lung = BodyNode::vital(BodyNodeKind::LeftLung, 18.0, vec![]);
+        lung.current_hp = 0.0;
+        lung.recalculate_function();
+        assert_eq!(lung.condition(), 0.0);
+        assert!(lung.is_destroyed());
     }
 
     #[test]
@@ -693,7 +782,7 @@ mod tests {
     }
 
     #[test]
-    fn human_has_expected_organs_in_head_and_torso() {
+    fn human_has_expected_children_in_head_and_torso() {
         let body = Body::human();
 
         let head = body.part(BodyNodeKind::Head).expect("human has a head");
@@ -702,9 +791,12 @@ mod tests {
             head_kinds,
             vec![
                 BodyNodeKind::Brain,
-                BodyNodeKind::Eyes,
-                BodyNodeKind::Ears,
+                BodyNodeKind::LeftEye,
+                BodyNodeKind::RightEye,
+                BodyNodeKind::LeftEar,
+                BodyNodeKind::RightEar,
                 BodyNodeKind::Nose,
+                BodyNodeKind::Jaw,
             ]
         );
 
@@ -714,7 +806,8 @@ mod tests {
             torso_kinds,
             vec![
                 BodyNodeKind::Heart,
-                BodyNodeKind::Lungs,
+                BodyNodeKind::LeftLung,
+                BodyNodeKind::RightLung,
                 BodyNodeKind::Liver,
                 BodyNodeKind::Stomach,
                 BodyNodeKind::Gut,
@@ -724,7 +817,8 @@ mod tests {
         let left_arm = body
             .part(BodyNodeKind::LeftArm)
             .expect("human has a left arm");
-        assert!(left_arm.children.is_empty());
+        assert_eq!(left_arm.children.len(), 1);
+        assert_eq!(left_arm.children[0].kind, BodyNodeKind::LeftHand);
     }
 
     #[test]
@@ -732,7 +826,8 @@ mod tests {
         for body in [Body::wolf(), Body::deer()] {
             assert!(body.node(BodyNodeKind::Brain).is_some());
             assert!(body.node(BodyNodeKind::Heart).is_some());
-            assert!(body.node(BodyNodeKind::Lungs).is_some());
+            assert!(body.node(BodyNodeKind::LeftLung).is_some());
+            assert!(body.node(BodyNodeKind::RightLung).is_some());
             assert!(body.node(BodyNodeKind::Stomach).is_some());
         }
     }
@@ -767,26 +862,37 @@ mod tests {
     }
 
     #[test]
-    fn organs_iterator_walks_head_and_torso_organs() {
-        for body in [Body::human(), Body::wolf(), Body::deer()] {
-            let count: usize = body.parts.iter().map(|p| p.children.len()).sum();
-            assert_eq!(count, 9, "every species carries 4 head + 5 torso organs");
-        }
+    fn all_species_have_expected_child_count() {
+        // Human: 7 head + 6 torso + 1 per limb (4 limbs) = 17
+        let human = Body::human();
+        let count: usize = human.parts.iter().map(|p| p.children.len()).sum();
+        assert_eq!(count, 17, "human: 7 head + 6 torso + 4 extremities");
+
+        // Wolf: 7 head + 6 torso + 1 per leg (4 legs) = 17
+        let wolf = Body::wolf();
+        let count: usize = wolf.parts.iter().map(|p| p.children.len()).sum();
+        assert_eq!(count, 17, "wolf: 7 head + 6 torso + 4 paws");
+
+        // Deer: 7 head + 6 torso + 1 per leg (4 legs) = 17
+        let deer = Body::deer();
+        let count: usize = deer.parts.iter().map(|p| p.children.len()).sum();
+        assert_eq!(count, 17, "deer: 7 head + 6 torso + 4 hooves");
     }
 
     #[test]
-    fn lung_condition_tracks_lung_organ_hp() {
+    fn lung_condition_averages_both_lungs() {
         let healthy = Body::human();
         assert!((healthy.lung_condition() - 1.0).abs() < 1e-6);
 
         let mut damaged = Body::human();
-        let lungs = damaged
-            .node_mut(BodyNodeKind::Lungs)
-            .expect("humans have lungs");
-        lungs.current_hp = lungs.max_hp * 0.25;
+        // Destroy left lung, leave right intact: average = 0.5
+        damaged
+            .node_mut(BodyNodeKind::LeftLung)
+            .expect("humans have left lung")
+            .current_hp = 0.0;
         assert!(
-            (damaged.lung_condition() - 0.25).abs() < 1e-6,
-            "quarter-hp lungs should report 0.25, got {}",
+            (damaged.lung_condition() - 0.5).abs() < 1e-6,
+            "one destroyed lung should report 0.5, got {}",
             damaged.lung_condition()
         );
     }
@@ -812,5 +918,108 @@ mod tests {
         );
         assert!((mods.liver - 1.0).abs() < 1e-6);
         assert!((mods.gut - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn destroying_one_eye_reduces_awareness() {
+        let body = Body::human();
+        let full_awareness = body.channel_capacity(Channel::Awareness);
+
+        let mut damaged = Body::human();
+        damaged
+            .node_mut(BodyNodeKind::LeftEye)
+            .expect("humans have left eye")
+            .current_hp = 0.0;
+        damaged
+            .node_mut(BodyNodeKind::LeftEye)
+            .unwrap()
+            .recalculate_function();
+        let reduced = damaged.channel_capacity(Channel::Awareness);
+        assert!(
+            reduced < full_awareness,
+            "losing an eye should reduce awareness ({full_awareness} -> {reduced})"
+        );
+        let diff = full_awareness - reduced;
+        assert!(
+            (diff - 0.15).abs() < 1e-6,
+            "left eye contributes 0.15 awareness, got diff {diff}"
+        );
+    }
+
+    #[test]
+    fn brain_injury_reduces_focus() {
+        let body = Body::human();
+        let full_focus = body.channel_capacity(Channel::Focus);
+
+        let mut damaged = Body::human();
+        let brain = damaged
+            .node_mut(BodyNodeKind::Brain)
+            .expect("humans have brain");
+        brain.current_hp = brain.max_hp * 0.5;
+        brain.recalculate_function();
+        let reduced = damaged.channel_capacity(Channel::Focus);
+        assert!(
+            reduced < full_focus,
+            "brain damage should reduce focus ({full_focus} -> {reduced})"
+        );
+    }
+
+    #[test]
+    fn losing_hand_halves_manipulation() {
+        let body = Body::human();
+        let full = body.channel_capacity(Channel::Manipulation);
+        assert!((full - 1.0).abs() < 1e-6);
+
+        let mut damaged = Body::human();
+        damaged
+            .node_mut(BodyNodeKind::LeftHand)
+            .expect("humans have left hand")
+            .current_hp = 0.0;
+        damaged
+            .node_mut(BodyNodeKind::LeftHand)
+            .unwrap()
+            .recalculate_function();
+        let reduced = damaged.channel_capacity(Channel::Manipulation);
+        assert!(
+            (reduced - 0.5).abs() < 1e-6,
+            "losing a hand should halve manipulation, got {reduced}"
+        );
+    }
+
+    #[test]
+    fn jaw_is_under_head_for_all_species() {
+        for (name, body) in [
+            ("human", Body::human()),
+            ("wolf", Body::wolf()),
+            ("deer", Body::deer()),
+        ] {
+            let head = body.part(BodyNodeKind::Head).unwrap();
+            assert!(
+                head.children.iter().any(|c| c.kind == BodyNodeKind::Jaw),
+                "{name} jaw should be a child of Head"
+            );
+        }
+    }
+
+    #[test]
+    fn head_wound_without_organ_damage_has_no_cognitive_effect() {
+        let mut body = Body::human();
+        let full_focus = body.channel_capacity(Channel::Focus);
+        let full_awareness = body.channel_capacity(Channel::Awareness);
+
+        // Damage head HP but don't touch children
+        let head = body.part_mut(BodyNodeKind::Head).unwrap();
+        head.current_hp = head.max_hp * 0.3;
+        head.recalculate_function();
+
+        // Head itself provides no channels, so cognitive channels unchanged
+        assert!(
+            (body.channel_capacity(Channel::Focus) - full_focus).abs() < 1e-6,
+            "head wound alone should not reduce focus"
+        );
+        assert!(
+            (body.channel_capacity(Channel::Awareness) - full_awareness).abs() < 1e-6,
+            "head wound alone should not reduce awareness"
+        );
     }
 }
