@@ -1,3 +1,10 @@
+//! Working memory buffer and strength-based knowledge decay.
+//!
+//! Reads: GameEvent messages, TickCount, MemoryDecayConfig, MindGraph
+//! Writes: WorkingMemory (event buffer), MindGraph (episodic triples, decay/forget)
+//! Upstream: perception (GameEvents), action execution (GameEvents), conversation (KnowledgeShared)
+//! Downstream: consolidation (reads episodic triples), brain systems (reads MindGraph)
+
 use bevy::prelude::*;
 use std::collections::VecDeque;
 
