@@ -273,6 +273,15 @@ pub enum SimEvent {
         stranger: Entity,
     },
 
+    /// Two agents acknowledged each other in passing (wave, nod, brief
+    /// greeting). Not a conversation — no turns, no state machine. Just a
+    /// social signal that bumps companionship and relationship warmth.
+    SocialAcknowledgment {
+        actor: Entity,
+        target: Entity,
+        tick: u64,
+    },
+
     /// Knowledge was shared between agents.
     KnowledgeShared {
         speaker: Entity,

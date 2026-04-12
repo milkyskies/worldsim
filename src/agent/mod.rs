@@ -97,6 +97,7 @@ impl Plugin for AgentPlugin {
             .add_plugins(brains::BrainPlugin)
             .add_plugins(nervous_system::NervousSystemPlugin)
             .add_plugins(invariants::InvariantPlugin)
+            .init_resource::<psyche::greetings::GreetingCooldowns>()
             .add_plugins(communication::CommunicationPlugin)
             // Unified action execution system
             .add_systems(
@@ -186,6 +187,8 @@ impl Plugin for AgentPlugin {
                     psyche::relationships::decay_relationships,
                     psyche::flocking::decay_social_from_proximity
                         .after(brains::brain_system::arbitrate_every_tick),
+                    psyche::greetings::social_acknowledgments
+                        .after(psyche::flocking::decay_social_from_proximity),
                     // Skills: reward practice after action completion, then
                     // decay disused skills once per game day. Progression
                     // runs after the execution systems so this frame's
