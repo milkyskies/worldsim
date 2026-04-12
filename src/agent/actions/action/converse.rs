@@ -55,8 +55,11 @@ impl Action for ConverseAction {
 
     fn runtime_effects(&self) -> RuntimeEffects {
         RuntimeEffects {
-            companionship_per_sec: 0.04,
-            stimulation_per_sec: 0.02,
+            // Gentle background drain — most social satisfaction now
+            // comes from per-turn SOCIAL_DRIVE_PER_TURN in
+            // select_turn_intent.
+            companionship_per_sec: 0.012,
+            stimulation_per_sec: 0.015,
             ..Default::default()
         }
     }

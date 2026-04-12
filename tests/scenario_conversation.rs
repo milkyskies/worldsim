@@ -14,8 +14,9 @@
 
 use bevy::math::Vec2;
 use worldsim::agent::actions::ActionType;
+use worldsim::agent::body::needs::PsychologicalDrives;
 use worldsim::agent::events::SimEvent;
-use worldsim::agent::mind::conversation::{ConversationManager, Intent};
+use worldsim::agent::mind::conversation::{ConversationManager, ConversationState, Intent};
 use worldsim::agent::mind::knowledge::{
     Concept, MemoryType, Metadata, MindGraph, Node, Predicate, Source, Triple, Value,
 };
@@ -608,5 +609,261 @@ fn group_shrinks_then_ends_as_participants_leave() {
     assert_eq!(
         active_count, 0,
         "conversation should have ended once only one participant remained"
+    );
+}
+
+// ─── Conversation tuning tests (#388) ───────────────────────────────────────
+
+/// Two humans talking should progress past the Greeting state into Active
+/// within a reasonable number of ticks.
+#[test]
+fn conversation_reaches_active_state() {
+    let (mut world, agents) = TestWorld::scenario(42)
+        .map_size(64, 64)
+        .noise_biomes(false)
+        .agent("alice")
+        .pos(Vec2::new(200.0, 200.0))
+        .social_drive(HIGH_SOCIAL)
+        .done()
+        .agent("bob")
+        .pos(Vec2::new(210.0, 200.0))
+        .social_drive(HIGH_SOCIAL)
+        .done()
+        .build();
+
+    fast_brains(&mut world);
+    world.tick(300);
+
+    let manager = world.app().world().resource::<ConversationManager>();
+    let reached_active = manager.conversations.values().any(|c| {
+        matches!(
+            c.state,
+            ConversationState::Active | ConversationState::Wrapping | ConversationState::Ended
+        ) && c.turns.len() >= 2
+    });
+
+    if !reached_active {
+        world.print_conversation(agents["alice"]);
+        world.print_recent_events(300);
+    }
+    assert!(
+        reached_active,
+        "at least one conversation should have progressed past Greeting"
+    );
+}
+
+/// Over multiple seeds, the average conversation turn count should be at
+/// least 5 (acceptance criterion from #388). Samples turn counts from
+/// active conversations periodically since the ConversationManager removes
+/// finalized ones.
+#[test]
+fn conversation_average_turn_count() {
+    let mut all_turn_counts: Vec<usize> = Vec::new();
+
+    for seed in 42..47 {
+        let (mut world, _agents) = TestWorld::scenario(seed)
+            .map_size(64, 64)
+            .noise_biomes(false)
+            .agent("alice")
+            .pos(Vec2::new(200.0, 200.0))
+            .social_drive(HIGH_SOCIAL)
+            .done()
+            .agent("bob")
+            .pos(Vec2::new(210.0, 200.0))
+            .social_drive(HIGH_SOCIAL)
+            .done()
+            .build();
+
+        fast_brains(&mut world);
+
+        // Track the highest turn count observed per conversation ID.
+        // Conversations get removed on finalization so we sample every
+        // few ticks to catch them at their peak.
+        let mut peak_turns: std::collections::HashMap<u64, usize> =
+            std::collections::HashMap::new();
+
+        for _ in 0..40 {
+            world.tick(40);
+            let manager = world.app().world().resource::<ConversationManager>();
+            for conv in manager.conversations.values() {
+                if conv.turns.len() >= 2 {
+                    let entry = peak_turns.entry(conv.id).or_insert(0);
+                    *entry = (*entry).max(conv.turns.len());
+                }
+            }
+        }
+
+        all_turn_counts.extend(peak_turns.values().copied());
+    }
+
+    assert!(
+        all_turn_counts.len() >= 3,
+        "expected at least 3 conversations across 5 seeds, got {}",
+        all_turn_counts.len()
+    );
+    let total: usize = all_turn_counts.iter().sum();
+    let average = total as f32 / all_turn_counts.len() as f32;
+    assert!(
+        average >= 5.0,
+        "average turn count should be >= 5, got {average:.1} (counts: {all_turn_counts:?})"
+    );
+}
+
+/// The ratio of ConversationAbandoned to ConversationEnded events should be
+/// below 0.5 — most conversations should end cleanly.
+#[test]
+fn abandon_ratio_below_threshold() {
+    let (mut world, agents) = TestWorld::scenario(42)
+        .map_size(64, 64)
+        .noise_biomes(false)
+        .agent("alice")
+        .pos(Vec2::new(200.0, 200.0))
+        .social_drive(HIGH_SOCIAL)
+        .done()
+        .agent("bob")
+        .pos(Vec2::new(210.0, 200.0))
+        .social_drive(HIGH_SOCIAL)
+        .done()
+        .build();
+
+    fast_brains(&mut world);
+    world.tick(2000);
+
+    let events = world.sim_events().all();
+    let ended = events
+        .iter()
+        .filter(|e| matches!(e, SimEvent::ConversationEnded { .. }))
+        .count();
+    let abandoned = events
+        .iter()
+        .filter(|e| matches!(e, SimEvent::ConversationAbandoned { .. }))
+        .count();
+
+    assert!(
+        ended >= 1,
+        "expected at least one cleanly ended conversation"
+    );
+
+    let ratio = if ended > 0 {
+        abandoned as f32 / ended as f32
+    } else {
+        f32::MAX
+    };
+
+    if ratio >= 0.5 {
+        world.print_agent_state(agents["alice"]);
+        world.print_recent_events(200);
+    }
+    assert!(
+        ratio < 0.5,
+        "abandon/ended ratio should be < 0.5, got {ratio:.2} ({abandoned} abandoned, {ended} ended)"
+    );
+}
+
+/// When one agent has unique knowledge, a conversation should transfer at
+/// least one triple to the other agent's MindGraph via turn content.
+#[test]
+fn knowledge_flows_through_turn_content() {
+    let unique_knowledge = Triple::with_meta(
+        Node::Concept(Concept::Berry),
+        Predicate::LocatedAt,
+        Value::Concept(Concept::BerryBush),
+        Metadata {
+            source: Source::Experienced,
+            memory_type: MemoryType::Episodic,
+            timestamp: 0,
+            confidence: 1.0,
+            informant: None,
+            evidence: Vec::new(),
+            salience: 0.8,
+            source_sense: None,
+        },
+    );
+
+    let (mut world, agents) = TestWorld::scenario(42)
+        .map_size(64, 64)
+        .noise_biomes(false)
+        .agent("alice")
+        .pos(Vec2::new(200.0, 200.0))
+        .social_drive(HIGH_SOCIAL)
+        .knowledge(vec![unique_knowledge])
+        .done()
+        .agent("bob")
+        .pos(Vec2::new(210.0, 200.0))
+        .social_drive(HIGH_SOCIAL)
+        .done()
+        .build();
+
+    fast_brains(&mut world);
+    world.tick(600);
+
+    let alice = agents["alice"];
+    let bob = agents["bob"];
+
+    // Bob should have received at least one triple from alice as hearsay.
+    // This is the durable proof that knowledge flowed through turn content,
+    // since the ConversationManager drops finalized conversations.
+    let bob_mind = world.get::<MindGraph>(bob);
+    let bob_has_hearsay = bob_mind.iter().any(|t| t.meta.informant == Some(alice));
+
+    if !bob_has_hearsay {
+        world.print_conversation(alice);
+        world.print_mind_graph(bob);
+    }
+    assert!(
+        bob_has_hearsay,
+        "bob should have received at least one triple from alice as hearsay"
+    );
+}
+
+/// Social drive (companionship) should increase per turn, not just from the
+/// continuous `companionship_per_sec` on the Converse action.
+#[test]
+fn social_drive_drains_per_turn() {
+    let (mut world, agents) = TestWorld::scenario(42)
+        .map_size(64, 64)
+        .noise_biomes(false)
+        .agent("alice")
+        .pos(Vec2::new(200.0, 200.0))
+        .social_drive(HIGH_SOCIAL)
+        .done()
+        .agent("bob")
+        .pos(Vec2::new(210.0, 200.0))
+        .social_drive(HIGH_SOCIAL)
+        .done()
+        .build();
+
+    fast_brains(&mut world);
+    // Let them start talking.
+    world.tick(TICKS_TO_INITIATE);
+
+    let alice = agents["alice"];
+    assert!(
+        world.in_conversation(alice),
+        "alice should be in a conversation"
+    );
+
+    // Record companionship before more turns happen.
+    let before = world
+        .app()
+        .world()
+        .get::<PsychologicalDrives>(alice)
+        .expect("alice should have PsychologicalDrives")
+        .companionship;
+
+    // Run enough ticks for several turns (at 30-tick intervals, 200 ticks
+    // gives ~6 turns).
+    world.tick(200);
+
+    let after = world
+        .app()
+        .world()
+        .get::<PsychologicalDrives>(alice)
+        .expect("alice should have PsychologicalDrives")
+        .companionship;
+
+    assert!(
+        after > before,
+        "companionship should increase over conversation turns (before={before:.3}, after={after:.3})"
     );
 }

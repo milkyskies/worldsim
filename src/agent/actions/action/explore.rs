@@ -36,6 +36,7 @@ impl Action for ExploreAction {
         RuntimeEffects {
             alertness_per_sec: 5.0,
             stimulation_per_sec: 0.05,
+            companionship_per_sec: -0.006,
             ..Default::default()
         }
     }

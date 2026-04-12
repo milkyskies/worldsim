@@ -55,6 +55,7 @@ impl Action for RestAction {
         RuntimeEffects {
             alertness_per_sec: 2.0,
             stimulation_per_sec: -0.008,
+            companionship_per_sec: -0.006,
             ..Default::default()
         }
     }

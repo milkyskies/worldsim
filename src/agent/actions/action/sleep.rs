@@ -64,6 +64,7 @@ impl Action for SleepAction {
         RuntimeEffects {
             alertness_per_sec: -50.0,
             stimulation_per_sec: -0.01,
+            companionship_per_sec: -0.004,
             ..Default::default()
         }
     }
