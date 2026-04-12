@@ -29,14 +29,14 @@ pub fn random_genome<R: Rng>(rng: &mut R, species: Species) -> Genome {
     let mut maternal = [0.0_f32; N_LOCI];
     let mut paternal = [0.0_f32; N_LOCI];
 
-    // Physical trait loci (0..16)
-    for i in 0..16 {
+    // Physical trait loci (0..24)
+    for i in 0..crate::agent::body::genetics::genome::N_PHYSICAL_LOCI {
         maternal[i] = sample_locus(rng, physical_std);
         paternal[i] = sample_locus(rng, physical_std);
     }
 
-    // Personality trait loci (16..36)
-    for i in 16..N_LOCI {
+    // Personality trait loci (24..44)
+    for i in crate::agent::body::genetics::genome::N_PHYSICAL_LOCI..N_LOCI {
         maternal[i] = sample_locus(rng, personality_std);
         paternal[i] = sample_locus(rng, personality_std);
     }

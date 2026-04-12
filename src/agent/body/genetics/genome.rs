@@ -9,24 +9,37 @@ use bevy::prelude::*;
 
 /// Total number of loci per haplotype.
 ///
-/// Layout: 4 loci × 4 physical traits (0..16) + 4 loci × 5 personality traits (16..36) = 36.
-pub const N_LOCI: usize = 36;
+/// Layout: 4 loci × 6 physical traits (0..24) + 4 loci × 5 personality traits (24..44) = 44.
+pub const N_LOCI: usize = 44;
 
 /// Number of loci per trait per haplotype (4 loci × 2 haplotypes = 8 values summed per trait).
 pub const LOCI_PER_TRAIT: usize = 4;
 
-// Physical trait locus start offsets (loci 0..16)
+// Physical trait locus start offsets (loci 0..24)
 pub const SPEED_START: usize = 0;
 pub const VISION_START: usize = 4;
-pub const METABOLISM_START: usize = 8;
-pub const ENDURANCE_START: usize = 12;
+/// Digestion efficiency: scales digestion rate and absorption yield.
+/// High = fast digester, low = slow but fuel-efficient.
+pub const DIGESTION_START: usize = 8;
+/// Base metabolic rate: scales BMR drain and recovery rates.
+/// High = burns fast at rest but recovers stamina faster.
+pub const BMR_START: usize = 12;
+/// Aerobic capacity: scales aerobic stamina pool size.
+/// High = sustains effort longer before exhaustion.
+pub const AEROBIC_CAPACITY_START: usize = 16;
+/// Anaerobic capacity: scales anaerobic stamina pool size.
+/// High = longer sprints before oxygen debt.
+pub const ANAEROBIC_CAPACITY_START: usize = 20;
 
-// Personality trait locus start offsets (loci 16..36)
-pub const OPENNESS_START: usize = 16;
-pub const CONSCIENTIOUSNESS_START: usize = 20;
-pub const EXTRAVERSION_START: usize = 24;
-pub const AGREEABLENESS_START: usize = 28;
-pub const NEUROTICISM_START: usize = 32;
+/// Number of physical trait loci (6 traits × 4 loci each).
+pub const N_PHYSICAL_LOCI: usize = 24;
+
+// Personality trait locus start offsets (loci 24..44)
+pub const OPENNESS_START: usize = 24;
+pub const CONSCIENTIOUSNESS_START: usize = 28;
+pub const EXTRAVERSION_START: usize = 32;
+pub const AGREEABLENESS_START: usize = 36;
+pub const NEUROTICISM_START: usize = 40;
 
 /// Diploid genome: two haplotypes of [`N_LOCI`] loci each.
 ///

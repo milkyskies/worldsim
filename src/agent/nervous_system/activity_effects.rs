@@ -35,15 +35,26 @@ use bevy::prelude::*;
 pub fn tick_metabolism(
     activity_config: Res<ActivityConfig>,
     tick: Res<TickCount>,
-    mut query: Query<(&mut PhysicalNeeds, Option<&Body>)>,
+    mut query: Query<(
+        &mut PhysicalNeeds,
+        Option<&Body>,
+        Option<&crate::agent::body::genetics::phenotype::Phenotype>,
+    )>,
 ) {
     let dt = tick.dt();
     let bmr_drain = activity_config.base.effects.glucose_drain;
-    for (mut physical, body) in query.iter_mut() {
-        let organ_mods = body.map(Body::organ_mods).unwrap_or_default();
+    for (mut physical, body, phenotype) in query.iter_mut() {
+        let mut organ_mods = body.map(Body::organ_mods).unwrap_or_default();
+        // Genetic digestion multiplier scales stomach→glucose conversion
+        // rate. High digestion = faster nutrient extraction.
+        let digestion_mult = phenotype.map(|p| p.digestion).unwrap_or(1.0);
+        organ_mods.stomach *= digestion_mult;
+        organ_mods.gut *= digestion_mult;
+        // Genetic BMR multiplier scales basal metabolic rate.
+        let bmr_mult = phenotype.map(|p| p.bmr).unwrap_or(1.0);
         physical
             .metabolism
-            .tick_with_mods(dt, bmr_drain, 0.0, organ_mods);
+            .tick_with_mods(dt, bmr_drain * bmr_mult, 0.0, organ_mods);
 
         // Slow passive anaerobic refill so a Flee sprint doesn't leave
         // the pool stuck at 0 forever. The rate is low enough that the

@@ -660,22 +660,19 @@ fn event_to_json(
             })
         }
         SimEvent::PhenotypeDeveloped {
-            agent,
-            speed,
-            vision,
-            metabolism,
-            endurance,
-            ..
+            agent, phenotype, ..
         } => {
             serde_json::json!({
                 "tick": tick,
                 "type": event_type,
                 "agent": resolve(*agent),
                 "agent_id": entity_id_str(*agent),
-                "speed": speed,
-                "vision": vision,
-                "metabolism": metabolism,
-                "endurance": endurance,
+                "speed": phenotype.speed,
+                "vision": phenotype.vision,
+                "digestion": phenotype.digestion,
+                "bmr": phenotype.bmr,
+                "aerobic_capacity": phenotype.aerobic_capacity,
+                "anaerobic_capacity": phenotype.anaerobic_capacity,
             })
         }
     }

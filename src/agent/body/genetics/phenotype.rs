@@ -9,9 +9,9 @@
 use bevy::prelude::*;
 
 use crate::agent::body::genetics::genome::{
-    AGREEABLENESS_START, CONSCIENTIOUSNESS_START, ENDURANCE_START, EXTRAVERSION_START, Genome,
-    LOCI_PER_TRAIT, METABOLISM_START, N_LOCI, NEUROTICISM_START, OPENNESS_START, SPEED_START,
-    VISION_START,
+    AEROBIC_CAPACITY_START, AGREEABLENESS_START, ANAEROBIC_CAPACITY_START, BMR_START,
+    CONSCIENTIOUSNESS_START, DIGESTION_START, EXTRAVERSION_START, Genome, LOCI_PER_TRAIT, N_LOCI,
+    NEUROTICISM_START, OPENNESS_START, SPEED_START, VISION_START,
 };
 use crate::agent::body::needs::{PsychologicalDrives, SocialDriveOverride};
 use crate::agent::body::species::SpeciesProfile;
@@ -48,8 +48,18 @@ pub struct Phenotype {
     // Physical multipliers (1.0 = species baseline)
     pub speed: f32,
     pub vision: f32,
-    pub metabolism: f32,
-    pub endurance: f32,
+    /// Digestion rate multiplier. High = fast digester (stomach empties
+    /// quickly, glucose available sooner). Low = slow but fuel-efficient.
+    pub digestion: f32,
+    /// Base metabolic rate multiplier. High = burns more at rest but
+    /// recovers stamina faster. Low = fuel-efficient, slow recovery.
+    pub bmr: f32,
+    /// Aerobic capacity multiplier. Scales aerobic stamina pool size.
+    /// High = sustains effort longer (marathoner). Low = tires quickly.
+    pub aerobic_capacity: f32,
+    /// Anaerobic capacity multiplier. Scales anaerobic stamina pool size.
+    /// High = longer sprints (sprinter). Low = burns out fast.
+    pub anaerobic_capacity: f32,
     // Personality scores (0..1, centered at 0.5)
     pub openness: f32,
     pub conscientiousness: f32,
@@ -59,13 +69,14 @@ pub struct Phenotype {
 }
 
 impl Default for Phenotype {
-    /// Neutral phenotype matching the species baseline exactly.
     fn default() -> Self {
         Self {
             speed: 1.0,
             vision: 1.0,
-            metabolism: 1.0,
-            endurance: 1.0,
+            digestion: 1.0,
+            bmr: 1.0,
+            aerobic_capacity: 1.0,
+            anaerobic_capacity: 1.0,
             openness: 0.5,
             conscientiousness: 0.5,
             extraversion: 0.5,
@@ -76,13 +87,14 @@ impl Default for Phenotype {
 }
 
 impl Phenotype {
-    /// Derive phenotype values from a genome.
     pub fn from_genome(genome: &Genome) -> Self {
         Self {
             speed: develop_physical(genome.locus_sum(SPEED_START)),
             vision: develop_physical(genome.locus_sum(VISION_START)),
-            metabolism: develop_physical(genome.locus_sum(METABOLISM_START)),
-            endurance: develop_physical(genome.locus_sum(ENDURANCE_START)),
+            digestion: develop_physical(genome.locus_sum(DIGESTION_START)),
+            bmr: develop_physical(genome.locus_sum(BMR_START)),
+            aerobic_capacity: develop_physical(genome.locus_sum(AEROBIC_CAPACITY_START)),
+            anaerobic_capacity: develop_physical(genome.locus_sum(ANAEROBIC_CAPACITY_START)),
             openness: develop_personality(genome.locus_sum(OPENNESS_START)),
             conscientiousness: develop_personality(genome.locus_sum(CONSCIENTIOUSNESS_START)),
             extraversion: develop_personality(genome.locus_sum(EXTRAVERSION_START)),
@@ -113,14 +125,21 @@ impl Genome {
         fill_physical(
             &mut maternal,
             &mut paternal,
-            METABOLISM_START,
-            target.metabolism,
+            DIGESTION_START,
+            target.digestion,
+        );
+        fill_physical(&mut maternal, &mut paternal, BMR_START, target.bmr);
+        fill_physical(
+            &mut maternal,
+            &mut paternal,
+            AEROBIC_CAPACITY_START,
+            target.aerobic_capacity,
         );
         fill_physical(
             &mut maternal,
             &mut paternal,
-            ENDURANCE_START,
-            target.endurance,
+            ANAEROBIC_CAPACITY_START,
+            target.anaerobic_capacity,
         );
 
         fill_personality(
@@ -277,10 +296,7 @@ pub fn develop_phenotype_system(
         sim_events.write(SimEvent::PhenotypeDeveloped {
             agent: entity,
             tick: tick.current,
-            speed: phenotype.speed,
-            vision: phenotype.vision,
-            metabolism: phenotype.metabolism,
-            endurance: phenotype.endurance,
+            phenotype: phenotype.clone(),
         });
 
         commands.entity(entity).insert((
@@ -291,6 +307,29 @@ pub fn develop_phenotype_system(
             personality,
             drives,
         ));
+    }
+}
+
+/// Scale stamina pool sizes by genetic aerobic/anaerobic capacity at spawn.
+///
+/// Runs once when [`Phenotype`] is added (same frame as `develop_phenotype_system`).
+/// High aerobic_capacity agents get larger aerobic reserves; high anaerobic_capacity
+/// agents get larger sprint reserves. Both pools start full at the new max.
+pub fn apply_stamina_genetics_system(
+    mut query: Query<(&Phenotype, &mut crate::agent::body::needs::PhysicalNeeds), Added<Phenotype>>,
+) {
+    for (phenotype, mut physical) in query.iter_mut() {
+        // Scale aerobic pool by genetic aerobic capacity
+        let base_aerobic = physical.stamina.aerobic_max;
+        let scaled_aerobic = base_aerobic * phenotype.aerobic_capacity;
+        physical.stamina.aerobic_max = scaled_aerobic;
+        physical.stamina.aerobic = scaled_aerobic;
+
+        // Scale anaerobic pool by genetic anaerobic capacity
+        let base_anaerobic = physical.stamina.anaerobic_max;
+        let scaled_anaerobic = base_anaerobic * phenotype.anaerobic_capacity;
+        physical.stamina.anaerobic_max = scaled_anaerobic;
+        physical.stamina.anaerobic = scaled_anaerobic;
     }
 }
 
