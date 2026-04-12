@@ -200,6 +200,16 @@ pub fn run_headless(config: HeadlessConfig) -> HeadlessReport {
             .add_systems(bevy::app::Last, collect_event_log);
     }
 
+    // Suppress GameLog stdout noise when inspection flags are active,
+    // so --inspect / --why output isn't buried under brain traces.
+    if config.inspect.is_active() {
+        world
+            .app_mut()
+            .world_mut()
+            .resource_mut::<crate::core::GameLog>()
+            .quiet = true;
+    }
+
     let spawned = populate(&mut world, &config);
 
     let start = Instant::now();

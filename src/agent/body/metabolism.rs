@@ -68,6 +68,13 @@ pub const GLUCOSE_OVERFLOW_RATE: f32 = 0.4;
 /// `GLUCOSE_MOBILIZE_THRESHOLD` (per second). "Burning fat" during fasting.
 pub const RESERVE_MOBILIZE_RATE: f32 = 0.8;
 
+/// Hunger urgency blend weights (must sum to 1.0).
+/// Stomach-heavy: ghrelin makes you hungry when your stomach empties,
+/// even if glucose and reserves are fine.
+pub const HUNGER_WEIGHT_STOMACH: f32 = 0.4;
+pub const HUNGER_WEIGHT_GLUCOSE: f32 = 0.4;
+pub const HUNGER_WEIGHT_RESERVES: f32 = 0.2;
+
 /// Macros carried by a food item. Lookup via `food_macros` for each edible
 /// `Concept`. Non-edible concepts return `None`.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -228,18 +235,13 @@ impl Metabolism {
     }
 
     /// 0..1 urgency signal for "how much do I need to eat". Blends all three
-    /// pools so the agent feels hungry when *any* of them runs low:
-    /// - stomach satiety (20%): short-term "just ate" signal (stretch receptors)
-    /// - glucose satiety (50%): ongoing cellular energy availability
-    /// - reserves satiety (30%): long-term security, the buffer that keeps
-    ///   an agent confident between meals
-    ///
-    /// Returns 0.0 when well-fed, 1.0 when every pool is empty. Existing
-    /// urgency curves (Sigmoid with midpoint ~0.6) apply on top of this.
+    /// pools — empty stomach triggers ghrelin-driven hunger even when glucose
+    /// and reserves are fine, matching real meal-seeking behavior.
+    /// Returns 0.0 when well-fed, 1.0 when every pool is empty.
     pub fn hunger_urgency(&self) -> f32 {
-        let stomach_satiety = self.stomach_fraction() * 0.2;
-        let glucose_satiety = self.glucose_fraction() * 0.5;
-        let reserves_satiety = self.reserves_fraction() * 0.3;
+        let stomach_satiety = self.stomach_fraction() * HUNGER_WEIGHT_STOMACH;
+        let glucose_satiety = self.glucose_fraction() * HUNGER_WEIGHT_GLUCOSE;
+        let reserves_satiety = self.reserves_fraction() * HUNGER_WEIGHT_RESERVES;
         (1.0 - stomach_satiety - glucose_satiety - reserves_satiety).clamp(0.0, 1.0)
     }
 
