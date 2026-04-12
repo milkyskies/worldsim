@@ -12,6 +12,7 @@ pub mod inventory;
 pub mod item_slots;
 pub mod mind;
 pub mod movement;
+pub mod naming;
 pub mod nervous_system;
 pub mod psyche;
 pub mod skills;
@@ -74,6 +75,7 @@ impl Plugin for AgentPlugin {
             .register_type::<actions::ActiveActions>()
             .insert_resource(actions::ActionRegistry::new())
             .init_resource::<crate::core::SimRng>()
+            .init_resource::<naming::NameCounters>()
             .add_message::<events::GameEvent>()
             .add_message::<events::ActionOutcomeEvent>()
             .add_message::<events::SimEvent>()
@@ -87,7 +89,7 @@ impl Plugin for AgentPlugin {
                 Update,
                 (
                     nervous_system::execution::start_actions
-                        .after(brains::brain_system::three_brains_system),
+                        .after(brains::brain_system::arbitrate_every_tick),
                     nervous_system::execution::tick_actions
                         .after(nervous_system::execution::start_actions),
                     nervous_system::execution::apply_action_effects
@@ -169,7 +171,7 @@ impl Plugin for AgentPlugin {
                         .after(psyche::emotions::react_to_events),
                     psyche::relationships::decay_relationships,
                     psyche::flocking::decay_social_from_proximity
-                        .after(brains::brain_system::three_brains_system),
+                        .after(brains::brain_system::arbitrate_every_tick),
                     // Skills: reward practice after action completion, then
                     // decay disused skills once per game day. Progression
                     // runs after the execution systems so this frame's

@@ -60,8 +60,8 @@ impl Action for ConverseAction {
             // exchange). Lets an active conversation satisfy both
             // drives, which is why real social time leaves someone
             // feeling "filled up" on both fronts.
-            social_per_sec: -0.04,
-            curiosity_per_sec: -0.02,
+            companionship_per_sec: 0.04,
+            stimulation_per_sec: 0.02,
             ..Default::default()
         }
     }

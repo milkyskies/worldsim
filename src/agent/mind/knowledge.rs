@@ -1150,11 +1150,23 @@ impl MindGraph {
         timestamp: u64,
         confidence: f32,
     ) {
+        // IsA beliefs identify what an entity *is*, not what it's
+        // currently doing. Route them through semantic memory so an
+        // agent remembers "I know a berry bush at that spot" after the
+        // perception half-life would have forgotten it. Without this,
+        // bushes seen 6k+ ticks ago vanish from the agent's planner
+        // enumeration and they starve looking for food they already
+        // knew existed.
+        let meta = if predicate == Predicate::IsA {
+            Metadata::semantic(timestamp)
+        } else {
+            Metadata::perception_with_conf(timestamp, confidence)
+        };
         self.assert(Triple::with_meta(
             Node::Entity(entity),
             predicate,
             object,
-            Metadata::perception_with_conf(timestamp, confidence),
+            meta,
         ));
     }
 
@@ -1353,6 +1365,16 @@ pub fn setup_ontology() -> Ontology {
     add(c(Berry), IsA, v(Food));
     add(c(Berry), IsA, v(Resource));
     add(c(Berry), IsA, v(Plant));
+
+    // Spoiled fruit is still food — calorie-poor and unappetizing, but
+    // a desperate agent will eat it rather than starve. Without these
+    // IsA edges, freshness decay turned every uneaten berry/apple into
+    // dead inventory weight: agents harvested faster than they ate, the
+    // stack rotted, and `Eat.can_start` rejected the inventory because
+    // RottenBerry wasn't `IsA Food`. Result was full-inventory starvation
+    // (#416).
+    add(c(RottenApple), IsA, v(Food));
+    add(c(RottenBerry), IsA, v(Food));
 
     add(c(Meat), IsA, v(Food));
     add(c(Meat), IsA, v(Resource));

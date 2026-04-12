@@ -156,7 +156,7 @@ pub fn decay_social_from_proximity(
         }
 
         let delta = SOCIAL_PROXIMITY_DECAY_PER_SEC * affection_sum * dt;
-        drives.social = (drives.social - delta).max(0.0);
+        drives.companionship = (drives.companionship + delta).min(1.0);
     }
 }
 

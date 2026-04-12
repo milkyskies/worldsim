@@ -49,9 +49,6 @@ impl Action for HarvestAction {
         TargetSource::EntityAffordance
     }
 
-    /// Per-target precondition: the entity must be known to contain something.
-    /// The default `to_template_for_target` injects this on top of the static
-    /// (none) preconditions plus the auto-injected proximity precondition.
     fn target_preconditions(
         &self,
         target: &TargetCandidate,
@@ -92,36 +89,51 @@ impl Action for HarvestAction {
         }
     }
 
-    // Planning: Only valid if we KNOW it produces something useful
     fn is_plan_valid(&self, target: &TargetCandidate, mind: &MindGraph) -> bool {
         let Some(target_entity) = target.as_entity() else {
             return false;
         };
 
-        // 1. Do we know it produces anything?
-        // Query: (Target, Produces, ?Item)
-        let produced_items = mind.query(
-            Some(&Node::Entity(target_entity)),
-            Some(Predicate::Produces),
-            None,
-        );
+        let mut produced: Vec<Value> = mind
+            .query(
+                Some(&Node::Entity(target_entity)),
+                Some(Predicate::Produces),
+                None,
+            )
+            .into_iter()
+            .map(|t| t.object.clone())
+            .collect();
 
-        if produced_items.is_empty() {
-            return false; // Don't know it produces anything
-        }
-
-        // 2. Is any produced item useful (Food or Resource)?
-        // We verify if the produced Concept IsA Food or Resource
-        for triple in produced_items {
-            if let Value::Item(concept, _) = triple.object
-                && (mind.is_a(&Node::Concept(concept), Concept::Food)
-                    || mind.is_a(&Node::Concept(concept), Concept::Resource))
-            {
-                return true;
+        if produced.is_empty() {
+            let type_triples = mind.query(
+                Some(&Node::Entity(target_entity)),
+                Some(Predicate::IsA),
+                None,
+            );
+            for triple in type_triples {
+                if let Value::Concept(concept) = triple.object {
+                    let type_produced = mind.query(
+                        Some(&Node::Concept(concept)),
+                        Some(Predicate::Produces),
+                        None,
+                    );
+                    produced.extend(type_produced.into_iter().map(|t| t.object.clone()));
+                }
             }
         }
 
-        false
+        if produced.is_empty() {
+            return false;
+        }
+
+        produced.iter().any(|value| {
+            if let Value::Item(concept, _) = value {
+                mind.is_a(&Node::Concept(*concept), Concept::Food)
+                    || mind.is_a(&Node::Concept(*concept), Concept::Resource)
+            } else {
+                false
+            }
+        })
     }
 
     // Per-tick effects while harvesting

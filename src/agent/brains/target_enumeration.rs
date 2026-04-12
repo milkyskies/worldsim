@@ -52,12 +52,19 @@ pub fn enumerate_targets(
     }
 }
 
-/// Iterate entities the agent's mind says contain something, then keep the
-/// ones whose world `Affordance` component declares the requested action type.
+/// Iterate perceived entities and keep the ones whose world `Affordance`
+/// component declares the requested action type.
 ///
-/// The "knows-about-it via Contains" gate is the legacy filter from the
-/// pre-refactor `collect_resource_targets` and `collect_affordance_targets`:
-/// it ensures the brain only plans against entities it has actually perceived.
+/// "Perceived" means the agent's mind has either a `Contains` belief
+/// (observed inventory — e.g. "this bush has 3 berries") or an `IsA`
+/// belief (observed type — e.g. "this is a BerryBush"). The IsA path is
+/// critical for first-sight planning: before #416, enumeration only ran
+/// over `Contains` beliefs, so an agent that perceived a BerryBush but
+/// hadn't yet seen its contents couldn't plan a Harvest against it and
+/// fell back to random Explore forever. With IsA included, the agent
+/// can act on a target the moment perception adds it to the MindGraph,
+/// using type-level `Produces` facts (seeded in `add_person_knowledge`)
+/// to derive the expected yield.
 fn enumerate_entities_with_affordance(
     action_type: ActionType,
     mind: &MindGraph,
@@ -66,25 +73,34 @@ fn enumerate_entities_with_affordance(
     let mut candidates = Vec::new();
     let mut seen = std::collections::HashSet::new();
 
-    for triple in mind.query(None, Some(Predicate::Contains), None) {
-        let Node::Entity(entity) = triple.subject else {
-            continue;
-        };
+    let consider = |entity: Entity,
+                    candidates: &mut Vec<TargetCandidate>,
+                    seen: &mut std::collections::HashSet<Entity>| {
         if !seen.insert(entity) {
-            continue;
+            return;
         }
-
         let Ok((transform, Some(affordance))) = affordances.get(entity) else {
-            continue;
+            return;
         };
         if affordance.action_type != action_type {
-            continue;
+            return;
         }
-
         candidates.push(TargetCandidate::Entity {
             entity,
             pos: transform.translation().truncate(),
         });
+    };
+
+    for triple in mind.query(None, Some(Predicate::Contains), None) {
+        if let Node::Entity(entity) = triple.subject {
+            consider(entity, &mut candidates, &mut seen);
+        }
+    }
+
+    for triple in mind.query(None, Some(Predicate::IsA), None) {
+        if let Node::Entity(entity) = triple.subject {
+            consider(entity, &mut candidates, &mut seen);
+        }
     }
 
     candidates

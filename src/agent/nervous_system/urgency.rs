@@ -85,31 +85,36 @@ pub fn generate_urgency(
         cns.urgencies.clear();
         cns.sleep_wake_trigger = None;
 
-        // Helper: Get normalized value (0-1) for a specific urgency source
-        // This maps the Source (Hunger, Stamina) to the underlying Component Field.
+        // Helper: Return the "intensity of want" (0..1) for an urgency
+        // source. All physical/psychological fields now store satisfaction
+        // (high = good), so this is where polarity inversion happens —
+        // every satisfaction-type field gets `1.0 - x`, every already-
+        // deficit-type input (Pain, Fear) is passed through directly.
         let get_source_value = |source: UrgencySource| -> f32 {
             match source {
+                // Already a deficit (high = hungry). Stays as-is.
                 UrgencySource::Hunger => physical.hunger_urgency(),
-                UrgencySource::Thirst => (physical.thirst / 100.0).clamp(0.0, 1.0),
+                // Satisfaction → urgency via inversion.
+                UrgencySource::Thirst => 1.0 - (physical.hydration / 100.0).clamp(0.0, 1.0),
+                // Stamina is satisfaction (aerobic_fraction() is high=rested);
+                // the loop below does the inversion via the Stamina-specific
+                // branch so no inversion here.
                 UrgencySource::Stamina => physical.stamina.aerobic_fraction(),
 
-                // Pain is complex, sum of injuries
+                // Pain is already a deficit (high = hurts). Stays as-is.
                 UrgencySource::Pain => {
                     let pain = body.map(|b| b.total_pain()).unwrap_or(0.0);
                     (pain / 100.0).clamp(0.0, 1.0)
                 }
 
-                // Social Drive (0-1)
-                UrgencySource::Social => drives.map(|d| d.social).unwrap_or(0.0),
-                UrgencySource::Fun => drives.map(|d| d.fun).unwrap_or(0.0),
-                UrgencySource::Territoriality => drives.map(|d| d.territoriality).unwrap_or(0.0),
+                // Psychological drives are all satisfaction now — invert
+                // each to get "how much the agent wants more of X."
+                UrgencySource::Social => drives.map(|d| 1.0 - d.companionship).unwrap_or(0.0),
+                UrgencySource::Fun => drives.map(|d| 1.0 - d.enjoyment).unwrap_or(0.0),
+                UrgencySource::Curiosity => drives.map(|d| 1.0 - d.stimulation).unwrap_or(0.0),
+                UrgencySource::Territoriality => drives.map(|d| 1.0 - d.dominion).unwrap_or(0.0),
                 UrgencySource::Fear => emotions
                     .get_emotion_intensity(crate::agent::psyche::emotions::EmotionType::Fear),
-
-                // Curiosity is a psychological drive that rises from
-                // unstimulating activity and drains from novelty-seeking
-                // actions (Observe/Explore/Wander). Mirrors Social/Fun.
-                UrgencySource::Curiosity => drives.map(|d| d.curiosity).unwrap_or(0.0),
             }
         };
 

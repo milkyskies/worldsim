@@ -42,7 +42,7 @@ impl Action for IdleAction {
             // the urge to look around, wander, find something new.
             // Scaled so a fully-satisfied agent takes ~60 seconds of
             // pure Idle to saturate from 0 → 1.
-            curiosity_per_sec: 0.015,
+            stimulation_per_sec: -0.015,
             ..Default::default()
         }
     }

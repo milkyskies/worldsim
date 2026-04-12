@@ -59,7 +59,7 @@ impl Action for ObserveAction {
             // window (120 ticks) erases ~0.16 of the drive — enough to
             // cross below the `min_threshold: 0.05` gate if curiosity
             // was mild to start with.
-            curiosity_per_sec: -0.08,
+            stimulation_per_sec: 0.08,
             ..Default::default()
         }
     }

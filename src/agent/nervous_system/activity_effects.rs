@@ -13,6 +13,49 @@ use crate::agent::psyche::personality::Personality;
 use crate::core::TickCount;
 use bevy::prelude::*;
 
+/// Per-tick metabolism update for **all** agents with `PhysicalNeeds`,
+/// regardless of whether they carry a `CurrentActivity` component.
+///
+/// `apply_activity_effects` below requires `&CurrentActivity`, but real
+/// agents in this codebase don't actually carry that component — it's a
+/// legacy single-action marker that the multi-action `ActiveActions`
+/// system replaced. Without this system, `Metabolism::tick_with_mods`
+/// was never called on any spawned agent: stomachs never digested,
+/// reserves never refilled from food, and agents starved with full
+/// stomachs (#416). Action-level glucose drain in
+/// `execution::tick_actions` was running fine, but the missing
+/// digestion + reserve mobilization left the metabolism stuck.
+///
+/// This system runs at the BMR baseline only — activity drain stays in
+/// `tick_actions` where the action's per-tick costs already live, and
+/// activity-specific stat drift (mood etc.) stays in
+/// `apply_activity_effects` for the rare entities that do carry
+/// `CurrentActivity`. The mobilization pass at the end of
+/// `tick_actions` still runs.
+pub fn tick_metabolism(
+    activity_config: Res<ActivityConfig>,
+    tick: Res<TickCount>,
+    mut query: Query<(&mut PhysicalNeeds, Option<&Body>)>,
+) {
+    let dt = tick.dt();
+    let bmr_drain = activity_config.base.effects.glucose_drain;
+    for (mut physical, body) in query.iter_mut() {
+        let organ_mods = body.map(Body::organ_mods).unwrap_or_default();
+        physical
+            .metabolism
+            .tick_with_mods(dt, bmr_drain, 0.0, organ_mods);
+
+        // Slow passive anaerobic refill so a Flee sprint doesn't leave
+        // the pool stuck at 0 forever. The rate is low enough that the
+        // Survival brain still sees a Stamina urgency window and can
+        // propose Rest/Sleep — removing the signal entirely made agents
+        // skip every fatigue cycle and burn surplus glucose into
+        // early starvation.
+        physical.stamina.anaerobic =
+            (physical.stamina.anaerobic + 0.02).min(physical.stamina.anaerobic_max);
+    }
+}
+
 /// System to apply activity effects to agent state each tick
 /// Effects are scaled to per-second rates but applied per-tick
 pub fn apply_activity_effects(
@@ -86,36 +129,41 @@ pub fn apply_activity_effects(
             .metabolism
             .tick_with_mods(dt, bmr_drain, activity_drain, organ_mods);
 
-        // Thirst
-        let d_thirst = (base_config.thirst_change + config.thirst_change) * dt;
-        physical.thirst = (physical.thirst + d_thirst).clamp(0.0, max_stat);
+        // Hydration — drains toward 0, refilled by Drink. All `_change`
+        // deltas in ActivityEffects use the "+ = good" convention now,
+        // so a thirst-inducing activity declares a *negative*
+        // `hydration_change`.
+        let d_hydration = (base_config.hydration_change + config.hydration_change) * dt;
+        physical.hydration = (physical.hydration + d_hydration).clamp(0.0, max_stat);
 
         // Health
         let d_health = (base_config.health_change + config.health_change) * dt;
         physical.health = (physical.health + d_health).clamp(0.0, max_stat);
+        if d_health < 0.0 {
+            physical.last_health_damage =
+                Some(crate::agent::body::needs::HealthDamageSource::Exertion);
+        }
 
         // --- CONSCIOUSNESS (0-1) ---
         let d_alertness = (base_config.alertness_change + config.alertness_change) * (dt * 0.01); // 0-100 rate to 0-1
         consciousness.alertness = (consciousness.alertness + d_alertness).clamp(0.0, 1.0);
 
-        // --- PSYCHOLOGICAL DRIVES (0-1) ---
+        // --- PSYCHOLOGICAL DRIVES (0-1 satisfaction) ---
+        // Every field stores "high = satisfied"; a positive `_change`
+        // fills the need, negative drains it. Matches the same polarity
+        // as hydration/stamina/health above.
         if let Some(mut drives) = drives {
-            // Social
-            if config.social_change != 0.0 {
-                let d_social = config.social_change * dt;
-                drives.social = (drives.social + d_social).clamp(0.0, max_drive);
+            if config.companionship_change != 0.0 {
+                drives.companionship =
+                    (drives.companionship + config.companionship_change * dt).clamp(0.0, max_drive);
             }
-
-            // Fun
-            if config.fun_change != 0.0 {
-                let d_fun = config.fun_change * dt;
-                drives.fun = (drives.fun + d_fun).clamp(0.0, max_drive);
+            if config.enjoyment_change != 0.0 {
+                drives.enjoyment =
+                    (drives.enjoyment + config.enjoyment_change * dt).clamp(0.0, max_drive);
             }
-
-            // Curiosity
-            if config.curiosity_change != 0.0 {
-                let d_curiosity = config.curiosity_change * dt;
-                drives.curiosity = (drives.curiosity + d_curiosity).clamp(0.0, max_drive);
+            if config.stimulation_change != 0.0 {
+                drives.stimulation =
+                    (drives.stimulation + config.stimulation_change * dt).clamp(0.0, max_drive);
             }
         }
 

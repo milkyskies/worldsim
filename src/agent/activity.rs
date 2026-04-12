@@ -57,18 +57,25 @@ pub struct ActivityEffects {
     /// Physical Needs
     pub stamina_change: f32, // +gain / -loss
     pub glucose_drain: f32, // glucose burned per sec (BMR + activity cost)
-    pub thirst_change: f32, // +increase (getting thirstier)
+    /// Per-second delta applied to `PhysicalNeeds.hydration`. Negative
+    /// = drying out (default for most activities), positive = refilling
+    /// (Drink). The old field was `thirst_change` with the opposite
+    /// sign convention; flipped during the hydration rename so every
+    /// "_change" field in this struct now has the same "+ = good,
+    /// - = bad" polarity.
+    pub hydration_change: f32,
     pub health_change: f32, // +healing / -damage
 
     /// Consciousness
     pub alertness_change: f32, // +waking up / -falling asleep
 
-    /// Psychological Drives (Satisfiers)
-    /// Negative means satisfying the drive (reducing the need/deficit)
-    /// Positive means increasing the need
-    pub social_change: f32,
-    pub fun_change: f32,
-    pub curiosity_change: f32,
+    /// Psychological Drives — per-second delta applied to the
+    /// corresponding satisfaction field. Positive = satisfying (drive
+    /// becomes more full), negative = starving (drive drains). Matches
+    /// the "+ = good" convention used by every other field here.
+    pub companionship_change: f32,
+    pub enjoyment_change: f32,
+    pub stimulation_change: f32,
 
     /// Emotions
     /// Triggers joy, etc.
@@ -106,7 +113,16 @@ impl Default for ActivityConfig {
                 name: "Base Metabolism".to_string(),
                 effects: ActivityEffects {
                     stamina_change: -0.15,
-                    glucose_drain: 0.2,
+                    // BMR — basal metabolic rate, drained every tick by
+                    // `tick_metabolism` for every agent regardless of what
+                    // they're doing. Halved from 0.2 in #416 to slow the
+                    // background march toward starvation: at 0.2 a fully-
+                    // stocked agent with 700 fuel units burns through their
+                    // reserves in ~58 minutes (real-world wallclock at 60
+                    // tps), leaving very little margin for slow eating
+                    // cadences. 0.1 doubles that runway and matches the
+                    // "agents should be able to nap and not die" feel.
+                    glucose_drain: 0.1,
                     ..Default::default()
                 },
             },

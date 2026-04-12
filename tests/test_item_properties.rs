@@ -130,6 +130,36 @@ fn freshness_reaches_zero_and_converts_to_rotten_apple() {
 // Harvest stamps freshness
 // ═══════════════════════════════════════════════════════════════════════════
 
+/// Berries/apples sitting in a bush/tree's inventory are "still on the
+/// plant" — they must not rot in place. The distinction is carried by
+/// the Thing's `freshness` field: `Thing::new` (plant stock) has
+/// `freshness = None`, while `Thing::fresh` (picked by Harvest) has
+/// `freshness = Some(1.0)`. The decay system skips the `None` sentinel.
+/// Before #416, `get_or_insert(1.0)` initialized plant stock to fresh
+/// then immediately started decaying — so an agent walking up to a
+/// "stocked" bush would often find only RottenBerry.
+#[test]
+fn berries_on_bush_do_not_rot() {
+    let mut world = TestWorld::new();
+    let bush = world.spawn_berry_bush(Vec2::new(50.0, 50.0), 5);
+
+    // Tick past what would be ~full rot for a picked berry
+    // (0.020 per 100 ticks → ~5000 ticks to zero). 10k ticks is double.
+    world.tick(10_000);
+
+    let slots = world.app().world().get::<ItemSlots>(bush).unwrap();
+    assert_eq!(
+        slots.count(Concept::Berry),
+        5,
+        "all 5 berries should still be on the bush after 10k ticks"
+    );
+    assert_eq!(
+        slots.count(Concept::RottenBerry),
+        0,
+        "no berries on the bush should have turned into RottenBerry"
+    );
+}
+
 #[test]
 fn harvested_apple_has_freshness_one_and_created_at() {
     let (mut world, agents) = TestWorld::scenario(1)

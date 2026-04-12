@@ -110,6 +110,17 @@ pub struct PersonInit {
 }
 
 /// Adds innate biological knowledge all humans have regardless of culture.
+///
+/// This is also where *type-level* food knowledge lives: humans know that
+/// berry bushes produce berries and apple trees produce apples. Without
+/// this, the Rational-brain GOAP planner can only build a hunger plan
+/// against a specific bush whose `Contains` triple has already been
+/// observed through perception — and agents that spawn far from food
+/// never observe one before starving. Seeding the type-level Produces
+/// facts lets `enumerate_targets` fall through from entity-instance
+/// beliefs to concept-level knowledge, so the planner can chain
+/// "observed bush → IsA BerryBush → produces Berry → Berry IsA Food"
+/// even for newly-perceived entities with no Contains history. (#416)
 fn add_person_knowledge(mind: &mut MindGraph) {
     use crate::agent::mind::knowledge::{Metadata, Node, Predicate, Triple, Value};
 
@@ -126,6 +137,24 @@ fn add_person_knowledge(mind: &mut MindGraph) {
         Node::Concept(Concept::Wolf),
         Predicate::HasTrait,
         Value::Concept(Concept::Dangerous),
+        meta.clone(),
+    ));
+
+    // Type-level food source knowledge. Everyone grows up knowing berry
+    // bushes produce berries and apple trees produce apples — these are
+    // universal survival facts, not culture-specific, so they live here
+    // alongside "wolves are dangerous".
+    mind.assert(Triple::with_meta(
+        Node::Concept(Concept::BerryBush),
+        Predicate::Produces,
+        Value::Item(Concept::Berry, 1),
+        meta.clone(),
+    ));
+
+    mind.assert(Triple::with_meta(
+        Node::Concept(Concept::AppleTree),
+        Predicate::Produces,
+        Value::Item(Concept::Apple, 1),
         meta,
     ));
 }

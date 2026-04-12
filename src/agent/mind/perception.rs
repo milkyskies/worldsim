@@ -132,9 +132,13 @@ pub fn update_body_perception(
             Value::Int((physical.hunger_urgency() * 100.0) as i32),
             current_time,
         );
+        // Predicate::Thirst still stores "how thirsty" (0 = hydrated,
+        // 100 = parched) so downstream goal predicates like
+        // `(Self, Thirst, 0)` keep reading correctly. Translate from
+        // the satisfaction field via `100 - hydration`.
         mind.perceive_self(
             Predicate::Thirst,
-            Value::Int(physical.thirst as i32),
+            Value::Int((100.0 - physical.hydration) as i32),
             current_time,
         );
         mind.perceive_self(
@@ -490,7 +494,7 @@ fn assess_threat(
     // No desperation → 1.0×, fully desperate → 0.5×.
     let desperation = needs
         .hunger_urgency()
-        .max((needs.thirst / 100.0).clamp(0.0, 1.0));
+        .max(1.0 - (needs.hydration / 100.0).clamp(0.0, 1.0));
     let desperation_mod = 1.0 - desperation * 0.5;
 
     (BASE_THREAT * personality_mod * health_mod * armed_mod * desperation_mod).clamp(0.0, 1.0)
@@ -747,9 +751,10 @@ mod threat_tests {
     fn default_needs() -> PhysicalNeeds {
         PhysicalNeeds {
             metabolism: crate::agent::body::metabolism::Metabolism::well_fed(),
-            thirst: 0.0,
+            hydration: 100.0,
             stamina: Stamina::default(),
             health: 100.0,
+            last_health_damage: None,
         }
     }
 
@@ -840,9 +845,10 @@ mod threat_tests {
         let personality = personality_with_neuroticism(1.0);
         let needs = PhysicalNeeds {
             metabolism: crate::agent::body::metabolism::Metabolism::well_fed(),
-            thirst: 0.0,
+            hydration: 100.0,
             stamina: Stamina::default(),
             health: 0.0,
+            last_health_damage: None,
         };
         let score = assess_threat(&personality, &needs, None);
         assert!(score <= 1.0, "score {score} should be clamped to ≤1.0");

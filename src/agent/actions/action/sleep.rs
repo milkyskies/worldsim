@@ -68,9 +68,9 @@ impl Action for SleepAction {
             stamina_per_sec: STAMINA_PER_SEC,
             glucose_drain_per_sec: GLUCOSE_DRAIN_PER_SEC,
             alertness_per_sec: ALERTNESS_PER_SEC,
-            // Dreams feed the mind. Sleep gently raises curiosity so
-            // the agent wakes with fresh novelty-seeking urge.
-            curiosity_per_sec: 0.01,
+            // Dreams feed the mind. Sleep gently drains stimulation
+            // satisfaction so the agent wakes with fresh novelty-seeking urge.
+            stimulation_per_sec: -0.01,
             ..Default::default()
         }
     }

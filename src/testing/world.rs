@@ -481,6 +481,126 @@ fn print_section_footer() {
     eprintln!("──────────────────────────────────────────────────");
 }
 
+enum ContributionKind {
+    Glucose,
+    Stamina,
+    Hydration,
+    Stomach,
+}
+
+fn dump_contributions_headless(
+    world: &World,
+    agent: Entity,
+    label: &str,
+    unit: &str,
+    kind: ContributionKind,
+) {
+    use crate::agent::actions::ActionRegistry;
+    use crate::agent::activity::{ActivityConfig, CurrentActivity};
+
+    let mut contribs: Vec<(String, f32)> = Vec::new();
+    let cfg = world.get_resource::<ActivityConfig>();
+
+    match kind {
+        ContributionKind::Glucose => {
+            if let Some(cfg) = cfg {
+                let bmr = cfg.base.effects.glucose_drain;
+                if bmr != 0.0 {
+                    contribs.push(("BMR (base metabolic rate)".into(), -bmr));
+                }
+            }
+            if let (Some(active), Some(reg)) = (
+                world.get::<ActiveActions>(agent),
+                world.get_resource::<ActionRegistry>(),
+            ) {
+                for state in active.iter() {
+                    let Some(action) = reg.get(state.action_type) else {
+                        continue;
+                    };
+                    let rate = action.runtime_effects().glucose_drain_per_sec;
+                    if rate != 0.0 {
+                        contribs.push((format!("{:?}", state.action_type), -rate));
+                    }
+                }
+            }
+        }
+        ContributionKind::Stamina => {
+            if let (Some(active), Some(reg)) = (
+                world.get::<ActiveActions>(agent),
+                world.get_resource::<ActionRegistry>(),
+            ) {
+                for state in active.iter() {
+                    let Some(action) = reg.get(state.action_type) else {
+                        continue;
+                    };
+                    let rate = action.runtime_effects().stamina_per_sec;
+                    if rate != 0.0 {
+                        contribs.push((format!("{:?}", state.action_type), rate));
+                    }
+                }
+            }
+        }
+        ContributionKind::Hydration => {
+            if let Some(cfg) = cfg {
+                let base = cfg.base.effects.hydration_change;
+                if base != 0.0 {
+                    contribs.push(("baseline".into(), base));
+                }
+                if let Some(activity) = world.get::<CurrentActivity>(agent) {
+                    let activity_delta = cfg.get(activity).effects.hydration_change;
+                    if activity_delta != 0.0 {
+                        contribs.push((format!("{:?}", activity), activity_delta));
+                    }
+                }
+            }
+        }
+        ContributionKind::Stomach => {
+            use crate::agent::body::metabolism::{DIGEST_CARB_RATE, DIGEST_FAT_RATE};
+            use crate::agent::body::needs::PhysicalNeeds;
+            if let Some(needs) = world.get::<PhysicalNeeds>(agent) {
+                let m = &needs.metabolism;
+                if m.stomach_carbs > 0.0 {
+                    contribs.push((
+                        "digestion: carbs → glucose".into(),
+                        -DIGEST_CARB_RATE.min(m.stomach_carbs),
+                    ));
+                }
+                if m.stomach_fat > 0.0 {
+                    contribs.push((
+                        "digestion: fat → reserves".into(),
+                        -DIGEST_FAT_RATE.min(m.stomach_fat),
+                    ));
+                }
+            }
+            if let (Some(active), Some(reg)) = (
+                world.get::<ActiveActions>(agent),
+                world.get_resource::<ActionRegistry>(),
+            ) {
+                for state in active.iter() {
+                    let Some(action) = reg.get(state.action_type) else {
+                        continue;
+                    };
+                    let rate = action.runtime_effects().stomach_carbs_per_sec;
+                    if rate != 0.0 {
+                        contribs.push((format!("{:?}: carbs in", state.action_type), rate));
+                    }
+                }
+            }
+        }
+    }
+
+    if contribs.is_empty() {
+        eprintln!("  (no active contributors to {})", label);
+    } else {
+        for (src, rate) in &contribs {
+            eprintln!("  {:+.2}{}  {}", rate, unit, src);
+        }
+        let net: f32 = contribs.iter().map(|(_, r)| r).sum();
+        eprintln!("  ----");
+        eprintln!("  net {:+.2}{}", net, unit);
+    }
+}
+
 /// A lightweight headless simulation harness. Wraps a Bevy `App` configured with
 /// the same logic plugins as the real game (`AgentPlugin` and friends) but
 /// without rendering, windowing, input, UI, or world spawn population.
@@ -545,6 +665,18 @@ impl TestWorld {
 
         // MinimalPlugins gives us TaskPool, Time, ScheduleRunner — no rendering.
         app.add_plugins(MinimalPlugins);
+
+        // TransformPlugin runs `propagate_transforms` in PostUpdate so that
+        // `GlobalTransform` tracks `Transform`. Without this, every entity's
+        // `GlobalTransform` is stuck at the identity (origin) forever and any
+        // system that reads `GlobalTransform` for a world position sees
+        // `(0, 0, 0)` — which is how the brain's target enumeration reported
+        // every harvestable resource as being at tile `(0, 0)`, turning every
+        // Harvest plan into a `Walk → PathBlocked { target_tile: (0, 0) }`
+        // loop that ultimately starved the default sim (#416). Agents
+        // navigate on `Transform` so they *appear* to move; only systems
+        // reading `GlobalTransform` saw the bug.
+        app.add_plugins(bevy::transform::TransformPlugin);
 
         // Resources normally provided by plugins we deliberately exclude:
         // - SpawnerPlugin (Ontology, plus startup population we don't want)
@@ -931,6 +1063,26 @@ impl TestWorld {
             .map(|(e, _)| e)
     }
 
+    /// Finds an agent entity by its Bevy entity-id string (e.g. `"0v0"`,
+    /// `"19v0"`). This format matches `format!("{entity:?}")` so it lines up
+    /// with the `agent_id` field in the JSONL event log. Returns `None` if
+    /// no agent with that id exists.
+    pub fn find_agent_by_entity_id(&mut self, id: &str) -> Option<Entity> {
+        let world = self.app.world_mut();
+        let mut query = world.query_filtered::<Entity, With<Agent>>();
+        query
+            .iter(world)
+            .find(|e| format!("{e:?}").eq_ignore_ascii_case(id))
+    }
+
+    /// Convenience: try entity-id lookup first (fast, exact), then fall back
+    /// to name lookup. Used by all inspection CLI commands so users can pass
+    /// either form and get the same behavior.
+    pub fn find_agent(&mut self, selector: &str) -> Option<Entity> {
+        self.find_agent_by_entity_id(selector)
+            .or_else(|| self.find_agent_by_name(selector))
+    }
+
     // ─── Convenience queries ───────────────────────────────────────────────
 
     /// True if `agent` has at least one Knows triple about `other`.
@@ -969,7 +1121,7 @@ impl TestWorld {
 
     /// Returns the agent's thirst value (0.0–100.0).
     pub fn agent_thirst(&self, agent: Entity) -> f32 {
-        self.get::<PhysicalNeeds>(agent).thirst
+        100.0 - self.get::<PhysicalNeeds>(agent).hydration
     }
 
     /// Returns the agent's aerobic stamina value (0.0–aerobic_max).
@@ -1085,16 +1237,362 @@ impl TestWorld {
             );
         }
 
-        // Physical needs
+        // Physical needs — show the underlying metabolism pools, not just
+        // the abstract hunger_urgency() roll-up. The roll-up hides whether
+        // an agent is actually starving (low glucose+reserves) vs just
+        // running on an empty stomach with full backup.
         if let Some(needs) = world.get::<PhysicalNeeds>(agent) {
+            let m = &needs.metabolism;
+            let starving = if m.is_starving() { "  STARVING" } else { "" };
             eprintln!(
-                "  Needs:     hunger={:.2}  thirst={:.1}  aerobic={:.1}  anaerobic={:.1}  health={:.1}",
-                needs.hunger_urgency(),
-                needs.thirst,
+                "  Vitals:    health={:.1}  thirst={:.1}  stamina(a/an)={:.1}/{:.1}",
+                needs.health,
+                100.0 - needs.hydration,
                 needs.stamina.aerobic,
-                needs.stamina.anaerobic,
-                needs.health
+                needs.stamina.anaerobic
             );
+            eprintln!(
+                "  Metabolism: stomach(c/f)={:.1}/{:.1}  glucose={:.1}/100  reserves={:.0}/500  hunger={:.2}{}",
+                m.stomach_carbs,
+                m.stomach_fat,
+                m.glucose,
+                m.reserves,
+                needs.hunger_urgency(),
+                starving
+            );
+            if let Some(src) = needs.last_health_damage {
+                eprintln!("  Last damage: {:?}", src);
+            }
+        }
+
+        // Inventory
+        if let Some(inv) = world.get::<crate::agent::item_slots::ItemSlots>(agent) {
+            let items: Vec<String> = inv
+                .group_by_concept()
+                .into_iter()
+                .map(|(c, q)| format!("{c:?}×{q}"))
+                .collect();
+            if items.is_empty() {
+                eprintln!("  Inventory: (empty)");
+            } else {
+                eprintln!("  Inventory: [{}]", items.join(", "));
+            }
+        }
+
+        // Self-inventory beliefs as they appear in the MindGraph. These
+        // are what the Rational planner's `self_contains_food()`
+        // precondition actually queries, not the ItemSlots component —
+        // when the two disagree it means perception or belief-update
+        // drift. Silent divergence here was the final Alice-eats-nothing
+        // pathology in #416.
+        if let Some(mind_graph) = world.get::<crate::agent::mind::knowledge::MindGraph>(agent) {
+            use crate::agent::mind::knowledge::{Node, Predicate, Value};
+            let triples = mind_graph.query(Some(&Node::Self_), Some(Predicate::Contains), None);
+            let items: Vec<String> = triples
+                .iter()
+                .filter_map(|t| match &t.object {
+                    Value::Item(c, q) => Some(format!("{c:?}×{q}")),
+                    _ => None,
+                })
+                .collect();
+            if items.is_empty() {
+                eprintln!("  MindInv:   (empty)");
+            } else {
+                eprintln!("  MindInv:   [{}]", items.join(", "));
+            }
+        }
+
+        // Current CNS goal
+        if let Some(cns) =
+            world.get::<crate::agent::nervous_system::cns::CentralNervousSystem>(agent)
+        {
+            match &cns.current_goal {
+                Some(goal) => {
+                    let conds: Vec<String> = goal
+                        .conditions
+                        .iter()
+                        .map(|c| {
+                            format!(
+                                "{:?}={:?}",
+                                c.predicate.map(|p| format!("{p:?}")).unwrap_or_default(),
+                                c.object
+                            )
+                        })
+                        .collect();
+                    eprintln!(
+                        "  Goal:      {} (priority {:.2})",
+                        if conds.is_empty() {
+                            "(empty)".to_string()
+                        } else {
+                            conds.join(", ")
+                        },
+                        goal.priority
+                    );
+                }
+                None => eprintln!("  Goal:      (none)"),
+            }
+            // Top urgencies for context
+            let top: Vec<String> = cns
+                .urgencies
+                .iter()
+                .take(3)
+                .map(|u| format!("{:?}={:.2}", u.source, u.value))
+                .collect();
+            if !top.is_empty() {
+                eprintln!("  Urgency:   [{}]", top.join(", "));
+            }
+        }
+
+        // Plan memory
+        if let Some(memory) = world.get::<crate::agent::brains::plan_memory::PlanMemory>(agent) {
+            if memory.plans.is_empty() {
+                eprintln!("  Plans:     (none)");
+            } else {
+                eprintln!("  Plans:");
+                for plan in memory.plans.iter() {
+                    let cur_action = plan.current();
+                    let cur = cur_action
+                        .map(|a| format!("{:?}", a.action_type))
+                        .unwrap_or_else(|| "(finished)".to_string());
+                    let target = cur_action
+                        .and_then(|a| {
+                            a.target_entity
+                                .map(|e| format!(" tgt={:?}", e))
+                                .or_else(|| {
+                                    a.target_position
+                                        .map(|p| format!(" pos=({:.0},{:.0})", p.x, p.y))
+                                })
+                        })
+                        .unwrap_or_default();
+                    let intent = plan
+                        .goal
+                        .conditions
+                        .iter()
+                        .find_map(|c| c.predicate.map(|p| format!("{p:?}")))
+                        .unwrap_or_else(|| "?".to_string());
+                    eprintln!(
+                        "    {:?} {:?} step {}/{}: {}{}  (goal={}, prio={:.2}, commit={:.2})",
+                        plan.id,
+                        plan.state,
+                        plan.current_step,
+                        plan.steps.len(),
+                        cur,
+                        target,
+                        intent,
+                        plan.goal.priority,
+                        plan.commitment,
+                    );
+                    // Print remaining steps so we can see the full plan
+                    // shape (Harvest→Eat, Walk→Drink, etc.).
+                    if plan.steps.len() > 1 {
+                        let steps: Vec<String> = plan
+                            .steps
+                            .iter()
+                            .enumerate()
+                            .map(|(i, s)| {
+                                let marker = if i == plan.current_step { ">" } else { " " };
+                                format!("{}{:?}", marker, s.action_type)
+                            })
+                            .collect();
+                        eprintln!("      steps: [{}]", steps.join(", "));
+                    }
+                }
+            }
+        }
+
+        // Recent action summary — what's the agent been doing in the last
+        // 2000 ticks? Critical for spotting "Alice harvests 178 times but
+        // eats 0 times after tick 26000" patterns.
+        {
+            let log = world.resource::<SimEventLog>();
+            const WINDOW: u64 = 2000;
+            let cutoff = tick.saturating_sub(WINDOW);
+            let mut started: std::collections::HashMap<String, usize> =
+                std::collections::HashMap::new();
+            let mut failed: std::collections::HashMap<String, usize> =
+                std::collections::HashMap::new();
+            let mut last_eat_tick: Option<u64> = None;
+            let mut last_harvest_tick: Option<u64> = None;
+            for event in log.all() {
+                let event_tick = sim_event_tick(event);
+                match event {
+                    SimEvent::ActionStarted {
+                        agent: a, action, ..
+                    } if *a == agent => {
+                        if event_tick >= cutoff {
+                            *started.entry(format!("{action:?}")).or_insert(0) += 1;
+                        }
+                        match action {
+                            crate::agent::actions::ActionType::Eat => {
+                                last_eat_tick = Some(event_tick);
+                            }
+                            crate::agent::actions::ActionType::Harvest => {
+                                last_harvest_tick = Some(event_tick);
+                            }
+                            _ => {}
+                        }
+                    }
+                    SimEvent::ActionFailed {
+                        agent: a, action, ..
+                    } if *a == agent && event_tick >= cutoff => {
+                        *failed.entry(format!("{action:?}")).or_insert(0) += 1;
+                    }
+                    _ => {}
+                }
+            }
+            if !started.is_empty() {
+                let mut entries: Vec<(String, usize)> = started.into_iter().collect();
+                entries.sort_by(|a, b| b.1.cmp(&a.1));
+                let summary: Vec<String> =
+                    entries.iter().map(|(k, v)| format!("{k}×{v}")).collect();
+                eprintln!("  Recent({} ticks): [{}]", WINDOW, summary.join(", "));
+            }
+            if !failed.is_empty() {
+                let mut entries: Vec<(String, usize)> = failed.into_iter().collect();
+                entries.sort_by(|a, b| b.1.cmp(&a.1));
+                let summary: Vec<String> =
+                    entries.iter().map(|(k, v)| format!("{k}×{v}")).collect();
+                eprintln!("  Failed({} ticks): [{}]", WINDOW, summary.join(", "));
+            }
+            let format_ago = |t: u64| {
+                if t > tick {
+                    "?".to_string()
+                } else {
+                    format!("{} ticks ago", tick - t)
+                }
+            };
+            eprintln!(
+                "  Last eat:  {}",
+                last_eat_tick
+                    .map(format_ago)
+                    .unwrap_or_else(|| "(never)".to_string())
+            );
+            eprintln!(
+                "  Last harv: {}",
+                last_harvest_tick
+                    .map(format_ago)
+                    .unwrap_or_else(|| "(never)".to_string())
+            );
+        }
+
+        // Resource knowledge breakdown — counts of each known entity type
+        // and how many of them have a stocked Contains belief.
+        if let Some(mind_graph) = world.get::<crate::agent::mind::knowledge::MindGraph>(agent) {
+            use crate::agent::mind::knowledge::{Node, Predicate, Value};
+            use std::collections::HashMap;
+            let mut by_type: HashMap<String, (usize, usize)> = HashMap::new();
+            // First pass: collect known entities by IsA-concept.
+            let mut entity_type: HashMap<bevy::prelude::Entity, String> = HashMap::new();
+            for triple in mind_graph.query(None, Some(Predicate::IsA), None) {
+                if let (Node::Entity(e), Value::Concept(c)) =
+                    (triple.subject.clone(), &triple.object)
+                {
+                    entity_type.insert(e, format!("{c:?}"));
+                }
+            }
+            // Second pass: figure out which of those have a stocked Contains.
+            let mut stocked: std::collections::HashSet<bevy::prelude::Entity> = Default::default();
+            for triple in mind_graph.query(None, Some(Predicate::Contains), None) {
+                if let Node::Entity(e) = triple.subject
+                    && matches!(triple.object, Value::Item(_, q) if q > 0)
+                {
+                    stocked.insert(e);
+                }
+            }
+            for (e, type_name) in &entity_type {
+                let entry = by_type.entry(type_name.clone()).or_insert((0, 0));
+                entry.0 += 1;
+                if stocked.contains(e) {
+                    entry.1 += 1;
+                }
+            }
+            if !by_type.is_empty() {
+                let mut summary: Vec<String> = by_type
+                    .iter()
+                    .map(|(t, (total, stocked))| {
+                        if *stocked > 0 || *total > 5 {
+                            format!("{}×{}({}stocked)", t, total, stocked)
+                        } else {
+                            format!("{}×{}", t, total)
+                        }
+                    })
+                    .collect();
+                summary.sort();
+                eprintln!("  Knows:     [{}]", summary.join(", "));
+            }
+
+            // Distance breakdown to known food sources. The agent might
+            // "know" 5 BerryBushes but if they're all 200 tiles away across
+            // unwalkable terrain, that knowledge is useless. Sort by distance
+            // and tag each with its stocked Contains belief so it's obvious
+            // when the agent only remembers depleted bushes.
+            let agent_pos = world
+                .get::<bevy::prelude::Transform>(agent)
+                .map(|t| t.translation.truncate());
+            if let Some(agent_pos) = agent_pos {
+                let mut food_entries: Vec<(f32, String, bool)> = Vec::new();
+                for (e, type_name) in &entity_type {
+                    if !matches!(
+                        type_name.as_str(),
+                        "BerryBush" | "AppleTree" | "Berry" | "Apple"
+                    ) {
+                        continue;
+                    }
+                    let Some(tf) = world.get::<bevy::prelude::Transform>(*e) else {
+                        continue;
+                    };
+                    let dist = tf.translation.truncate().distance(agent_pos);
+                    food_entries.push((dist, type_name.clone(), stocked.contains(e)));
+                }
+                food_entries.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+                if !food_entries.is_empty() {
+                    let summary: Vec<String> = food_entries
+                        .iter()
+                        .take(6)
+                        .map(|(d, t, s)| {
+                            let mark = if *s { "+" } else { "-" };
+                            format!("{t}@{d:.0}{mark}")
+                        })
+                        .collect();
+                    eprintln!("  Food dist: [{}] (+stocked, -empty)", summary.join(", "));
+                }
+            }
+        }
+
+        // Recent path-blocked targets — when an agent is geographically
+        // trapped, this surfaces the actual tiles the pathfinder rejected.
+        // Pair this with `Failed[Explore×N]` from the recent action summary
+        // to spot the "agent keeps trying to walk through the same wall"
+        // pattern that drives long-tail starvation deaths.
+        {
+            let log = world.resource::<SimEventLog>();
+            const WINDOW: u64 = 2000;
+            let cutoff = tick.saturating_sub(WINDOW);
+            let mut blocked: std::collections::HashMap<(i32, i32), usize> =
+                std::collections::HashMap::new();
+            for event in log.all() {
+                if let SimEvent::ActionFailed {
+                    agent: a,
+                    tick: et,
+                    reason: crate::agent::events::FailureReason::PathBlocked { target_tile },
+                    ..
+                } = event
+                    && *a == agent
+                    && *et >= cutoff
+                {
+                    *blocked.entry(*target_tile).or_insert(0) += 1;
+                }
+            }
+            if !blocked.is_empty() {
+                let mut entries: Vec<((i32, i32), usize)> = blocked.into_iter().collect();
+                entries.sort_by(|a, b| b.1.cmp(&a.1));
+                let summary: Vec<String> = entries
+                    .iter()
+                    .take(6)
+                    .map(|((tx, ty), n)| format!("({tx},{ty})×{n}"))
+                    .collect();
+                eprintln!("  Blocked({} ticks): [{}]", WINDOW, summary.join(", "));
+            }
         }
 
         // Consciousness
@@ -1106,16 +1604,18 @@ impl TestWorld {
         if let Some(drives) = world.get::<PsychologicalDrives>(agent) {
             eprintln!(
                 "  Drives:    social={:.2}  fun={:.2}  curiosity={:.2}  status={:.2}  security={:.2}  autonomy={:.2}",
-                drives.social,
-                drives.fun,
-                drives.curiosity,
-                drives.status,
-                drives.security,
-                drives.autonomy
+                1.0 - drives.companionship,
+                1.0 - drives.enjoyment,
+                1.0 - drives.stimulation,
+                1.0 - drives.esteem,
+                1.0 - drives.safety,
+                1.0 - drives.autonomy
             );
         }
 
-        // Emotional state
+        // Emotional state. Fuel is load-bearing when intensity saturates
+        // at 1.0: stuck-max-anger looks identical to one-tick-max-anger
+        // without it.
         if let Some(emo) = world.get::<EmotionalState>(agent) {
             eprintln!(
                 "  Emotions:  mood={:.3}  stress={:.1}  active=[{}]",
@@ -1123,7 +1623,7 @@ impl TestWorld {
                 emo.stress_level,
                 emo.active_emotions
                     .iter()
-                    .map(|e| format!("{:?}({:.2})", e.emotion_type, e.intensity))
+                    .map(|e| format!("{:?}(i={:.2},f={:.1})", e.emotion_type, e.intensity, e.fuel))
                     .collect::<Vec<_>>()
                     .join(", ")
             );
@@ -1425,6 +1925,185 @@ impl TestWorld {
         } else {
             for event in events {
                 eprintln!("  {}", format_sim_event(event));
+            }
+        }
+        print_section_footer();
+    }
+
+    /// Print what the agent currently perceives: every entity in
+    /// VisibleObjects with name, kind, and distance. Mirrors the
+    /// Perception tab in the interactive panel.
+    pub fn print_perception(&self, agent: Entity) {
+        use crate::agent::inventory::EntityType;
+        use crate::agent::mind::perception::VisibleObjects;
+
+        let world = self.app.world();
+        let tick = world.resource::<TickCount>().current;
+        let name = entity_name(world, agent);
+        print_section_header("Perception", &name, agent, tick);
+
+        let Some(visible) = world.get::<VisibleObjects>(agent) else {
+            eprintln!("  (this entity has no Vision/VisibleObjects)");
+            print_section_footer();
+            return;
+        };
+        let agent_pos = world
+            .get::<bevy::prelude::Transform>(agent)
+            .map(|t| t.translation.truncate());
+        if visible.entities.is_empty() {
+            eprintln!("  (sees nothing)");
+            print_section_footer();
+            return;
+        }
+
+        let mut rows: Vec<(f32, String, String)> = Vec::new();
+        for &other in &visible.entities {
+            let n = world
+                .get::<bevy::prelude::Name>(other)
+                .map(|n| n.to_string())
+                .unwrap_or_else(|| format!("{:?}", other));
+            let kind = world
+                .get::<EntityType>(other)
+                .map(|t| format!("{:?}", t.0))
+                .unwrap_or_else(|| "?".into());
+            let dist = match (agent_pos, world.get::<bevy::prelude::Transform>(other)) {
+                (Some(a), Some(t)) => a.distance(t.translation.truncate()),
+                _ => f32::INFINITY,
+            };
+            rows.push((dist, n, kind));
+        }
+        rows.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+        for (dist, n, kind) in rows {
+            let dist_str = if dist.is_finite() {
+                format!("{:.0}", dist)
+            } else {
+                "?".into()
+            };
+            eprintln!("  {:<20}  {:<14}  dist={}", n, kind, dist_str);
+        }
+        print_section_footer();
+    }
+
+    /// Print body-channel occupancy for the agent to stderr: each channel
+    /// with its current load, capacity, and which running actions are
+    /// claiming it.
+    pub fn print_channels(&self, agent: Entity) {
+        use crate::agent::actions::ActionRegistry;
+        use crate::agent::actions::channel::{Channel, ChannelCapacities};
+        use crate::agent::biology::body::Body;
+        use crate::agent::body::needs::PhysicalNeeds;
+
+        let world = self.app.world();
+        let tick = world.resource::<TickCount>().current;
+        let name = entity_name(world, agent);
+        print_section_header("Channels", &name, agent, tick);
+
+        let Some(active) = world.get::<ActiveActions>(agent) else {
+            eprintln!("  (no ActiveActions)");
+            print_section_footer();
+            return;
+        };
+        let body = world.get::<Body>(agent);
+        let physical = world.get::<PhysicalNeeds>(agent);
+        let registry = world.resource::<ActionRegistry>();
+        let capacities = ChannelCapacities::compute(body, physical);
+
+        let mut per_channel: Vec<(Channel, f32, Vec<String>)> =
+            Channel::ALL.iter().map(|c| (*c, 0.0, Vec::new())).collect();
+        for state in active.iter() {
+            let Some(def) = registry.get(state.action_type) else {
+                continue;
+            };
+            for usage in def.body_channels() {
+                let slot = per_channel
+                    .iter_mut()
+                    .find(|(c, _, _)| *c == usage.channel)
+                    .unwrap();
+                slot.1 += usage.intensity;
+                slot.2.push(format!("{:?}", state.action_type));
+            }
+        }
+
+        for (channel, load, holders) in per_channel {
+            let cap = capacities.get(channel);
+            let held = if holders.is_empty() {
+                "-".to_string()
+            } else {
+                holders.join(", ")
+            };
+            eprintln!(
+                "  {:<12}  load={:.2}  cap={:.2}  holders=[{}]",
+                format!("{:?}", channel),
+                load,
+                cap,
+                held
+            );
+        }
+        print_section_footer();
+    }
+
+    /// Print a causal breakdown for one metric on this agent: every
+    /// contributor's signed per-second rate, followed by the net rate.
+    /// Supported metrics: "glucose", "stamina", "hydration", "mood".
+    pub fn print_why(&self, agent: Entity, metric: &str) {
+        let world = self.app.world();
+        let tick = world.resource::<TickCount>().current;
+        let name = entity_name(world, agent);
+        print_section_header(&format!("Why {}", metric), &name, agent, tick);
+
+        match metric {
+            "glucose" => dump_contributions_headless(
+                world,
+                agent,
+                "glucose",
+                " /sec",
+                ContributionKind::Glucose,
+            ),
+            "stamina" => dump_contributions_headless(
+                world,
+                agent,
+                "stamina",
+                " /sec",
+                ContributionKind::Stamina,
+            ),
+            "hydration" => dump_contributions_headless(
+                world,
+                agent,
+                "hydration",
+                " /sec",
+                ContributionKind::Hydration,
+            ),
+            "stomach" | "satiety" => dump_contributions_headless(
+                world,
+                agent,
+                "stomach",
+                " /sec",
+                ContributionKind::Stomach,
+            ),
+            "mood" => {
+                use crate::agent::psyche::emotions::EmotionalState;
+                if let Some(emo) = world.get::<EmotionalState>(agent) {
+                    eprintln!("  mood scalar: {:+.2}", emo.current_mood);
+                    eprintln!("  stress:      {:.1}", emo.stress_level);
+                    if emo.active_emotions.is_empty() {
+                        eprintln!("  (no active emotions)");
+                    } else {
+                        for e in &emo.active_emotions {
+                            eprintln!(
+                                "  {:?}  intensity={:.2}  fuel={:.1}",
+                                e.emotion_type, e.intensity, e.fuel
+                            );
+                        }
+                    }
+                } else {
+                    eprintln!("  (no EmotionalState component)");
+                }
+            }
+            other => {
+                eprintln!(
+                    "  unknown metric {:?}. try glucose / stamina / hydration / stomach / mood",
+                    other
+                );
             }
         }
         print_section_footer();
@@ -2115,9 +2794,9 @@ mod tests {
 
         let drives = world.get::<PsychologicalDrives>(deer);
         assert!(
-            drives.social > 0.6,
-            "extrovert genome should yield high social drive, got {}",
-            drives.social
+            drives.companionship < 0.4,
+            "extrovert genome should yield low baseline companionship (waking up lonely), got {}",
+            drives.companionship
         );
     }
 

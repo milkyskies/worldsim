@@ -728,9 +728,10 @@ mod tests {
         use crate::agent::body::needs::{PhysicalNeeds, Stamina};
         PhysicalNeeds {
             metabolism: Metabolism::well_fed(),
-            thirst: 0.0,
+            hydration: 100.0,
             stamina: Stamina::default(),
             health: 100.0,
+            last_health_damage: None,
         }
     }
 

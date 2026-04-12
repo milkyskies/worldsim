@@ -28,6 +28,13 @@ pub struct InspectQuery {
     pub text: String,
 }
 
+/// A "why is this metric moving?" request for a specific agent + metric.
+#[derive(Debug, Clone)]
+pub struct WhyQuery {
+    pub agent: String,
+    pub metric: String,
+}
+
 /// Configuration for post-run inspection commands.
 #[derive(Debug, Clone, Default)]
 pub struct InspectConfig {
@@ -39,6 +46,14 @@ pub struct InspectConfig {
     pub dump_mind_agents: Vec<String>,
     /// Execute these MindGraph text queries.
     pub queries: Vec<InspectQuery>,
+    /// Print causal breakdowns for these (agent, metric) pairs.
+    pub why_queries: Vec<WhyQuery>,
+    /// Print body-channel occupancy for these agents.
+    pub dump_channels_agents: Vec<String>,
+    /// Print VisibleObjects + distance for these agents.
+    pub dump_perception_agents: Vec<String>,
+    /// Print every available diagnostic for these agents.
+    pub dump_all_agents: Vec<String>,
 }
 
 impl InspectConfig {
@@ -47,6 +62,10 @@ impl InspectConfig {
         !self.inspect_agents.is_empty()
             || !self.dump_mind_agents.is_empty()
             || !self.queries.is_empty()
+            || !self.why_queries.is_empty()
+            || !self.dump_channels_agents.is_empty()
+            || !self.dump_perception_agents.is_empty()
+            || !self.dump_all_agents.is_empty()
     }
 }
 
@@ -212,32 +231,37 @@ pub fn run_headless(config: HeadlessConfig) -> HeadlessReport {
 }
 
 /// Execute all inspection commands against the current world state.
+///
+/// Selector strings accept either a display `Name` (case-insensitive) or a
+/// Bevy entity-id string like `"0v0"` / `"19v0"` — the latter matches the
+/// `agent_id` field in the JSONL event log so you can round-trip from a
+/// filtered log line straight to `--inspect`.
 fn run_inspection(world: &mut TestWorld, inspect: &InspectConfig) {
-    for agent_name in &inspect.inspect_agents {
-        match world.find_agent_by_name(agent_name) {
+    for selector in &inspect.inspect_agents {
+        match world.find_agent(selector) {
             Some(entity) => {
                 world.print_agent_state(entity);
                 world.print_brain_decision(entity);
             }
             None => {
-                eprintln!("inspect: no agent named {agent_name:?} found");
+                eprintln!("inspect: no agent matching {selector:?} found");
             }
         }
     }
 
-    for agent_name in &inspect.dump_mind_agents {
-        match world.find_agent_by_name(agent_name) {
+    for selector in &inspect.dump_mind_agents {
+        match world.find_agent(selector) {
             Some(entity) => {
                 world.print_mind_graph(entity);
             }
             None => {
-                eprintln!("dump-mind: no agent named {agent_name:?} found");
+                eprintln!("dump-mind: no agent matching {selector:?} found");
             }
         }
     }
 
     for q in &inspect.queries {
-        match world.find_agent_by_name(&q.agent) {
+        match world.find_agent(&q.agent) {
             Some(entity) => {
                 let results = world.query_knowledge(entity, &q.text);
                 eprintln!(
@@ -251,8 +275,42 @@ fn run_inspection(world: &mut TestWorld, inspect: &InspectConfig) {
                 }
             }
             None => {
-                eprintln!("query: no agent named {:?} found", q.agent);
+                eprintln!("query: no agent matching {:?} found", q.agent);
             }
+        }
+    }
+
+    for q in &inspect.why_queries {
+        match world.find_agent(&q.agent) {
+            Some(entity) => world.print_why(entity, &q.metric),
+            None => eprintln!("why: no agent matching {:?} found", q.agent),
+        }
+    }
+
+    for selector in &inspect.dump_channels_agents {
+        match world.find_agent(selector) {
+            Some(entity) => world.print_channels(entity),
+            None => eprintln!("dump-channels: no agent matching {selector:?} found"),
+        }
+    }
+
+    for selector in &inspect.dump_perception_agents {
+        match world.find_agent(selector) {
+            Some(entity) => world.print_perception(entity),
+            None => eprintln!("dump-perception: no agent matching {selector:?} found"),
+        }
+    }
+
+    for selector in &inspect.dump_all_agents {
+        match world.find_agent(selector) {
+            Some(entity) => {
+                world.print_agent_state(entity);
+                world.print_brain_decision(entity);
+                world.print_channels(entity);
+                world.print_perception(entity);
+                world.print_mind_graph(entity);
+            }
+            None => eprintln!("dump-all: no agent matching {selector:?} found"),
         }
     }
 }
@@ -373,7 +431,7 @@ fn collect_physical_means(world: &TestWorld, agents: &[Entity]) -> PhysicalMeans
     for entity in agents {
         if let Some(needs) = world.app().world().get::<PhysicalNeeds>(*entity) {
             sum.hunger += needs.hunger_urgency();
-            sum.thirst += needs.thirst;
+            sum.thirst += 100.0 - needs.hydration;
             sum.stamina += needs.stamina.aerobic;
             sum.health += needs.health;
             count += 1.0;

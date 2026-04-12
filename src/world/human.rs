@@ -4,6 +4,7 @@ use crate::agent::body::genetics::founder::random_genome;
 use crate::agent::body::needs::PhysicalNeeds;
 use crate::agent::body::species::Species;
 use crate::agent::mind::knowledge::Ontology;
+use crate::agent::naming::human_name;
 use crate::agent::spawn_human::{PersonInit, build_person_logic};
 use crate::world::environment::{AgentBodySprite, BaseColor};
 use bevy::prelude::*;
@@ -15,13 +16,14 @@ pub fn spawn_person<R: Rng>(
     ontology: Ontology,
     position: Vec2,
     index: usize,
-    culture: crate::agent::culture::Culture,
+    _culture: crate::agent::culture::Culture,
     cultural_knowledge: std::sync::Arc<Vec<crate::agent::mind::knowledge::Triple>>,
     rng: &mut R,
 ) -> Entity {
+    let display_name = human_name(index);
     let (core, perception, brain) = build_person_logic(
         PersonInit {
-            name: format!("Person {} ({:?})", index, culture),
+            name: display_name.clone(),
             position,
             genome: random_genome(rng, Species::Human),
             physical_needs: PhysicalNeeds::default(),
@@ -129,7 +131,7 @@ pub fn spawn_person<R: Rng>(
 
         // NAME TAG — direct child of root, stays still
         parent.spawn((
-            Text2d::new(format!("Person {} ({:?})", index, entity)),
+            Text2d::new(display_name.clone()),
             TextFont {
                 font_size: 10.0,
                 ..default()

@@ -63,12 +63,17 @@ impl TraceConfig {
         !matches!(self.agent_filter, AgentFilter::Disabled)
     }
 
-    /// Returns `true` if the given agent name should be recorded.
-    pub fn matches_agent(&self, name: &str) -> bool {
+    /// Returns `true` if the given agent should be recorded. The selector
+    /// inside `AgentFilter::Named` is compared against both the display
+    /// `Name` (case-insensitive) and the Bevy entity-id string (e.g.
+    /// `"0v0"`), so either form works as a `--trace agent:...` argument.
+    pub fn matches_agent(&self, name: &str, entity: Entity) -> bool {
         match &self.agent_filter {
             AgentFilter::Disabled => false,
             AgentFilter::All => true,
-            AgentFilter::Named(n) => n.eq_ignore_ascii_case(name),
+            AgentFilter::Named(n) => {
+                n.eq_ignore_ascii_case(name) || n.eq_ignore_ascii_case(&format!("{entity:?}"))
+            }
         }
     }
 
@@ -269,7 +274,7 @@ pub fn update_decision_trace(
                     continue;
                 }
                 let name = agent_name(*agent);
-                if !config.matches_agent(&name) {
+                if !config.matches_agent(&name, *agent) {
                     continue;
                 }
                 buffer.set_name(*agent, name);
@@ -318,7 +323,7 @@ pub fn update_decision_trace(
                     continue;
                 }
                 let name = agent_name(*agent);
-                if !config.matches_agent(&name) {
+                if !config.matches_agent(&name, *agent) {
                     continue;
                 }
                 buffer.set_name(*agent, name);
@@ -342,7 +347,7 @@ pub fn update_decision_trace(
                     continue;
                 }
                 let name = agent_name(*agent);
-                if !config.matches_agent(&name) {
+                if !config.matches_agent(&name, *agent) {
                     continue;
                 }
                 buffer.set_name(*agent, name);
@@ -365,7 +370,7 @@ pub fn update_decision_trace(
                     continue;
                 }
                 let name = agent_name(*agent);
-                if !config.matches_agent(&name) {
+                if !config.matches_agent(&name, *agent) {
                     continue;
                 }
                 buffer.set_name(*agent, name);
@@ -389,7 +394,7 @@ pub fn update_decision_trace(
                     continue;
                 }
                 let name = agent_name(*agent);
-                if !config.matches_agent(&name) {
+                if !config.matches_agent(&name, *agent) {
                     continue;
                 }
                 buffer.set_name(*agent, name);
@@ -414,7 +419,7 @@ pub fn update_decision_trace(
                     continue;
                 }
                 let name = agent_name(*agent);
-                if !config.matches_agent(&name) {
+                if !config.matches_agent(&name, *agent) {
                     continue;
                 }
                 buffer.set_name(*agent, name);
@@ -438,7 +443,7 @@ pub fn update_decision_trace(
                     continue;
                 }
                 let name = agent_name(*agent);
-                if !config.matches_agent(&name) {
+                if !config.matches_agent(&name, *agent) {
                     continue;
                 }
                 buffer.set_name(*agent, name);
@@ -728,9 +733,13 @@ mod tests {
             agent_filter: AgentFilter::All,
             ..Default::default()
         };
-        assert!(config.matches_agent("Alice"));
-        assert!(config.matches_agent("Bob"));
-        assert!(config.matches_agent("unknown"));
+        // bevy 0.18's `Entity::from_bits(0)` panics (index 0 generation 0
+        // is the reserved placeholder), so use a non-zero synthetic bit
+        // pattern. Anything with a non-zero generation works.
+        let e = Entity::from_bits(1);
+        assert!(config.matches_agent("Alice", e));
+        assert!(config.matches_agent("Bob", e));
+        assert!(config.matches_agent("unknown", e));
     }
 
     #[test]
@@ -739,9 +748,24 @@ mod tests {
             agent_filter: AgentFilter::Named("alice".to_string()),
             ..Default::default()
         };
-        assert!(config.matches_agent("Alice"));
-        assert!(config.matches_agent("ALICE"));
-        assert!(!config.matches_agent("Bob"));
+        let e = Entity::from_bits(1);
+        assert!(config.matches_agent("Alice", e));
+        assert!(config.matches_agent("ALICE", e));
+        assert!(!config.matches_agent("Bob", e));
+    }
+
+    #[test]
+    fn trace_config_named_filter_matches_entity_id() {
+        let e = Entity::from_bits(42);
+        let id = format!("{e:?}");
+        let config = TraceConfig {
+            agent_filter: AgentFilter::Named(id.clone()),
+            ..Default::default()
+        };
+        // Matches by entity id even when the display name is different.
+        assert!(config.matches_agent("Alice", e));
+        // Non-matching entity with the same unrelated name is not matched.
+        assert!(!config.matches_agent("Alice", Entity::from_bits(7)));
     }
 
     #[test]

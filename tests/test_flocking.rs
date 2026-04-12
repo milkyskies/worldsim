@@ -63,33 +63,32 @@ fn visible_kin_decay_social_drive() {
     // Crank both deer to maximum loneliness.
     {
         let mut drives = world.get_mut::<PsychologicalDrives>(deer_a);
-        drives.social = 1.0;
+        drives.companionship = 0.0;
     }
     {
         let mut drives = world.get_mut::<PsychologicalDrives>(deer_b);
-        drives.social = 1.0;
+        drives.companionship = 0.0;
     }
 
-    let start_drive = world
+    let start_companionship = world
         .app()
         .world()
         .get::<PsychologicalDrives>(deer_a)
         .unwrap()
-        .social;
+        .companionship;
 
-    // Tick well past the 10-tick decay interval and the perception scan.
     world.tick(200);
 
-    let end_drive = world
+    let end_companionship = world
         .app()
         .world()
         .get::<PsychologicalDrives>(deer_a)
         .unwrap()
-        .social;
+        .companionship;
 
     assert!(
-        end_drive < start_drive,
-        "deer A's social drive should drop in the presence of visible kin (start {start_drive:.2}, end {end_drive:.2})"
+        end_companionship > start_companionship,
+        "deer A's companionship satisfaction should rise in the presence of visible kin (start {start_companionship:.2}, end {end_companionship:.2})"
     );
 }
 
@@ -125,7 +124,7 @@ fn lonely_deer_with_visible_kin_walks_toward_them() {
     // just enabled will erase it before the brain even runs).
     {
         let mut drives = world.get_mut::<PsychologicalDrives>(lonely);
-        drives.social = 1.0;
+        drives.companionship = 0.0;
     }
 
     // Tick enough for: perception (60), thinking interval, action
@@ -168,7 +167,7 @@ fn lonely_deer_alone_does_not_flock_walk() {
 
     {
         let mut drives = world.get_mut::<PsychologicalDrives>(alone);
-        drives.social = 1.0;
+        drives.companionship = 0.0;
     }
 
     world.tick(200);

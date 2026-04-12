@@ -42,7 +42,7 @@ impl Action for ExploreAction {
             alertness_per_sec: ALERTNESS_PER_SEC,
             // Exploring is peak novelty-seeking — the agent is actively
             // covering new ground. Strongest curiosity satisfier.
-            curiosity_per_sec: -0.05,
+            stimulation_per_sec: 0.05,
             ..Default::default()
         }
     }

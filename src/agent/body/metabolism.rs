@@ -131,8 +131,14 @@ pub fn food_macros(concept: Concept) -> Option<FoodMacros> {
     match concept {
         // Fruit: mostly carbs, trace fat.
         Concept::Apple => Some(FoodMacros::new(30.0, 1.0)),
-        // Berries: pure carbs, small portion.
-        Concept::Berry => Some(FoodMacros::new(20.0, 0.0)),
+        // Berries: pure carbs, modest serving. With the all-or-nothing
+        // rule in `Metabolism::eat`, the meal must fit entirely in
+        // stomach headroom — small meals find more eating windows.
+        Concept::Berry => Some(FoodMacros::new(40.0, 0.0)),
+        // Spoiled fruit: still calories, just way fewer. About 1/3 of
+        // the fresh value — desperation food, not a meal.
+        Concept::RottenApple => Some(FoodMacros::new(10.0, 0.0)),
+        Concept::RottenBerry => Some(FoodMacros::new(20.0, 0.0)),
         // Meat: no carbs, heavy fat — long-burn fuel that mostly fills reserves.
         Concept::Meat => Some(FoodMacros::new(0.0, 40.0)),
         _ => None,
@@ -257,21 +263,28 @@ impl Metabolism {
     }
 
     /// Ingest food. Fills stomach up to `STOMACH_CAPACITY`; any excess mass
-    /// beyond capacity is discarded proportionally between carbs and fat.
+    /// Adds the meal's macros into the stomach. Only accepts the meal if
+    /// the *entire* macro mass fits within current stomach headroom —
+    /// otherwise the item is left in the agent's inventory for later.
     /// Called by the eat and graze actions.
-    pub fn eat(&mut self, macros: FoodMacros) {
+    ///
+    /// Returns `true` if the food was accepted in full, `false` if the
+    /// stomach didn't have room. The all-or-nothing rule prevents the
+    /// silent food-loss bug from #416: under the original
+    /// proportional-scaling rule, a 200-carb berry into a stomach with
+    /// 50 carbs of headroom would absorb 50 carbs and *discard 150*
+    /// while still consuming the inventory item. Callers like
+    /// `Eat.on_complete` use this signal to decide whether to remove
+    /// the corresponding item from the agent's inventory.
+    pub fn eat(&mut self, macros: FoodMacros) -> bool {
         let headroom = (STOMACH_CAPACITY - self.stomach_fullness()).max(0.0);
         let incoming = macros.total_mass();
-        if incoming <= 0.0 {
-            return;
+        if incoming <= 0.0 || headroom < incoming {
+            return false;
         }
-        let scale = if incoming > headroom {
-            headroom / incoming
-        } else {
-            1.0
-        };
-        self.stomach_carbs = (self.stomach_carbs + macros.carbs * scale).max(0.0);
-        self.stomach_fat = (self.stomach_fat + macros.fat * scale).max(0.0);
+        self.stomach_carbs = (self.stomach_carbs + macros.carbs).max(0.0);
+        self.stomach_fat = (self.stomach_fat + macros.fat).max(0.0);
+        true
     }
 
     /// Advance the metabolism one tick with no organ modulation. Delegates

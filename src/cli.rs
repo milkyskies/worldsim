@@ -11,7 +11,7 @@ use clap::Parser;
 
 use crate::agent::brains::trace::{AgentFilter, TraceConfig, TraceFormat};
 use crate::core::{EventLogConfig, EventLogOutput, parse_log_filter};
-use crate::headless::{HeadlessConfig, InspectConfig, InspectQuery};
+use crate::headless::{HeadlessConfig, InspectConfig, InspectQuery, WhyQuery};
 use crate::world::spawn_config::WorldSpawnConfig;
 
 /// Command-line arguments accepted by the worldsim binary.
@@ -76,9 +76,13 @@ pub struct CliArgs {
     pub wolves: Option<usize>,
 
     /// Enable decision trace logging. Use "all" to trace all agents or
-    /// "agent:<name>" (e.g. "agent:alice") to trace a specific agent.
-    /// Trace output is written to stderr (text) or the file set by
-    /// --trace-file (JSONL). Only meaningful in --headless mode.
+    /// "agent:<selector>" (e.g. "agent:alice" or "agent:0v0") to trace a
+    /// specific agent. The selector accepts either a display name
+    /// (case-insensitive) or a Bevy entity-id string — the latter matches
+    /// the `agent_id` field in the JSONL event log so you can copy an id
+    /// straight from a log line. Trace output is written to stderr (text)
+    /// or the file set by --trace-file (JSONL). Only meaningful in
+    /// --headless mode.
     #[arg(long)]
     pub trace: Option<String>,
 
@@ -103,25 +107,56 @@ pub struct CliArgs {
     pub log: Option<String>,
 
     /// Filter events written to --log. Can be repeated; all filters must pass.
-    /// Formats: agent:<name>  type:<T1,T2>  tick:<start>-<end>
+    /// Formats:
+    ///   agent:<selector>   (display name or entity id, e.g. "alice", "0v0")
+    ///   type:<T1,T2>
+    ///   tick:<start>-<end>
     #[arg(long = "log-filter")]
     pub log_filter: Vec<String>,
 
-    /// Print a full agent state snapshot at --at-tick. Format: agent:<name>.
-    /// Can be repeated to inspect multiple agents.
+    /// Print a full agent state snapshot at --at-tick. Format:
+    /// `agent:<selector>` where selector is a display name or entity id
+    /// (e.g. `agent:alice`, `agent:0v0`). Can be repeated to inspect
+    /// multiple agents.
     #[arg(long)]
     pub inspect: Vec<String>,
 
-    /// Print an agent's full MindGraph at --at-tick. Format: agent:<name>.
-    /// Can be repeated.
+    /// Print an agent's full MindGraph at --at-tick. Format:
+    /// `agent:<selector>` — see `--inspect` for selector rules. Can be
+    /// repeated.
     #[arg(long = "dump-mind")]
     pub dump_mind: Vec<String>,
 
     /// Search an agent's MindGraph by text at --at-tick.
-    /// Format: "<agent-name> <query-text>" (first word is the agent name).
-    /// Can be repeated.
+    /// Format: "<selector> <query-text>" where selector is a display name or
+    /// entity id (the first whitespace-separated token). Can be repeated.
     #[arg(long)]
     pub query: Vec<String>,
+
+    /// Print the causal breakdown for a metric at --at-tick. Format:
+    /// "<agent-selector> metric:<name>" — currently supported metrics:
+    /// glucose, stamina, hydration, mood. Can be repeated.
+    ///
+    /// Example: --why "alice metric:glucose"
+    #[arg(long)]
+    pub why: Vec<String>,
+
+    /// Print body-channel occupancy for an agent at --at-tick. Format:
+    /// `agent:<selector>`. Can be repeated.
+    #[arg(long = "dump-channels")]
+    pub dump_channels: Vec<String>,
+
+    /// Print the agent's current perception snapshot (every entity in
+    /// their VisibleObjects with name, kind, and distance) at --at-tick.
+    /// Format: `agent:<selector>`. Can be repeated.
+    #[arg(long = "dump-perception")]
+    pub dump_perception: Vec<String>,
+
+    /// Shortcut for "print everything we know about this agent": full
+    /// state snapshot, brain decision, full MindGraph, channels. Format:
+    /// `agent:<selector>`. Can be repeated.
+    #[arg(long = "dump-all")]
+    pub dump_all: Vec<String>,
 
     /// Tick at which to perform inspection. If not specified, inspects at the
     /// final tick (after --ticks). If specified, the simulation stops at this
@@ -212,11 +247,46 @@ impl CliArgs {
             })
             .collect();
 
+        let why_queries: Vec<WhyQuery> = self
+            .why
+            .iter()
+            .filter_map(|s| {
+                let (agent, rest) = s.split_once(' ')?;
+                let metric = rest.strip_prefix("metric:")?.trim().to_string();
+                Some(WhyQuery {
+                    agent: agent.to_string(),
+                    metric,
+                })
+            })
+            .collect();
+
+        let dump_channels_agents: Vec<String> = self
+            .dump_channels
+            .iter()
+            .filter_map(|s| s.strip_prefix("agent:").map(|n| n.to_string()))
+            .collect();
+
+        let dump_perception_agents: Vec<String> = self
+            .dump_perception
+            .iter()
+            .filter_map(|s| s.strip_prefix("agent:").map(|n| n.to_string()))
+            .collect();
+
+        let dump_all_agents: Vec<String> = self
+            .dump_all
+            .iter()
+            .filter_map(|s| s.strip_prefix("agent:").map(|n| n.to_string()))
+            .collect();
+
         InspectConfig {
             at_tick,
             inspect_agents,
             dump_mind_agents,
             queries,
+            why_queries,
+            dump_channels_agents,
+            dump_perception_agents,
+            dump_all_agents,
         }
     }
 

@@ -33,11 +33,11 @@ impl Plugin for BrainPlugin {
             .add_systems(
                 Update,
                 (
-                    rational::update_rational_brain,
-                    brain_system::three_brains_system,
+                    rational::update_rational_planning,
+                    brain_system::arbitrate_every_tick,
                     // Note: start_actions is now in AgentPlugin to run after brain decides
                 )
-                    .chain() // update_rational_brain runs before three_brains_system
+                    .chain() // planning runs before arbitration so fresh plan steps surface same-tick
                     // Brains read CentralNervousSystem (goals, urgency) written by
                     // formulate_goals — without this Bevy's multi-threaded scheduler
                     // may run the brain before goals are updated for this tick,

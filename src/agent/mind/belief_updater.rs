@@ -109,13 +109,32 @@ fn handle_failure_outcome(
 ) {
     match reason {
         FailureReason::ResourceDepleted => {
+            // Zero out every `Contains` belief the agent held about this
+            // target. Before #416 this hardcoded `Apple` — so Harvest
+            // failures against BerryBush/Corpse/WoodLog left the stale
+            // belief untouched and the planner kept regenerating the same
+            // doomed plan. Clearing per-concept reflects the semantics of
+            // "this target is empty" regardless of what it was storing.
             if let Some(target_entity) = target {
-                mind.assert(Triple::with_meta(
-                    Node::Entity(*target_entity),
-                    Predicate::Contains,
-                    Value::Item(Concept::Apple, 0),
-                    Metadata::experience(current_time),
-                ));
+                let existing: Vec<Value> = mind
+                    .query(
+                        Some(&Node::Entity(*target_entity)),
+                        Some(Predicate::Contains),
+                        None,
+                    )
+                    .into_iter()
+                    .map(|t| t.object.clone())
+                    .collect();
+                for value in existing {
+                    if let Value::Item(concept, _) = value {
+                        mind.assert(Triple::with_meta(
+                            Node::Entity(*target_entity),
+                            Predicate::Contains,
+                            Value::Item(concept, 0),
+                            Metadata::experience(current_time),
+                        ));
+                    }
+                }
             }
         }
         FailureReason::MissingItem(concept) => {
@@ -181,7 +200,7 @@ fn generate_failure_frustration(
 ) {
     let urgency = match reason {
         FailureReason::NoEdibleFood | FailureReason::MissingItem(_) => needs.hunger_urgency(),
-        FailureReason::NoWaterNearby => needs.thirst / 100.0,
+        FailureReason::NoWaterNearby => 1.0 - (needs.hydration / 100.0).clamp(0.0, 1.0),
         _ => 0.0,
     };
 
@@ -191,7 +210,7 @@ fn generate_failure_frustration(
             sim_events,
             agent,
             tick,
-            Emotion::new(EmotionType::Anger, urgency * 0.6),
+            Emotion::new(EmotionType::Anger, urgency * 0.15),
         );
     }
 }
@@ -256,10 +275,10 @@ mod tests {
             ..Default::default()
         };
         let urgency = needs.hunger_urgency();
-        let frustration = urgency * 0.6;
+        let frustration = urgency * 0.15;
         assert!(
-            frustration > 0.4,
-            "high hunger failure should produce significant frustration (got {frustration})"
+            frustration > 0.05,
+            "high hunger failure should still register some frustration (got {frustration})"
         );
     }
 

@@ -147,15 +147,15 @@ pub struct RuntimeEffects {
     /// like Graze where the animal is ingesting plant matter over time.
     pub stomach_carbs_per_sec: f32,
     pub alertness_per_sec: f32,
-    /// Delta to `drives.social` per second. Negative = satisfies the drive
-    /// (Converse, InitiateConversation). Positive = starves it (prolonged
+    /// Delta to `drives.companionship` per second. Positive = satisfies the drive
+    /// (Converse, InitiateConversation). Negative = starves it (prolonged
     /// isolation, though that path is currently covered elsewhere).
-    pub social_per_sec: f32,
-    /// Delta to `drives.curiosity` per second. Negative = satisfies the
+    pub companionship_per_sec: f32,
+    /// Delta to `drives.stimulation` per second. Positive = satisfies the
     /// drive (Observe, Explore, Wander, Converse — novelty-seeking or
-    /// novelty-adjacent behaviour). Positive = raises it (Idle, Sleep,
+    /// novelty-adjacent behaviour). Negative = drains it (Idle, Sleep,
     /// Rest, Groom — stillness breeds curiosity).
-    pub curiosity_per_sec: f32,
+    pub stimulation_per_sec: f32,
 }
 
 // ============================================================================

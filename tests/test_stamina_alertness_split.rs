@@ -177,21 +177,21 @@ fn idle_brain_work_drains_alertness_but_not_stamina() {
     });
 
     // Tick once so `develop_phenotype_system` runs and writes genome-derived
-    // drives. After this, we zero every drive so the brain has no motivation
-    // to pursue anything — the test relies on the agent staying in Idle for
-    // the full duration, and non-zero drives would occasionally make it
-    // wander and drain anaerobic.
+    // drives. After this we max every drive's satisfaction so the
+    // brain has no motivation to pursue anything — the test relies on
+    // the agent staying in Idle for the full duration, and unmet drives
+    // would occasionally make it wander and drain anaerobic.
     world.tick(1);
     {
         let mut drives = world.get_mut::<PsychologicalDrives>(agent);
         *drives = PsychologicalDrives {
-            social: 0.0,
-            fun: 0.0,
-            curiosity: 0.0,
-            status: 0.0,
-            security: 0.0,
-            autonomy: 0.0,
-            territoriality: 0.0,
+            companionship: 1.0,
+            enjoyment: 1.0,
+            stimulation: 1.0,
+            esteem: 1.0,
+            safety: 1.0,
+            autonomy: 1.0,
+            dominion: 1.0,
         };
     }
 
