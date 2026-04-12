@@ -21,6 +21,7 @@ fn test_belief_state_estimates() {
         evidence: vec![],
         salience: 0.0,
         source_sense: None,
+        strength: 1.0,
     };
 
     mind.assert(Triple::with_meta(
@@ -40,6 +41,7 @@ fn test_belief_state_estimates() {
         evidence: vec![],
         salience: 0.0,
         source_sense: None,
+        strength: 1.0,
     };
 
     mind.assert(Triple::with_meta(

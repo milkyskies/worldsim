@@ -461,6 +461,11 @@ pub struct Metadata {
 
     /// Which sense produced this triple (None for non-perceptual knowledge)
     pub source_sense: Option<Sense>,
+
+    /// How deeply encoded is this memory? Reinforced by repeated perception,
+    /// decays passively, reduced by interference from competing memories.
+    /// Range: 0.0 to MAX_STRENGTH (10.0). Forgotten when < forget_threshold.
+    pub strength: f32,
 }
 
 impl Default for Metadata {
@@ -474,6 +479,7 @@ impl Default for Metadata {
             evidence: Vec::new(),
             salience: 0.0,
             source_sense: None,
+            strength: 1.0,
         }
     }
 }
@@ -489,6 +495,7 @@ impl Metadata {
             evidence: Vec::new(),
             salience: 0.0,
             source_sense: None,
+            strength: 1.0,
         }
     }
 
@@ -502,6 +509,7 @@ impl Metadata {
             evidence: Vec::new(),
             salience: 0.0,
             source_sense: Some(sense),
+            strength: 1.0,
         }
     }
 
@@ -515,6 +523,7 @@ impl Metadata {
             evidence: Vec::new(),
             salience: 0.0,
             source_sense: None,
+            strength: 1.0,
         }
     }
 
@@ -528,6 +537,7 @@ impl Metadata {
             evidence: Vec::new(),
             salience: 0.0,
             source_sense: None,
+            strength: 1.0,
         }
     }
 
@@ -541,6 +551,7 @@ impl Metadata {
             evidence: Vec::new(),
             salience: 0.0,
             source_sense: None,
+            strength: 1.0,
         }
     }
 
@@ -554,6 +565,7 @@ impl Metadata {
             evidence: Vec::new(),
             salience: 0.0,
             source_sense: None,
+            strength: 1.0,
         }
     }
 
@@ -570,6 +582,7 @@ impl Metadata {
             evidence: Vec::new(),
             salience: 0.0,
             source_sense: None,
+            strength: 0.7,
         }
     }
 }

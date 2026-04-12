@@ -318,6 +318,7 @@ fn agent_warns_partner_about_personally_observed_danger() {
             evidence: Vec::new(),
             salience: 0.9, // above DANGER_WARN_SALIENCE (0.7)
             source_sense: None,
+            strength: 1.0,
         },
     );
 

@@ -253,6 +253,7 @@ mod tests {
                 evidence: Vec::new(),
                 salience,
                 source_sense: None,
+                strength: 1.0,
             },
         )
     }

@@ -115,6 +115,7 @@ pub fn consolidate_knowledge(
                                 evidence: events.iter().map(|(id, _)| *id).collect(),
                                 salience: confidence,
                                 source_sense: None,
+                                strength: 1.0,
                             },
                         ));
                     } else if aggregate_valence > 0.3 {
@@ -132,6 +133,7 @@ pub fn consolidate_knowledge(
                                 evidence: events.iter().map(|(id, _)| *id).collect(),
                                 salience: confidence,
                                 source_sense: None,
+                                strength: 1.0,
                             },
                         ));
                     }
