@@ -3,9 +3,6 @@
 use crate::agent::actions::ActionType;
 use crate::agent::actions::channel::{Channel, ChannelUsage, Posture};
 use crate::agent::actions::registry::{Action, ActionKind, RuntimeEffects};
-use crate::constants::actions::wander::{
-    ALERTNESS_PER_SEC, BASE_COST, GLUCOSE_DRAIN_PER_SEC, STAMINA_PER_SEC,
-};
 
 pub struct WanderAction;
 
@@ -23,7 +20,7 @@ impl Action for WanderAction {
     }
 
     fn cost(&self) -> f32 {
-        BASE_COST
+        5.0
     }
 
     fn body_channels(&self) -> &'static [ChannelUsage] {
@@ -37,14 +34,9 @@ impl Action for WanderAction {
 
     fn runtime_effects(&self) -> RuntimeEffects {
         RuntimeEffects {
-            stamina_per_sec: STAMINA_PER_SEC,
-            glucose_drain_per_sec: GLUCOSE_DRAIN_PER_SEC,
-            alertness_per_sec: ALERTNESS_PER_SEC,
-            // Wandering is a mild curiosity satisfier — the agent
-            // drifts through local space and passively takes in
-            // what's around. Weaker than Explore (which actively
-            // seeks novelty) and Observe (which focuses on one thing).
+            alertness_per_sec: 5.0,
             stimulation_per_sec: 0.02,
+            companionship_per_sec: -0.006,
             ..Default::default()
         }
     }

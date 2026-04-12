@@ -8,7 +8,6 @@
 use crate::agent::actions::ActionType;
 use crate::agent::actions::channel::{Channel, ChannelUsage, Posture};
 use crate::agent::actions::registry::{Action, ActionKind, RuntimeEffects, TargetSource};
-use crate::constants::actions::walk::{ALERTNESS_PER_SEC, GLUCOSE_DRAIN_PER_SEC, STAMINA_PER_SEC};
 
 /// Canonical display name for the Walk action. Shared with the planner's
 /// implicit-walk template builder so the runtime sees the same name whether
@@ -45,9 +44,7 @@ impl Action for WalkAction {
 
     fn runtime_effects(&self) -> RuntimeEffects {
         RuntimeEffects {
-            stamina_per_sec: STAMINA_PER_SEC,
-            glucose_drain_per_sec: GLUCOSE_DRAIN_PER_SEC,
-            alertness_per_sec: ALERTNESS_PER_SEC,
+            alertness_per_sec: 10.0,
             ..Default::default()
         }
     }

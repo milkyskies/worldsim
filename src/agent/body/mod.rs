@@ -1,3 +1,4 @@
+pub mod effort;
 pub mod genetics;
 pub mod metabolism;
 pub mod needs;

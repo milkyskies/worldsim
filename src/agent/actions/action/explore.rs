@@ -3,9 +3,6 @@
 use crate::agent::actions::ActionType;
 use crate::agent::actions::channel::{Channel, ChannelUsage, Posture};
 use crate::agent::actions::registry::{Action, ActionKind, RuntimeEffects};
-use crate::constants::actions::explore::{
-    ALERTNESS_PER_SEC, BASE_COST, GLUCOSE_DRAIN_PER_SEC, STAMINA_PER_SEC,
-};
 
 pub struct ExploreAction;
 
@@ -23,7 +20,7 @@ impl Action for ExploreAction {
     }
 
     fn cost(&self) -> f32 {
-        BASE_COST
+        3.0
     }
 
     fn body_channels(&self) -> &'static [ChannelUsage] {
@@ -37,12 +34,9 @@ impl Action for ExploreAction {
 
     fn runtime_effects(&self) -> RuntimeEffects {
         RuntimeEffects {
-            stamina_per_sec: STAMINA_PER_SEC,
-            glucose_drain_per_sec: GLUCOSE_DRAIN_PER_SEC,
-            alertness_per_sec: ALERTNESS_PER_SEC,
-            // Exploring is peak novelty-seeking — the agent is actively
-            // covering new ground. Strongest curiosity satisfier.
+            alertness_per_sec: 5.0,
             stimulation_per_sec: 0.05,
+            companionship_per_sec: -0.006,
             ..Default::default()
         }
     }

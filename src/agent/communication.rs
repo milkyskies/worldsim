@@ -40,7 +40,7 @@ use bevy::prelude::*;
 use crate::agent::Agent;
 use crate::agent::actions::registry::{ActionState, ActiveActions};
 use crate::agent::actions::types::ActionType;
-use crate::agent::body::needs::Consciousness;
+use crate::agent::body::needs::{Consciousness, PsychologicalDrives};
 use crate::agent::brains::plan_memory::{HeldPlan, PlanMemory, PlanSource, PlanState};
 use crate::agent::brains::proposal::Intent as BrainIntent;
 use crate::agent::brains::thinking::{Goal, TriplePattern};
@@ -63,26 +63,29 @@ use crate::core::tick::TickCount;
 
 /// Number of ticks since the last turn after which a conversation is
 /// considered abandoned and ended.
-pub const STALE_CONVERSATION_TICKS: u64 = 300;
+pub const STALE_CONVERSATION_TICKS: u64 = 500;
 
 /// Ticks between casual chitchat turns (Share / Acknowledge). Relaxed cadence.
-pub const CHITCHAT_INTERVAL_TICKS: u64 = 60;
+pub const CHITCHAT_INTERVAL_TICKS: u64 = 30;
 
 /// Ticks between urgent turns (Ask / Answer). Faster cadence for information exchange.
-pub const URGENT_INTERVAL_TICKS: u64 = 30;
+pub const URGENT_INTERVAL_TICKS: u64 = 15;
 
 /// Ticks before a Farewell fires. Short — the conversation is already wrapping.
-pub const FAREWELL_INTERVAL_TICKS: u64 = 20;
+pub const FAREWELL_INTERVAL_TICKS: u64 = 15;
 
-/// Conversations end gracefully after this many turns when neither side
-/// has a competing urgency.
+/// Conversations enter the Wrapping state after this many turns when
+/// neither side has a competing urgency.
 pub const NATURAL_END_TURN_COUNT: usize = 6;
 
-/// Reduction in `social` drive each successful turn satisfies.
-pub const SOCIAL_DRIVE_PER_TURN: f32 = 0.1;
+/// Reduction in companionship drive each successful conversation turn
+/// satisfies. Applied per-turn inside `select_turn_intent` so agents
+/// gradually feel socially fulfilled during a long chat rather than
+/// getting it all from the continuous `companionship_per_sec` drain.
+pub const SOCIAL_DRIVE_PER_TURN: f32 = 0.03;
 
 /// Maximum number of triples shared per `Share` turn.
-pub const SMALL_TALK_TRIPLES_PER_TURN: usize = 2;
+pub const SMALL_TALK_TRIPLES_PER_TURN: usize = 3;
 
 /// Base salience threshold for danger warnings. Neurotic agents warn at lower salience.
 pub const DANGER_WARN_SALIENCE: f32 = 0.7;
@@ -542,6 +545,7 @@ pub fn select_turn_intent(
     personalities: Query<&Personality>,
     mut plan_memories: Query<&mut PlanMemory>,
     mut consciousnesses: Query<&mut Consciousness>,
+    mut drives: Query<&mut PsychologicalDrives>,
 ) {
     let now = tick.current;
     for conv in manager.conversations.values_mut() {
@@ -618,6 +622,10 @@ pub fn select_turn_intent(
             continue;
         }
 
+        // Every turn tries to carry knowledge content — even an Acknowledge
+        // can mention something in passing. Share and Answer get full
+        // deliberate-then-casual selection; other intents get a smaller
+        // casual-only payload so the conversation always transfers triples.
         let (mut content, topic) = if matches!(intent, Intent::Share | Intent::Answer) {
             let deliberate = crate::agent::mind::deliberate_talk::pick_deliberate_content(
                 speaker_mind,
@@ -639,6 +647,15 @@ pub fn select_turn_intent(
                 );
                 (casual, Topic::General)
             }
+        } else if !matches!(intent, Intent::Farewell) {
+            let casual = crate::agent::mind::small_talk::pick_small_talk_triples(
+                speaker_mind,
+                speaker_tom,
+                primary_listener,
+                now,
+                1, // lighter payload for non-Share intents
+            );
+            (casual, Topic::General)
         } else {
             (Vec::new(), Topic::General)
         };
@@ -710,6 +727,12 @@ pub fn select_turn_intent(
                 c.alertness = (c.alertness - drain).max(0.0);
             }
         }
+        if let Ok(mut d) = drives.get_mut(speaker)
+            && d.companionship < 1.0
+        {
+            d.companionship = (d.companionship + SOCIAL_DRIVE_PER_TURN).clamp(0.0, 1.0);
+        }
+
         // Direct question → flag the primary listener so the weighted
         // pick favors them next turn. In a 2-agent conversation this is
         // a no-op (they're the only candidate), but in a group it routes
@@ -812,13 +835,14 @@ pub(crate) fn pick_next_speaker(
 /// Priority order:
 /// 1. **Greet** — first turn in a new conversation
 /// 2. **Farewell** — conversation is wrapping up
-/// 3. **Share (Warn)** — recent high-salience danger the listener doesn't know.
-///    Neuroticism lowers the salience threshold (anxious agents warn more readily).
+/// 3. **Share (Warn)** — recent high-salience danger the listener doesn't know
 /// 4. **Ask** — active goal needs location information the listener might have
 /// 5. **Answer** — listener asked something last turn
 /// 6. **Share** — has salient, novel world knowledge to pass on
-/// 7. **Share (ChitChat)** — extraverted agents keep talking via small talk
-/// 8. **Acknowledge** — default; nothing compelling to say
+/// 7. **Empathize** — last speaker expressed negative emotion, agreeable agent responds
+/// 8. **Agree** — last speaker shared something, agreeable agent affirms it
+/// 9. **Share (ChitChat)** — agents with casual content keep the conversation flowing
+/// 10. **Acknowledge** — default; nothing compelling to say
 pub(crate) fn select_intent(
     conv: &Conversation,
     speaker_mind: &MindGraph,
@@ -870,13 +894,39 @@ pub(crate) fn select_intent(
         return Intent::Share;
     }
 
-    // 7. ChitChat: extraverted agents share casual observations even when nothing
-    //    urgent is on their mind.
-    if extraversion > 0.55 && has_casual {
+    let agreeableness = personality.map(|p| p.traits.agreeableness).unwrap_or(0.5);
+    let other_last = conv
+        .turns
+        .last()
+        .filter(|t| t.speaker != conv.current_speaker());
+
+    // 7. Empathize: last speaker expressed negative emotion (personality-relative).
+    let default_traits = crate::agent::psyche::personality::PersonalityTraits::default();
+    let traits = personality.map(|p| &p.traits).unwrap_or(&default_traits);
+    if let Some(last) = other_last
+        && let Some(emotion) = &last.emotion
+        && crate::agent::psyche::emotions::emotion_valence(emotion.emotion_type, traits) < 0.0
+        && agreeableness > 0.4
+    {
+        return Intent::Empathize;
+    }
+
+    // 8. Agree: last speaker shared content, agreeable agents affirm it.
+    if let Some(last) = other_last
+        && matches!(last.intent, Intent::Share)
+        && agreeableness > 0.5
+    {
+        return Intent::Agree;
+    }
+
+    // 9. ChitChat: agents with casual content share it. Lowered from 0.55 so
+    //    most agents will make small talk rather than falling through to
+    //    Acknowledge — introverts still share, just less eagerly.
+    if extraversion > 0.3 && has_casual {
         return Intent::Share;
     }
 
-    // 8. Default: pure social acknowledgement.
+    // 10. Default: pure social acknowledgement.
     Intent::Acknowledge
 }
 

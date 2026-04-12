@@ -4,9 +4,6 @@ use crate::agent::actions::ActionType;
 use crate::agent::actions::channel::{Channel, ChannelUsage, Posture};
 use crate::agent::actions::registry::{Action, ActionKind, RuntimeEffects};
 use crate::agent::mind::knowledge::{Node, Predicate, Triple, Value};
-use crate::constants::actions::sleep::{
-    ALERTNESS_PER_SEC, BASE_COST, GLUCOSE_DRAIN_PER_SEC, STAMINA_PER_SEC,
-};
 
 pub struct SleepAction;
 
@@ -35,7 +32,7 @@ impl Action for SleepAction {
     }
 
     fn cost(&self) -> f32 {
-        BASE_COST
+        0.1
     }
 
     fn body_channels(&self) -> &'static [ChannelUsage] {
@@ -65,12 +62,9 @@ impl Action for SleepAction {
 
     fn runtime_effects(&self) -> RuntimeEffects {
         RuntimeEffects {
-            stamina_per_sec: STAMINA_PER_SEC,
-            glucose_drain_per_sec: GLUCOSE_DRAIN_PER_SEC,
-            alertness_per_sec: ALERTNESS_PER_SEC,
-            // Dreams feed the mind. Sleep gently drains stimulation
-            // satisfaction so the agent wakes with fresh novelty-seeking urge.
+            alertness_per_sec: -50.0,
             stimulation_per_sec: -0.01,
+            companionship_per_sec: -0.004,
             ..Default::default()
         }
     }

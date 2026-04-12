@@ -148,10 +148,10 @@ fn berries_on_bush_do_not_rot() {
     world.tick(10_000);
 
     let slots = world.app().world().get::<ItemSlots>(bush).unwrap();
-    assert_eq!(
+    assert!(
+        slots.count(Concept::Berry) >= 5,
+        "original 5 berries should still be on the bush (got {}, regen may add more)",
         slots.count(Concept::Berry),
-        5,
-        "all 5 berries should still be on the bush after 10k ticks"
     );
     assert_eq!(
         slots.count(Concept::RottenBerry),
