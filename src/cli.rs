@@ -11,7 +11,7 @@ use clap::Parser;
 
 use crate::agent::brains::trace::{AgentFilter, TraceConfig, TraceFormat};
 use crate::core::{EventLogConfig, EventLogOutput, parse_log_filter};
-use crate::headless::{HeadlessConfig, InspectConfig, InspectQuery};
+use crate::headless::{HeadlessConfig, InspectConfig, InspectQuery, WhyQuery};
 use crate::world::spawn_config::WorldSpawnConfig;
 
 /// Command-line arguments accepted by the worldsim binary.
@@ -133,6 +133,25 @@ pub struct CliArgs {
     #[arg(long)]
     pub query: Vec<String>,
 
+    /// Print the causal breakdown for a metric at --at-tick. Format:
+    /// "<agent-selector> metric:<name>" — currently supported metrics:
+    /// glucose, stamina, hydration, mood. Can be repeated.
+    ///
+    /// Example: --why "alice metric:glucose"
+    #[arg(long)]
+    pub why: Vec<String>,
+
+    /// Print body-channel occupancy for an agent at --at-tick. Format:
+    /// `agent:<selector>`. Can be repeated.
+    #[arg(long = "dump-channels")]
+    pub dump_channels: Vec<String>,
+
+    /// Shortcut for "print everything we know about this agent": full
+    /// state snapshot, brain decision, full MindGraph, channels. Format:
+    /// `agent:<selector>`. Can be repeated.
+    #[arg(long = "dump-all")]
+    pub dump_all: Vec<String>,
+
     /// Tick at which to perform inspection. If not specified, inspects at the
     /// final tick (after --ticks). If specified, the simulation stops at this
     /// tick regardless of --ticks.
@@ -222,11 +241,39 @@ impl CliArgs {
             })
             .collect();
 
+        let why_queries: Vec<WhyQuery> = self
+            .why
+            .iter()
+            .filter_map(|s| {
+                let (agent, rest) = s.split_once(' ')?;
+                let metric = rest.strip_prefix("metric:")?.trim().to_string();
+                Some(WhyQuery {
+                    agent: agent.to_string(),
+                    metric,
+                })
+            })
+            .collect();
+
+        let dump_channels_agents: Vec<String> = self
+            .dump_channels
+            .iter()
+            .filter_map(|s| s.strip_prefix("agent:").map(|n| n.to_string()))
+            .collect();
+
+        let dump_all_agents: Vec<String> = self
+            .dump_all
+            .iter()
+            .filter_map(|s| s.strip_prefix("agent:").map(|n| n.to_string()))
+            .collect();
+
         InspectConfig {
             at_tick,
             inspect_agents,
             dump_mind_agents,
             queries,
+            why_queries,
+            dump_channels_agents,
+            dump_all_agents,
         }
     }
 

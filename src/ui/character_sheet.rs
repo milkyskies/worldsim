@@ -701,7 +701,7 @@ fn render_overview(ui: &mut egui::Ui, world: &World, entity: Entity) {
         } else {
             Color32::LIGHT_GRAY
         };
-        let mood_row = ui.horizontal(|ui| {
+        ui.horizontal(|ui| {
             ui.label(egui::RichText::new("Mood").strong());
             ui.colored_label(mood_color, mood_label);
             ui.label(
@@ -715,12 +715,14 @@ fn render_overview(ui: &mut egui::Ui, world: &World, entity: Entity) {
                 ui.colored_label(stress_color(stress), format!("stress {:.0}", stress));
             }
         });
-        mood_row.response.on_hover_ui(|ui| {
-            ui.label(egui::RichText::new("Mood — why?").strong());
-            for line in mood_contributions(emotions) {
-                ui.label(line);
-            }
-        });
+        egui::CollapsingHeader::new("why Mood is like this")
+            .id_salt(egui::Id::new("mood_why"))
+            .default_open(false)
+            .show(ui, |ui| {
+                for line in mood_contributions(emotions) {
+                    ui.label(line);
+                }
+            });
 
         if !emotions.active_emotions.is_empty() {
             let mut sorted: Vec<_> = emotions.active_emotions.iter().collect();
@@ -753,9 +755,6 @@ fn vital_row(
     vital_row_explained(ui, label, value, max, bad_below, warn_above, None, "");
 }
 
-/// `vital_row` with an optional hover tooltip showing a contribution
-/// breakdown. Pass `Some(contribs)` + unit string (e.g. " /sec") to make
-/// the bar hoverable; `None` renders a plain non-hover row.
 fn vital_row_explained(
     ui: &mut egui::Ui,
     label: &str,
@@ -770,19 +769,19 @@ fn vital_row_explained(
     let color = severity_color(frac, bad_below, warn_above);
     ui.horizontal(|ui| {
         ui.add_sized([80.0, 0.0], egui::Label::new(label));
-        let resp = ui.add(
+        ui.add(
             egui::ProgressBar::new(frac)
                 .desired_width(160.0)
                 .fill(color)
                 .text(format!("{:.0}/{:.0}", value, max)),
         );
-        if let Some(contribs) = contribs {
-            resp.on_hover_ui(|ui| {
-                ui.label(egui::RichText::new(format!("{} — why moving?", label)).strong());
-                render_contributions(ui, unit, &contribs);
-            });
-        }
     });
+    if let Some(contribs) = contribs {
+        egui::CollapsingHeader::new(format!("why {} is moving", label))
+            .id_salt(egui::Id::new(("vital_why", label)))
+            .default_open(false)
+            .show(ui, |ui| render_contributions(ui, unit, &contribs));
+    }
 }
 
 fn vital_row_fraction_explained(
@@ -797,19 +796,19 @@ fn vital_row_fraction_explained(
     let color = severity_color(frac.clamp(0.0, 1.0), bad_below, warn_above);
     ui.horizontal(|ui| {
         ui.add_sized([80.0, 0.0], egui::Label::new(label));
-        let resp = ui.add(
+        ui.add(
             egui::ProgressBar::new(frac.clamp(0.0, 1.0))
                 .desired_width(160.0)
                 .fill(color)
                 .text(format!("{:.0}%", frac * 100.0)),
         );
-        if let Some(contribs) = contribs {
-            resp.on_hover_ui(|ui| {
-                ui.label(egui::RichText::new(format!("{} — why moving?", label)).strong());
-                render_contributions(ui, unit, &contribs);
-            });
-        }
     });
+    if let Some(contribs) = contribs {
+        egui::CollapsingHeader::new(format!("why {} is moving", label))
+            .id_salt(egui::Id::new(("vital_frac_why", label)))
+            .default_open(false)
+            .show(ui, |ui| render_contributions(ui, unit, &contribs));
+    }
 }
 
 /// Small subordinate line showing a CNS urgency score. Hidden if the

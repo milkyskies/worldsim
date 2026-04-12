@@ -28,6 +28,13 @@ pub struct InspectQuery {
     pub text: String,
 }
 
+/// A "why is this metric moving?" request for a specific agent + metric.
+#[derive(Debug, Clone)]
+pub struct WhyQuery {
+    pub agent: String,
+    pub metric: String,
+}
+
 /// Configuration for post-run inspection commands.
 #[derive(Debug, Clone, Default)]
 pub struct InspectConfig {
@@ -39,6 +46,12 @@ pub struct InspectConfig {
     pub dump_mind_agents: Vec<String>,
     /// Execute these MindGraph text queries.
     pub queries: Vec<InspectQuery>,
+    /// Print causal breakdowns for these (agent, metric) pairs.
+    pub why_queries: Vec<WhyQuery>,
+    /// Print body-channel occupancy for these agents.
+    pub dump_channels_agents: Vec<String>,
+    /// Print every available diagnostic for these agents.
+    pub dump_all_agents: Vec<String>,
 }
 
 impl InspectConfig {
@@ -47,6 +60,9 @@ impl InspectConfig {
         !self.inspect_agents.is_empty()
             || !self.dump_mind_agents.is_empty()
             || !self.queries.is_empty()
+            || !self.why_queries.is_empty()
+            || !self.dump_channels_agents.is_empty()
+            || !self.dump_all_agents.is_empty()
     }
 }
 
@@ -258,6 +274,32 @@ fn run_inspection(world: &mut TestWorld, inspect: &InspectConfig) {
             None => {
                 eprintln!("query: no agent matching {:?} found", q.agent);
             }
+        }
+    }
+
+    for q in &inspect.why_queries {
+        match world.find_agent(&q.agent) {
+            Some(entity) => world.print_why(entity, &q.metric),
+            None => eprintln!("why: no agent matching {:?} found", q.agent),
+        }
+    }
+
+    for selector in &inspect.dump_channels_agents {
+        match world.find_agent(selector) {
+            Some(entity) => world.print_channels(entity),
+            None => eprintln!("dump-channels: no agent matching {selector:?} found"),
+        }
+    }
+
+    for selector in &inspect.dump_all_agents {
+        match world.find_agent(selector) {
+            Some(entity) => {
+                world.print_agent_state(entity);
+                world.print_brain_decision(entity);
+                world.print_channels(entity);
+                world.print_mind_graph(entity);
+            }
+            None => eprintln!("dump-all: no agent matching {selector:?} found"),
         }
     }
 }

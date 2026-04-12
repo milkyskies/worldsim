@@ -481,6 +481,92 @@ fn print_section_footer() {
     eprintln!("──────────────────────────────────────────────────");
 }
 
+enum ContributionKind {
+    Glucose,
+    Stamina,
+    Hydration,
+}
+
+fn dump_contributions_headless(
+    world: &World,
+    agent: Entity,
+    label: &str,
+    unit: &str,
+    kind: ContributionKind,
+) {
+    use crate::agent::actions::ActionRegistry;
+    use crate::agent::activity::{ActivityConfig, CurrentActivity};
+
+    let mut contribs: Vec<(String, f32)> = Vec::new();
+    let cfg = world.get_resource::<ActivityConfig>();
+
+    match kind {
+        ContributionKind::Glucose => {
+            if let Some(cfg) = cfg {
+                let bmr = cfg.base.effects.glucose_drain;
+                if bmr != 0.0 {
+                    contribs.push(("BMR (base metabolic rate)".into(), -bmr));
+                }
+            }
+            if let (Some(active), Some(reg)) = (
+                world.get::<ActiveActions>(agent),
+                world.get_resource::<ActionRegistry>(),
+            ) {
+                for state in active.iter() {
+                    let Some(action) = reg.get(state.action_type) else {
+                        continue;
+                    };
+                    let rate = action.runtime_effects().glucose_drain_per_sec;
+                    if rate != 0.0 {
+                        contribs.push((format!("{:?}", state.action_type), -rate));
+                    }
+                }
+            }
+        }
+        ContributionKind::Stamina => {
+            if let (Some(active), Some(reg)) = (
+                world.get::<ActiveActions>(agent),
+                world.get_resource::<ActionRegistry>(),
+            ) {
+                for state in active.iter() {
+                    let Some(action) = reg.get(state.action_type) else {
+                        continue;
+                    };
+                    let rate = action.runtime_effects().stamina_per_sec;
+                    if rate != 0.0 {
+                        contribs.push((format!("{:?}", state.action_type), rate));
+                    }
+                }
+            }
+        }
+        ContributionKind::Hydration => {
+            if let Some(cfg) = cfg {
+                let base = cfg.base.effects.hydration_change;
+                if base != 0.0 {
+                    contribs.push(("baseline".into(), base));
+                }
+                if let Some(activity) = world.get::<CurrentActivity>(agent) {
+                    let activity_delta = cfg.get(activity).effects.hydration_change;
+                    if activity_delta != 0.0 {
+                        contribs.push((format!("{:?}", activity), activity_delta));
+                    }
+                }
+            }
+        }
+    }
+
+    if contribs.is_empty() {
+        eprintln!("  (no active contributors to {})", label);
+    } else {
+        for (src, rate) in &contribs {
+            eprintln!("  {:+.2}{}  {}", rate, unit, src);
+        }
+        let net: f32 = contribs.iter().map(|(_, r)| r).sum();
+        eprintln!("  ----");
+        eprintln!("  net {:+.2}{}", net, unit);
+    }
+}
+
 /// A lightweight headless simulation harness. Wraps a Bevy `App` configured with
 /// the same logic plugins as the real game (`AgentPlugin` and friends) but
 /// without rendering, windowing, input, UI, or world spawn population.
@@ -1805,6 +1891,124 @@ impl TestWorld {
         } else {
             for event in events {
                 eprintln!("  {}", format_sim_event(event));
+            }
+        }
+        print_section_footer();
+    }
+
+    /// Print body-channel occupancy for the agent to stderr: each channel
+    /// with its current load, capacity, and which running actions are
+    /// claiming it.
+    pub fn print_channels(&self, agent: Entity) {
+        use crate::agent::actions::ActionRegistry;
+        use crate::agent::actions::channel::{Channel, ChannelCapacities};
+        use crate::agent::biology::body::Body;
+        use crate::agent::body::needs::PhysicalNeeds;
+
+        let world = self.app.world();
+        let tick = world.resource::<TickCount>().current;
+        let name = entity_name(world, agent);
+        print_section_header("Channels", &name, agent, tick);
+
+        let Some(active) = world.get::<ActiveActions>(agent) else {
+            eprintln!("  (no ActiveActions)");
+            print_section_footer();
+            return;
+        };
+        let body = world.get::<Body>(agent);
+        let physical = world.get::<PhysicalNeeds>(agent);
+        let registry = world.resource::<ActionRegistry>();
+        let capacities = ChannelCapacities::compute(body, physical);
+
+        let mut per_channel: Vec<(Channel, f32, Vec<String>)> =
+            Channel::ALL.iter().map(|c| (*c, 0.0, Vec::new())).collect();
+        for state in active.iter() {
+            let Some(def) = registry.get(state.action_type) else {
+                continue;
+            };
+            for usage in def.body_channels() {
+                let slot = per_channel
+                    .iter_mut()
+                    .find(|(c, _, _)| *c == usage.channel)
+                    .unwrap();
+                slot.1 += usage.intensity;
+                slot.2.push(format!("{:?}", state.action_type));
+            }
+        }
+
+        for (channel, load, holders) in per_channel {
+            let cap = capacities.get(channel);
+            let held = if holders.is_empty() {
+                "-".to_string()
+            } else {
+                holders.join(", ")
+            };
+            eprintln!(
+                "  {:<12}  load={:.2}  cap={:.2}  holders=[{}]",
+                format!("{:?}", channel),
+                load,
+                cap,
+                held
+            );
+        }
+        print_section_footer();
+    }
+
+    /// Print a causal breakdown for one metric on this agent: every
+    /// contributor's signed per-second rate, followed by the net rate.
+    /// Supported metrics: "glucose", "stamina", "hydration", "mood".
+    pub fn print_why(&self, agent: Entity, metric: &str) {
+        let world = self.app.world();
+        let tick = world.resource::<TickCount>().current;
+        let name = entity_name(world, agent);
+        print_section_header(&format!("Why {}", metric), &name, agent, tick);
+
+        match metric {
+            "glucose" => dump_contributions_headless(
+                world,
+                agent,
+                "glucose",
+                " /sec",
+                ContributionKind::Glucose,
+            ),
+            "stamina" => dump_contributions_headless(
+                world,
+                agent,
+                "stamina",
+                " /sec",
+                ContributionKind::Stamina,
+            ),
+            "hydration" => dump_contributions_headless(
+                world,
+                agent,
+                "hydration",
+                " /sec",
+                ContributionKind::Hydration,
+            ),
+            "mood" => {
+                use crate::agent::psyche::emotions::EmotionalState;
+                if let Some(emo) = world.get::<EmotionalState>(agent) {
+                    eprintln!("  mood scalar: {:+.2}", emo.current_mood);
+                    eprintln!("  stress:      {:.1}", emo.stress_level);
+                    if emo.active_emotions.is_empty() {
+                        eprintln!("  (no active emotions)");
+                    } else {
+                        for e in &emo.active_emotions {
+                            eprintln!(
+                                "  {:?}  intensity={:.2}  fuel={:.1}",
+                                e.emotion_type, e.intensity, e.fuel
+                            );
+                        }
+                    }
+                } else {
+                    eprintln!("  (no EmotionalState component)");
+                }
+            }
+            other => {
+                eprintln!(
+                    "  unknown metric {:?} — try glucose / stamina / hydration / mood",
+                    other
+                );
             }
         }
         print_section_footer();
