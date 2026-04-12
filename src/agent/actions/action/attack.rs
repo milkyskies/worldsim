@@ -1,5 +1,8 @@
 use crate::agent::actions::ActionType;
 use crate::agent::actions::channel::{Channel, ChannelUsage, Posture};
+use crate::agent::actions::motor::{
+    ActionPrimitive, Behavior, IntensityPolicy, Intent, TargetSelector,
+};
 use crate::agent::actions::registry::{
     Action, ActionContext, ActionKind, CompletionContext, TargetCandidate, TargetSource,
 };
@@ -9,6 +12,15 @@ use crate::constants::actions::attack::{BASE_COST, DURATION_TICKS};
 pub struct AttackAction;
 
 impl Action for AttackAction {
+    fn default_behavior(&self) -> Behavior {
+        Behavior::new(
+            ActionPrimitive::Manipulate,
+            TargetSelector::InPlace,
+            IntensityPolicy::Fixed(0.0),
+            Intent::Safety,
+        )
+    }
+
     fn name(&self) -> &'static str {
         "Attack"
     }

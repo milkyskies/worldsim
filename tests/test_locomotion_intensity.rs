@@ -13,12 +13,17 @@ use worldsim::agent::body::needs::{PhysicalNeeds, Stamina};
 use worldsim::agent::movement::{effective_intensity, intensity_speed_multiplier};
 use worldsim::testing::{AgentConfig, TestWorld};
 
+fn behavior_for(action_type: ActionType) -> worldsim::agent::actions::motor::Behavior {
+    let registry = worldsim::agent::actions::ActionRegistry::new();
+    registry.get(action_type).unwrap().default_behavior()
+}
+
 /// Walk's default intensity maps to a 1.2x speed multiplier, Flee's default
 /// maps to 2.0x — the calibration the issue spells out.
 #[test]
 fn default_intensities_match_issue_calibration() {
-    let walk_default = ActionType::Walk.default_intensity_policy().resolve();
-    let flee_default = ActionType::Flee.default_intensity_policy().resolve();
+    let walk_default = behavior_for(ActionType::Walk).intensity.resolve();
+    let flee_default = behavior_for(ActionType::Flee).intensity.resolve();
     assert_eq!(walk_default, 0.5, "Walk default is 0.5");
     assert_eq!(flee_default, 1.0, "Flee default is 1.0");
 
@@ -38,13 +43,9 @@ fn default_intensities_match_issue_calibration() {
 /// agent walks faster to food than a curious one walking the same distance.
 #[test]
 fn urgency_boosts_same_action_intensity() {
-    // Urgency inputs are on [0, 1] (the arbitration 0-100 scale divided)
-    let calm_walk = ActionType::Walk
-        .default_intensity_policy()
-        .resolve_with_urgency(0.0);
-    let urgent_walk = ActionType::Walk
-        .default_intensity_policy()
-        .resolve_with_urgency(0.9);
+    let walk_behavior = behavior_for(ActionType::Walk);
+    let calm_walk = walk_behavior.intensity.resolve_with_urgency(0.0);
+    let urgent_walk = walk_behavior.intensity.resolve_with_urgency(0.9);
 
     assert!(
         urgent_walk > calm_walk,
@@ -55,12 +56,8 @@ fn urgency_boosts_same_action_intensity() {
     assert!((urgent_walk - 0.77).abs() < 1e-5);
 
     // Non-locomotion actions stay at 0 regardless of urgency.
-    assert_eq!(
-        ActionType::Eat
-            .default_intensity_policy()
-            .resolve_with_urgency(1.0),
-        0.0
-    );
+    let eat_behavior = behavior_for(ActionType::Eat);
+    assert_eq!(eat_behavior.intensity.resolve_with_urgency(1.0), 0.0);
 }
 
 /// Flee's hardcoded 1.5x speed multiplier is gone. A Flee action running at
@@ -68,15 +65,8 @@ fn urgency_boosts_same_action_intensity() {
 /// an extra 1.5x bolt-on.
 #[test]
 fn flee_speed_is_intensity_driven_not_hardcoded() {
-    // Sanity check: the only Flee-specific speed modifier should be its
-    // default intensity mapping to 2.0x. If someone reintroduces a
-    // hardcoded multiplier elsewhere, the test for "Flee at i=1 → 2.0x"
-    // would not catch it — but this invariant check pins the whole
-    // speed pipeline through intensity_speed_multiplier.
     let flee_default_mult =
-        intensity_speed_multiplier(ActionType::Flee.default_intensity_policy().resolve());
-    // 2.0 is the issue's calibration target. 1.5x (the old hardcoded
-    // value) should NOT appear anywhere as a Flee-specific constant.
+        intensity_speed_multiplier(behavior_for(ActionType::Flee).intensity.resolve());
     assert_eq!(flee_default_mult, 2.0);
 }
 

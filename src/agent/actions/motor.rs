@@ -27,7 +27,7 @@ use bevy::prelude::*;
 /// cost for that kind of work is declared. Wander and Flee both resolve to
 /// `Locomote` with the same profile; the cost difference comes from
 /// intensity, not from the behavior label.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect, Default)]
 pub enum ActionPrimitive {
     /// Translate body through space.
     /// Subsumes: Walk, Wander, Flee, Explore, Approach, Follow, Stalk, Chase.
@@ -39,6 +39,7 @@ pub enum ActionPrimitive {
     /// Subsumes: Eat, Drink, Graze.
     Ingest,
     /// Low-effort recovery. Subsumes: Sleep, Rest, Idle.
+    #[default]
     Rest,
     /// Cognitive channel only, no motor output.
     /// Subsumes: Observe, Watch, Scan, Vigilance.
@@ -317,7 +318,7 @@ impl Intent {
 ///
 /// Same motor primitive, same cost code path, same animation channel.
 /// The only differences are the three small policies.
-#[derive(Debug, Clone, Reflect)]
+#[derive(Debug, Clone, Default, Reflect)]
 pub struct Behavior {
     /// What the body is physically doing.
     pub primitive: ActionPrimitive,
@@ -341,106 +342,6 @@ impl Behavior {
             target,
             intensity,
             intent,
-        }
-    }
-}
-
-// ---------------------------------------------------------------------------
-// ActionType → Behavior mapping (migration bridge)
-// ---------------------------------------------------------------------------
-
-use super::ActionType;
-
-impl ActionType {
-    /// The default intensity policy for this action.
-    ///
-    /// Replaces the old `default_locomotion_intensity()` /
-    /// `pick_locomotion_intensity()` methods. The resolved scalar from this
-    /// policy is what the execution system uses for effort scaling.
-    pub fn default_intensity_policy(self) -> IntensityPolicy {
-        match self {
-            // Locomotion actions — intensity determines speed and stamina cost
-            ActionType::Wander | ActionType::Graze => IntensityPolicy::Ambient,
-            ActionType::Walk | ActionType::Explore | ActionType::InitiateConversation => {
-                IntensityPolicy::Normal
-            }
-            ActionType::Flee => IntensityPolicy::Maximal,
-
-            // Non-locomotion actions — intensity is not applicable (no movement).
-            // Fixed(0.0) so resolve_with_urgency returns 0.0 for these.
-            ActionType::Eat
-            | ActionType::Drink
-            | ActionType::Harvest
-            | ActionType::Build
-            | ActionType::Construct
-            | ActionType::Deposit
-            | ActionType::Take
-            | ActionType::Attack
-            | ActionType::Bite
-            | ActionType::Pickup
-            | ActionType::Drop
-            | ActionType::Wave
-            | ActionType::Converse => IntensityPolicy::Fixed(0.0),
-
-            // Recovery/passive
-            ActionType::Rest => IntensityPolicy::Fixed(0.4),
-            ActionType::Idle => IntensityPolicy::Fixed(0.0),
-            ActionType::Groom | ActionType::Observe => IntensityPolicy::Ambient,
-            ActionType::Sleep => IntensityPolicy::Fixed(1.0),
-            ActionType::WakeUp => IntensityPolicy::Fixed(0.3),
-        }
-    }
-
-    /// The default motivational intent for this action.
-    pub fn default_intent(self) -> Intent {
-        match self {
-            ActionType::Eat | ActionType::Graze | ActionType::Harvest => Intent::Hunger,
-            ActionType::Drink => Intent::Thirst,
-            ActionType::Sleep | ActionType::WakeUp | ActionType::Rest => Intent::Fatigue,
-            ActionType::Flee => Intent::Safety,
-            ActionType::Explore | ActionType::Wander | ActionType::Observe => Intent::Curiosity,
-            ActionType::InitiateConversation | ActionType::Converse | ActionType::Wave => {
-                Intent::Social
-            }
-            _ => Intent::Goal,
-        }
-    }
-
-    /// The motor primitive this action resolves to.
-    pub fn motor_primitive(self) -> ActionPrimitive {
-        match self {
-            // Locomote
-            ActionType::Walk
-            | ActionType::Wander
-            | ActionType::Explore
-            | ActionType::Flee
-            | ActionType::InitiateConversation => ActionPrimitive::Locomote,
-
-            // Manipulate
-            ActionType::Harvest
-            | ActionType::Build
-            | ActionType::Construct
-            | ActionType::Deposit
-            | ActionType::Take
-            | ActionType::Attack
-            | ActionType::Bite
-            | ActionType::Pickup
-            | ActionType::Drop
-            | ActionType::Groom => ActionPrimitive::Manipulate,
-
-            // Ingest
-            ActionType::Eat | ActionType::Drink | ActionType::Graze => ActionPrimitive::Ingest,
-
-            // Rest
-            ActionType::Sleep | ActionType::WakeUp | ActionType::Rest | ActionType::Idle => {
-                ActionPrimitive::Rest
-            }
-
-            // Observe
-            ActionType::Observe | ActionType::Wave => ActionPrimitive::Observe,
-
-            // Vocalize
-            ActionType::Converse => ActionPrimitive::Vocalize,
         }
     }
 }
@@ -483,44 +384,59 @@ mod tests {
 
     #[test]
     fn wander_and_flee_share_locomote_primitive() {
-        assert_eq!(
-            ActionType::Wander.motor_primitive(),
-            ActionPrimitive::Locomote
-        );
-        assert_eq!(
-            ActionType::Flee.motor_primitive(),
-            ActionPrimitive::Locomote
-        );
+        let registry = crate::agent::actions::ActionRegistry::new();
+        let wander = registry
+            .get(crate::agent::actions::ActionType::Wander)
+            .unwrap()
+            .default_behavior();
+        let flee = registry
+            .get(crate::agent::actions::ActionType::Flee)
+            .unwrap()
+            .default_behavior();
+        assert_eq!(wander.primitive, ActionPrimitive::Locomote);
+        assert_eq!(flee.primitive, ActionPrimitive::Locomote);
     }
 
     #[test]
     fn wander_and_flee_differ_only_in_policy() {
-        let wander = Behavior::new(
-            ActionPrimitive::Locomote,
-            TargetSelector::RandomNearby,
-            IntensityPolicy::Ambient,
-            Intent::Curiosity,
-        );
-        let flee = Behavior::new(
-            ActionPrimitive::Locomote,
-            TargetSelector::ThreatAvoidant,
-            IntensityPolicy::Maximal,
-            Intent::Safety,
-        );
+        let registry = crate::agent::actions::ActionRegistry::new();
+        let wander = registry
+            .get(crate::agent::actions::ActionType::Wander)
+            .unwrap()
+            .default_behavior();
+        let flee = registry
+            .get(crate::agent::actions::ActionType::Flee)
+            .unwrap()
+            .default_behavior();
         assert_eq!(wander.primitive, flee.primitive);
+        assert!(
+            !matches!(wander.intensity, IntensityPolicy::Maximal),
+            "wander should not be maximal"
+        );
+        assert!(
+            matches!(flee.intensity, IntensityPolicy::Maximal),
+            "flee should be maximal"
+        );
     }
 
     #[test]
     fn harvest_behavior_uses_manipulate_primitive() {
-        assert_eq!(
-            ActionType::Harvest.motor_primitive(),
-            ActionPrimitive::Manipulate
-        );
+        let registry = crate::agent::actions::ActionRegistry::new();
+        let harvest = registry
+            .get(crate::agent::actions::ActionType::Harvest)
+            .unwrap()
+            .default_behavior();
+        assert_eq!(harvest.primitive, ActionPrimitive::Manipulate);
     }
 
     #[test]
     fn sleep_behavior_uses_rest_primitive() {
-        assert_eq!(ActionType::Sleep.motor_primitive(), ActionPrimitive::Rest);
+        let registry = crate::agent::actions::ActionRegistry::new();
+        let sleep = registry
+            .get(crate::agent::actions::ActionType::Sleep)
+            .unwrap()
+            .default_behavior();
+        assert_eq!(sleep.primitive, ActionPrimitive::Rest);
     }
 
     #[test]

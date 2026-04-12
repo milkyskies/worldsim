@@ -112,7 +112,8 @@ fn sim_event_tick(event: &SimEvent) -> u64 {
         | SimEvent::CombatHit { tick, .. }
         | SimEvent::CombatMissed { tick, .. }
         | SimEvent::PartSevered { tick, .. }
-        | SimEvent::PhenotypeDeveloped { tick, .. } => *tick,
+        | SimEvent::PhenotypeDeveloped { tick, .. }
+        | SimEvent::SocialAcknowledgment { tick, .. } => *tick,
     }
 }
 
@@ -171,6 +172,7 @@ fn sim_event_involves(event: &SimEvent, agent: Entity) -> bool {
             attacker, defender, ..
         } => *attacker == agent || *defender == agent,
         SimEvent::PartSevered { entity, .. } => *entity == agent,
+        SimEvent::SocialAcknowledgment { actor, target, .. } => *actor == agent || *target == agent,
     }
 }
 
@@ -452,6 +454,13 @@ fn format_sim_event(event: &SimEvent) -> String {
                 phenotype.speed, phenotype.vision, phenotype.bmr, phenotype.aerobic_capacity,
             )
         }
+        SimEvent::SocialAcknowledgment {
+            actor,
+            target,
+            tick,
+        } => {
+            format!("[t{tick}] SocialAcknowledgment {actor:?} greeted {target:?}")
+        }
     }
 }
 
@@ -535,7 +544,7 @@ fn dump_contributions_headless(
                     {
                         effective_intensity(state.locomotion_intensity, &stamina)
                     } else {
-                        state.action_type.default_intensity_policy().resolve()
+                        action.default_behavior().intensity.resolve()
                     };
                     let profile = primitive.effort_profile().scaled(intensity);
                     let cost = compute_action_cost(&profile, body_mass);
@@ -581,7 +590,7 @@ fn dump_contributions_headless(
                     {
                         effective_intensity(state.locomotion_intensity, &stamina)
                     } else {
-                        state.action_type.default_intensity_policy().resolve()
+                        action.default_behavior().intensity.resolve()
                     };
                     let profile = primitive.effort_profile().scaled(intensity);
                     let cost = compute_action_cost(&profile, body_mass);

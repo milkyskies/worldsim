@@ -255,18 +255,25 @@ mod tests {
         urgency: f32,
         intent: Intent,
     ) -> BrainProposal {
+        let registry = ActionRegistry::new();
+        let behavior = registry
+            .get(action_type)
+            .expect("all actions must be registered")
+            .default_behavior();
+        let locomotion_intensity = behavior.intensity.resolve();
         BrainProposal {
             brain,
             action: ActionTemplate {
                 name: format!("{action_type:?}"),
                 action_type,
+                behavior,
                 target_entity: None,
                 target_position: None,
                 preconditions: vec![],
                 effects: vec![],
                 consumes: vec![],
                 base_cost: 1.0,
-                locomotion_intensity: action_type.default_intensity_policy().resolve(),
+                locomotion_intensity,
             },
             urgency,
             intent,
@@ -592,6 +599,39 @@ mod tests {
             admitted[0].action.action_type,
             ActionType::Flee,
             "Survival Flee at critical urgency should be the top-ranked winner"
+        );
+    }
+
+    #[test]
+    fn arbitration_compares_behaviors_by_primitive() {
+        use crate::agent::actions::motor::ActionPrimitive;
+        let powers = unit_powers();
+        let registry = ActionRegistry::new();
+        let capacities = ChannelCapacities::full();
+
+        let walk = make_proposal(
+            BrainType::Rational,
+            ActionType::Walk,
+            60.0,
+            Intent::SatisfyHunger,
+        );
+        let eat = make_proposal(
+            BrainType::Survival,
+            ActionType::Eat,
+            40.0,
+            Intent::SatisfyHunger,
+        );
+
+        // Same intent — only the higher-scoring proposal survives dedup.
+        // The admitted action's behavior should carry the correct primitive.
+        let proposals = [Some(walk), Some(eat), None];
+        let admitted = arbitrate_parallel(&proposals, &powers, &capacities, &registry).admitted;
+
+        assert!(!admitted.is_empty());
+        assert_eq!(
+            admitted[0].action.behavior.primitive,
+            ActionPrimitive::Locomote,
+            "Walk (Locomote) should win over Eat (Ingest) at higher urgency"
         );
     }
 }
