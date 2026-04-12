@@ -52,8 +52,10 @@ pub fn emotional_brain_propose(
         best = Some(proposal);
     }
 
-    // Social seeking — conversation path (humans). Identical to the
-    // pre-#260 code so the if-let chain is unchanged.
+    // Social seeking — conversation path (humans). Still gated on
+    // in_conversation because you shouldn't initiate a second
+    // conversation while already in one (channel costs alone can't
+    // prevent this since InitiateConversation has zero Focus cost).
     if in_conversation.is_none()
         && let Some(d) = drives
         && let Some(proposal) = seek_social_initiation(
@@ -68,9 +70,8 @@ pub fn emotional_brain_propose(
         best = Some(proposal);
     }
 
-    // Flock seeking — walk-toward-kin path (deer, wolves). Only fires for
-    // non-Person species; the drive gate and urgency gate are inside the
-    // function so this branch is effectively dormant for humans.
+    // Flock seeking — walk-toward-kin path (deer, wolves). Same gate
+    // as social initiation: don't start walking toward kin mid-conversation.
     if in_conversation.is_none()
         && let Some(d) = drives
         && let Some(self_concept) = self_concept
@@ -88,31 +89,22 @@ pub fn emotional_brain_propose(
         best = Some(proposal);
     }
 
-    // Ambient drives (#386). When Emotional would otherwise leave the
-    // proposal empty, check the agent's CNS urgencies for drives that
-    // don't have their own brain: Curiosity (wired to drives.curiosity,
-    // drained by Observe/Explore/Wander/Converse) and Territoriality
-    // (patrol). These are suppressed mid-conversation because their
-    // actions would ride Locomotion or Cognition and break the social
-    // turn (#330).
-    if in_conversation.is_none() {
-        if let Some(proposal) = propose_curiosity(cns, visible, mind, action_registry, best_urgency)
-        {
-            best_urgency = proposal.urgency;
-            best = Some(proposal);
-        }
-        if let Some(proposal) = propose_patrol(cns, action_registry, best_urgency) {
-            best = Some(proposal);
-        }
+    // Ambient drives: curiosity and territoriality. No longer gated on
+    // in_conversation — channel conflicts handle it. Explore (Focus 0.15)
+    // can coexist with Converse (Focus 0.6); Observe (Focus 0.3 +
+    // Awareness 0.6) soft-conflicts with deep conversation.
+    if let Some(proposal) = propose_curiosity(cns, visible, mind, action_registry, best_urgency) {
+        best_urgency = proposal.urgency;
+        best = Some(proposal);
+    }
+    if let Some(proposal) = propose_patrol(cns, action_registry, best_urgency) {
+        best = Some(proposal);
     }
 
-    // Baseline idle behaviour (#386). When nothing else is pressing,
-    // Emotional proposes Groom at very low urgency — self-care as the
-    // natural default instead of "stand frozen doing nothing". Any
-    // real drive outbids this; it's purely the "alive but at rest"
-    // hum. Suppressed in conversation so agents don't idly preen
-    // mid-dialogue (which would fight for the Manipulation channel).
-    if best.is_none() && in_conversation.is_none() {
+    // Baseline idle behaviour. No longer gated on in_conversation —
+    // Groom uses Manipulation which doesn't conflict with Converse
+    // (Vocalization + Focus + Awareness).
+    if best.is_none() {
         best = propose_groom_baseline(action_registry);
     }
 

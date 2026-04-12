@@ -621,7 +621,6 @@ pub fn rational_brain_propose(
     cns: &crate::agent::nervous_system::cns::CentralNervousSystem,
     mind: &MindGraph,
     action_registry: &crate::agent::actions::ActionRegistry,
-    in_conversation: bool,
 ) -> Vec<BrainProposal> {
     let cns_intent = cns
         .urgencies
@@ -677,7 +676,6 @@ pub fn rational_brain_propose(
     // baseline).
     if let Some(goal) = &cns.current_goal
         && matches!(cns_intent, Intent::SatisfyHunger | Intent::SatisfyThirst)
-        && !in_conversation
     {
         let explore_action = action_registry
             .get(ActionType::Explore)

@@ -127,15 +127,11 @@ pub fn arbitrate_every_tick(
 
         // Rational brain now surfaces one proposal per Executing plan in
         // `PlanMemory`, so the output is variable-length and joins the
-        // proposals list alongside survival/emotional entries. Pass the
-        // `in_conversation` flag so the idle Wander fallback is
-        // suppressed mid-conversation (1-tick flicker fix from #330).
         let rational_proposals = rational_brain_propose(
             &plan_memory,
             cns,
             mind,
             &action_registry,
-            in_conversation.is_some(),
         );
 
         // 2. Calculate brain powers, then apply history-based multiplier
