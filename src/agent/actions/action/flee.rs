@@ -2,7 +2,7 @@
 
 use crate::agent::actions::ActionType;
 use crate::agent::actions::channel::{Channel, ChannelUsage, Posture};
-use crate::agent::actions::registry::{Action, ActionKind, RuntimeEffects};
+use crate::agent::actions::registry::{Action, ActionKind};
 
 pub struct FleeAction;
 
@@ -33,12 +33,6 @@ impl Action for FleeAction {
 
     fn posture(&self) -> Option<Posture> {
         Some(Posture::Moving)
-    }
-
-    fn runtime_effects(&self) -> RuntimeEffects {
-        RuntimeEffects {
-            ..Default::default()
-        }
     }
 
     fn start_log(&self) -> Option<&'static str> {

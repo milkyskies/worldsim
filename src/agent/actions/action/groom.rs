@@ -12,7 +12,7 @@
 
 use crate::agent::actions::ActionType;
 use crate::agent::actions::channel::{Channel, ChannelUsage, Posture};
-use crate::agent::actions::registry::{Action, ActionKind, RuntimeEffects};
+use crate::agent::actions::registry::{Action, ActionKind};
 
 pub struct GroomAction;
 
@@ -44,12 +44,6 @@ impl Action for GroomAction {
         // while hopping, humans fidget with a sleeve mid-stride. The
         // action is about self-care, not about being planted.
         None
-    }
-
-    fn runtime_effects(&self) -> RuntimeEffects {
-        RuntimeEffects {
-            ..Default::default()
-        }
     }
 
     fn start_log(&self) -> Option<&'static str> {

@@ -7,7 +7,7 @@
 
 use crate::agent::actions::ActionType;
 use crate::agent::actions::channel::{Channel, ChannelUsage, Posture};
-use crate::agent::actions::registry::{Action, ActionKind, RuntimeEffects, TargetSource};
+use crate::agent::actions::registry::{Action, ActionKind, TargetSource};
 
 /// Canonical display name for the Walk action. Shared with the planner's
 /// implicit-walk template builder so the runtime sees the same name whether
@@ -40,12 +40,6 @@ impl Action for WalkAction {
 
     fn target_source(&self) -> TargetSource {
         TargetSource::Implicit
-    }
-
-    fn runtime_effects(&self) -> RuntimeEffects {
-        RuntimeEffects {
-            ..Default::default()
-        }
     }
 
     fn start_log(&self) -> Option<&'static str> {

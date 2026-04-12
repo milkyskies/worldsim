@@ -13,7 +13,7 @@
 
 use crate::agent::actions::ActionType;
 use crate::agent::actions::channel::{Channel, ChannelUsage, Posture};
-use crate::agent::actions::registry::{Action, ActionKind, RuntimeEffects};
+use crate::agent::actions::registry::{Action, ActionKind};
 
 pub struct ObserveAction;
 
@@ -49,12 +49,6 @@ impl Action for ObserveAction {
     fn posture(&self) -> Option<Posture> {
         // Watching works from a standstill or mid-walk — both are real.
         None
-    }
-
-    fn runtime_effects(&self) -> RuntimeEffects {
-        RuntimeEffects {
-            ..Default::default()
-        }
     }
 
     fn start_log(&self) -> Option<&'static str> {

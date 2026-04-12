@@ -17,7 +17,7 @@
 
 use crate::agent::actions::ActionType;
 use crate::agent::actions::channel::{Channel, ChannelUsage, Posture};
-use crate::agent::actions::registry::{Action, ActionKind, RuntimeEffects};
+use crate::agent::actions::registry::{Action, ActionKind};
 
 pub struct ConverseAction;
 
@@ -51,15 +51,6 @@ impl Action for ConverseAction {
     fn interruptible(&self) -> bool {
         // Sleep / Flee / Fight should be able to preempt a conversation.
         true
-    }
-
-    fn runtime_effects(&self) -> RuntimeEffects {
-        RuntimeEffects {
-            // Gentle background drain — most social satisfaction now
-            // comes from per-turn SOCIAL_DRIVE_PER_TURN in
-            // select_turn_intent.
-            ..Default::default()
-        }
     }
 
     fn start_log(&self) -> Option<&'static str> {

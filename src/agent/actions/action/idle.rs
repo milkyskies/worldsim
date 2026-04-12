@@ -2,7 +2,7 @@
 
 use crate::agent::actions::ActionType;
 use crate::agent::actions::channel::{ChannelSlices, ChannelUsage, Posture};
-use crate::agent::actions::registry::{Action, ActionKind, RuntimeEffects};
+use crate::agent::actions::registry::{Action, ActionKind};
 
 pub struct IdleAction;
 
@@ -32,11 +32,5 @@ impl Action for IdleAction {
         // Mutexes against Walk/Wander/Flee at the posture gate so the
         // "idle while patrolling" bug class is impossible by construction.
         Some(Posture::Stationary)
-    }
-
-    fn runtime_effects(&self) -> RuntimeEffects {
-        RuntimeEffects {
-            ..Default::default()
-        }
     }
 }
