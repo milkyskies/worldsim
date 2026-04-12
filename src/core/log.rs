@@ -168,24 +168,23 @@ impl GameLog {
         let timestamp = now.format("%H:%M:%S").to_string();
 
         // Check for deduplication
-        if let Some(last_entry) = self.entries.back_mut() {
-            if last_entry.category == category
-                && last_entry.message == message
-                && last_entry.entity == entity
-            {
-                last_entry.count += 1;
-                if !self.quiet {
-                    print!("\x1B[1A\x1B[2K");
-                    println!(
-                        "[{}] {} {} (x{})",
-                        timestamp,
-                        category.prefix(),
-                        message,
-                        last_entry.count
-                    );
-                }
-                return;
+        if let Some(last_entry) = self.entries.back_mut()
+            && last_entry.category == category
+            && last_entry.message == message
+            && last_entry.entity == entity
+        {
+            last_entry.count += 1;
+            if !self.quiet {
+                print!("\x1B[1A\x1B[2K");
+                println!(
+                    "[{}] {} {} (x{})",
+                    timestamp,
+                    category.prefix(),
+                    message,
+                    last_entry.count
+                );
             }
+            return;
         }
 
         if !self.quiet {
