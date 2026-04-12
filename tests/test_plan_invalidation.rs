@@ -25,6 +25,7 @@ fn failing_harvest_template() -> ActionTemplate {
     ActionTemplate {
         name: "Harvest".into(),
         action_type: ActionType::Harvest,
+        behavior: Default::default(),
         target_entity: Some(absent_entity),
         target_position: None,
         preconditions: vec![precondition],

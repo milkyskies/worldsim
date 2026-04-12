@@ -210,10 +210,8 @@ pub fn arbitrate_every_tick(
                     // input so we divide before clamping.
                     let mut action = p.action.clone();
                     let urgency_unit = (p.urgency / 100.0).clamp(0.0, 1.0);
-                    action.locomotion_intensity = action
-                        .action_type
-                        .default_intensity_policy()
-                        .resolve_with_urgency(urgency_unit);
+                    action.locomotion_intensity =
+                        action.behavior.intensity.resolve_with_urgency(urgency_unit);
                     action
                 })
                 .collect();

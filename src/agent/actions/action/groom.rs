@@ -12,6 +12,9 @@
 
 use crate::agent::actions::ActionType;
 use crate::agent::actions::channel::{Channel, ChannelUsage, Posture};
+use crate::agent::actions::motor::{
+    ActionPrimitive, Behavior, IntensityPolicy, Intent, TargetSelector,
+};
 use crate::agent::actions::registry::{Action, ActionKind};
 
 pub struct GroomAction;
@@ -23,6 +26,15 @@ impl Action for GroomAction {
 
     fn name(&self) -> &'static str {
         "Groom"
+    }
+
+    fn default_behavior(&self) -> Behavior {
+        Behavior::new(
+            ActionPrimitive::Manipulate,
+            TargetSelector::InPlace,
+            IntensityPolicy::Ambient,
+            Intent::Goal,
+        )
     }
 
     fn kind(&self) -> ActionKind {

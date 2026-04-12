@@ -425,7 +425,7 @@ pub fn tick_actions(
                                 let desired = if action_state.locomotion_intensity > 0.0 {
                                     action_state.locomotion_intensity
                                 } else {
-                                    action_type.default_intensity_policy().resolve()
+                                    action_def.default_behavior().intensity.resolve()
                                 };
                                 let effective = effective_intensity(desired, &physical.stamina);
                                 let intensity_mult = intensity_speed_multiplier(effective);
@@ -776,7 +776,8 @@ pub fn apply_action_effects(
             let is_movement = matches!(action_def.kind(), ActionKind::Movement);
 
             // --- Effort model: primitive-based profile scaled by intensity ---
-            let primitive = action_def.motor_primitive();
+            let behavior = action_def.default_behavior();
+            let primitive = behavior.primitive;
             let base_profile = primitive.effort_profile();
 
             // Resolve intensity from either the brain's locomotion override
@@ -784,10 +785,7 @@ pub fn apply_action_effects(
             let intensity = if is_movement && action_state.locomotion_intensity > 0.0 {
                 cap_intensity(action_state.locomotion_intensity, &stamina_snapshot)
             } else {
-                action_state
-                    .action_type
-                    .default_intensity_policy()
-                    .resolve()
+                behavior.intensity.resolve()
             };
             let profile = if intensity > 0.0 {
                 base_profile.scaled(intensity)
@@ -840,7 +838,7 @@ pub fn apply_action_effects(
             }
 
             // --- Psychological effects derived from primitive + intent ---
-            let intent = action_state.action_type.default_intent();
+            let intent = behavior.intent;
             let base_psych = primitive.psych_effect();
             let mut psych = intent.modify_psych(&base_psych, primitive);
 
