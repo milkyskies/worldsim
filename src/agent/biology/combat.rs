@@ -676,19 +676,19 @@ mod tests {
         let mut rng = ChaCha8Rng::seed_from_u64(42);
         let body = Body::human();
         let mut torso_count = 0;
-        let mut mouth_count = 0;
+        let mut arm_count = 0;
         let iterations = 2000;
         for _ in 0..iterations {
             match pick_hit_location(&mut rng, &body).unwrap() {
                 BodyNodeKind::Torso => torso_count += 1,
-                BodyNodeKind::Mouth => mouth_count += 1,
+                BodyNodeKind::LeftArm => arm_count += 1,
                 _ => {}
             }
         }
-        // Torso (max_hp 100) should be hit a lot more than mouth (max_hp 30).
+        // Torso (max_hp 100) should be hit more than LeftArm (max_hp 60).
         assert!(
-            torso_count > mouth_count * 2,
-            "torso {torso_count} should be hit >> mouth {mouth_count}"
+            torso_count > arm_count,
+            "torso {torso_count} should be hit > arm {arm_count}"
         );
     }
 

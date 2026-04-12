@@ -150,12 +150,10 @@ fn wolf_quadruped_has_higher_locomotion_than_human() {
 }
 
 #[test]
-fn wolf_broken_jaws_loses_manipulation_consumption_vocalization_and_bite() {
+fn wolf_broken_jaw_loses_manipulation_consumption_vocalization_and_bite() {
     let mut body = Body::wolf();
-    let jaws = body
-        .part_mut(BodyNodeKind::Jaws)
-        .expect("wolf body has jaws");
-    jaws.add_injury(Injury {
+    let jaw = body.node_mut(BodyNodeKind::Jaw).expect("wolf body has jaw");
+    jaw.add_injury(Injury {
         injury_type: InjuryType::Fracture,
         severity: 1.0,
         pain: 5.0,
@@ -189,22 +187,18 @@ fn wolf_broken_jaws_loses_manipulation_consumption_vocalization_and_bite() {
 }
 
 #[test]
-fn human_one_broken_arm_halves_manipulation() {
+fn human_one_broken_hand_halves_manipulation() {
     let mut body = Body::human();
-    let right = body
-        .part_mut(BodyNodeKind::RightArm)
-        .expect("human has right arm");
-    right.add_injury(Injury {
+    let hand = body
+        .node_mut(BodyNodeKind::RightHand)
+        .expect("human has right hand");
+    hand.add_injury(Injury {
         injury_type: InjuryType::Fracture,
         severity: 1.0,
         pain: 5.0,
         healed_amount: 0.0,
         bleed_rate: 0.0,
     });
-    // Additive capability means one broken arm drops Manipulation from
-    // 1.0 to 0.5 — not enough for Harvest's 0.9 threshold. The agent
-    // loses the "reliably pluck a berry" capability but can still grab
-    // things at a lower precision.
     let manip = body.channel_capacity(Channel::Manipulation);
     assert!(
         (manip - 0.5).abs() < 1e-4,

@@ -393,7 +393,7 @@ mod tests {
         ChannelCapacities::compute(Some(body), physical, None)
     }
 
-    /// Push two severe head injuries to cross the 0.2 incapacitation threshold.
+    /// Smash the head hard enough to incapacitate and damage the brain inside.
     fn incapacitate(body: &mut Body) {
         let head = body
             .part_mut(BodyNodeKind::Head)
@@ -404,6 +404,20 @@ mod tests {
             .expect("human body has head");
         injure(head, 1.0);
         assert!(body.is_incapacitated());
+        // Severe head trauma damages everything inside.
+        for kind in [
+            BodyNodeKind::Brain,
+            BodyNodeKind::LeftEye,
+            BodyNodeKind::RightEye,
+            BodyNodeKind::LeftEar,
+            BodyNodeKind::RightEar,
+            BodyNodeKind::Jaw,
+        ] {
+            let node = body.node_mut(kind).unwrap();
+            injure(node, 1.0);
+            let node = body.node_mut(kind).unwrap();
+            injure(node, 1.0);
+        }
     }
 
     #[test]
@@ -529,12 +543,12 @@ mod tests {
     }
 
     #[test]
-    fn healthy_human_has_no_bite_capability() {
+    fn healthy_human_has_weak_bite() {
         let body = Body::human();
-        assert_eq!(
-            Channel::Bite.max_capacity(Some(&body), None, None),
-            0.0,
-            "humans should not provide Bite — no anatomy declares it"
+        let bite = Channel::Bite.max_capacity(Some(&body), None, None);
+        assert!(
+            (bite - 0.1).abs() < 1e-6,
+            "humans have weak Bite 0.1 from jaw, got {bite}"
         );
     }
 
@@ -561,42 +575,37 @@ mod tests {
     }
 
     #[test]
-    fn broken_leg_reduces_locomotion_capacity() {
+    fn broken_foot_reduces_locomotion_capacity() {
         let mut body = Body::human();
-        let leg = body
-            .part_mut(BodyNodeKind::LeftLeg)
-            .expect("human body has left leg");
-        injure(leg, 1.0);
-        // channel_capacity takes the best part, so the healthy right leg
-        // still returns 0.5 (its provided intensity).
+        let foot = body
+            .node_mut(BodyNodeKind::LeftFoot)
+            .expect("human body has left foot");
+        injure(foot, 1.0);
         let cap = Channel::Locomotion.max_capacity(Some(&body), None, None);
         assert!((cap - 0.5).abs() < 1e-4, "expected 0.5, got {cap}");
     }
 
     #[test]
-    fn broken_arm_reduces_manipulation_capacity() {
+    fn broken_hand_reduces_manipulation_capacity() {
         let mut body = Body::human();
-        let arm = body
-            .part_mut(BodyNodeKind::RightArm)
-            .expect("human body has right arm");
-        injure(arm, 1.0);
-        // With additive capability, losing one arm halves Manipulation to
-        // 0.5 — enough to eat or wave but below Harvest's 0.9 threshold, so
-        // a one-armed human can't reliably pluck a berry.
-        let one_arm = Channel::Manipulation.max_capacity(Some(&body), None, None);
+        let hand = body
+            .node_mut(BodyNodeKind::RightHand)
+            .expect("human body has right hand");
+        injure(hand, 1.0);
+        let one_hand = Channel::Manipulation.max_capacity(Some(&body), None, None);
         assert!(
-            (one_arm - 0.5).abs() < 1e-4,
-            "expected 0.5 after one broken arm, got {one_arm}"
+            (one_hand - 0.5).abs() < 1e-4,
+            "expected 0.5 after one broken hand, got {one_hand}"
         );
 
-        let arm = body
-            .part_mut(BodyNodeKind::LeftArm)
-            .expect("human body has left arm");
-        injure(arm, 1.0);
+        let hand = body
+            .node_mut(BodyNodeKind::LeftHand)
+            .expect("human body has left hand");
+        injure(hand, 1.0);
         let cap_both = Channel::Manipulation.max_capacity(Some(&body), None, None);
         assert!(
             cap_both < 1e-4,
-            "both arms broken should zero Manipulation, got {cap_both}"
+            "both hands broken should zero Manipulation, got {cap_both}"
         );
     }
 
@@ -792,8 +801,8 @@ mod tests {
     fn channel_capacities_compute_matches_per_channel_max_capacity() {
         use crate::agent::body::needs::Stamina;
         let mut body = Body::human();
-        let leg = body.part_mut(BodyNodeKind::LeftLeg).unwrap();
-        injure(leg, 0.5);
+        let foot = body.node_mut(BodyNodeKind::LeftFoot).unwrap();
+        injure(foot, 0.5);
         let physical = PhysicalNeeds {
             stamina: Stamina {
                 aerobic: 10.0,
