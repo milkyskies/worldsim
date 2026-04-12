@@ -12,7 +12,10 @@ use crate::agent::item_slots::ItemSlots;
 use crate::agent::mind::knowledge::Ontology;
 use crate::agent::nervous_system::cns::CentralNervousSystem;
 use crate::agent::nervous_system::urgency::UrgencySource;
-use crate::constants::brains::survival::{FATIGUE_SLEEP_THRESHOLD, WAKE_STAMINA_THRESHOLD};
+use crate::constants::brains::survival::{
+    FATIGUE_SLEEP_THRESHOLD, SLEEPINESS_SLEEP_THRESHOLD, WAKE_STAMINA_THRESHOLD,
+    WAKE_WAKEFULNESS_THRESHOLD,
+};
 use bevy::prelude::*;
 
 pub struct SurvivalBrainContext<'a> {
@@ -41,19 +44,11 @@ pub fn survival_brain_propose(
     }
 
     // Find the top survival-relevant urgency (urgencies are sorted highest-first).
-    let survival_sources = [
-        UrgencySource::Hunger,
-        UrgencySource::Thirst,
-        UrgencySource::Stamina,
-        UrgencySource::Pain,
-        UrgencySource::Fear,
-    ];
-
     let top = context
         .cns
         .urgencies
         .iter()
-        .find(|u| survival_sources.contains(&u.source))?;
+        .find(|u| u.source.is_survival())?;
 
     let urgency_score = top.value * 100.0;
     let intent = Intent::from_urgency_source(top.source);
@@ -139,6 +134,28 @@ pub fn survival_brain_propose(
                 });
             }
         }
+        UrgencySource::Sleepiness => {
+            let action_type = if top.value >= SLEEPINESS_SLEEP_THRESHOLD {
+                ActionType::Sleep
+            } else {
+                ActionType::Rest
+            };
+            if let Some(action) = action_registry.get(action_type) {
+                let reasoning = match action_type {
+                    ActionType::Sleep => {
+                        format!("Sleepiness urgency {:.2} — sleeping!", top.value)
+                    }
+                    _ => format!("Sleepiness urgency {:.2} — resting.", top.value),
+                };
+                return Some(BrainProposal {
+                    brain: BrainType::Survival,
+                    action: action.to_template(None),
+                    urgency: urgency_score,
+                    intent: Intent::SatisfySleepiness,
+                    reasoning,
+                });
+            }
+        }
         _ => {}
     }
 
@@ -154,9 +171,8 @@ fn check_sleep_wake(
         return None;
     }
 
-    // Aerobic is the sustained fatigue pool; anaerobic refills too quickly
-    // to drive sleep behaviour.
     let aerobic = context.physical.stamina.aerobic;
+    let wakefulness = context.physical.wakefulness;
 
     let wake_proposal = |urgency: f32, reasoning: String| BrainProposal {
         brain: BrainType::Survival,
@@ -165,15 +181,18 @@ fn check_sleep_wake(
             .map(|a| a.to_template(None))
             .expect("WakeUp action must be registered"),
         urgency,
-        intent: Intent::SatisfyStamina,
+        intent: Intent::SatisfySleepiness,
         reasoning,
     };
 
-    // Rested wake: natural homeostatic recovery.
-    if aerobic >= WAKE_STAMINA_THRESHOLD {
+    // Rested wake: both wakefulness and stamina are recovered enough.
+    // Wakefulness is the primary gate; stamina is a secondary check so an
+    // agent doesn't stay asleep with full wakefulness but low stamina
+    // (the stamina urgency will propose Rest once awake).
+    if wakefulness >= WAKE_WAKEFULNESS_THRESHOLD && aerobic >= WAKE_STAMINA_THRESHOLD {
         return Some(wake_proposal(
             50.0,
-            format!("Rested! Aerobic {aerobic:.0} — waking up"),
+            format!("Rested! Wakefulness {wakefulness:.2}, aerobic {aerobic:.0} — waking up"),
         ));
     }
 
@@ -185,14 +204,15 @@ fn check_sleep_wake(
     }
 
     // Still tired, nothing urgent — stay asleep.
+    let sleep_urgency = (1.0 - wakefulness) * 100.0;
     action_registry
         .get(ActionType::Sleep)
         .map(|action| BrainProposal {
             brain: BrainType::Survival,
             action: action.to_template(None),
-            urgency: 100.0 - aerobic,
-            intent: Intent::SatisfyStamina,
-            reasoning: format!("Still tired... {aerobic:.0} aerobic"),
+            urgency: sleep_urgency,
+            intent: Intent::SatisfySleepiness,
+            reasoning: format!("Still tired... wakefulness {wakefulness:.2}, aerobic {aerobic:.0}"),
         })
 }
 

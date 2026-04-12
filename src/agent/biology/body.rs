@@ -97,8 +97,12 @@ impl Body {
     pub fn wolf() -> Self {
         Self {
             parts: vec![
-                BodyPart::vital(BodyPartKind::Head, 50.0, vec![(Channel::Focus, 0.6), (Channel::Awareness, 0.8)])
-                    .with_organs(head_organs()),
+                BodyPart::vital(
+                    BodyPartKind::Head,
+                    50.0,
+                    vec![(Channel::Focus, 0.6), (Channel::Awareness, 0.8)],
+                )
+                .with_organs(head_organs()),
                 BodyPart::vital(BodyPartKind::Torso, 100.0, vec![(Channel::FullBody, 1.0)])
                     .with_organs(torso_organs()),
                 BodyPart::new(

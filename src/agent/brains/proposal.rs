@@ -26,6 +26,8 @@ pub enum Intent {
     /// Pain relief: injury-driven behavior (e.g. can't move while hurt).
     SatisfyPainRelief,
     SatisfyTerritoriality,
+    /// Sleep pressure from wakefulness decay, independent of stamina fatigue.
+    SatisfySleepiness,
     /// Explore for its own sake, not to serve another drive.
     SatisfyCuriosity,
     /// Reserved for future reproduction drive.
@@ -47,6 +49,7 @@ impl Intent {
             UrgencySource::Pain => Intent::SatisfyPainRelief,
             UrgencySource::Territoriality => Intent::SatisfyTerritoriality,
             UrgencySource::Fun | UrgencySource::Curiosity => Intent::SatisfyCuriosity,
+            UrgencySource::Sleepiness => Intent::SatisfySleepiness,
         }
     }
 }

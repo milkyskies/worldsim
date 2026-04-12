@@ -73,6 +73,7 @@ pub(super) fn spawn_test_person(
                     ..Default::default()
                 },
                 health: 100.0,
+                wakefulness: config.wakefulness,
                 last_health_damage: None,
             },
             cultural_knowledge,

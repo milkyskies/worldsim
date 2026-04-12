@@ -104,7 +104,8 @@ pub fn formulate_goals(
                 UrgencySource::Fun
                 | UrgencySource::Curiosity
                 | UrgencySource::Fear
-                | UrgencySource::Territoriality => vec![],
+                | UrgencySource::Territoriality
+                | UrgencySource::Sleepiness => vec![],
             };
 
             Some(Goal {

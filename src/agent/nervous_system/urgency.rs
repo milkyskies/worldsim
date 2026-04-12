@@ -25,6 +25,31 @@ pub enum UrgencySource {
     /// constant-baseline drive with no backing state.
     Curiosity,
     Territoriality,
+    /// Homeostatic sleep pressure from wakefulness decay. Independent of
+    /// Stamina — a desk worker gets sleepy without physical exertion.
+    /// Reads `PhysicalNeeds::wakefulness` (high = rested, inverted to
+    /// urgency in the generation loop).
+    Sleepiness,
+}
+
+impl UrgencySource {
+    /// Whether this drive is handled by the survival brain. Every variant
+    /// must be listed explicitly so adding a new one causes a compile error
+    /// until someone classifies it.
+    pub fn is_survival(self) -> bool {
+        match self {
+            Self::Hunger => true,
+            Self::Thirst => true,
+            Self::Stamina => true,
+            Self::Pain => true,
+            Self::Fear => true,
+            Self::Sleepiness => true,
+            Self::Social => false,
+            Self::Fun => false,
+            Self::Curiosity => false,
+            Self::Territoriality => false,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Reflect)]
@@ -115,6 +140,10 @@ pub fn generate_urgency(
                 UrgencySource::Territoriality => drives.map(|d| 1.0 - d.dominion).unwrap_or(0.0),
                 UrgencySource::Fear => emotions
                     .get_emotion_intensity(crate::agent::psyche::emotions::EmotionType::Fear),
+                // Wakefulness is satisfaction (high = rested); the loop
+                // below handles the Sleepiness-specific inversion just
+                // like Stamina, so return the raw satisfaction value here.
+                UrgencySource::Sleepiness => physical.wakefulness,
             }
         };
 
@@ -133,10 +162,11 @@ pub fn generate_urgency(
             // Hunger: High Value = High Need.
             // Stamina: Low Value = High Need.
 
-            let normalized_input = if drive_config.source == UrgencySource::Stamina {
-                1.0 - base_input // 1.0 stamina = 0.0 fatigue
-            } else {
-                base_input
+            let normalized_input = match drive_config.source {
+                // Satisfaction-polarity fields: high value = low urgency.
+                UrgencySource::Stamina => 1.0 - base_input,
+                UrgencySource::Sleepiness => 1.0 - base_input,
+                _ => base_input,
             };
 
             // Sleep wake pathway: compare the pre-gated raw input against the
@@ -205,7 +235,7 @@ pub fn generate_urgency(
             .filter_map(|action| match action.action_type {
                 crate::agent::actions::ActionType::Eat => Some(UrgencySource::Hunger),
                 crate::agent::actions::ActionType::Drink => Some(UrgencySource::Thirst),
-                crate::agent::actions::ActionType::Sleep => Some(UrgencySource::Stamina),
+                crate::agent::actions::ActionType::Sleep => Some(UrgencySource::Sleepiness),
                 crate::agent::actions::ActionType::Wander => Some(UrgencySource::Curiosity),
                 crate::agent::actions::ActionType::Explore => Some(UrgencySource::Curiosity),
                 crate::agent::actions::ActionType::Observe => Some(UrgencySource::Curiosity),

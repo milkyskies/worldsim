@@ -1192,6 +1192,11 @@ impl TestWorld {
         self.get::<PhysicalNeeds>(agent).stamina.anaerobic
     }
 
+    /// Returns the agent's wakefulness (0.0 = must sleep, 1.0 = fully rested).
+    pub fn agent_wakefulness(&self, agent: Entity) -> f32 {
+        self.get::<PhysicalNeeds>(agent).wakefulness
+    }
+
     /// Returns true if the entity carries any of the given concept in its inventory.
     pub fn has_item(&self, entity: Entity, concept: Concept) -> bool {
         self.app
