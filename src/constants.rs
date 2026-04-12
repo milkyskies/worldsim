@@ -146,13 +146,36 @@ pub mod brains {
         /// Stamina safety margin used by the planner: if a walk would leave the agent below
         /// this level, Sleep is prepended so the survival brain doesn't interrupt the trip.
         pub const EXHAUSTION_TRIGGER: f32 = 15.0;
-        /// Fatigue urgency above this level commits the agent to Sleep
-        /// (drops alertness, indefinite duration). Below it, the agent
-        /// only needs Rest — sit-and-recover without losing
-        /// consciousness. Tuned so a fresh agent can handle a normal
-        /// day of activity with Rest breaks before needing a real
-        /// sleep cycle (#386).
-        pub const FATIGUE_SLEEP_THRESHOLD: f32 = 0.7;
+        /// Wakefulness level at which a sleeping agent wakes up naturally.
+        /// Set just below 1.0 so the agent wakes well-rested but doesn't
+        /// need to hit the absolute ceiling.
+        pub const WAKE_WAKEFULNESS_THRESHOLD: f32 = 0.9;
+        /// Sleepiness urgency above which the survival brain proposes full
+        /// Sleep (drops alertness, indefinite duration). Below it, sleepiness
+        /// only triggers Rest.
+        pub const SLEEPINESS_SLEEP_THRESHOLD: f32 = 0.7;
+    }
+
+    pub mod wakefulness {
+        /// Base adenosine-like decay rate per rate-second while awake.
+        /// Tuned so wakefulness goes from 1.0 to ~0.3 in ~16 game hours
+        /// of daytime wakefulness (960 rate-seconds).
+        pub const ADENOSINE_RATE: f32 = 0.000729;
+        /// Sleep restore rate per rate-second while Sleep action is active.
+        /// Tuned so a full sleep cycle (0.0 -> 1.0) takes ~6 game hours
+        /// (360 rate-seconds), roughly 1/4 of a day.
+        pub const SLEEP_RESTORE_RATE: f32 = 0.00278;
+        /// How much the circadian cycle amplifies wakefulness decay at night.
+        /// At full darkness (light = 0.3): effective multiplier = 1.0 + 1.0 * 0.7 = 1.7x.
+        /// At full daylight (light = 1.0): multiplier = 1.0 (no change).
+        pub const CIRCADIAN_NIGHT_BOOST: f32 = 1.0;
+        /// Light level ceiling for the circadian boost formula. The boost
+        /// is `(ceiling - current_light).max(0)`, so at full day (1.0) it's
+        /// zero and at full night (0.3) it's 0.7.
+        pub const CIRCADIAN_LIGHT_CEILING: f32 = 1.0;
+        /// How much each 0.1 wakefulness deficit passively drags alertness.
+        /// At wakefulness 0.5, alertness is capped at ~0.85. At 0.2, capped at ~0.6.
+        pub const ALERTNESS_DRAG_PER_DEFICIT: f32 = 0.3;
     }
 
     /// Emotional brain urgency scores and emotion intensity thresholds

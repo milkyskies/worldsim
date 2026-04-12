@@ -788,6 +788,12 @@ fn render_overview(ui: &mut egui::Ui, world: &World, entity: Entity) {
             " /sec",
         );
         urgency_line(ui, "Fatigue urgency", urgency_for(UrgencySource::Stamina));
+        vital_row_fraction_explained(ui, "Wakefulness", needs.wakefulness, 0.3, 0.7, None, "");
+        urgency_line(
+            ui,
+            "Sleepiness urgency",
+            urgency_for(UrgencySource::Sleepiness),
+        );
 
         if let Some(src) = needs.last_health_damage {
             ui.label(
@@ -1095,6 +1101,12 @@ fn render_needs(ui: &mut egui::Ui, world: &World, entity: Entity) {
         ui,
         "Fatigue urgency",
         urgency_for_f32(world, entity, UrgencySource::Stamina),
+    );
+    vital_row_fraction_explained(ui, "Wakefulness", needs.wakefulness, 0.3, 0.7, None, "");
+    urgency_line(
+        ui,
+        "Sleepiness urgency",
+        urgency_for_f32(world, entity, UrgencySource::Sleepiness),
     );
     vital_row_explained(
         ui,

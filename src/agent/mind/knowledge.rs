@@ -241,6 +241,7 @@ pub enum Predicate {
     Hunger,      // (Self, Hunger, Int)
     Thirst,      // (Self, Thirst, Int)
     Stamina,     // (Self, Stamina, Int)
+    Wakefulness, // (Self, Wakefulness, Int) - 0 = must sleep, 100 = rested
     Pain,        // (Self, Pain, Int)
     SocialDrive, // (Self, SocialDrive, Int) - 0 = satisfied, 100 = lonely
 

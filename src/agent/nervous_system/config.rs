@@ -351,6 +351,37 @@ impl Default for NervousSystemConfig {
                     bypasses_gating: false,
                     sleep_wake_threshold: None,
                 },
+                // SLEEPINESS — homeostatic sleep pressure from wakefulness
+                // decay. Independent of Stamina: an idle desk worker still
+                // gets sleepy. Uses a sigmoid so urgency ramps up sharply
+                // once wakefulness drops past the midpoint, matching the
+                // subjective "sleep wall" experience.
+                DriveConfig {
+                    name: "Sleepiness".to_string(),
+                    source: UrgencySource::Sleepiness,
+                    base_constant: 0.0,
+                    curve: ResponseCurve::Sigmoid {
+                        k: 10.0,
+                        midpoint: 0.5,
+                    },
+                    sensitivity: PersonalityMod {
+                        trait_type: PersonalityTrait::Neuroticism,
+                        base: 0.8,
+                        scale: 0.3,
+                    },
+                    modifiers: vec![
+                        // High safety urgency (fear/threat) suppresses
+                        // sleepiness — adrenaline keeps a scared agent awake.
+                        ContextModifier {
+                            input_source: UrgencySource::Fear,
+                            operation: ModifierOp::DampenByHigh,
+                            factor: 0.8,
+                        },
+                    ],
+                    min_threshold: 0.01,
+                    bypasses_gating: false,
+                    sleep_wake_threshold: None,
+                },
             ],
             momentum_bonus: 1.5,
             interoception: SensoryChannelConfig {
@@ -372,6 +403,7 @@ impl Default for NervousSystemConfig {
                     UrgencySource::Curiosity,
                     UrgencySource::Fun,
                     UrgencySource::Stamina,
+                    UrgencySource::Sleepiness,
                 ],
             },
             thinking_interval: 60,

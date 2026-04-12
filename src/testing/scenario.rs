@@ -62,6 +62,7 @@ struct AgentSpec {
     genome: Option<Genome>,
     metabolism: Option<crate::agent::body::metabolism::Metabolism>,
     stamina: Option<f32>,
+    wakefulness: Option<f32>,
     social_drive: Option<f32>,
     group: Option<String>,
     knowledge: Vec<Triple>,
@@ -142,6 +143,12 @@ impl AgentBuilder {
     /// Stamina value (0.0 = exhausted, 100.0 = fully rested).
     pub fn stamina(mut self, v: f32) -> Self {
         self.spec.stamina = Some(v);
+        self
+    }
+
+    /// Wakefulness (0.0 = must sleep, 1.0 = fully rested).
+    pub fn wakefulness(mut self, v: f32) -> Self {
+        self.spec.wakefulness = Some(v);
         self
     }
 
@@ -323,6 +330,7 @@ impl ScenarioBuilder {
                 genome: None,
                 metabolism: None,
                 stamina: None,
+                wakefulness: None,
                 social_drive: None,
                 group: None,
                 knowledge: Vec::new(),
@@ -538,6 +546,7 @@ fn spawn_named_agent(world: &mut TestWorld, spec: &AgentSpec) -> Entity {
             .clone()
             .unwrap_or_else(crate::agent::body::metabolism::Metabolism::well_fed),
         stamina: spec.stamina.unwrap_or(100.0),
+        wakefulness: spec.wakefulness.unwrap_or(1.0),
         social_drive: spec.social_drive,
         genome: spec.genome.clone().unwrap_or_default(),
         knowledge: spec.knowledge.clone(),

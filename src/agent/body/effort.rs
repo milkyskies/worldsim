@@ -14,26 +14,30 @@
 // ---------------------------------------------------------------------------
 
 /// Energy (glucose/reserves) cost per second at full locomotion intensity.
-/// Scales with intensity^1.5 and body mass. Calibrated so Flee (i=1.0) at
-/// 70kg costs ~1.5 energy/s, matching the pre-refactor constant.
-const LOCOMOTION_ENERGY_RATE: f32 = 1.5;
+/// Scales with intensity^1.5 and body mass. Calibrated against real human
+/// MET values: sprint (i=1.0) ≈ 10 MET, brisk walk (i=0.5) ≈ 3 MET,
+/// stroll (i=0.25) ≈ 2 MET. Activity cost = (MET - 1) * BMR where
+/// BMR = 0.10/sec, so sprint adds ~0.90, walk adds ~0.20.
+const LOCOMOTION_ENERGY_RATE: f32 = 0.9;
 
 /// Energy cost per second at full manipulation intensity.
-/// Linear scaling. Calibrated so Harvest (m=0.6) costs ~1.0 energy/s.
-const MANIPULATION_ENERGY_RATE: f32 = 1.7;
+/// Linear scaling. Calibrated so heavy labor (m=0.8, i=1.0) ≈ 6 MET,
+/// harvest (m=0.8, i=0.6) ≈ 3.5 MET, grooming (m=0.8, i=0.25) ≈ 1.5 MET.
+const MANIPULATION_ENERGY_RATE: f32 = 0.6;
 
 /// Energy cost per second at full isometric hold.
-const ISOMETRIC_ENERGY_RATE: f32 = 1.0;
+const ISOMETRIC_ENERGY_RATE: f32 = 0.3;
 
 /// Energy cost per second at full cognitive load. Active cognition
 /// (scanning, tracking, vigilance) burns glucose faster than resting
-/// brain baseline. Calibrated so Explore (loco=0.5 + cog=0.3) produces
-/// ~1.1 energy/s, close to the pre-refactor 1.25.
-const COGNITION_ENERGY_RATE: f32 = 2.0;
+/// brain baseline. The brain uses ~20% of BMR when awake; intense focus
+/// adds ~10% on top.
+const COGNITION_ENERGY_RATE: f32 = 0.3;
 
 /// Energy cost of recovery (anabolism). Recovery isn't free — the body
-/// burns energy to repair and restore.
-const RECOVERY_ENERGY_COST: f32 = 0.2;
+/// burns energy to repair and restore. Low cost since rest is nearly
+/// metabolically inert beyond BMR.
+const RECOVERY_ENERGY_COST: f32 = 0.05;
 
 /// Aerobic stamina recovered per second at full recovery (recovery=1.0).
 /// Calibrated so Sleep (recovery=1.0) produces +20/s, matching pre-refactor.

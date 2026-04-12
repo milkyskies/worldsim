@@ -13,6 +13,7 @@ impl Plugin for BiologyPlugin {
         app.register_type::<body::Body>()
             .register_type::<body::BodyNode>()
             .register_type::<body::BodyNodeKind>()
+            .register_type::<body::FunctionalTag>()
             .register_type::<body::Injury>()
             .register_type::<body::InjuryType>()
             .add_systems(
