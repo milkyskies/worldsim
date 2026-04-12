@@ -21,13 +21,15 @@ use crate::agent::psyche::personality::Personality;
 use crate::world::map::WorldMap;
 use bevy::prelude::*;
 
-/// The Three Brains System
-///
-/// Orchestrates the three brains (Survival, Emotional, Rational) and arbitrates
-/// between their proposals to determine what action the agent takes.
-pub fn three_brains_system(
+/// Collect proposals from all three brains and pick the admitted
+/// action set for every agent, every tick. Proposal generation,
+/// arbitration, and BrainState writeback are all cheap enough to run
+/// per-tick so the recorded winner always agrees with what the body
+/// is running. Expensive GOAP re-planning lives in
+/// `rational::update_rational_planning` and fires only when the
+/// current goal has no concrete plan.
+pub fn arbitrate_every_tick(
     tick: Res<crate::core::tick::TickCount>,
-    ns_config: Res<crate::agent::nervous_system::config::NervousSystemConfig>,
     mut query: Query<
         (
             Entity,
@@ -84,25 +86,16 @@ pub fn three_brains_system(
         (_transform, visible, mind, active_actions, in_conversation, self_entity_type),
     ) in query.iter_mut()
     {
-        // Staggered: heavy thinking runs every N ticks, offset by entity ID
-        if !tick.should_run(entity, ns_config.thinking_interval) {
-            continue;
-        }
-
         // Cognitive tick cost: every arbitration burns a sliver of alertness.
-        // Conscientious agents tolerate brain work better — they're wired for it.
-        //
-        // The drain constant is calibrated against the default thinking_interval
-        // (60 ticks ≈ 1 brain tick per second). Tests that crank the interval
-        // down for fast brains would otherwise burn alertness proportionally
-        // faster, so we scale the drain by `thinking_interval / 60` to keep
-        // the per-wallclock-second drain constant.
+        // Conscientious agents tolerate brain work better — they're wired
+        // for it. The constant is calibrated per wallclock-second at the
+        // 60 tps base rate, so divide by 60 to spread the cost across
+        // every-tick arbitration.
         let tick_relief = personality.traits.conscientiousness
             * crate::constants::brains::cognition::CONSCIENTIOUSNESS_TICK_RELIEF;
-        let interval_scale = ns_config.thinking_interval as f32 / 60.0;
         let tick_drain = crate::constants::brains::rational::COGNITIVE_TICK_ALERTNESS_DRAIN
             * (1.0 - tick_relief)
-            * interval_scale;
+            / 60.0;
         consciousness.alertness = (consciousness.alertness - tick_drain).max(0.0);
 
         // 1. Gather proposals from all three brains

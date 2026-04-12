@@ -171,12 +171,11 @@ fn are_preconditions_met(action: &ActionTemplate, mind: &MindGraph) -> bool {
     })
 }
 
-pub fn update_rational_brain(
+pub fn update_rational_planning(
     mut query: Query<
         (
             Entity,
             &mut PlanMemory,
-            &mut crate::agent::brains::proposal::BrainState,
             &mut Consciousness,
             &Transform,
             &VisibleObjects,
@@ -208,75 +207,41 @@ pub fn update_rational_brain(
     };
     let mut plan_attempts = 0;
 
-    // ─── Plan-state staleness guards ────────────────────────────────────
+    // ─── Event-driven plan-step advancement / invalidation ─────────────
     //
-    // The two HashMaps below patch a known architectural mismatch in the
-    // brain pipeline: `BrainState.chosen_actions` is refreshed only by
-    // `three_brains_system` once per `thinking_interval` (60 ticks by
-    // default), but plan state can change every tick — completed actions
-    // advance the plan, failed actions need replanning. Without these
-    // guards the agent spends up to 60 ticks per stale-state event
-    // re-firing the wrong action via `start_actions`, generating
-    // thousands of redundant `ActionStarted`/`ActionFailed` events that
-    // cost ~3× wall clock on the regression test (and a *lot* of log
-    // noise) without changing any agent's actual behaviour.
+    // GOAP (STRIPS / F.E.A.R.) treats plan_effects as chaining hints for
+    // the search, not post-hoc observations: once an action with a
+    // continuous-value effect (Eat → `Hunger=0`, Drink → `Thirst=0`,
+    // Sleep → `Stamina=100`) runs to completion we advance past that
+    // step regardless of whether the MindGraph literally matches the
+    // effect triple. Same direction for failure: an action that reports
+    // `ActionFailed` at runtime invalidates the owning plan so the brain
+    // replans against fresh state instead of proposing the same doomed
+    // step on the next tick.
     //
-    // The principled long-term fix is to make `chosen_actions` reactive
-    // to plan changes (or to run arbitration every tick — but I tried
-    // that and it cost 3× wall clock on its own). Until then, these two
-    // maps are surgical workarounds that fire only on the exact stale
-    // events that matter.
-    //
-    // Under Bevy's system ordering, `update_rational_brain` runs before
-    // `tick_actions`, so the events visible here are from the previous
-    // tick — a 1-tick delay that's acceptable for plan-step management.
-    //
-    // ─── recently_completed ─────────────────────────────────────────────
-    //
-    // Several actions have continuous-value plan_effects (Eat → `Hunger=0`,
-    // Drink → `Thirst=0`, Sleep → `Stamina=100`) that a single execution
-    // cannot literally satisfy. `is_step_complete` checks the MindGraph
-    // for the literal effect and returns false forever, so the plan step
-    // never advanced and the Rational brain spammed the same action every
-    // tick (88k `NoEdibleFood` failures in the default sim before the
-    // fix, #416). Classical GOAP (STRIPS / F.E.A.R.) treats plan_effects
-    // as "chaining hints for the search" — once the action runs, the
-    // step is considered done regardless of whether the world literally
-    // matches the effect. We adopt that rule here: the existing
-    // `is_step_complete` path is kept as a fallback for actions whose
-    // effects *are* cheaply observable (belief assertions, etc.), but
-    // seeing the action's own `ActionCompleted` event also counts.
-    //
-    // ─── recently_failed ────────────────────────────────────────────────
-    //
-    // Symmetric to `recently_completed`: `ActionFailed` events invalidate
-    // the plan whose current step failed at runtime. Without this the
-    // Rational brain happily re-proposes a failing action every tick
-    // forever (e.g. Eat spamming `NoEdibleFood` when inventory is empty)
-    // because `are_preconditions_met` runs against the MindGraph and can
-    // still pass while real inventory says otherwise — the planner's
-    // belief-based precondition check and the action's runtime can-start
-    // check disagree, and only the latter actually fires. Forcing a
-    // replan on runtime failure lets the agent notice and build a new
-    // plan within 1 tick instead of 60.
-    let mut recently_completed: std::collections::HashMap<
+    // Aggregating both event streams up-front — rather than per-agent
+    // inside the loop — is required because `MessageReader` is
+    // single-pass: we can only walk the stream once regardless of how
+    // many agents need to read it. The two HashMaps are the per-agent
+    // lookup tables derived from a single pass over the event log.
+    let mut completed_this_tick: std::collections::HashMap<
         Entity,
         std::collections::HashSet<crate::agent::actions::ActionType>,
     > = std::collections::HashMap::new();
-    let mut recently_failed: std::collections::HashMap<
+    let mut failed_this_tick: std::collections::HashMap<
         Entity,
         std::collections::HashSet<crate::agent::actions::ActionType>,
     > = std::collections::HashMap::new();
     for event in completed_actions.read() {
         match event {
             crate::agent::events::SimEvent::ActionCompleted { agent, action, .. } => {
-                recently_completed
+                completed_this_tick
                     .entry(*agent)
                     .or_default()
                     .insert(*action);
             }
             crate::agent::events::SimEvent::ActionFailed { agent, action, .. } => {
-                recently_failed.entry(*agent).or_default().insert(*action);
+                failed_this_tick.entry(*agent).or_default().insert(*action);
             }
             _ => {}
         }
@@ -285,7 +250,6 @@ pub fn update_rational_brain(
     for (
         entity,
         mut plan_memory,
-        mut brain_state,
         mut consciousness,
         transform,
         visible,
@@ -304,40 +268,20 @@ pub fn update_rational_brain(
         //    reached the end of their step list.
         let mut invalid_ids = Vec::new();
         let mut finished_ids = Vec::new();
-        let mut explore_found_resources = false;
-        // Tracks whether any plan advanced this tick. Used below to clear
-        // `chosen_actions` so the now-stale step's action stops being
-        // re-fired by `start_actions` until the next thinking tick. See
-        // the `chosen_actions.clear()` block further down for the full
-        // story.
-        let mut any_step_advanced = false;
         for plan in plan_memory.plans.iter_mut() {
             if plan.state != PlanState::Executing {
                 continue;
             }
             if let Some(action) = plan.current() {
                 let effect_matched = is_step_complete(action, mind);
-                // Action-execution completion also advances the step — see
-                // the `recently_completed` docstring at the top of this
-                // function for why we treat plan_effects as chaining hints
-                // rather than post-hoc observations (#416 Eat-spam fix).
-                let action_ran_to_end = recently_completed
+                let action_ran_to_end = completed_this_tick
                     .get(&entity)
                     .is_some_and(|set| set.contains(&action.action_type));
                 if effect_matched || action_ran_to_end {
                     plan.current_step += 1;
                     plan.last_touched = current_tick;
-                    any_step_advanced = true;
                 }
-                // If the current step's action failed at runtime (e.g.
-                // Eat hit `NoEdibleFood` because inventory was empty),
-                // the situation that caused the failure is still there
-                // next tick. Drop the plan so the agent replans against
-                // fresh state instead of re-firing the same doomed
-                // proposal every tick for the rest of the thinking
-                // interval. See the `recently_failed` docstring at the
-                // top of this function.
-                let action_failed_at_runtime = recently_failed.get(&entity).is_some_and(|set| {
+                let action_failed_at_runtime = failed_this_tick.get(&entity).is_some_and(|set| {
                     plan.current().is_some_and(|a| set.contains(&a.action_type))
                 });
                 if action_failed_at_runtime {
@@ -358,7 +302,6 @@ pub fn update_rational_brain(
                         .iter()
                         .any(|triple| matches!(&triple.object, Value::Item(_, qty) if *qty > 0));
                     if has_known {
-                        explore_found_resources = true;
                         finished_ids.push(plan.id);
                     }
                 }
@@ -372,33 +315,6 @@ pub fn update_rational_brain(
         }
         for id in &finished_ids {
             plan_memory.remove(*id);
-        }
-        if !invalid_ids.is_empty() || explore_found_resources || any_step_advanced {
-            // update_rational_brain runs before start_actions (data-conflict
-            // ordering). Clearing chosen_actions here prevents start_actions
-            // from re-starting the stale action this tick.
-            //
-            // The `any_step_advanced` clause is the second half of the
-            // staleness-guard pair documented at the top of this function
-            // (alongside `recently_failed`). When a plan quietly advances
-            // from Walk → Harvest → Eat *inside* this loop via the
-            // `recently_completed` path, `chosen_actions` still holds the
-            // previous step's action because `three_brains_system` only
-            // refreshes it once per `thinking_interval` (60 ticks).
-            // Without this clear, `start_actions` happily re-fires the
-            // now-stale action — and because the stale action's target
-            // tile usually matches the agent's *current* position (Walk
-            // step that just completed), each re-fire takes one tick to
-            // "arrive" and emit a fresh `ActionStarted`/`ActionCompleted`
-            // pair. The default sim turned this into 40+ tick loops of
-            // single-tick instant-arrival Walks that did no real work
-            // and dominated the event log.
-            //
-            // Clearing here makes the agent go idle until the next
-            // thinking tick repopulates `chosen_actions` with the new
-            // step's action. Idle is wasteful, but quiet idle is much
-            // better than spammed-stale idle.
-            brain_state.chosen_actions.clear();
         }
 
         // 2. Per-tick commitment accumulation for plans still in
@@ -495,45 +411,44 @@ pub fn update_rational_brain(
             }
         }
 
-        // 4. Heavy Thinking (Replanning) — only fires on the agent's
-        //    staggered thinking tick.
-        let should_replan = tick.should_run(entity, ns_config.thinking_interval);
-        if !should_replan {
-            continue;
-        }
+        // 4. Stale-plan sweep — drop Rational-sourced plans whose goal
+        //    no longer matches the current CNS goal (or whose goal is
+        //    obsolete because CNS has no current goal at all). Verbal
+        //    commitments are exempt: their motivation is external to
+        //    CNS urgencies. Runs every tick so a stale plan doesn't
+        //    linger as a ghost proposal in arbitration.
+        let cns_goal_snapshot = cns.current_goal.clone();
+        plan_memory.plans.retain(|p| {
+            if !matches!(p.source, PlanSource::Brain(BrainType::Rational)) {
+                return true;
+            }
+            cns_goal_snapshot
+                .as_ref()
+                .is_some_and(|goal| &p.goal == goal)
+        });
 
-        // CONSCIOUSNESS CHECK: Can't plan while asleep
+        // 5. Heavy thinking (regressive plan) — event-driven.
+        //
+        // Fires only when the current CNS goal has no concrete plan:
+        // `PlanMemory::needs_replan_for(goal)` is the event. Retries
+        // are throttled by `thinking_interval` so a persistently
+        // failing search (hungry agent, no known food source) doesn't
+        // spam the planner every tick — the cooldown doubles as the
+        // safety-net rhythm. In the happy path, a live plan satisfies
+        // `needs_replan_for` and the GOAP search is skipped forever.
         if consciousness.alertness < MIN_ALERTNESS_FOR_PLANNING {
             continue;
         }
 
-        // Drop held plans whose goals no longer match the current CNS
-        // goal family. Plans tied to verbal commitments survive this
-        // sweep because their motivation is external to CNS urgencies.
-        if let Some(cns_goal) = &cns.current_goal {
-            let goal = cns_goal.clone();
-            let stale: Vec<_> = plan_memory
-                .plans
-                .iter()
-                .filter(|p| {
-                    matches!(p.source, PlanSource::Brain(BrainType::Rational)) && p.goal != goal
-                })
-                .map(|p| p.id)
-                .collect();
-            for id in stale {
-                plan_memory.remove(id);
-            }
+        if let Some(goal) = cns_goal_snapshot {
+            if plan_memory.needs_replan_for(&goal) {
+                let cooldown_ok = plan_memory
+                    .last_plan_attempt_tick
+                    .is_none_or(|t| current_tick.saturating_sub(t) >= ns_config.thinking_interval);
+                if !cooldown_ok {
+                    continue;
+                }
 
-            // 5. Form Plan: if no concrete plan already targets this
-            //    goal, generate one. A stepless verbal commitment
-            //    matching the goal doesn't count as a concrete plan —
-            //    it's a reminder, not a ready-to-run sequence — so the
-            //    brain still generates real steps for it.
-            let has_concrete_plan = plan_memory
-                .plans
-                .iter()
-                .any(|p| p.goal == goal && !p.steps.is_empty());
-            if !has_concrete_plan {
                 let actions = collect_planning_actions(
                     &action_registry,
                     mind,
@@ -543,6 +458,8 @@ pub fn update_rational_brain(
                 );
 
                 plan_attempts += 1;
+                plan_memory.plans_generated_total += 1;
+                plan_memory.last_plan_attempt_tick = Some(current_tick);
 
                 if perf_logging && actions.len() > 20 {
                     let action_names: Vec<String> =
@@ -556,13 +473,14 @@ pub fn update_rational_brain(
                 }
 
                 // GOAP search drains alertness. Curious (high-openness)
-                // agents pay less; scale by thinking_interval so fast-brain
-                // tests don't burn alertness faster than wallclock seconds.
+                // agents pay less. The cooldown gate above ensures this
+                // drain fires at most once per `thinking_interval`, so
+                // the per-wallclock cost is constant regardless of
+                // tick rate.
                 let openness_relief = personality.traits.openness
                     * crate::constants::brains::cognition::OPENNESS_PLANNING_RELIEF;
-                let interval_scale = ns_config.thinking_interval as f32 / 60.0;
                 let plan_drain = crate::constants::brains::rational::PLAN_GENERATION_ALERTNESS_DRAIN
-                    * (1.0 - openness_relief) * interval_scale;
+                    * (1.0 - openness_relief);
                 consciousness.alertness = (consciousness.alertness - plan_drain).max(0.0);
 
                 let cost_ctx = crate::agent::brains::planner::PlanCostContext::from_agent(
@@ -611,18 +529,6 @@ pub fn update_rational_brain(
                         current_step: 0,
                     });
                 }
-            }
-        } else {
-            // No CNS goal: drop any brain-sourced plans that were
-            // tracking the previous goal. Verbal commitments stay put.
-            let stale: Vec<_> = plan_memory
-                .plans
-                .iter()
-                .filter(|p| matches!(p.source, PlanSource::Brain(BrainType::Rational)))
-                .map(|p| p.id)
-                .collect();
-            for id in stale {
-                plan_memory.remove(id);
             }
         }
 

@@ -149,6 +149,19 @@ pub struct PlanMemory {
     /// reused even after a plan is evicted.
     #[reflect(ignore)]
     next_id: u64,
+    /// Tick the rational brain last called `regressive_plan` for this
+    /// agent. `None` until the first attempt. Drives the safety-net
+    /// cooldown that stops the GOAP search from re-firing every tick
+    /// when `needs_replan_for` keeps returning true (e.g. a hungry
+    /// agent with no known food source). Absence means "first call
+    /// fires immediately" — a freshly-spawned agent never waits for
+    /// its first plan.
+    #[reflect(ignore)]
+    pub last_plan_attempt_tick: Option<u64>,
+    /// Count of `regressive_plan` invocations for this agent across
+    /// the whole run. Monotonic. Used by tests to assert the planner
+    /// stays silent while a live plan covers the current goal.
+    pub plans_generated_total: u64,
 }
 
 impl PlanMemory {
@@ -198,6 +211,23 @@ impl PlanMemory {
     /// conditions (not priority) per the `PartialEq` impl on `Goal`.
     pub fn by_goal(&self, goal: &Goal) -> Option<&HeldPlan> {
         self.plans.iter().find(|p| &p.goal == goal)
+    }
+
+    /// True when the agent has no executable plan targeting `goal` —
+    /// no entry in memory both matches the goal AND carries concrete
+    /// steps. The rational brain uses this to gate the expensive
+    /// regressive planner: if a live plan already covers the goal, no
+    /// re-plan is needed.
+    ///
+    /// Stepless plans (verbal commitments without a concrete action
+    /// sequence) don't count — the planner still needs to generate real
+    /// steps for them. This mirrors the `has_concrete_plan` check that
+    /// lived inside `update_rational_brain` before #424's split.
+    pub fn needs_replan_for(&self, goal: &Goal) -> bool {
+        !self
+            .plans
+            .iter()
+            .any(|p| &p.goal == goal && !p.steps.is_empty())
     }
 
     /// Mutable lookup by goal.
@@ -477,6 +507,93 @@ mod tests {
             )
         };
         assert!(plan.is_finished());
+    }
+
+    #[test]
+    fn needs_replan_for_true_when_memory_empty() {
+        let mem = PlanMemory::default();
+        let goal = test_goal(Concept::Apple);
+        assert!(mem.needs_replan_for(&goal));
+    }
+
+    #[test]
+    fn needs_replan_for_false_when_concrete_plan_exists() {
+        use crate::agent::actions::ActionType;
+        let mut mem = PlanMemory::default();
+        let goal = test_goal(Concept::Apple);
+        let mut plan = held_plan(
+            1,
+            PlanState::Executing,
+            PlanSource::Brain(BrainType::Rational),
+            1.0,
+        );
+        plan.goal = goal.clone();
+        plan.steps = vec![ActionTemplate {
+            name: "Walk".into(),
+            action_type: ActionType::Walk,
+            target_entity: None,
+            target_position: None,
+            preconditions: vec![],
+            effects: vec![],
+            consumes: vec![],
+            base_cost: 0.0,
+            locomotion_intensity: ActionType::Walk.default_locomotion_intensity(),
+        }];
+        mem.insert(plan);
+        assert!(!mem.needs_replan_for(&goal));
+    }
+
+    #[test]
+    fn needs_replan_for_true_when_matching_plan_is_stepless() {
+        let mut mem = PlanMemory::default();
+        let goal = test_goal(Concept::Apple);
+        let mut plan = held_plan(
+            1,
+            PlanState::Background,
+            PlanSource::VerbalCommitment {
+                promised_to: Entity::from_bits(1),
+                agreement_tick: 0,
+            },
+            0.5,
+        );
+        plan.goal = goal.clone();
+        plan.steps = Vec::new();
+        mem.insert(plan);
+        assert!(
+            mem.needs_replan_for(&goal),
+            "stepless verbal commitment must not satisfy the replan check — the planner still owes it concrete steps"
+        );
+    }
+
+    #[test]
+    fn needs_replan_for_true_when_only_plan_is_for_different_goal() {
+        use crate::agent::actions::ActionType;
+        let mut mem = PlanMemory::default();
+        let apple = test_goal(Concept::Apple);
+        let berry = test_goal(Concept::Berry);
+        let mut plan = held_plan(
+            1,
+            PlanState::Executing,
+            PlanSource::Brain(BrainType::Rational),
+            1.0,
+        );
+        plan.goal = apple;
+        plan.steps = vec![ActionTemplate {
+            name: "Walk".into(),
+            action_type: ActionType::Walk,
+            target_entity: None,
+            target_position: None,
+            preconditions: vec![],
+            effects: vec![],
+            consumes: vec![],
+            base_cost: 0.0,
+            locomotion_intensity: ActionType::Walk.default_locomotion_intensity(),
+        }];
+        mem.insert(plan);
+        assert!(
+            mem.needs_replan_for(&berry),
+            "plan for Apple must not satisfy a Berry goal replan check"
+        );
     }
 
     #[test]
