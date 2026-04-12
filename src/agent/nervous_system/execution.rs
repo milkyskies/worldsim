@@ -774,16 +774,20 @@ pub fn apply_action_effects(
             let primitive = action_def.motor_primitive();
             let base_profile = primitive.effort_profile();
 
-            // Resolve intensity: Movement actions use the brain's desired
-            // intensity (capped by body state); others use the primitive's
-            // base profile directly (intensity = 1.0 for the declared
-            // channel engagement).
-            let profile = if is_movement && action_state.locomotion_intensity > 0.0 {
-                let desired = action_state.locomotion_intensity;
-                let effective = cap_intensity(desired, &stamina_snapshot);
-                base_profile.scaled(effective)
+            // Resolve intensity from either the brain's locomotion override
+            // (for Movement actions) or the action's default policy.
+            let intensity = if is_movement && action_state.locomotion_intensity > 0.0 {
+                cap_intensity(action_state.locomotion_intensity, &stamina_snapshot)
             } else {
-                action_def.effort_profile()
+                action_state
+                    .action_type
+                    .default_intensity_policy()
+                    .resolve()
+            };
+            let profile = if intensity > 0.0 {
+                base_profile.scaled(intensity)
+            } else {
+                crate::agent::body::effort::EffortProfile::ZERO
             };
 
             let cost = compute_action_cost(&profile, body_mass);

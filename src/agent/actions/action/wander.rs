@@ -3,7 +3,6 @@
 use crate::agent::actions::ActionType;
 use crate::agent::actions::channel::{Channel, ChannelUsage, Posture};
 use crate::agent::actions::registry::{Action, ActionKind, RuntimeEffects};
-use crate::agent::body::effort::EffortProfile;
 
 pub struct WanderAction;
 
@@ -31,13 +30,6 @@ impl Action for WanderAction {
 
     fn posture(&self) -> Option<Posture> {
         Some(Posture::Moving)
-    }
-
-    fn effort_profile(&self) -> EffortProfile {
-        EffortProfile {
-            locomotion: 0.25,
-            ..Default::default()
-        }
     }
 
     fn runtime_effects(&self) -> RuntimeEffects {

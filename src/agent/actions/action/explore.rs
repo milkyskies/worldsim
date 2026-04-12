@@ -3,7 +3,6 @@
 use crate::agent::actions::ActionType;
 use crate::agent::actions::channel::{Channel, ChannelUsage, Posture};
 use crate::agent::actions::registry::{Action, ActionKind, RuntimeEffects};
-use crate::agent::body::effort::EffortProfile;
 
 pub struct ExploreAction;
 
@@ -31,14 +30,6 @@ impl Action for ExploreAction {
 
     fn posture(&self) -> Option<Posture> {
         Some(Posture::Moving)
-    }
-
-    fn effort_profile(&self) -> EffortProfile {
-        EffortProfile {
-            locomotion: 0.5,
-            cognition: 0.3,
-            ..Default::default()
-        }
     }
 
     fn runtime_effects(&self) -> RuntimeEffects {

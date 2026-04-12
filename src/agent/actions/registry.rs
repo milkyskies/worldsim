@@ -347,23 +347,10 @@ pub trait Action: Send + Sync + 'static {
         true
     }
 
-    /// The physical effort channels this action engages.
-    ///
-    /// Returned profile feeds [`compute_action_cost`] which derives all
-    /// stamina drain and energy cost. Override this instead of
-    /// hard-coding physical drain constants.
-    ///
-    /// Default: zero profile (BMR only, no action cost).
-    ///
-    /// [`compute_action_cost`]: crate::agent::body::effort::compute_action_cost
-    fn effort_profile(&self) -> crate::agent::body::effort::EffortProfile {
-        crate::agent::body::effort::EffortProfile::ZERO
-    }
-
     /// Per-tick side effects: alertness, ingestion, social, curiosity.
     ///
-    /// Physical costs (stamina, energy) are derived from [`Self::effort_profile`]
-    /// via the effort model. This method holds only non-physical side effects.
+    /// Physical costs (stamina, energy) are derived from the action's
+    /// motor primitive's effort profile, scaled by intensity.
     fn runtime_effects(&self) -> RuntimeEffects {
         RuntimeEffects::default()
     }

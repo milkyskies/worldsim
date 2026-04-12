@@ -292,11 +292,12 @@ impl ActionType {
             | ActionType::Wave
             | ActionType::Converse => IntensityPolicy::Fixed(0.0),
 
-            // Recovery/passive — low intensity
-            ActionType::Rest | ActionType::Idle | ActionType::Groom | ActionType::Observe => {
-                IntensityPolicy::Ambient
-            }
-            ActionType::Sleep | ActionType::WakeUp => IntensityPolicy::Fixed(1.0),
+            // Recovery/passive
+            ActionType::Rest => IntensityPolicy::Fixed(0.4),
+            ActionType::Idle => IntensityPolicy::Fixed(0.0),
+            ActionType::Groom | ActionType::Observe => IntensityPolicy::Ambient,
+            ActionType::Sleep => IntensityPolicy::Fixed(1.0),
+            ActionType::WakeUp => IntensityPolicy::Fixed(0.3),
         }
     }
 

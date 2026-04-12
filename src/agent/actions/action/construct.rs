@@ -10,7 +10,6 @@ use crate::agent::actions::channel::{Channel, ChannelUsage, Posture};
 use crate::agent::actions::registry::{
     Action, ActionContext, ActionKind, CompletionContext, TargetCandidate, TargetSource,
 };
-use crate::agent::body::effort::EffortProfile;
 use crate::agent::brains::thinking::TriplePattern;
 use crate::agent::events::FailureReason;
 use crate::agent::mind::knowledge::{MindGraph, Node, Predicate, Triple, Value};
@@ -104,14 +103,6 @@ impl Action for ConstructAction {
             return Err(FailureReason::TargetGone);
         }
         Ok(())
-    }
-
-    fn effort_profile(&self) -> EffortProfile {
-        EffortProfile {
-            manipulation: 0.7,
-            isometric: 0.2,
-            ..Default::default()
-        }
     }
 
     /// `on_complete` is intentionally empty: the site transforms (and despawns)

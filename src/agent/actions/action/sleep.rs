@@ -3,7 +3,6 @@
 use crate::agent::actions::ActionType;
 use crate::agent::actions::channel::{Channel, ChannelUsage, Posture};
 use crate::agent::actions::registry::{Action, ActionKind, RuntimeEffects};
-use crate::agent::body::effort::EffortProfile;
 use crate::agent::mind::knowledge::{Node, Predicate, Triple, Value};
 
 pub struct SleepAction;
@@ -60,13 +59,6 @@ impl Action for SleepAction {
     // short-circuit in `execution.rs` rejects every non-WakeUp admission
     // while Sleep is active, so interruptibility here only matters for the
     // WakeUp transition itself.
-
-    fn effort_profile(&self) -> EffortProfile {
-        EffortProfile {
-            recovery: 1.0,
-            ..Default::default()
-        }
-    }
 
     fn runtime_effects(&self) -> RuntimeEffects {
         RuntimeEffects {

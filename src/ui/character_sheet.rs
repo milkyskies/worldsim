@@ -185,10 +185,15 @@ fn glucose_contributions(world: &World, entity: Entity) -> Vec<Contribution> {
             let Some(action) = registry.get(state.action_type) else {
                 continue;
             };
-            let mut profile = action.effort_profile();
-            if matches!(action.kind(), ActionKind::Movement) && state.locomotion_intensity > 0.0 {
-                profile.locomotion = effective_intensity(state.locomotion_intensity, &stamina);
-            }
+            let primitive = action.motor_primitive();
+            let intensity = if matches!(action.kind(), ActionKind::Movement)
+                && state.locomotion_intensity > 0.0
+            {
+                effective_intensity(state.locomotion_intensity, &stamina)
+            } else {
+                state.action_type.default_intensity_policy().resolve()
+            };
+            let profile = primitive.effort_profile().scaled(intensity);
             let cost = compute_action_cost(&profile, body_mass);
             if cost.energy != 0.0 {
                 let reserves = world
@@ -235,10 +240,15 @@ fn stamina_contributions(world: &World, entity: Entity) -> Vec<Contribution> {
             let Some(action) = registry.get(state.action_type) else {
                 continue;
             };
-            let mut profile = action.effort_profile();
-            if matches!(action.kind(), ActionKind::Movement) && state.locomotion_intensity > 0.0 {
-                profile.locomotion = effective_intensity(state.locomotion_intensity, &stamina);
-            }
+            let primitive = action.motor_primitive();
+            let intensity = if matches!(action.kind(), ActionKind::Movement)
+                && state.locomotion_intensity > 0.0
+            {
+                effective_intensity(state.locomotion_intensity, &stamina)
+            } else {
+                state.action_type.default_intensity_policy().resolve()
+            };
+            let profile = primitive.effort_profile().scaled(intensity);
             let cost = compute_action_cost(&profile, body_mass);
             if cost.aerobic_drain != 0.0 {
                 out.push(Contribution {

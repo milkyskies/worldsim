@@ -3,7 +3,6 @@ use crate::agent::actions::channel::{Channel, ChannelUsage, Posture};
 use crate::agent::actions::registry::{
     Action, ActionContext, ActionKind, CompletionContext, TargetCandidate, TargetSource,
 };
-use crate::agent::body::effort::EffortProfile;
 use crate::agent::mind::knowledge::{Concept, MindGraph, Node, Predicate, Triple, Value};
 use crate::constants::actions::attack::{BASE_COST, DURATION_TICKS};
 
@@ -71,15 +70,6 @@ impl Action for AttackAction {
             return false;
         };
         prey_produces_useful_item(entity, mind)
-    }
-
-    fn effort_profile(&self) -> EffortProfile {
-        EffortProfile {
-            manipulation: 0.9,
-            isometric: 0.4,
-            cognition: 0.1,
-            ..Default::default()
-        }
     }
 
     // Damage, dodge, death, and meat deposit all live in

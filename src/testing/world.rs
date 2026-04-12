@@ -531,13 +531,15 @@ fn dump_contributions_headless(
                     let Some(action) = reg.get(state.action_type) else {
                         continue;
                     };
-                    let mut profile = action.effort_profile();
-                    if matches!(action.kind(), ActionKind::Movement)
+                    let primitive = action.motor_primitive();
+                    let intensity = if matches!(action.kind(), ActionKind::Movement)
                         && state.locomotion_intensity > 0.0
                     {
-                        profile.locomotion =
-                            effective_intensity(state.locomotion_intensity, &stamina);
-                    }
+                        effective_intensity(state.locomotion_intensity, &stamina)
+                    } else {
+                        state.action_type.default_intensity_policy().resolve()
+                    };
+                    let profile = primitive.effort_profile().scaled(intensity);
                     let cost = compute_action_cost(&profile, body_mass);
                     if cost.energy != 0.0 {
                         let reserves = world
@@ -575,13 +577,15 @@ fn dump_contributions_headless(
                     let Some(action) = reg.get(state.action_type) else {
                         continue;
                     };
-                    let mut profile = action.effort_profile();
-                    if matches!(action.kind(), ActionKind::Movement)
+                    let primitive = action.motor_primitive();
+                    let intensity = if matches!(action.kind(), ActionKind::Movement)
                         && state.locomotion_intensity > 0.0
                     {
-                        profile.locomotion =
-                            effective_intensity(state.locomotion_intensity, &stamina);
-                    }
+                        effective_intensity(state.locomotion_intensity, &stamina)
+                    } else {
+                        state.action_type.default_intensity_policy().resolve()
+                    };
+                    let profile = primitive.effort_profile().scaled(intensity);
                     let cost = compute_action_cost(&profile, body_mass);
                     if cost.aerobic_drain != 0.0 {
                         contribs.push((format!("{:?}", state.action_type), -cost.aerobic_drain));

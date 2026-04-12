@@ -17,7 +17,6 @@
 use crate::agent::actions::ActionType;
 use crate::agent::actions::channel::{ChannelSlices, ChannelUsage, Posture};
 use crate::agent::actions::registry::{Action, ActionKind, RuntimeEffects};
-use crate::agent::body::effort::EffortProfile;
 
 pub struct RestAction;
 
@@ -50,13 +49,6 @@ impl Action for RestAction {
         // Wander / Flee admission while Rest is active, which is what
         // prevents the "resting + patrolling" nonsense from #386.
         Some(Posture::Stationary)
-    }
-
-    fn effort_profile(&self) -> EffortProfile {
-        EffortProfile {
-            recovery: 0.4,
-            ..Default::default()
-        }
     }
 
     fn runtime_effects(&self) -> RuntimeEffects {
