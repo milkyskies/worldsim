@@ -66,6 +66,163 @@ fn placeholder(ui: &mut egui::Ui, text: &str) {
 }
 
 // ============================================================================
+// EXPLAIN — contributors for "why is this stat moving"
+// ============================================================================
+
+/// One signed contributor to a metric's rate of change. Positive = fills /
+/// heals / satisfies. Negative = drains / damages / starves. `rate` units
+/// match whatever the caller aggregates (per-second, per-tick, etc).
+struct Contribution {
+    source: String,
+    rate: f32,
+}
+
+/// Per-second contributors to `PhysicalNeeds.metabolism.glucose` for the
+/// selected agent. Pulled from the same sources the live simulation
+/// reads: BMR from `ActivityConfig.base`, action drains from the
+/// currently running actions' `runtime_effects`.
+fn glucose_contributions(world: &World, entity: Entity) -> Vec<Contribution> {
+    use crate::agent::actions::ActionRegistry;
+    use crate::agent::activity::ActivityConfig;
+    let mut out = Vec::new();
+
+    if let Some(cfg) = world.get_resource::<ActivityConfig>() {
+        let bmr = cfg.base.effects.glucose_drain;
+        if bmr != 0.0 {
+            out.push(Contribution {
+                source: "BMR (base metabolic rate)".into(),
+                rate: -bmr,
+            });
+        }
+    }
+
+    if let (Some(active), Some(registry)) = (
+        world.get::<ActiveActions>(entity),
+        world.get_resource::<ActionRegistry>(),
+    ) {
+        for state in active.iter() {
+            let Some(action) = registry.get(state.action_type) else {
+                continue;
+            };
+            let effects = action.runtime_effects();
+            if effects.glucose_drain_per_sec != 0.0 {
+                out.push(Contribution {
+                    source: format!("{:?}", state.action_type),
+                    rate: -effects.glucose_drain_per_sec,
+                });
+            }
+        }
+    }
+
+    out
+}
+
+/// Per-second contributors to `PhysicalNeeds.stamina.aerobic`.
+fn stamina_contributions(world: &World, entity: Entity) -> Vec<Contribution> {
+    use crate::agent::actions::ActionRegistry;
+    let mut out = Vec::new();
+
+    if let (Some(active), Some(registry)) = (
+        world.get::<ActiveActions>(entity),
+        world.get_resource::<ActionRegistry>(),
+    ) {
+        for state in active.iter() {
+            let Some(action) = registry.get(state.action_type) else {
+                continue;
+            };
+            let effects = action.runtime_effects();
+            if effects.stamina_per_sec != 0.0 {
+                out.push(Contribution {
+                    source: format!("{:?}", state.action_type),
+                    rate: effects.stamina_per_sec,
+                });
+            }
+        }
+    }
+
+    out
+}
+
+/// Contributors to `PhysicalNeeds.hydration`. Mirrors
+/// `apply_activity_effects`'s `hydration_change` pipeline.
+fn hydration_contributions(world: &World, entity: Entity) -> Vec<Contribution> {
+    use crate::agent::activity::{ActivityConfig, CurrentActivity};
+    let mut out = Vec::new();
+
+    let cfg = world.get_resource::<ActivityConfig>();
+    if let Some(cfg) = cfg {
+        let base = cfg.base.effects.hydration_change;
+        if base != 0.0 {
+            out.push(Contribution {
+                source: "baseline".into(),
+                rate: base,
+            });
+        }
+        if let Some(activity) = world.get::<CurrentActivity>(entity) {
+            let activity_delta = cfg.get(activity).effects.hydration_change;
+            if activity_delta != 0.0 {
+                out.push(Contribution {
+                    source: format!("{:?}", activity),
+                    rate: activity_delta,
+                });
+            }
+        }
+    }
+
+    out
+}
+
+/// Render a contribution breakdown as a tooltip: each source on its own
+/// line, colored red for drains and green for gains, with a summed net
+/// rate at the bottom.
+fn render_contributions(ui: &mut egui::Ui, unit: &str, contribs: &[Contribution]) {
+    if contribs.is_empty() {
+        ui.label(
+            egui::RichText::new("(no active contributors)")
+                .italics()
+                .color(Color32::from_gray(170)),
+        );
+        return;
+    }
+    let net: f32 = contribs.iter().map(|c| c.rate).sum();
+    for c in contribs {
+        let color = if c.rate < 0.0 {
+            Color32::from_rgb(220, 120, 120)
+        } else {
+            Color32::from_rgb(120, 200, 140)
+        };
+        ui.horizontal(|ui| {
+            ui.colored_label(color, format!("{:+.2}{}", c.rate, unit));
+            ui.label(&c.source);
+        });
+    }
+    ui.separator();
+    let net_color = if net < 0.0 {
+        Color32::from_rgb(220, 120, 120)
+    } else {
+        Color32::from_rgb(120, 200, 140)
+    };
+    ui.colored_label(net_color, format!("net {:+.2}{}", net, unit));
+}
+
+/// Describe the current mood state as a list of contributors: current
+/// mood scalar, active emotions with intensity, and stress.
+fn mood_contributions(emotions: &EmotionalState) -> Vec<String> {
+    let mut out = Vec::new();
+    out.push(format!("mood scalar: {:+.2}", emotions.current_mood));
+    if emotions.stress_level > 1.0 {
+        out.push(format!("stress: {:.0}", emotions.stress_level));
+    }
+    for emo in &emotions.active_emotions {
+        out.push(format!(
+            "{:?} intensity {:.2} fuel {:.1}",
+            emo.emotion_type, emo.intensity, emo.fuel
+        ));
+    }
+    out
+}
+
+// ============================================================================
 // PLUGIN
 // ============================================================================
 
@@ -210,9 +367,9 @@ fn character_sheet_system(world: &mut World) {
 
     egui::SidePanel::right("character_sheet_panel")
         .resizable(true)
-        .default_width(360.0)
+        .default_width(380.0)
         .min_width(280.0)
-        .max_width(360.0)
+        .max_width(900.0)
         .show(ctx, |ui| {
             // Header
             ui.add_space(6.0);
@@ -395,7 +552,7 @@ fn render_overview(ui: &mut egui::Ui, world: &World, entity: Entity) {
         // with zero reserves = starving but eating; all three empty =
         // imminent death. A single "hunger %" bar can't disambiguate.
         let m = &needs.metabolism;
-        ui.label(egui::RichText::new("Fuel").strong());
+        ui.label(egui::RichText::new("Fuel  (hover a bar for why)").strong());
         vital_row(
             ui,
             "Stomach",
@@ -404,13 +561,15 @@ fn render_overview(ui: &mut egui::Ui, world: &World, entity: Entity) {
             0.1,
             0.3,
         );
-        vital_row(
+        vital_row_explained(
             ui,
             "Glucose",
             m.glucose,
             crate::agent::body::metabolism::GLUCOSE_MAX,
             0.2,
             0.4,
+            Some(glucose_contributions(world, entity)),
+            " /sec",
         );
         vital_row(
             ui,
@@ -422,24 +581,32 @@ fn render_overview(ui: &mut egui::Ui, world: &World, entity: Entity) {
         );
         urgency_line(ui, "Hunger urgency", urgency_for(UrgencySource::Hunger));
         if m.is_starving() {
-            ui.colored_label(SEVERITY_BAD, "⚠ STARVING — health is dropping");
+            ui.colored_label(SEVERITY_BAD, "⚠ STARVING: health is dropping");
         }
 
         ui.add_space(4.0);
         ui.label(egui::RichText::new("Body").strong());
         vital_row(ui, "Health", needs.health, 100.0, 0.3, 0.7);
-        // Thirst is "higher = worse" so flip the bar direction — show
-        // hydration instead of the raw thirst integer.
         let hydration = (needs.hydration / 100.0).clamp(0.0, 1.0);
-        vital_row_fraction(ui, "Hydration", hydration, 0.3, 0.7);
+        vital_row_fraction_explained(
+            ui,
+            "Hydration",
+            hydration,
+            0.3,
+            0.7,
+            Some(hydration_contributions(world, entity)),
+            " /sec",
+        );
         urgency_line(ui, "Thirst urgency", urgency_for(UrgencySource::Thirst));
-        vital_row(
+        vital_row_explained(
             ui,
             "Stamina",
             needs.stamina.aerobic,
             needs.stamina.aerobic_max,
             0.3,
             0.6,
+            Some(stamina_contributions(world, entity)),
+            " /sec",
         );
         urgency_line(ui, "Fatigue urgency", urgency_for(UrgencySource::Stamina));
 
@@ -534,7 +701,7 @@ fn render_overview(ui: &mut egui::Ui, world: &World, entity: Entity) {
         } else {
             Color32::LIGHT_GRAY
         };
-        ui.horizontal(|ui| {
+        let mood_row = ui.horizontal(|ui| {
             ui.label(egui::RichText::new("Mood").strong());
             ui.colored_label(mood_color, mood_label);
             ui.label(
@@ -546,6 +713,12 @@ fn render_overview(ui: &mut egui::Ui, world: &World, entity: Entity) {
             if stress > 20.0 {
                 ui.separator();
                 ui.colored_label(stress_color(stress), format!("stress {:.0}", stress));
+            }
+        });
+        mood_row.response.on_hover_ui(|ui| {
+            ui.label(egui::RichText::new("Mood — why?").strong());
+            for line in mood_contributions(emotions) {
+                ui.label(line);
             }
         });
 
@@ -577,30 +750,65 @@ fn vital_row(
     bad_below: f32,
     warn_above: f32,
 ) {
+    vital_row_explained(ui, label, value, max, bad_below, warn_above, None, "");
+}
+
+/// `vital_row` with an optional hover tooltip showing a contribution
+/// breakdown. Pass `Some(contribs)` + unit string (e.g. " /sec") to make
+/// the bar hoverable; `None` renders a plain non-hover row.
+fn vital_row_explained(
+    ui: &mut egui::Ui,
+    label: &str,
+    value: f32,
+    max: f32,
+    bad_below: f32,
+    warn_above: f32,
+    contribs: Option<Vec<Contribution>>,
+    unit: &str,
+) {
     let frac = (value / max).clamp(0.0, 1.0);
     let color = severity_color(frac, bad_below, warn_above);
     ui.horizontal(|ui| {
         ui.add_sized([80.0, 0.0], egui::Label::new(label));
-        ui.add(
+        let resp = ui.add(
             egui::ProgressBar::new(frac)
                 .desired_width(160.0)
                 .fill(color)
                 .text(format!("{:.0}/{:.0}", value, max)),
         );
+        if let Some(contribs) = contribs {
+            resp.on_hover_ui(|ui| {
+                ui.label(egui::RichText::new(format!("{} — why moving?", label)).strong());
+                render_contributions(ui, unit, &contribs);
+            });
+        }
     });
 }
 
-/// Like `vital_row` but the caller already computed a 0..1 fraction.
-fn vital_row_fraction(ui: &mut egui::Ui, label: &str, frac: f32, bad_below: f32, warn_above: f32) {
+fn vital_row_fraction_explained(
+    ui: &mut egui::Ui,
+    label: &str,
+    frac: f32,
+    bad_below: f32,
+    warn_above: f32,
+    contribs: Option<Vec<Contribution>>,
+    unit: &str,
+) {
     let color = severity_color(frac.clamp(0.0, 1.0), bad_below, warn_above);
     ui.horizontal(|ui| {
         ui.add_sized([80.0, 0.0], egui::Label::new(label));
-        ui.add(
+        let resp = ui.add(
             egui::ProgressBar::new(frac.clamp(0.0, 1.0))
                 .desired_width(160.0)
                 .fill(color)
                 .text(format!("{:.0}%", frac * 100.0)),
         );
+        if let Some(contribs) = contribs {
+            resp.on_hover_ui(|ui| {
+                ui.label(egui::RichText::new(format!("{} — why moving?", label)).strong());
+                render_contributions(ui, unit, &contribs);
+            });
+        }
     });
 }
 
