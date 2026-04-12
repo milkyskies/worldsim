@@ -23,6 +23,7 @@ fn make_walk_template(target: Vec2) -> ActionTemplate {
         base_cost: 1.0,
         behavior: Default::default(),
         locomotion_intensity: 0.0,
+        estimated_duration_ticks: None,
     }
 }
 

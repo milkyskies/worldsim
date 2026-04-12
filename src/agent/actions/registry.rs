@@ -435,6 +435,12 @@ pub trait Action: Send + Sync + 'static {
             consumes: self.plan_consumes(),
             base_cost: self.cost(),
             locomotion_intensity,
+            estimated_duration_ticks: match self.kind() {
+                ActionKind::Timed { duration_ticks } if duration_ticks < u32::MAX => {
+                    Some(duration_ticks)
+                }
+                _ => None,
+            },
         }
     }
 
@@ -482,6 +488,12 @@ pub trait Action: Send + Sync + 'static {
             consumes,
             base_cost: self.cost(),
             locomotion_intensity,
+            estimated_duration_ticks: match self.kind() {
+                ActionKind::Timed { duration_ticks } if duration_ticks < u32::MAX => {
+                    Some(duration_ticks)
+                }
+                _ => None,
+            },
         }
     }
 }

@@ -120,6 +120,11 @@ pub struct ActionTemplate {
     /// Derived from `behavior.intensity` at template creation; the brain
     /// overrides it at admission time with urgency-scaled resolution.
     pub locomotion_intensity: f32,
+    /// Estimated duration in ticks for effort-based cost estimation.
+    /// `Some(n)` for timed actions with known duration; `None` for
+    /// Movement actions (duration depends on distance) and indefinite
+    /// actions (Sleep, Idle, Construct with `u32::MAX`).
+    pub estimated_duration_ticks: Option<u32>,
 }
 
 /// A goal the agent wants to achieve.
