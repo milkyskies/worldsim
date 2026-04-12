@@ -21,11 +21,10 @@ use crate::agent::actions::channel::{Channel, ChannelUsage, Posture};
 use crate::agent::actions::registry::{
     Action, ActionContext, ActionKind, RuntimeEffects, TargetSource,
 };
+use crate::agent::body::effort::EffortProfile;
 use crate::agent::events::FailureReason;
 use crate::agent::mind::knowledge::{Concept, Node, Predicate, Triple, Value};
-use crate::constants::actions::graze::{
-    ALERTNESS_PER_SEC, BASE_COST, GLUCOSE_DRAIN_PER_SEC, STAMINA_PER_SEC, STOMACH_CARBS_PER_SEC,
-};
+use crate::constants::actions::graze::STOMACH_CARBS_PER_SEC;
 use crate::world::map::TileType;
 
 pub struct GrazeAction;
@@ -44,7 +43,7 @@ impl Action for GrazeAction {
     }
 
     fn cost(&self) -> f32 {
-        BASE_COST
+        2.0
     }
 
     fn target_source(&self) -> TargetSource {
@@ -69,12 +68,18 @@ impl Action for GrazeAction {
         Some(Posture::Moving)
     }
 
+    fn effort_profile(&self) -> EffortProfile {
+        EffortProfile {
+            locomotion: 0.15,
+            cognition: 0.05,
+            ..Default::default()
+        }
+    }
+
     fn runtime_effects(&self) -> RuntimeEffects {
         RuntimeEffects {
-            stamina_per_sec: STAMINA_PER_SEC,
-            glucose_drain_per_sec: GLUCOSE_DRAIN_PER_SEC,
             stomach_carbs_per_sec: STOMACH_CARBS_PER_SEC,
-            alertness_per_sec: ALERTNESS_PER_SEC,
+            alertness_per_sec: 2.0,
             ..Default::default()
         }
     }

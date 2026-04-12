@@ -13,6 +13,7 @@
 use crate::agent::actions::ActionType;
 use crate::agent::actions::channel::{Channel, ChannelUsage, Posture};
 use crate::agent::actions::registry::{Action, ActionKind, RuntimeEffects};
+use crate::agent::body::effort::EffortProfile;
 
 pub struct GroomAction;
 
@@ -46,12 +47,16 @@ impl Action for GroomAction {
         None
     }
 
+    fn effort_profile(&self) -> EffortProfile {
+        EffortProfile {
+            manipulation: 0.15,
+            ..Default::default()
+        }
+    }
+
     fn runtime_effects(&self) -> RuntimeEffects {
         RuntimeEffects {
-            alertness_per_sec: 1.0, // mild self-regulation
-            // Grooming is passive enough that curiosity drifts up
-            // slowly — the agent is mentally unstimulated while
-            // tending to themselves.
+            alertness_per_sec: 1.0,
             stimulation_per_sec: -0.01,
             ..Default::default()
         }

@@ -75,7 +75,12 @@ fn hungry_hunter_kills_and_eats_nearby_deer() {
 
     let hunter = world.spawn_agent(AgentConfig {
         pos: Vec2::new(50.0, 50.0),
-        metabolism: worldsim::agent::body::metabolism::Metabolism::at_urgency(0.95),
+        // Urgency 0.85 (not 0.95): the effort model now assigns energy
+        // cost to combat actions, so a nearly-starving hunter at 0.95
+        // may exhaust glucose before finishing the kill. 0.85 is hungry
+        // enough to drive the plan but leaves enough reserves for the
+        // multi-cycle attack and subsequent Eat.
+        metabolism: worldsim::agent::body::metabolism::Metabolism::at_urgency(0.85),
         knowledge: create_cultural_knowledge(Culture::Hunter),
         ..Default::default()
     });

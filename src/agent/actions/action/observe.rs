@@ -14,6 +14,7 @@
 use crate::agent::actions::ActionType;
 use crate::agent::actions::channel::{Channel, ChannelUsage, Posture};
 use crate::agent::actions::registry::{Action, ActionKind, RuntimeEffects};
+use crate::agent::body::effort::EffortProfile;
 
 pub struct ObserveAction;
 
@@ -51,14 +52,16 @@ impl Action for ObserveAction {
         None
     }
 
+    fn effort_profile(&self) -> EffortProfile {
+        EffortProfile {
+            cognition: 0.5,
+            ..Default::default()
+        }
+    }
+
     fn runtime_effects(&self) -> RuntimeEffects {
         RuntimeEffects {
-            alertness_per_sec: 3.0, // attending keeps the agent sharp
-            // Strong curiosity drain: watching something novel is the
-            // clearest way to satisfy the drive. Scales so a ~2s Observe
-            // window (120 ticks) erases ~0.16 of the drive — enough to
-            // cross below the `min_threshold: 0.05` gate if curiosity
-            // was mild to start with.
+            alertness_per_sec: 3.0,
             stimulation_per_sec: 0.08,
             ..Default::default()
         }

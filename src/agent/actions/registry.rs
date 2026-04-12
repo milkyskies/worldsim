@@ -136,17 +136,26 @@ pub enum ActionKind {
 // RUNTIME EFFECTS - Per-tick effects only
 // ============================================================================
 
-/// Per-tick effects applied while action is running
+/// Per-tick side effects applied while an action is running.
+///
+/// Physical costs (stamina drain, energy drain) are now derived from the
+/// action's [`EffortProfile`] via [`compute_action_cost`]. This struct
+/// holds only the behavioural and ingestion side effects that aren't
+/// derivable from physical effort.
+///
+/// [`EffortProfile`]: crate::agent::body::effort::EffortProfile
+/// [`compute_action_cost`]: crate::agent::body::effort::compute_action_cost
 #[derive(Debug, Clone, Default)]
 pub struct RuntimeEffects {
-    pub stamina_per_sec: f32,
-    /// Glucose burned per second while the action is active. Positive drain,
-    /// applied on top of the activity-level BMR drain.
-    pub glucose_drain_per_sec: f32,
+    /// Behavioural alertness change per second. Positive = the action keeps
+    /// the agent alert (walking, fighting). Negative = soporific (sleeping).
+    /// Distinct from the effort model's `cognitive_drain`, which is the
+    /// metabolic cost of mental work.
+    pub alertness_per_sec: f32,
     /// Carbs added to the stomach per second. Used by continuous-feed actions
     /// like Graze where the animal is ingesting plant matter over time.
+    /// This is a structural Ingestion side effect, not a cost.
     pub stomach_carbs_per_sec: f32,
-    pub alertness_per_sec: f32,
     /// Delta to `drives.companionship` per second. Positive = satisfies the drive
     /// (Converse, InitiateConversation). Negative = starves it (prolonged
     /// isolation, though that path is currently covered elsewhere).
@@ -330,7 +339,23 @@ pub trait Action: Send + Sync + 'static {
         true
     }
 
-    /// Per-tick effects (stamina drain while moving, etc.)
+    /// The physical effort channels this action engages.
+    ///
+    /// Returned profile feeds [`compute_action_cost`] which derives all
+    /// stamina drain and energy cost. Override this instead of
+    /// hard-coding physical drain constants.
+    ///
+    /// Default: zero profile (BMR only, no action cost).
+    ///
+    /// [`compute_action_cost`]: crate::agent::body::effort::compute_action_cost
+    fn effort_profile(&self) -> crate::agent::body::effort::EffortProfile {
+        crate::agent::body::effort::EffortProfile::ZERO
+    }
+
+    /// Per-tick side effects: alertness, ingestion, social, curiosity.
+    ///
+    /// Physical costs (stamina, energy) are derived from [`Self::effort_profile`]
+    /// via the effort model. This method holds only non-physical side effects.
     fn runtime_effects(&self) -> RuntimeEffects {
         RuntimeEffects::default()
     }
