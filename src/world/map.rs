@@ -1,3 +1,4 @@
+use crate::menu::{AppState, SimConfig};
 use crate::world::environment::BaseColor;
 use bevy::prelude::*;
 use noise::{NoiseFn, Simplex};
@@ -11,7 +12,7 @@ impl Plugin for MapPlugin {
             .register_type::<Tile>()
             .register_type::<TileType>()
             .insert_resource(WorldMap::new(WORLD_WIDTH, WORLD_HEIGHT))
-            .add_systems(Startup, setup_map);
+            .add_systems(OnEnter(AppState::InSim), setup_map);
     }
 }
 
@@ -601,9 +602,18 @@ fn carve_river(tiles: &mut [TileType], width: u32, height: u32, seed: u32) {
     }
 }
 
-pub fn setup_map(mut commands: Commands, mut map_resource: ResMut<WorldMap>) {
+pub fn setup_map(
+    mut commands: Commands,
+    mut map_resource: ResMut<WorldMap>,
+    sim_config: Option<Res<SimConfig>>,
+) {
     let width = map_resource.width;
     let height = map_resource.height;
+
+    // The main menu inserts SimConfig before transitioning into the sim. Falling
+    // back to the default seed lets headless test apps that skip the menu still
+    // generate a usable terrain.
+    let seed = sim_config.map(|c| c.seed).unwrap_or(DEFAULT_TERRAIN_SEED);
 
     // Initialize chunks.
     for cy in 0..MAP_CHUNKS_Y {
@@ -616,8 +626,8 @@ pub fn setup_map(mut commands: Commands, mut map_resource: ResMut<WorldMap>) {
     }
 
     // Generate terrain and elevation from noise, then store both in the map resource.
-    let terrain = generate_terrain(width, height, DEFAULT_TERRAIN_SEED);
-    let elevations = generate_elevations(&terrain, width, height, DEFAULT_TERRAIN_SEED);
+    let terrain = generate_terrain(width, height, seed);
+    let elevations = generate_elevations(&terrain, width, height, seed);
     for y in 0..height {
         for x in 0..width {
             let idx = (y * width + x) as usize;
@@ -634,6 +644,7 @@ pub fn setup_map(mut commands: Commands, mut map_resource: ResMut<WorldMap>) {
             TileMap,
             Transform::default(),
             Visibility::default(),
+            DespawnOnExit(AppState::InSim),
         ))
         .with_children(|parent| {
             for cy in 0..MAP_CHUNKS_Y {

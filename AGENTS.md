@@ -1,12 +1,19 @@
-# 🚨 AGENT WORKFLOW (MANDATORY) 🚨
+<!-- managed by milky-kit | DO NOT EDIT — changes will be overwritten on next sync -->
 
-> **THIS IS NOT OPTIONAL.** Every agent MUST follow this workflow exactly.
-> Failure to follow this workflow causes merge conflicts, lost work, and broken builds.
+# Agent Instructions (OpenCode compatibility)
 
-### Agent Behavior Guidelines
+Claude Code reads `CLAUDE.md` and `.claude/rules/*.md` natively. This file exists so OpenCode (and other agent tools) can find them too.
 
-- **DO NOT fix unrelated errors** - If typecheck or linting reveals errors outside your current task scope, ignore them. Only fix errors caused by your changes.
-- **Stay focused** - Don't get sidetracked by pre-existing issues. Complete your assigned task first.
-- **Report blockers** - If pre-existing errors block your work, inform the user rather than attempting to fix them yourself.
+## External file loading
 
-For more details, see README.md and QUICKSTART.md.
+When you see a file reference like `@.claude/rules/general.md`, use your Read tool to load it. Lazy — load based on what the current task actually needs, not preemptively. Loaded content is mandatory instruction.
+
+Always-loaded rules are declared in `opencode.json` (`instructions` field). The rules below are topical — load them when relevant.
+
+## Rules library
+
+- @.claude/rules/claude-meta.md
+- @.claude/rules/module-docs.md
+- @.claude/rules/rust-style.md
+- @.claude/rules/testing.md
+- @.claude/rules/worktrees.md

@@ -305,7 +305,10 @@ impl Plugin for CharacterSheetPlugin {
                 agent_filter: crate::agent::brains::trace::AgentFilter::All,
                 ..Default::default()
             })
-            .add_systems(EguiPrimaryContextPass, character_sheet_system);
+            .add_systems(
+                EguiPrimaryContextPass,
+                character_sheet_system.run_if(crate::menu::sim_interactive),
+            );
     }
 }
 
