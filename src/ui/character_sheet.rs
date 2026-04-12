@@ -376,126 +376,279 @@ fn visible_tabs_for_entity(
 // ============================================================================
 
 fn render_overview(ui: &mut egui::Ui, world: &World, entity: Entity) {
-    // Position
+    // ── Right now ─────────────────────────────────────────────────────
+    let action_text = current_action_summary(world, entity);
+    let reason_text = world
+        .get::<BrainState>(entity)
+        .and_then(winning_reasoning)
+        .map(|s| s.to_string());
+
+    ui.horizontal(|ui| {
+        ui.label(egui::RichText::new("▶").color(Color32::YELLOW));
+        ui.label(egui::RichText::new(&action_text).strong());
+    });
+    if let Some(reason) = reason_text {
+        ui.label(
+            egui::RichText::new(format!("— {}", reason))
+                .italics()
+                .color(Color32::LIGHT_GRAY),
+        );
+    }
     if let Some(transform) = world.get::<Transform>(entity) {
         let pos = transform.translation.truncate();
         ui.label(
-            egui::RichText::new(format!("({:.0}, {:.0})", pos.x, pos.y))
-                .color(egui::Color32::GRAY)
+            egui::RichText::new(format!("at ({:.0}, {:.0})", pos.x, pos.y))
+                .color(Color32::GRAY)
                 .small(),
         );
     }
 
-    // Current action + target
-    ui.heading("Current Action");
-    ui.label(current_action_summary(world, entity));
-
-    // Why (from winning brain proposal)
-    if let Some(brain) = world.get::<BrainState>(entity)
-        && let Some(reason) = winning_reasoning(brain)
-    {
-        ui.label(egui::RichText::new(format!("Why: {}", reason)).italics());
-    }
     ui.separator();
 
-    // Plan steps — show every Executing plan's remaining steps and the
-    // top Considering / Background plan's outline so the HUD reflects
-    // the full cognitive memory instead of a single active plan.
+    // ── Survival vitals (the numbers that actually predict death) ─────
+    if let Some(needs) = world.get::<PhysicalNeeds>(entity) {
+        let urgencies = world
+            .get::<CentralNervousSystem>(entity)
+            .map(|cns| cns.urgencies.as_slice())
+            .unwrap_or(&[]);
+        let urgency_for = |source: UrgencySource| -> f32 {
+            urgencies
+                .iter()
+                .find(|u| u.source == source)
+                .map(|u| u.value)
+                .unwrap_or(0.0)
+        };
+
+        // Hunger is a 3-pool chain. Show all three so the cause is
+        // obvious: empty stomach with full reserves = fine; full stomach
+        // with zero reserves = starving but eating; all three empty =
+        // imminent death. A single "hunger %" bar can't disambiguate.
+        let m = &needs.metabolism;
+        ui.label(egui::RichText::new("Fuel").strong());
+        vital_row(
+            ui,
+            "Stomach",
+            m.stomach_fullness(),
+            crate::agent::body::metabolism::STOMACH_CAPACITY,
+            0.1,
+            0.3,
+        );
+        vital_row(
+            ui,
+            "Glucose",
+            m.glucose,
+            crate::agent::body::metabolism::GLUCOSE_MAX,
+            0.2,
+            0.4,
+        );
+        vital_row(
+            ui,
+            "Reserves",
+            m.reserves,
+            crate::agent::body::metabolism::RESERVES_MAX,
+            0.2,
+            0.5,
+        );
+        urgency_line(ui, "Hunger urgency", urgency_for(UrgencySource::Hunger));
+        if m.is_starving() {
+            ui.colored_label(SEVERITY_BAD, "⚠ STARVING — health is dropping");
+        }
+
+        ui.add_space(4.0);
+        ui.label(egui::RichText::new("Body").strong());
+        vital_row(ui, "Health", needs.health, 100.0, 0.3, 0.7);
+        // Thirst is "higher = worse" so flip the bar direction — show
+        // hydration instead of the raw thirst integer.
+        let hydration = 1.0 - (needs.thirst / 100.0).clamp(0.0, 1.0);
+        vital_row_fraction(ui, "Hydration", hydration, 0.3, 0.7);
+        urgency_line(ui, "Thirst urgency", urgency_for(UrgencySource::Thirst));
+        vital_row(
+            ui,
+            "Stamina",
+            needs.stamina.aerobic,
+            needs.stamina.aerobic_max,
+            0.3,
+            0.6,
+        );
+        urgency_line(ui, "Fatigue urgency", urgency_for(UrgencySource::Stamina));
+
+        if let Some(src) = needs.last_health_damage {
+            ui.label(
+                egui::RichText::new(format!("Last damage: {:?}", src))
+                    .color(Color32::LIGHT_RED)
+                    .small(),
+            );
+        }
+    }
+
+    ui.separator();
+
+    // ── Plan (what does the agent think it's doing across time?) ─────
     if let Some(memory) = world.get::<PlanMemory>(entity) {
         let executing: Vec<_> = memory.in_state(PlanState::Executing).collect();
-        if !executing.is_empty() {
-            ui.heading("Executing plans");
+        if executing.is_empty() {
+            ui.label(
+                egui::RichText::new("No plan")
+                    .italics()
+                    .color(Color32::GRAY),
+            );
+        } else {
+            ui.label(egui::RichText::new("Plan").strong());
             for plan in executing {
                 if plan.steps.is_empty() {
                     continue;
                 }
-                for (i, step) in plan.steps.iter().enumerate() {
-                    let is_current = i == plan.current_step;
-                    let is_done = i < plan.current_step;
-                    let step_text = format!("{}. {}", i + 1, step.name);
-                    ui.horizontal(|ui| {
-                        if is_current {
-                            ui.colored_label(Color32::YELLOW, "▶");
-                            ui.strong(&step_text);
-                        } else if is_done {
-                            ui.colored_label(Color32::GRAY, "✓");
-                            ui.label(
-                                egui::RichText::new(&step_text)
-                                    .strikethrough()
-                                    .color(Color32::GRAY),
-                            );
+                let steps: Vec<String> = plan
+                    .steps
+                    .iter()
+                    .enumerate()
+                    .map(|(i, step)| {
+                        if i < plan.current_step {
+                            format!("✓{}", step.name)
+                        } else if i == plan.current_step {
+                            format!("▶{}", step.name)
                         } else {
-                            ui.label(&step_text);
+                            step.name.clone()
                         }
-                    });
-                }
+                    })
+                    .collect();
+                ui.label(steps.join("  →  "));
             }
-            ui.separator();
         }
         let background_count = memory.count_state(PlanState::Background)
             + memory.count_state(PlanState::Considering)
             + memory.count_state(PlanState::Suspended);
         if background_count > 0 {
             ui.label(
-                egui::RichText::new(format!("{background_count} plan(s) in background")).italics(),
+                egui::RichText::new(format!("+{background_count} in background"))
+                    .small()
+                    .color(Color32::GRAY),
             );
-            ui.separator();
         }
     }
 
+    ui.separator();
+
+    // ── Inventory (one line, not a whole tab for 2 items) ────────────
+    if let Some(inv) = world.get::<ItemSlots>(entity) {
+        let items: Vec<String> = inv
+            .group_by_concept()
+            .into_iter()
+            .map(|(c, q)| format!("{:?}×{}", c, q))
+            .collect();
+        ui.horizontal(|ui| {
+            ui.label(egui::RichText::new("Holding").strong());
+            if items.is_empty() {
+                ui.label(
+                    egui::RichText::new("nothing")
+                        .italics()
+                        .color(Color32::GRAY),
+                );
+            } else {
+                ui.label(items.join(", "));
+            }
+        });
+    }
+
+    ui.separator();
+
+    // ── Mood / emotions (compact) ────────────────────────────────────
     if let Some(emotions) = world.get::<EmotionalState>(entity) {
-        ui.heading("Emotions");
-        if emotions.active_emotions.is_empty() {
-            ui.label(egui::RichText::new("No strong feelings").italics());
+        let mood = emotions.current_mood;
+        let mood_label = mood_text(mood);
+        let mood_color = if mood > 0.2 {
+            Color32::from_rgb(100, 220, 140)
+        } else if mood < -0.2 {
+            Color32::from_rgb(220, 120, 120)
         } else {
+            Color32::LIGHT_GRAY
+        };
+        ui.horizontal(|ui| {
+            ui.label(egui::RichText::new("Mood").strong());
+            ui.colored_label(mood_color, mood_label);
+            ui.label(
+                egui::RichText::new(format!("({:+.2})", mood))
+                    .small()
+                    .color(Color32::GRAY),
+            );
+            let stress = emotions.stress_level;
+            if stress > 20.0 {
+                ui.separator();
+                ui.colored_label(stress_color(stress), format!("stress {:.0}", stress));
+            }
+        });
+
+        if !emotions.active_emotions.is_empty() {
             let mut sorted: Vec<_> = emotions.active_emotions.iter().collect();
             sorted.sort_by(|a, b| {
                 b.intensity
                     .partial_cmp(&a.intensity)
                     .unwrap_or(std::cmp::Ordering::Equal)
             });
-            for emo in &sorted {
-                ui.horizontal(|ui| {
+            ui.horizontal_wrapped(|ui| {
+                for emo in sorted.iter().take(4) {
                     let (label, color) = emotion_label_color(emo.emotion_type, emo.intensity);
-                    ui.colored_label(color, format!("{:?}", emo.emotion_type));
-                    ui.add(
-                        egui::ProgressBar::new(emo.intensity)
-                            .desired_width(160.0)
-                            .text(label),
-                    );
-                });
-            }
+                    ui.colored_label(color, format!("{} {:.0}%", label, emo.intensity * 100.0));
+                }
+            });
         }
-        ui.separator();
-
-        // Mood and stress
-        let mood = emotions.current_mood;
-        let mood_label = mood_text(mood);
-        let mood_color = if mood > 0.0 {
-            Color32::GREEN
-        } else if mood < 0.0 {
-            Color32::RED
-        } else {
-            Color32::GRAY
-        };
-        ui.horizontal(|ui| {
-            ui.label("Mood:");
-            ui.colored_label(mood_color, mood_label);
-            ui.label(format!("({:+.2})", mood));
-        });
-
-        let stress = emotions.stress_level;
-        let stress_color = stress_color(stress);
-        ui.horizontal(|ui| {
-            ui.label("Stress:");
-            ui.add(
-                egui::ProgressBar::new(stress / 100.0)
-                    .desired_width(160.0)
-                    .fill(stress_color)
-                    .text(format!("{:.0}", stress)),
-            );
-        });
     }
+}
+
+/// Horizontal "label | progress bar | number" row keyed to a 0..max
+/// value, colored red-yellow-green by the value's fraction against
+/// `bad_below` and `warn_above` thresholds (both in 0..1).
+fn vital_row(
+    ui: &mut egui::Ui,
+    label: &str,
+    value: f32,
+    max: f32,
+    bad_below: f32,
+    warn_above: f32,
+) {
+    let frac = (value / max).clamp(0.0, 1.0);
+    let color = severity_color(frac, bad_below, warn_above);
+    ui.horizontal(|ui| {
+        ui.add_sized([80.0, 0.0], egui::Label::new(label));
+        ui.add(
+            egui::ProgressBar::new(frac)
+                .desired_width(160.0)
+                .fill(color)
+                .text(format!("{:.0}/{:.0}", value, max)),
+        );
+    });
+}
+
+/// Like `vital_row` but the caller already computed a 0..1 fraction.
+fn vital_row_fraction(ui: &mut egui::Ui, label: &str, frac: f32, bad_below: f32, warn_above: f32) {
+    let color = severity_color(frac.clamp(0.0, 1.0), bad_below, warn_above);
+    ui.horizontal(|ui| {
+        ui.add_sized([80.0, 0.0], egui::Label::new(label));
+        ui.add(
+            egui::ProgressBar::new(frac.clamp(0.0, 1.0))
+                .desired_width(160.0)
+                .fill(color)
+                .text(format!("{:.0}%", frac * 100.0)),
+        );
+    });
+}
+
+/// Small subordinate line showing a CNS urgency score. Hidden if the
+/// urgency is essentially zero to avoid noise.
+fn urgency_line(ui: &mut egui::Ui, label: &str, urgency: f32) {
+    if urgency < 0.05 {
+        return;
+    }
+    let color = severity_color(1.0 - urgency, 0.3, 0.6);
+    ui.horizontal(|ui| {
+        ui.add_space(16.0);
+        ui.label(
+            egui::RichText::new(format!("{}:", label))
+                .small()
+                .color(Color32::GRAY),
+        );
+        ui.colored_label(color, format!("{:.2}", urgency));
+    });
 }
 
 // ============================================================================
