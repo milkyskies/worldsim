@@ -100,7 +100,6 @@ fn check_components(world: &mut World) {
                 0.0,
                 n.stamina.anaerobic_max,
             );
-            assert_in_range(entity, "health", n.health, 0.0, 100.0);
             assert_in_range(entity, "wakefulness", n.wakefulness, 0.0, 1.0);
         }
         if let Some(c) = consciousness {

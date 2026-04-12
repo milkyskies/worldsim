@@ -22,8 +22,12 @@ impl Plugin for BiologyPlugin {
                 Update,
                 (
                     setup_biology,
-                    (body::process_starvation, body::check_death).chain(),
-                    body::process_healing,
+                    (
+                        body::process_starvation,
+                        body::check_death,
+                        body::process_healing,
+                    )
+                        .chain(),
                     // Combat resolution runs after action execution so it
                     // can read this frame's ActionCompleted messages.
                     combat::resolve_combat_hits

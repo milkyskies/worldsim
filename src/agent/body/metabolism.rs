@@ -68,11 +68,6 @@ pub const GLUCOSE_OVERFLOW_RATE: f32 = 0.4;
 /// `GLUCOSE_MOBILIZE_THRESHOLD` (per second). "Burning fat" during fasting.
 pub const RESERVE_MOBILIZE_RATE: f32 = 0.8;
 
-/// HP damage per second when glucose is critical and reserves are empty.
-/// Calibrated so a fresh agent without food survives ~several in-game days
-/// before dying, not minutes.
-pub const STARVATION_DAMAGE_PER_SEC: f32 = 0.3;
-
 /// Macros carried by a food item. Lookup via `food_macros` for each edible
 /// `Concept`. Non-edible concepts return `None`.
 #[derive(Debug, Clone, Copy, PartialEq)]

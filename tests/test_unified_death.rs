@@ -9,11 +9,15 @@
 //! #350 replaces that path with a unified `die()` helper that inserts a
 //! `Becomes InPlace Corpse` component, so every cause of death (starvation,
 //! combat, future disease / drowning / old age) routes through the same
-//! substrate that combat kills already use. These tests exercise the
-//! starvation → corpse path end-to-end.
+//! substrate that combat kills already use.
+//!
+//! Since #456, death triggers when a vital organ (heart, brain, lungs) hits
+//! 0 HP rather than when a flat `health` scalar reaches zero. Starvation
+//! cascades through body nodes until the heart fails.
 
 use bevy::math::Vec2;
 use bevy::prelude::With;
+use worldsim::agent::biology::body::{Body, BodyNodeKind};
 use worldsim::agent::body::metabolism::Metabolism;
 use worldsim::agent::body::needs::PhysicalNeeds;
 use worldsim::agent::events::SimEvent;
@@ -22,11 +26,23 @@ use worldsim::agent::mind::knowledge::Concept;
 use worldsim::agent::{Alive, Dead};
 use worldsim::testing::{AgentConfig, TestWorld};
 
-/// A starving agent whose health reaches zero must morph into a Corpse in
-/// place — preserving its entity ID — rather than despawning outright.
+/// Helper: destroy the heart so the next check_death pass triggers death.
+fn destroy_heart(world: &mut TestWorld, agent: bevy::prelude::Entity) {
+    world
+        .app_mut()
+        .world_mut()
+        .get_mut::<Body>(agent)
+        .expect("agent has a body")
+        .node_mut(BodyNodeKind::Heart)
+        .expect("body has a heart")
+        .current_hp = 0.0;
+}
+
+/// A starving agent whose heart is destroyed must morph into a Corpse in
+/// place -- preserving its entity ID -- rather than despawning outright.
 /// This is the #356 regression test the original fix never actually wrote.
 #[test]
-fn starvation_death_transforms_agent_into_corpse_in_place() {
+fn vital_organ_death_transforms_agent_into_corpse_in_place() {
     let mut world = TestWorld::with_seed(42);
     let agent = world.spawn_agent(AgentConfig {
         pos: Vec2::new(50.0, 50.0),
@@ -34,23 +50,13 @@ fn starvation_death_transforms_agent_into_corpse_in_place() {
         ..Default::default()
     });
 
-    // Stage the agent just above the death threshold. With TestWorld's
-    // `ticks_per_second = 60` (`dt ≈ 0.0167s`) and `STARVATION_DAMAGE = 0.3/s`,
-    // a 0.1-HP cushion drains in about 20 ticks of `process_starvation`,
-    // at which point `check_death` -> `die()` -> `Becomes InPlace Corpse`
-    // -> `becomes_system` -> `kill_into_corpse` fires and the agent morphs.
-    world
-        .app_mut()
-        .world_mut()
-        .get_mut::<PhysicalNeeds>(agent)
-        .expect("agent has physical needs")
-        .health = 0.1;
+    // Damage the heart to near-zero. The starvation cascade (from
+    // Metabolism::empty()) will finish it off within a few ticks,
+    // then check_death detects the destroyed heart and calls die().
+    destroy_heart(&mut world, agent);
 
     world.tick(60);
 
-    // Entity ID survives the in-place transformation — this is the point
-    // of the fix. The legacy despawn path would have deleted the entity
-    // outright, leaving any lingering memory references dangling.
     assert!(
         world.entity_exists(agent),
         "entity ID must survive the in-place corpse transformation"
@@ -64,9 +70,9 @@ fn starvation_death_transforms_agent_into_corpse_in_place() {
     );
 }
 
-/// An agent that starves without direct health manipulation — pools drain,
-/// gradient escalates, HP damage accumulates, death fires, corpse appears.
-/// Exercises the full metabolism -> starvation -> death chain.
+/// An agent that starves without direct health manipulation -- pools drain,
+/// cascade escalates through body nodes, heart fails, corpse appears.
+/// Exercises the full metabolism -> starvation cascade -> death chain.
 #[test]
 fn prolonged_starvation_eventually_spawns_a_corpse() {
     let mut world = TestWorld::with_seed(42);
@@ -76,20 +82,10 @@ fn prolonged_starvation_eventually_spawns_a_corpse() {
         ..Default::default()
     });
 
-    // Start with low but non-critical health. Starvation damage ticks
-    // while the metabolism stays empty (is_starving() is true from the
-    // start because Metabolism::empty() has zero glucose + zero reserves).
-    world
-        .app_mut()
-        .world_mut()
-        .get_mut::<PhysicalNeeds>(agent)
-        .expect("agent has physical needs")
-        .health = 5.0;
-
-    // 2000 ticks is enough for STARVATION_DAMAGE_PER_SEC (0.3/s) to
-    // accumulate beyond 5.0 HP even at the generous tick dt the simulation
-    // uses, then trigger check_death, Becomes, and the in-place morph.
-    world.tick(2000);
+    // Metabolism::empty() means is_starving() is true from tick 1.
+    // The starvation cascade runs: limbs -> gut -> liver -> heart -> death.
+    // This takes longer than the old flat-health approach, so we tick more.
+    world.tick(20_000);
 
     assert!(
         world.entity_exists(agent),
@@ -117,12 +113,7 @@ fn corpse_emits_death_event_exactly_once() {
         ..Default::default()
     });
 
-    world
-        .app_mut()
-        .world_mut()
-        .get_mut::<PhysicalNeeds>(agent)
-        .expect("agent has physical needs")
-        .health = 0.1;
+    destroy_heart(&mut world, agent);
 
     // Tick well past death so the corpse has many opportunities to re-fire.
     world.tick(120);
@@ -160,13 +151,7 @@ fn alive_marker_removed_and_dead_inserted_on_death() {
         "living agent must not have Dead marker"
     );
 
-    world
-        .app_mut()
-        .world_mut()
-        .get_mut::<PhysicalNeeds>(agent)
-        .expect("agent has physical needs")
-        .health = 0.1;
-
+    destroy_heart(&mut world, agent);
     world.tick(60);
 
     assert!(
@@ -180,7 +165,7 @@ fn alive_marker_removed_and_dead_inserted_on_death() {
 }
 
 /// `With<Alive>` queries must skip corpses. This is the primary liveness
-/// predicate — it replaces the old `(With<Agent>, Without<Becomes>)` pattern.
+/// predicate -- it replaces the old `(With<Agent>, Without<Becomes>)` pattern.
 #[test]
 fn alive_query_skips_corpses() {
     let mut world = TestWorld::with_seed(42);
@@ -199,13 +184,7 @@ fn alive_query_skips_corpses() {
     };
     assert!(alive_before >= 1, "at least one living agent");
 
-    world
-        .app_mut()
-        .world_mut()
-        .get_mut::<PhysicalNeeds>(agent)
-        .expect("agent has physical needs")
-        .health = 0.1;
-
+    destroy_heart(&mut world, agent);
     world.tick(60);
 
     let alive_after = {
@@ -223,7 +202,7 @@ fn alive_query_skips_corpses() {
 }
 
 /// Biology components (PhysicalNeeds, Body) must remain on the corpse for
-/// post-mortem inspection, but their values must be frozen — no metabolism
+/// post-mortem inspection, but their values must be frozen -- no metabolism
 /// ticking, no healing, no starvation damage after death.
 #[test]
 fn corpse_biology_is_frozen() {
@@ -234,35 +213,36 @@ fn corpse_biology_is_frozen() {
         ..Default::default()
     });
 
-    world
-        .app_mut()
-        .world_mut()
-        .get_mut::<PhysicalNeeds>(agent)
-        .expect("agent has physical needs")
-        .health = 0.1;
-
-    // Let the agent die.
+    destroy_heart(&mut world, agent);
     world.tick(60);
 
     let entity_type = world.get::<EntityType>(agent);
     assert_eq!(entity_type.0, Concept::Corpse, "agent must be dead");
 
-    // Snapshot the corpse's physical needs.
-    let health_after_death = world.get::<PhysicalNeeds>(agent).health;
+    // Snapshot the corpse's state.
     let glucose_after_death = world.get::<PhysicalNeeds>(agent).metabolism.glucose;
+    let heart_hp_after_death = world
+        .get::<Body>(agent)
+        .node(BodyNodeKind::Heart)
+        .unwrap()
+        .current_hp;
 
-    // Tick 200 more times — biology systems should not touch the corpse.
+    // Tick 200 more times -- biology systems should not touch the corpse.
     world.tick(200);
 
-    let health_later = world.get::<PhysicalNeeds>(agent).health;
     let glucose_later = world.get::<PhysicalNeeds>(agent).metabolism.glucose;
+    let heart_hp_later = world
+        .get::<Body>(agent)
+        .node(BodyNodeKind::Heart)
+        .unwrap()
+        .current_hp;
 
-    assert_eq!(
-        health_after_death, health_later,
-        "corpse health must not change (was {health_after_death}, now {health_later})"
-    );
     assert_eq!(
         glucose_after_death, glucose_later,
         "corpse glucose must not change (was {glucose_after_death}, now {glucose_later})"
+    );
+    assert_eq!(
+        heart_hp_after_death, heart_hp_later,
+        "corpse heart HP must not change (was {heart_hp_after_death}, now {heart_hp_later})"
     );
 }

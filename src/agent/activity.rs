@@ -64,7 +64,6 @@ pub struct ActivityEffects {
     /// "_change" field in this struct now has the same "+ = good,
     /// - = bad" polarity.
     pub hydration_change: f32,
-    pub health_change: f32, // +healing / -damage
 
     /// Consciousness
     pub alertness_change: f32, // +waking up / -falling asleep

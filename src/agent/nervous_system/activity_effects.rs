@@ -157,14 +157,6 @@ pub fn apply_activity_effects(
         let d_hydration = (base_config.hydration_change + config.hydration_change) * dt;
         physical.hydration = (physical.hydration + d_hydration).clamp(0.0, max_stat);
 
-        // Health
-        let d_health = (base_config.health_change + config.health_change) * dt;
-        physical.health = (physical.health + d_health).clamp(0.0, max_stat);
-        if d_health < 0.0 {
-            physical.last_health_damage =
-                Some(crate::agent::body::needs::HealthDamageSource::Exertion);
-        }
-
         // --- CONSCIOUSNESS (0-1) ---
         let d_alertness = (base_config.alertness_change + config.alertness_change) * (dt * 0.01); // 0-100 rate to 0-1
         consciousness.alertness = (consciousness.alertness + d_alertness).clamp(0.0, 1.0);
