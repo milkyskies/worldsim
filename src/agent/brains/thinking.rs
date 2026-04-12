@@ -127,6 +127,22 @@ pub struct ActionTemplate {
     pub estimated_duration_ticks: Option<u32>,
 }
 
+impl ActionTemplate {
+    /// Escalate the behavior's intensity based on drive urgency (0-1).
+    ///
+    /// A starving agent sprints to food; a mildly hungry one walks.
+    /// Updates both `behavior.intensity` and the cached
+    /// `locomotion_intensity` scalar.
+    pub fn escalate_intensity(&mut self, urgency: f32) {
+        self.behavior.intensity = self
+            .behavior
+            .intensity
+            .clone()
+            .escalate_for_urgency(urgency);
+        self.locomotion_intensity = self.behavior.intensity.resolve();
+    }
+}
+
 /// A goal the agent wants to achieve.
 #[derive(Debug, Clone, Reflect)]
 pub struct Goal {

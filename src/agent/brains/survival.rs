@@ -58,6 +58,14 @@ pub fn survival_brain_propose(
     let urgency_score = top.value * 100.0;
     let intent = Intent::from_urgency_source(top.source);
 
+    let escalated_template = |action: &dyn crate::agent::actions::registry::Action,
+                              target: Option<bevy::prelude::Entity>|
+     -> super::thinking::ActionTemplate {
+        let mut t = action.to_template(target);
+        t.escalate_intensity(top.value);
+        t
+    };
+
     match top.source {
         UrgencySource::Hunger => {
             // Direct reflex: eat if we have something edible in hand.
@@ -66,7 +74,7 @@ pub fn survival_brain_propose(
             {
                 return Some(BrainProposal {
                     brain: BrainType::Survival,
-                    action: action.to_template(None),
+                    action: escalated_template(action, None),
                     urgency: urgency_score,
                     intent,
                     reasoning: format!("Hunger urgency {:.2} — eating!", top.value),
@@ -81,7 +89,7 @@ pub fn survival_brain_propose(
             if let Some(action) = action_registry.get(ActionType::Drink) {
                 return Some(BrainProposal {
                     brain: BrainType::Survival,
-                    action: action.to_template(None),
+                    action: escalated_template(action, None),
                     urgency: urgency_score,
                     intent,
                     reasoning: format!("Thirst urgency {:.2} — drinking!", top.value),
@@ -110,7 +118,7 @@ pub fn survival_brain_propose(
                 };
                 return Some(BrainProposal {
                     brain: BrainType::Survival,
-                    action: action.to_template(None),
+                    action: escalated_template(action, None),
                     urgency: urgency_score,
                     intent,
                     reasoning,
@@ -121,7 +129,7 @@ pub fn survival_brain_propose(
             if let Some(action) = action_registry.get(ActionType::Idle) {
                 return Some(BrainProposal {
                     brain: BrainType::Survival,
-                    action: action.to_template(None),
+                    action: escalated_template(action, None),
                     urgency: urgency_score,
                     intent,
                     reasoning: format!("Pain urgency {:.2} — can't move!", top.value),
@@ -132,7 +140,7 @@ pub fn survival_brain_propose(
             if let Some(action) = action_registry.get(ActionType::Flee) {
                 return Some(BrainProposal {
                     brain: BrainType::Survival,
-                    action: action.to_template(context.most_feared_entity),
+                    action: escalated_template(action, context.most_feared_entity),
                     urgency: urgency_score,
                     intent,
                     reasoning: format!("Fear urgency {:.2} — fleeing!", top.value),
@@ -536,6 +544,66 @@ mod tests {
             behavior.intent,
             MotorIntent::Hunger,
             "Eat should carry Hunger intent"
+        );
+    }
+
+    #[test]
+    fn high_urgency_escalates_flee_intensity() {
+        use crate::agent::actions::motor::IntensityPolicy;
+
+        let ontology = setup_ontology();
+        let physical = PhysicalNeeds::default();
+        // Fear urgency 0.9 → should escalate (though Flee is already Maximal)
+        let cns = cns_with_top(UrgencySource::Fear, 0.9);
+        let feared = bevy::prelude::Entity::from_bits(99);
+        let context = SurvivalBrainContext {
+            physical: &physical,
+            cns: &cns,
+            most_feared_entity: Some(feared),
+        };
+
+        let inventory = crate::agent::item_slots::ItemSlots::agent_carry();
+        let active = ActiveActions::default();
+
+        let mut registry = crate::agent::actions::ActionRegistry::default();
+        registry.register(crate::agent::actions::action::FleeAction);
+
+        let proposal = survival_brain_propose(context, &inventory, &active, &ontology, &registry)
+            .expect("should propose Flee");
+
+        // Flee's default is already Maximal; escalation should preserve it.
+        assert!(
+            matches!(proposal.action.behavior.intensity, IntensityPolicy::Maximal),
+            "Flee at high urgency should be Maximal"
+        );
+    }
+
+    #[test]
+    fn moderate_thirst_keeps_normal_intensity() {
+        use crate::agent::actions::motor::IntensityPolicy;
+
+        let ontology = setup_ontology();
+        let physical = PhysicalNeeds::default();
+        let cns = cns_with_top(UrgencySource::Thirst, 0.3);
+        let context = context_with_urgency(&physical, &cns);
+
+        let inventory = crate::agent::item_slots::ItemSlots::agent_carry();
+        let active = ActiveActions::default();
+
+        let mut registry = crate::agent::actions::ActionRegistry::default();
+        registry.register(crate::agent::actions::action::DrinkAction);
+
+        let proposal = survival_brain_propose(context, &inventory, &active, &ontology, &registry)
+            .expect("should propose Drink");
+
+        // Drink's default is Fixed(0.0) — not a locomotion action, so
+        // escalation doesn't apply.
+        assert!(
+            matches!(
+                proposal.action.behavior.intensity,
+                IntensityPolicy::Fixed(_)
+            ),
+            "Drink at moderate urgency should keep Fixed intensity"
         );
     }
 }

@@ -156,6 +156,7 @@ fn propose_curiosity(
         let observe = action_registry.get(ActionType::Observe)?;
         let mut template = observe.to_template(None);
         template.target_entity = Some(target);
+        template.escalate_intensity(u.value);
         return Some(BrainProposal {
             brain: BrainType::Emotional,
             action: template,
@@ -165,9 +166,11 @@ fn propose_curiosity(
         });
     }
     let explore = action_registry.get(ActionType::Explore)?;
+    let mut template = explore.to_template(None);
+    template.escalate_intensity(u.value);
     Some(BrainProposal {
         brain: BrainType::Emotional,
-        action: explore.to_template(None),
+        action: template,
         urgency,
         intent: Intent::from_urgency_source(u.source),
         reasoning: format!("Curious — exploring ({:.2})", u.value),
@@ -477,10 +480,12 @@ fn evaluate_entity_emotions(
         && fear > FEAR_ENTITY_THRESHOLD
         && let Some(action) = action_registry.get(ActionType::Flee)
     {
+        let mut template = action.to_template(Some(entity));
+        template.escalate_intensity(fear);
         best = Some((
             BrainProposal {
                 brain: BrainType::Emotional,
-                action: action.to_template(Some(entity)),
+                action: template,
                 urgency: fear * FEAR_ENTITY_URGENCY_MULTIPLIER,
                 intent: Intent::SatisfySafety,
                 reasoning: format!("I'm scared of {:?} (fear: {:.2})", entity, fear),
@@ -494,10 +499,12 @@ fn evaluate_entity_emotions(
         && joy > JOY_ENTITY_THRESHOLD
         && let Some(action) = action_registry.get(ActionType::Walk)
     {
+        let mut template = action.to_template(Some(entity));
+        template.escalate_intensity(joy);
         best = Some((
             BrainProposal {
                 brain: BrainType::Emotional,
-                action: action.to_template(Some(entity)),
+                action: template,
                 urgency: joy * JOY_ENTITY_URGENCY_MULTIPLIER,
                 intent: Intent::SatisfySocial,
                 reasoning: format!("I like {:?} (joy: {:.2})", entity, joy),
@@ -511,10 +518,12 @@ fn evaluate_entity_emotions(
         && anger > ANGER_ENTITY_THRESHOLD
         && let Some(action) = action_registry.get(ActionType::Attack)
     {
+        let mut template = action.to_template(Some(entity));
+        template.escalate_intensity(anger);
         best = Some((
             BrainProposal {
                 brain: BrainType::Emotional,
-                action: action.to_template(Some(entity)),
+                action: template,
                 urgency: anger * ANGER_ENTITY_URGENCY_MULTIPLIER,
                 intent: Intent::SatisfySafety,
                 reasoning: format!("I hate {:?}! (anger: {:.2})", entity, anger),
@@ -547,9 +556,11 @@ fn check_general_fear(
     if fear_urgency > best_urgency
         && let Some(action) = action_registry.get(ActionType::Flee)
     {
+        let mut template = action.to_template(None);
+        template.escalate_intensity(fear_level);
         return Some(BrainProposal {
             brain: BrainType::Emotional,
-            action: action.to_template(None),
+            action: template,
             urgency: fear_urgency,
             intent: Intent::SatisfySafety,
             reasoning: format!("I'm terrified! (fear: {:.2})", fear_level),
