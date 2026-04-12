@@ -35,7 +35,7 @@ impl Action for WakeUpAction {
         //   working (Sleep holds FullBody 1.0, WakeUp's 0.4 pushes
         //   total to 1.4 → hard conflict → Sleep is interruptible
         //   post-#352 → preempted → WakeUp admits).
-        // - Cognition 1.0 blocks Observe and any other Cognition
+        // - Focus 1.0 blocks Observe and any other Focus
         //   user from running in parallel. The user saw WakeUp and
         //   Observe both in `active_actions` during the transition
         //   and flipping in the UI every frame — a waking agent

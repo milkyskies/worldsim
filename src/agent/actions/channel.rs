@@ -239,7 +239,7 @@ impl ChannelSlices {
 
 /// How an agent's whole body is positioned. Orthogonal to body-part
 /// channels: a `Stationary` agent can still use Manipulation, Consumption,
-/// Cognition, Vocalization in parallel; they just can't also be `Moving`.
+/// Focus, Awareness, Vocalization in parallel; they just can't also be `Moving`.
 ///
 /// Starts as a binary enum. Extend to Sitting, Lying, Crouching, etc.
 /// only when a feature actually needs the distinction — don't add
