@@ -281,6 +281,74 @@ fn drowsy_agent_sleeps_and_wakes_after_recovery() {
     );
 }
 
+// ── Natural day/night cycle ───────────────────────────────────────────────
+
+#[test]
+fn agent_sleeps_at_night_and_wakes_during_day() {
+    // Full day/night cycle: agent starts at noon (tick 0) with full
+    // wakefulness. By nightfall (~8 game hours later) wakefulness should
+    // have decayed enough to trigger Sleep. Then wakefulness restores
+    // during sleep and the agent wakes before the next noon.
+    //
+    // Game timing: tick 0 = 12:00 noon. Night starts ~20:00 (tick 28800).
+    // One full day = 86400 ticks. We simulate 1.5 days.
+    let (mut world, agents) = TestWorld::scenario(42)
+        .map_size(32, 32)
+        .noise_biomes(false)
+        .agent("alice")
+        .pos(Vec2::new(50.0, 50.0))
+        .wakefulness(1.0)
+        .done()
+        .build();
+    let alice = agents["alice"];
+
+    // Phase 1: tick through the afternoon and evening until Sleep starts.
+    // Should happen somewhere around nightfall (tick ~28800-40000).
+    let mut slept_at = None;
+    for tick in 0..60000 {
+        world.tick(1);
+        if slept_at.is_none()
+            && world
+                .get::<ActiveActions>(alice)
+                .contains(ActionType::Sleep)
+        {
+            slept_at = Some(tick);
+        }
+    }
+    assert!(
+        slept_at.is_some(),
+        "agent should enter Sleep during the first night; \
+         wakefulness={:.3}, action={:?}",
+        world.agent_wakefulness(alice),
+        world.current_action(alice),
+    );
+    let slept_at = slept_at.unwrap();
+    // Should sleep sometime in the evening/night, not at noon.
+    assert!(
+        slept_at > 15000,
+        "agent slept too early (tick {slept_at}); wakefulness should last most of a day"
+    );
+
+    // Phase 2: continue ticking — agent should wake up during the morning.
+    let mut woke = false;
+    for _ in 0..40000 {
+        world.tick(1);
+        if !world
+            .get::<ActiveActions>(alice)
+            .contains(ActionType::Sleep)
+        {
+            woke = true;
+            break;
+        }
+    }
+    assert!(
+        woke,
+        "agent should wake up after sleeping; wakefulness={:.3}, aerobic={:.1}",
+        world.agent_wakefulness(alice),
+        world.agent_aerobic(alice),
+    );
+}
+
 // ── Fear suppression ─────────────────────────────────────────────────────
 
 #[test]
