@@ -70,8 +70,6 @@ impl Action for GrazeAction {
     fn runtime_effects(&self) -> RuntimeEffects {
         RuntimeEffects {
             stomach_carbs_per_sec: STOMACH_CARBS_PER_SEC,
-            alertness_per_sec: 2.0,
-            ..Default::default()
         }
     }
 

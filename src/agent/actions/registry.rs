@@ -138,33 +138,14 @@ pub enum ActionKind {
 
 /// Per-tick side effects applied while an action is running.
 ///
-/// Physical costs (stamina drain, energy drain) are now derived from the
-/// action's [`EffortProfile`] via [`compute_action_cost`]. This struct
-/// holds only the behavioural and ingestion side effects that aren't
-/// derivable from physical effort.
-///
-/// [`EffortProfile`]: crate::agent::body::effort::EffortProfile
-/// [`compute_action_cost`]: crate::agent::body::effort::compute_action_cost
+/// Physical costs are derived from the effort model. Psychological effects
+/// are derived from ActionPrimitive + Intent. This struct holds only the
+/// structural ingestion side effect that can't be derived from either.
 #[derive(Debug, Clone, Default)]
 pub struct RuntimeEffects {
-    /// Behavioural alertness change per second. Positive = the action keeps
-    /// the agent alert (walking, fighting). Negative = soporific (sleeping).
-    /// Distinct from the effort model's `cognitive_drain`, which is the
-    /// metabolic cost of mental work.
-    pub alertness_per_sec: f32,
     /// Carbs added to the stomach per second. Used by continuous-feed actions
     /// like Graze where the animal is ingesting plant matter over time.
-    /// This is a structural Ingestion side effect, not a cost.
     pub stomach_carbs_per_sec: f32,
-    /// Delta to `drives.companionship` per second. Positive = satisfies the drive
-    /// (Converse, InitiateConversation). Negative = starves it (prolonged
-    /// isolation, though that path is currently covered elsewhere).
-    pub companionship_per_sec: f32,
-    /// Delta to `drives.stimulation` per second. Positive = satisfies the
-    /// drive (Observe, Explore, Wander, Converse — novelty-seeking or
-    /// novelty-adjacent behaviour). Negative = drains it (Idle, Sleep,
-    /// Rest, Groom — stillness breeds curiosity).
-    pub stimulation_per_sec: f32,
 }
 
 // ============================================================================
