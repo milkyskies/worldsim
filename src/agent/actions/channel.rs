@@ -393,7 +393,7 @@ mod tests {
         ChannelCapacities::compute(Some(body), physical, None)
     }
 
-    /// Push two severe head injuries to cross the 0.2 incapacitation threshold.
+    /// Smash the head hard enough to incapacitate and damage the brain inside.
     fn incapacitate(body: &mut Body) {
         let head = body
             .part_mut(BodyNodeKind::Head)
@@ -404,6 +404,20 @@ mod tests {
             .expect("human body has head");
         injure(head, 1.0);
         assert!(body.is_incapacitated());
+        // Severe head trauma damages everything inside.
+        for kind in [
+            BodyNodeKind::Brain,
+            BodyNodeKind::LeftEye,
+            BodyNodeKind::RightEye,
+            BodyNodeKind::LeftEar,
+            BodyNodeKind::RightEar,
+            BodyNodeKind::Jaw,
+        ] {
+            let node = body.node_mut(kind).unwrap();
+            injure(node, 1.0);
+            let node = body.node_mut(kind).unwrap();
+            injure(node, 1.0);
+        }
     }
 
     #[test]
@@ -529,12 +543,12 @@ mod tests {
     }
 
     #[test]
-    fn healthy_human_has_no_bite_capability() {
+    fn healthy_human_has_weak_bite() {
         let body = Body::human();
-        assert_eq!(
-            Channel::Bite.max_capacity(Some(&body), None, None),
-            0.0,
-            "humans should not provide Bite — no anatomy declares it"
+        let bite = Channel::Bite.max_capacity(Some(&body), None, None);
+        assert!(
+            (bite - 0.1).abs() < 1e-6,
+            "humans have weak Bite 0.1 from jaw, got {bite}"
         );
     }
 
