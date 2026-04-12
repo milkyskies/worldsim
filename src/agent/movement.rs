@@ -118,7 +118,8 @@ pub fn calculate_speed(stamina: f32, body: Option<&crate::agent::biology::body::
         // "how well the legs work" — works for quadrupeds, bipeds, and
         // whatever wing / tentacle anatomy shows up later.
         use crate::agent::actions::channel::Channel;
-        let locomotion = body.channel_capacity(Channel::Locomotion);
+        use crate::agent::biology::body::TagChannelMapping;
+        let locomotion = body.channel_capacity(Channel::Locomotion, &TagChannelMapping::default());
         // Map 0.0-1.0 to MIN_INJURY_MOBILITY..1.0 (can always crawl a bit).
         // Wolves and deer have total Locomotion ~1.2 from four legs; clamp
         // to 1.0 so quadrupeds don't get a silent speed bonus from this

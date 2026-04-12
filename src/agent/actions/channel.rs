@@ -17,7 +17,7 @@
 //! Upstream: actions::registry (Action trait body_channels()), biology::body, body::needs
 //! Downstream: nervous_system::execution, brains::arbitration
 
-use crate::agent::biology::body::Body;
+use crate::agent::biology::body::{Body, TagChannelMapping};
 use crate::agent::body::needs::Consciousness;
 use crate::agent::body::needs::PhysicalNeeds;
 use crate::constants::movement::{TIRED_SPEED_MULTIPLIER, TIRED_STAMINA_THRESHOLD};
@@ -121,9 +121,12 @@ impl Channel {
         body: Option<&Body>,
         physical: Option<&PhysicalNeeds>,
         consciousness: Option<&Consciousness>,
+        mapping: &TagChannelMapping,
     ) -> f32 {
         if self.is_cognitive() {
-            let base = body.map(|b| b.channel_capacity(*self)).unwrap_or(1.0);
+            let base = body
+                .map(|b| b.channel_capacity(*self, mapping))
+                .unwrap_or(1.0);
             let alertness = consciousness.map(|c| c.alertness).unwrap_or(1.0);
             return base * alertness.clamp(0.0, 1.0);
         }
@@ -140,7 +143,7 @@ impl Channel {
             };
         }
 
-        let base = body.channel_capacity(*self);
+        let base = body.channel_capacity(*self, mapping);
 
         let exhaustion = if self.exhausts() {
             exhaustion_factor(physical)
@@ -198,10 +201,11 @@ impl ChannelCapacities {
         body: Option<&Body>,
         physical: Option<&PhysicalNeeds>,
         consciousness: Option<&Consciousness>,
+        mapping: &TagChannelMapping,
     ) -> Self {
         let mut caps = [1.0; CHANNEL_COUNT];
         for ch in Channel::ALL {
-            caps[ch.idx()] = ch.max_capacity(body, physical, consciousness);
+            caps[ch.idx()] = ch.max_capacity(body, physical, consciousness, mapping);
         }
         Self(caps)
     }

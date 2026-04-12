@@ -33,7 +33,7 @@ use rand::Rng;
 use crate::agent::Agent;
 use crate::agent::actions::ActionType;
 use crate::agent::actions::channel::Channel;
-use crate::agent::biology::body::{Body, BodyNodeKind, Injury, InjuryType};
+use crate::agent::biology::body::{Body, BodyNodeKind, Injury, InjuryType, TagChannelMapping};
 use crate::agent::body::needs::Consciousness;
 use crate::agent::events::SimEvent;
 use crate::agent::item_slots::ItemSlots;
@@ -331,6 +331,7 @@ pub fn resolve_combat_hits(
         With<Agent>,
     >,
     mut liquids: Query<(Entity, &Transform, &mut Liquid)>,
+    mapping: Res<TagChannelMapping>,
 ) {
     // Phase 1: collect combat-relevant completions. The target travels
     // on the event itself so no ActiveActions lookup is needed — by the
@@ -383,7 +384,9 @@ pub fn resolve_combat_hits(
                 continue;
             };
             let alertness = consc.map(|c| c.alertness).unwrap_or(1.0);
-            let locomotion = defender_body.channel_capacity(Channel::Locomotion).min(1.5);
+            let locomotion = defender_body
+                .channel_capacity(Channel::Locomotion, &mapping)
+                .min(1.5);
             let pos = def_transform.translation.truncate();
             let res = apply_strike(
                 rng.inner_mut(),

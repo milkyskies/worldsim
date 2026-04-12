@@ -2072,7 +2072,12 @@ impl TestWorld {
         let physical = world.get::<PhysicalNeeds>(agent);
         let consciousness = world.get::<crate::agent::body::needs::Consciousness>(agent);
         let registry = world.resource::<ActionRegistry>();
-        let capacities = ChannelCapacities::compute(body, physical, consciousness);
+        let capacities = ChannelCapacities::compute(
+            body,
+            physical,
+            consciousness,
+            &crate::agent::biology::body::TagChannelMapping::default(),
+        );
 
         let mut per_channel: Vec<(Channel, f32, Vec<String>)> =
             Channel::ALL.iter().map(|c| (*c, 0.0, Vec::new())).collect();
