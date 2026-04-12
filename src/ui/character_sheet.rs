@@ -670,6 +670,15 @@ fn render_vitals(ui: &mut egui::Ui, world: &World, entity: Entity) {
         return;
     };
 
+    ui.label(
+        egui::RichText::new(
+            "Physical needs — empty any of these for long enough and the agent dies.",
+        )
+        .italics()
+        .color(Color32::LIGHT_GRAY),
+    );
+    ui.add_space(4.0);
+
     egui::CollapsingHeader::new("Fuel")
         .default_open(true)
         .show(ui, |ui| {
@@ -744,6 +753,15 @@ fn render_drives(ui: &mut egui::Ui, world: &World, entity: Entity) {
             .find(|u| u.source == source)
             .map(|u| u.value)
     };
+
+    ui.label(
+        egui::RichText::new(
+            "Psychological motivations — push behavior but don't kill on their own.",
+        )
+        .italics()
+        .color(Color32::LIGHT_GRAY),
+    );
+    ui.add_space(4.0);
 
     if let Some(consc) = world.get::<Consciousness>(entity) {
         satisfaction_bar(ui, "Alertness", consc.alertness, 1.0, None);
