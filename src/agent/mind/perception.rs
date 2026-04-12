@@ -287,14 +287,21 @@ fn perceive_inventory(
     };
     let mut observed_concepts = std::collections::HashSet::new();
 
-    // 1. Record what IS there (group Things by concept for belief representation)
+    // 1. Record what IS there.
+    // Other entities use Semantic (same as IsA) so the belief persists
+    // until overwritten by fresh observation.
     for (concept, qty) in inventory.group_by_concept() {
         observed_concepts.insert(concept);
+        let meta = if is_self {
+            Metadata::perception_with_conf(time, confidence)
+        } else {
+            Metadata::semantic(time)
+        };
         mind.assert(Triple::with_meta(
             subject_node.clone(),
             Predicate::Contains,
             Value::Item(concept, qty),
-            Metadata::perception_with_conf(time, confidence),
+            meta,
         ));
     }
 

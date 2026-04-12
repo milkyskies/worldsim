@@ -167,7 +167,7 @@ fn smooth_height(
 
 /// Indented, small, muted "Details" collapsible used for every
 /// contributor breakdown in the panel. Consistent look across Overview,
-/// Vitals, Drives, and Mood. Body height is smoothed to avoid flicker
+/// Needs, Drives, and Mood. Body height is smoothed to avoid flicker
 /// when the underlying contributor list changes transiently.
 fn details_section(
     ui: &mut egui::Ui,
@@ -434,7 +434,7 @@ pub struct CharacterSheetState {
 pub enum CharSheetTab {
     #[default]
     Overview,
-    Vitals,
+    Needs,
     Drives,
     Plans,
     Trace,
@@ -454,7 +454,7 @@ impl CharSheetTab {
     pub fn label(self) -> &'static str {
         match self {
             CharSheetTab::Overview => "Overview",
-            CharSheetTab::Vitals => "Vitals",
+            CharSheetTab::Needs => "Needs",
             CharSheetTab::Drives => "Drives",
             CharSheetTab::Plans => "Plans",
             CharSheetTab::Trace => "Trace",
@@ -576,7 +576,7 @@ fn character_sheet_system(world: &mut World) {
                 .auto_shrink([false, false])
                 .show(ui, |ui| match new_tab {
                     CharSheetTab::Overview => render_overview(ui, world, entity),
-                    CharSheetTab::Vitals => render_vitals(ui, world, entity),
+                    CharSheetTab::Needs => render_needs(ui, world, entity),
                     CharSheetTab::Drives => render_drives(ui, world, entity),
                     CharSheetTab::Plans => render_plans(ui, world, entity),
                     CharSheetTab::Trace => render_trace(ui, world, entity),
@@ -619,7 +619,7 @@ fn visible_tabs_for_entity(
 
     let mut tabs = vec![
         CharSheetTab::Overview,
-        CharSheetTab::Vitals,
+        CharSheetTab::Needs,
         CharSheetTab::Drives,
         CharSheetTab::Plans,
         CharSheetTab::Trace,
@@ -658,7 +658,7 @@ fn render_overview(ui: &mut egui::Ui, world: &World, entity: Entity) {
 
     ui.separator();
 
-    // ── Survival vitals (the numbers that actually predict death) ─────
+    // ── Survival needs (the numbers that actually predict death) ─────
     if let Some(needs) = world.get::<PhysicalNeeds>(entity) {
         let urgencies = world
             .get::<CentralNervousSystem>(entity)
@@ -970,25 +970,16 @@ fn urgency_for_f32(world: &World, entity: Entity, source: UrgencySource) -> f32 
 // VITALS TAB — PhysicalNeeds only (things that can kill you)
 // ============================================================================
 
-fn render_vitals(ui: &mut egui::Ui, world: &World, entity: Entity) {
+fn render_needs(ui: &mut egui::Ui, world: &World, entity: Entity) {
     let Some(needs) = world.get::<PhysicalNeeds>(entity) else {
         placeholder(ui, "(no physical-needs component on this entity)");
         return;
     };
 
-    ui.label(
-        egui::RichText::new(
-            "Physical needs. Empty any of these for long enough and the agent dies.",
-        )
-        .italics()
-        .color(Color32::LIGHT_GRAY),
-    );
-    ui.add_space(4.0);
-
     ui.label(egui::RichText::new("Fuel").strong());
     vital_row_explained(
         ui,
-        "Satiety (stomach)",
+        "Stomach",
         needs.metabolism.stomach_fullness(),
         crate::agent::body::metabolism::STOMACH_CAPACITY,
         0.1,
@@ -998,7 +989,7 @@ fn render_vitals(ui: &mut egui::Ui, world: &World, entity: Entity) {
     );
     vital_row_explained(
         ui,
-        "Energy (glucose)",
+        "Glucose",
         needs.metabolism.glucose,
         crate::agent::body::metabolism::GLUCOSE_MAX,
         0.2,
@@ -1087,15 +1078,6 @@ fn render_drives(ui: &mut egui::Ui, world: &World, entity: Entity) {
             .map(|u| u.value)
             .unwrap_or(0.0)
     };
-
-    ui.label(
-        egui::RichText::new(
-            "Psychological motivations. Push behavior but don't kill on their own.",
-        )
-        .italics()
-        .color(Color32::LIGHT_GRAY),
-    );
-    ui.add_space(4.0);
 
     if let Some(consc) = world.get::<Consciousness>(entity) {
         vital_row_fraction_explained(

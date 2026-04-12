@@ -707,6 +707,11 @@ impl TestWorld {
         // conversation manager, relationship config, etc.
         app.add_plugins(AgentPlugin);
 
+        // Resource regeneration (berry bushes, apple trees, etc). SpawnerPlugin
+        // is excluded because it also runs startup spawning, but we still need
+        // the Update system that refills depleted resources over time.
+        app.add_systems(Update, crate::world::apple_tree::regenerate_resources);
+
         // Ontology derivation + world entity property systems (fuel, durability, shelter).
         app.add_plugins(crate::world::property::OntologyDerivationPlugin);
 
