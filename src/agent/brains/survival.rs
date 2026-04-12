@@ -12,9 +12,7 @@ use crate::agent::item_slots::ItemSlots;
 use crate::agent::mind::knowledge::Ontology;
 use crate::agent::nervous_system::cns::CentralNervousSystem;
 use crate::agent::nervous_system::urgency::UrgencySource;
-use crate::constants::brains::survival::{
-    SLEEPINESS_SLEEP_THRESHOLD, WAKE_STAMINA_THRESHOLD, WAKE_WAKEFULNESS_THRESHOLD,
-};
+use crate::constants::brains::survival::{SLEEPINESS_SLEEP_THRESHOLD, WAKE_WAKEFULNESS_THRESHOLD};
 use bevy::prelude::*;
 
 pub struct SurvivalBrainContext<'a> {
@@ -171,14 +169,15 @@ fn check_sleep_wake(
         reasoning,
     };
 
-    // Rested wake: both wakefulness and stamina are recovered enough.
-    // Wakefulness is the primary gate; stamina is a secondary check so an
-    // agent doesn't stay asleep with full wakefulness but low stamina
-    // (the stamina urgency will propose Rest once awake).
-    if wakefulness >= WAKE_WAKEFULNESS_THRESHOLD && aerobic >= WAKE_STAMINA_THRESHOLD {
+    // Rested wake: wakefulness is the primary gate. Once sleep pressure is
+    // cleared, the agent wakes regardless of stamina — any remaining
+    // physical fatigue triggers Rest (not Sleep) once awake. Using AND
+    // here would trap agents in Sleep with high wakefulness but slow
+    // stamina recovery.
+    if wakefulness >= WAKE_WAKEFULNESS_THRESHOLD {
         return Some(wake_proposal(
             50.0,
-            format!("Rested! Wakefulness {wakefulness:.2}, aerobic {aerobic:.0} — waking up"),
+            format!("Rested! Wakefulness {wakefulness:.2} — waking up"),
         ));
     }
 
@@ -405,7 +404,8 @@ mod tests {
 
     fn tired_needs() -> PhysicalNeeds {
         let mut needs = PhysicalNeeds::default();
-        needs.stamina.aerobic = 10.0; // well below WAKE_STAMINA_THRESHOLD
+        needs.stamina.aerobic = 10.0;
+        needs.wakefulness = 0.2; // well below WAKE_WAKEFULNESS_THRESHOLD
         needs
     }
 
@@ -468,6 +468,31 @@ mod tests {
         let proposal = survival_brain_propose(context, &inventory, &active, &ontology, &registry)
             .expect("rested sleeping agent should wake");
         assert_eq!(proposal.action.name, "Wake Up");
+    }
+
+    #[test]
+    fn high_wakefulness_wakes_agent_even_with_low_stamina() {
+        // #462: the rested-wake gate uses wakefulness only. An agent with
+        // high wakefulness but low stamina must wake up — any remaining
+        // physical fatigue triggers Rest once awake, not trapped Sleep.
+        let ontology = setup_ontology();
+        let mut physical = PhysicalNeeds::default();
+        physical.wakefulness = 0.95; // above WAKE_WAKEFULNESS_THRESHOLD (0.9)
+        physical.stamina.aerobic = 30.0; // low stamina
+        let cns = CentralNervousSystem::default();
+        let context = context_with_urgency(&physical, &cns);
+
+        let inventory = crate::agent::item_slots::ItemSlots::agent_carry();
+        let active = active_sleep();
+        let registry = sleeping_agent_registry();
+
+        let proposal = survival_brain_propose(context, &inventory, &active, &ontology, &registry)
+            .expect("high-wakefulness agent should wake even with low stamina");
+        assert_eq!(
+            proposal.action.name, "Wake Up",
+            "wakefulness 0.95 should trigger wake regardless of stamina; got {:?}",
+            proposal.action.name,
+        );
     }
 
     #[test]
