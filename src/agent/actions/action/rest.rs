@@ -17,6 +17,7 @@
 use crate::agent::actions::ActionType;
 use crate::agent::actions::channel::{ChannelSlices, ChannelUsage, Posture};
 use crate::agent::actions::registry::{Action, ActionKind};
+use crate::agent::mind::knowledge::{Node, Predicate, Triple, Value};
 
 pub struct RestAction;
 
@@ -35,6 +36,18 @@ impl Action for RestAction {
         ActionKind::Timed {
             duration_ticks: u32::MAX,
         }
+    }
+
+    fn plan_effects(&self) -> Vec<Triple> {
+        vec![Triple::new(
+            Node::Self_,
+            Predicate::Stamina,
+            Value::Int(100),
+        )]
+    }
+
+    fn cost(&self) -> f32 {
+        0.2
     }
 
     fn body_channels(&self) -> &'static [ChannelUsage] {
