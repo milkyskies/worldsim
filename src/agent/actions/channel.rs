@@ -553,7 +553,10 @@ mod tests {
     #[test]
     fn deer_has_no_manipulation_or_bite() {
         let body = Body::deer();
-        assert_eq!(Channel::Manipulation.max_capacity(Some(&body), None, None), 0.0);
+        assert_eq!(
+            Channel::Manipulation.max_capacity(Some(&body), None, None),
+            0.0
+        );
         assert_eq!(Channel::Bite.max_capacity(Some(&body), None, None), 0.0);
     }
 
@@ -602,11 +605,22 @@ mod tests {
         let mut body = Body::human();
         incapacitate(&mut body);
 
-        assert_eq!(Channel::Locomotion.max_capacity(Some(&body), None, None), 0.0);
-        assert_eq!(Channel::Manipulation.max_capacity(Some(&body), None, None), 0.0);
-        assert_eq!(Channel::Consumption.max_capacity(Some(&body), None, None), 0.0);
+        assert_eq!(
+            Channel::Locomotion.max_capacity(Some(&body), None, None),
+            0.0
+        );
+        assert_eq!(
+            Channel::Manipulation.max_capacity(Some(&body), None, None),
+            0.0
+        );
+        assert_eq!(
+            Channel::Consumption.max_capacity(Some(&body), None, None),
+            0.0
+        );
         assert_eq!(Channel::FullBody.max_capacity(Some(&body), None, None), 1.0);
-        assert_eq!(Channel::Focus.max_capacity(Some(&body), None, None), 1.0);
+        // Cognitive channels collapse too — a smashed head can't think.
+        assert!(Channel::Focus.max_capacity(Some(&body), None, None) < 0.3);
+        assert!(Channel::Awareness.max_capacity(Some(&body), None, None) < 0.3);
     }
 
     #[test]
@@ -661,14 +675,20 @@ mod tests {
         assert!((legs - TIRED_SPEED_MULTIPLIER).abs() < 1e-4);
         let hands = Channel::Manipulation.max_capacity(Some(&body), Some(&exhausted), None);
         assert!((hands - TIRED_SPEED_MULTIPLIER).abs() < 1e-4);
-        // FullBody and Cognition are exempt so Sleep and planning are
-        // always reachable.
+        // FullBody is exempt from exhaustion so Sleep is always reachable.
         assert_eq!(
             Channel::FullBody.max_capacity(Some(&body), Some(&exhausted), None),
             1.0
         );
+        // Cognitive channels are exempt from physical exhaustion (they
+        // scale with alertness, not stamina). With no Consciousness
+        // provided, alertness defaults to 1.0.
         assert_eq!(
             Channel::Focus.max_capacity(Some(&body), Some(&exhausted), None),
+            1.0
+        );
+        assert_eq!(
+            Channel::Awareness.max_capacity(Some(&body), Some(&exhausted), None),
             1.0
         );
     }
@@ -783,7 +803,105 @@ mod tests {
         };
         let caps = ChannelCapacities::compute(Some(&body), Some(&physical), None);
         for ch in Channel::ALL {
-            assert_eq!(caps.get(ch), ch.max_capacity(Some(&body), Some(&physical), None));
+            assert_eq!(
+                caps.get(ch),
+                ch.max_capacity(Some(&body), Some(&physical), None)
+            );
         }
+    }
+
+    #[test]
+    fn cognitive_channels_scale_with_alertness() {
+        let body = Body::human();
+        let tired = Consciousness { alertness: 0.5 };
+        let focus = Channel::Focus.max_capacity(Some(&body), None, Some(&tired));
+        let awareness = Channel::Awareness.max_capacity(Some(&body), None, Some(&tired));
+        assert!(
+            (focus - 0.5).abs() < 1e-4,
+            "Focus should scale to 0.5 at half alertness, got {focus}"
+        );
+        assert!(
+            (awareness - 0.5).abs() < 1e-4,
+            "Awareness should scale to 0.5 at half alertness, got {awareness}"
+        );
+
+        let rested = Consciousness { alertness: 1.0 };
+        assert_eq!(
+            Channel::Focus.max_capacity(Some(&body), None, Some(&rested)),
+            1.0
+        );
+        assert_eq!(
+            Channel::Awareness.max_capacity(Some(&body), None, Some(&rested)),
+            1.0
+        );
+    }
+
+    #[test]
+    fn cognitive_channels_not_affected_by_physical_exhaustion() {
+        use crate::agent::body::needs::Stamina;
+        let body = Body::human();
+        let exhausted = PhysicalNeeds {
+            stamina: Stamina {
+                aerobic: 0.0,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let focus = Channel::Focus.max_capacity(Some(&body), Some(&exhausted), None);
+        let awareness = Channel::Awareness.max_capacity(Some(&body), Some(&exhausted), None);
+        assert_eq!(
+            focus, 1.0,
+            "Focus should not be reduced by physical exhaustion"
+        );
+        assert_eq!(
+            awareness, 1.0,
+            "Awareness should not be reduced by physical exhaustion"
+        );
+
+        let legs = Channel::Locomotion.max_capacity(Some(&body), Some(&exhausted), None);
+        assert!(legs < 1.0, "Locomotion should be reduced by exhaustion");
+    }
+
+    #[test]
+    fn converse_and_harvest_have_no_hard_focus_conflict() {
+        let mut load = ChannelLoad::new();
+        let converse = [
+            req(Channel::Vocalization, 0.6),
+            req(Channel::Focus, 0.6),
+            req(Channel::Awareness, 0.3),
+        ];
+        load.add(&converse);
+
+        let harvest = [req(Channel::Manipulation, 0.9), req(Channel::Focus, 0.1)];
+        assert!(
+            !load.would_hard_conflict(&harvest, &full_caps()),
+            "Converse (Focus 0.6) + Harvest (Focus 0.1) = 0.7, no hard conflict"
+        );
+    }
+
+    #[test]
+    fn converse_and_observe_fit_at_full_alertness() {
+        let mut load = ChannelLoad::new();
+        let converse = [
+            req(Channel::Vocalization, 0.6),
+            req(Channel::Focus, 0.6),
+            req(Channel::Awareness, 0.3),
+        ];
+        load.add(&converse);
+
+        let observe = [req(Channel::Focus, 0.3), req(Channel::Awareness, 0.6)];
+        assert!(
+            !load.would_hard_conflict(&observe, &full_caps()),
+            "Converse + Observe should fit at full alertness (Focus 0.9, Awareness 0.9)"
+        );
+
+        // But at half alertness, cognitive capacity is 0.5 — Focus 0.9 > 0.7
+        // (= 0.5 * 1.4 hard threshold) means hard conflict.
+        let tired = Consciousness { alertness: 0.5 };
+        let tired_caps = ChannelCapacities::compute(Some(&Body::human()), None, Some(&tired));
+        assert!(
+            load.would_hard_conflict(&observe, &tired_caps),
+            "Converse + Observe should hard-conflict when tired (Focus 0.9 > capacity 0.5)"
+        );
     }
 }
