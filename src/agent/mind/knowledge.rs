@@ -585,6 +585,13 @@ impl Metadata {
             strength: 0.7,
         }
     }
+
+    /// Reinforce and refresh from a re-assertion of the same fact.
+    pub fn refresh_from(&mut self, incoming: &Metadata) {
+        reinforce(self, incoming.timestamp);
+        self.timestamp = incoming.timestamp;
+        self.confidence = incoming.confidence;
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -619,20 +626,13 @@ impl Triple {
     }
 }
 
-// NOTE: Ontology is now defined in the ONTOLOGY section below with caching support
-
 // ═══════════════════════════════════════════════════════════════════════════
 // MEMORY STRENGTH — Constants for reinforcement model
 // ═══════════════════════════════════════════════════════════════════════════
 
-/// Minimum tick gap between reinforcement boosts. Prevents perception (60 tps)
-/// from saturating strength instantly. 60 ticks = 1 second at default tick rate.
 const REINFORCE_COOLDOWN_TICKS: u64 = 60;
-
-/// Base strength gain per reinforcement event. Scaled by `(1 + salience)`.
 const REINFORCEMENT_BOOST: f32 = 0.2;
-
-/// Maximum strength any memory can reach.
+const RETRIEVAL_BOOST: f32 = 0.05;
 pub const MAX_STRENGTH: f32 = 10.0;
 
 /// Apply reinforcement to an existing triple during re-assertion.
@@ -881,15 +881,16 @@ impl MindGraph {
             .collect()
     }
 
-    /// Boost strength of triples matching (subject, predicate) as if they were
-    /// retrieved during planning. Smaller boost than perception reinforcement.
+    /// Flat boost for triples accessed during planning. No cooldown or salience
+    /// scaling because retrieval is infrequent compared to perception.
     pub fn reinforce_retrieval(&mut self, subject: &Node, predicate: Predicate) {
         let key = (subject.clone(), predicate);
         if let Some(ids) = self.by_subject_predicate.get(&key) {
             let ids_snapshot: SmallVec<[usize; 4]> = ids.clone();
             for idx in ids_snapshot {
                 if let Some(Some(triple)) = self.triples.get_mut(idx) {
-                    triple.meta.strength = (triple.meta.strength + 0.05).min(MAX_STRENGTH);
+                    triple.meta.strength =
+                        (triple.meta.strength + RETRIEVAL_BOOST).min(MAX_STRENGTH);
                 }
             }
         }
@@ -930,9 +931,7 @@ impl MindGraph {
                 // Safe: find_existing_id only returns live ids.
                 let existing = self.triples[idx].as_mut().expect("live slot");
                 if existing.object == triple.object {
-                    reinforce(&mut existing.meta, triple.meta.timestamp);
-                    existing.meta.timestamp = triple.meta.timestamp;
-                    existing.meta.confidence = triple.meta.confidence;
+                    existing.meta.refresh_from(&triple.meta);
                     return;
                 }
                 self.tombstone(idx);
@@ -948,9 +947,7 @@ impl MindGraph {
             if let Some(idx) = self.find_existing_id(&key, |_| true) {
                 let existing = self.triples[idx].as_mut().expect("live slot");
                 if existing.object == triple.object {
-                    reinforce(&mut existing.meta, triple.meta.timestamp);
-                    existing.meta.timestamp = triple.meta.timestamp;
-                    existing.meta.confidence = triple.meta.confidence;
+                    existing.meta.refresh_from(&triple.meta);
                     return;
                 }
                 self.tombstone(idx);
@@ -971,9 +968,7 @@ impl MindGraph {
                 *existing = triple;
                 existing.meta.strength = preserved_strength;
             } else {
-                reinforce(&mut existing.meta, triple.meta.timestamp);
-                existing.meta.timestamp = triple.meta.timestamp;
-                existing.meta.confidence = triple.meta.confidence;
+                existing.meta.refresh_from(&triple.meta);
             }
             return;
         }

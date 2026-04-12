@@ -401,29 +401,31 @@ pub fn decay_stale_knowledge(
 
         let initial_count = mind.len();
 
-        // Snapshot predicate counts for interference (O(P) where P = distinct predicates)
-        let pred_counts = mind.predicate_count_map();
+        // Precompute per-predicate interference pressure and per-type ln(base)
+        // so the inner loop avoids redundant ln_1p and powf calls.
+        let pred_pressure = decay_config.precompute_interference(&mind.predicate_count_map());
+        let ln_perception = decay_config.perception_decay.ln();
+        let ln_episodic = decay_config.episodic_decay.ln();
+        let ln_semantic = decay_config.semantic_decay.ln();
 
         let decayed_count = mind.decay_pass(|triple| {
-            let base = decay_config.base_decay(triple.meta.memory_type);
-            if base >= 1.0 {
-                return true; // Permanent memory type
-            }
+            let ln_base = match triple.meta.memory_type {
+                MemoryType::Perception => ln_perception,
+                MemoryType::Episodic => ln_episodic,
+                MemoryType::Semantic => ln_semantic,
+                _ => return true, // Permanent memory type
+            };
 
-            // Passive decay: high strength and salience slow the effective rate.
-            // At strength 1.0 with no salience the full base rate applies.
-            // At strength 10.0 the exponent drops to 0.1, making decay ~10x slower.
+            // Passive decay: exp(ln_base / (strength * salience_resist))
+            // High strength and salience slow the effective rate.
             let salience_resist =
                 1.0 + triple.meta.salience * decay_config.salience_decay_resistance;
-            let effective_rate = base.powf(1.0 / (triple.meta.strength.max(1.0) * salience_resist));
+            let effective_rate =
+                (ln_base / (triple.meta.strength.max(1.0) * salience_resist)).exp();
             triple.meta.strength *= effective_rate;
 
             // Interference: more same-predicate triples → faster loss for weak memories.
-            // Strong memories resist interference (vulnerability → 0 as strength grows).
-            let pred_count = pred_counts.get(&triple.predicate).copied().unwrap_or(0);
-            if pred_count > 1 {
-                let pressure =
-                    (pred_count as f32 / decay_config.interference_divisor).ln_1p() * 0.01;
+            if let Some(&pressure) = pred_pressure.get(&triple.predicate) {
                 let vulnerability = 1.0 / (1.0 + triple.meta.strength * 2.0);
                 triple.meta.strength -= pressure * vulnerability;
             }
@@ -498,21 +500,15 @@ fn enforce_episodic_capacity(mind: &mut crate::agent::mind::knowledge::MindGraph
 #[derive(Resource, Debug, Clone, Reflect)]
 #[reflect(Resource)]
 pub struct MemoryDecayConfig {
-    /// Strength multiplier per decay pass for Perception triples.
     pub perception_decay: f32,
-    /// Strength multiplier per decay pass for Episodic triples.
     pub episodic_decay: f32,
-    /// Strength multiplier per decay pass for Semantic triples.
     pub semantic_decay: f32,
-    /// How much salience resists decay (multiplier in denominator of exponent).
+    /// Multiplier in the exponent denominator: higher salience → slower decay.
     pub salience_decay_resistance: f32,
-    /// Divisor for interference pressure: higher = less interference.
+    /// Denominator for interference pressure: higher → less interference.
     pub interference_divisor: f32,
-    /// Strength threshold below which a triple is forgotten.
     pub forget_threshold: f32,
-    /// Maximum distinct episodic events before weakest are culled.
     pub episodic_capacity: usize,
-    /// Ticks between decay passes (staggered per agent).
     pub decay_interval: u64,
 }
 
@@ -532,7 +528,6 @@ impl Default for MemoryDecayConfig {
 }
 
 impl MemoryDecayConfig {
-    /// Base decay rate for a memory type. Returns 1.0 (no decay) for permanent types.
     pub fn base_decay(&self, memory_type: MemoryType) -> f32 {
         match memory_type {
             MemoryType::Perception => self.perception_decay,
@@ -540,6 +535,22 @@ impl MemoryDecayConfig {
             MemoryType::Semantic => self.semantic_decay,
             MemoryType::Intrinsic | MemoryType::Procedural | MemoryType::Cultural => 1.0,
         }
+    }
+
+    /// Precompute interference pressure per predicate from a count snapshot.
+    /// Only includes predicates with count > 1 (no interference from a lone triple).
+    pub fn precompute_interference(
+        &self,
+        pred_counts: &std::collections::HashMap<crate::agent::mind::knowledge::Predicate, usize>,
+    ) -> std::collections::HashMap<crate::agent::mind::knowledge::Predicate, f32> {
+        pred_counts
+            .iter()
+            .filter(|(_, count)| **count > 1)
+            .map(|(&pred, &count)| {
+                let pressure = (count as f32 / self.interference_divisor).ln_1p() * 0.01;
+                (pred, pressure)
+            })
+            .collect()
     }
 }
 
@@ -549,10 +560,6 @@ mod tests {
     use crate::agent::mind::knowledge::{
         Concept, Metadata, MindGraph, Node, Predicate, Triple, Value,
     };
-
-    fn make_config() -> MemoryDecayConfig {
-        MemoryDecayConfig::default()
-    }
 
     fn perception_triple(entity_id: u64, tile: (i32, i32), strength: f32) -> Triple {
         let mut meta = Metadata::perception(0);
@@ -566,7 +573,7 @@ mod tests {
     }
 
     fn episodic_event_triples(eid: u64, strength: f32) -> Vec<Triple> {
-        let mut meta = Metadata {
+        let meta = Metadata {
             source: crate::agent::mind::knowledge::Source::Experienced,
             memory_type: MemoryType::Episodic,
             timestamp: eid,
@@ -594,44 +601,47 @@ mod tests {
                 Node::Event(eid),
                 Predicate::FeltEmotion,
                 Value::Emotion(crate::agent::psyche::emotions::EmotionType::Fear, 0.8),
-                {
-                    meta.timestamp = eid;
-                    meta
-                },
+                meta,
             ),
         ]
     }
 
-    #[test]
-    fn decay_pass_reduces_perception_strength() {
-        let config = make_config();
-        let mut mind = MindGraph::default();
-        mind.add(perception_triple(1, (5, 5), 1.0));
+    /// Run the same decay formula used by `decay_stale_knowledge`, minus ECS wiring.
+    fn run_decay_pass(mind: &mut MindGraph, config: &MemoryDecayConfig) -> usize {
+        let pred_pressure = config.precompute_interference(&mind.predicate_count_map());
+        let ln_perception = config.perception_decay.ln();
+        let ln_episodic = config.episodic_decay.ln();
+        let ln_semantic = config.semantic_decay.ln();
 
-        let pred_counts = mind.predicate_count_map();
         mind.decay_pass(|triple| {
-            let base = config.base_decay(triple.meta.memory_type);
-            if base >= 1.0 {
-                return true;
-            }
+            let ln_base = match triple.meta.memory_type {
+                MemoryType::Perception => ln_perception,
+                MemoryType::Episodic => ln_episodic,
+                MemoryType::Semantic => ln_semantic,
+                _ => return true,
+            };
             let resist = 1.0 + triple.meta.salience * config.salience_decay_resistance;
-            let rate = base.powf(1.0 / (triple.meta.strength.max(1.0) * resist));
+            let rate = (ln_base / (triple.meta.strength.max(1.0) * resist)).exp();
             triple.meta.strength *= rate;
 
-            let pred_count = pred_counts.get(&triple.predicate).copied().unwrap_or(0);
-            if pred_count > 1 {
-                let pressure = (pred_count as f32 / config.interference_divisor).ln_1p() * 0.01;
+            if let Some(&pressure) = pred_pressure.get(&triple.predicate) {
                 let vulnerability = 1.0 / (1.0 + triple.meta.strength * 2.0);
                 triple.meta.strength -= pressure * vulnerability;
             }
             triple.meta.strength = triple.meta.strength.max(0.0);
             triple.meta.strength >= config.forget_threshold
-        });
+        })
+    }
 
-        let results: Vec<_> = mind.iter().collect();
-        assert_eq!(results.len(), 1);
-        let s = results[0].meta.strength;
-        // perception_decay = 0.95, strength 1.0 → rate = 0.95^1.0 = 0.95
+    #[test]
+    fn decay_pass_reduces_perception_strength() {
+        let config = MemoryDecayConfig::default();
+        let mut mind = MindGraph::default();
+        mind.add(perception_triple(1, (5, 5), 1.0));
+
+        run_decay_pass(&mut mind, &config);
+
+        let s = mind.iter().next().unwrap().meta.strength;
         assert!(
             (s - 0.95).abs() < 0.01,
             "expected ~0.95 after one pass, got {s}"
@@ -640,39 +650,19 @@ mod tests {
 
     #[test]
     fn high_strength_resists_decay() {
-        let config = make_config();
+        let config = MemoryDecayConfig::default();
         let mut mind = MindGraph::default();
         mind.add(perception_triple(1, (5, 5), 5.0));
 
-        let pred_counts = mind.predicate_count_map();
-        mind.decay_pass(|triple| {
-            let base = config.base_decay(triple.meta.memory_type);
-            if base >= 1.0 {
-                return true;
-            }
-            let resist = 1.0 + triple.meta.salience * config.salience_decay_resistance;
-            let rate = base.powf(1.0 / (triple.meta.strength.max(1.0) * resist));
-            triple.meta.strength *= rate;
+        run_decay_pass(&mut mind, &config);
 
-            let pred_count = pred_counts.get(&triple.predicate).copied().unwrap_or(0);
-            if pred_count > 1 {
-                let pressure = (pred_count as f32 / config.interference_divisor).ln_1p() * 0.01;
-                let vulnerability = 1.0 / (1.0 + triple.meta.strength * 2.0);
-                triple.meta.strength -= pressure * vulnerability;
-            }
-            triple.meta.strength = triple.meta.strength.max(0.0);
-            triple.meta.strength >= config.forget_threshold
-        });
-
-        let results: Vec<_> = mind.iter().collect();
-        let s = results[0].meta.strength;
-        // At strength 5.0: rate = 0.95^(1/5) ≈ 0.9898, so result ≈ 5.0 * 0.9898 ≈ 4.949
+        let s = mind.iter().next().unwrap().meta.strength;
         assert!(s > 4.9, "high-strength triple should barely decay, got {s}");
     }
 
     #[test]
     fn intrinsic_does_not_decay() {
-        let config = make_config();
+        let config = MemoryDecayConfig::default();
         let mut mind = MindGraph::default();
         mind.add(Triple::new(
             Node::Concept(Concept::Apple),
@@ -680,26 +670,18 @@ mod tests {
             Value::Concept(Concept::Food),
         ));
 
-        let removed = mind.decay_pass(|triple| {
-            let base = config.base_decay(triple.meta.memory_type);
-            if base >= 1.0 {
-                return true;
-            }
-            triple.meta.strength *= base;
-            triple.meta.strength >= config.forget_threshold
-        });
+        let removed = run_decay_pass(&mut mind, &config);
 
         assert_eq!(removed, 0);
-        let results: Vec<_> = mind.iter().collect();
         assert!(
-            (results[0].meta.strength - 1.0).abs() < f32::EPSILON,
+            (mind.iter().next().unwrap().meta.strength - 1.0).abs() < f32::EPSILON,
             "intrinsic strength must not change"
         );
     }
 
     #[test]
     fn cultural_does_not_decay() {
-        let config = make_config();
+        let config = MemoryDecayConfig::default();
         let mut mind = MindGraph::default();
         let mut meta = Metadata::default();
         meta.memory_type = MemoryType::Cultural;
@@ -711,60 +693,30 @@ mod tests {
             meta,
         ));
 
-        let removed = mind.decay_pass(|triple| {
-            let base = config.base_decay(triple.meta.memory_type);
-            if base >= 1.0 {
-                return true;
-            }
-            triple.meta.strength *= base;
-            triple.meta.strength >= config.forget_threshold
-        });
+        let removed = run_decay_pass(&mut mind, &config);
 
         assert_eq!(removed, 0);
-        let results: Vec<_> = mind.iter().collect();
         assert!(
-            (results[0].meta.strength - 1.0).abs() < f32::EPSILON,
+            (mind.iter().next().unwrap().meta.strength - 1.0).abs() < f32::EPSILON,
             "cultural strength must not change"
         );
     }
 
     #[test]
     fn interference_penalizes_crowded_predicates() {
-        let config = make_config();
+        let config = MemoryDecayConfig::default();
         let mut mind_crowded = MindGraph::default();
         let mut mind_sparse = MindGraph::default();
 
-        // Crowded: 50 LocatedAt triples
         for i in 1..=50 {
             mind_crowded.add(perception_triple(i, (i as i32, 0), 1.0));
         }
-        // Sparse: 2 LocatedAt triples
         for i in 1..=2 {
             mind_sparse.add(perception_triple(i, (i as i32, 0), 1.0));
         }
 
-        // Run one decay pass on each
-        for mind in [&mut mind_crowded, &mut mind_sparse] {
-            let pred_counts = mind.predicate_count_map();
-            mind.decay_pass(|triple| {
-                let base = config.base_decay(triple.meta.memory_type);
-                if base >= 1.0 {
-                    return true;
-                }
-                let resist = 1.0 + triple.meta.salience * config.salience_decay_resistance;
-                let rate = base.powf(1.0 / (triple.meta.strength.max(1.0) * resist));
-                triple.meta.strength *= rate;
-
-                let pred_count = pred_counts.get(&triple.predicate).copied().unwrap_or(0);
-                if pred_count > 1 {
-                    let pressure = (pred_count as f32 / config.interference_divisor).ln_1p() * 0.01;
-                    let vulnerability = 1.0 / (1.0 + triple.meta.strength * 2.0);
-                    triple.meta.strength -= pressure * vulnerability;
-                }
-                triple.meta.strength = triple.meta.strength.max(0.0);
-                triple.meta.strength >= config.forget_threshold
-            });
-        }
+        run_decay_pass(&mut mind_crowded, &config);
+        run_decay_pass(&mut mind_sparse, &config);
 
         let crowded_strength = mind_crowded.iter().next().unwrap().meta.strength;
         let sparse_strength = mind_sparse.iter().next().unwrap().meta.strength;
@@ -779,7 +731,6 @@ mod tests {
     fn episodic_cap_removes_weakest_events() {
         let mut mind = MindGraph::default();
 
-        // Create 205 events: 200 weak (strength 0.5) and 5 strong (strength 5.0)
         for eid in 0..200 {
             for triple in episodic_event_triples(eid, 0.5) {
                 mind.add(triple);
@@ -793,7 +744,6 @@ mod tests {
 
         enforce_episodic_capacity(&mut mind, 200);
 
-        // Count remaining distinct events
         let mut event_ids: std::collections::HashSet<u64> = std::collections::HashSet::new();
         for triple in mind.iter() {
             if let Node::Event(eid) = triple.subject {
@@ -802,8 +752,6 @@ mod tests {
         }
 
         assert_eq!(event_ids.len(), 200, "should cull down to capacity");
-
-        // The 5 strong events should all survive
         for eid in 200..205 {
             assert!(
                 event_ids.contains(&eid),
@@ -814,31 +762,12 @@ mod tests {
 
     #[test]
     fn perception_eventually_forgotten_without_reinforcement() {
-        let config = make_config();
+        let config = MemoryDecayConfig::default();
         let mut mind = MindGraph::default();
         mind.add(perception_triple(1, (5, 5), 1.0));
 
-        // Run 200 decay passes (simulating ~200 seconds)
         for _ in 0..200 {
-            let pred_counts = mind.predicate_count_map();
-            mind.decay_pass(|triple| {
-                let base = config.base_decay(triple.meta.memory_type);
-                if base >= 1.0 {
-                    return true;
-                }
-                let resist = 1.0 + triple.meta.salience * config.salience_decay_resistance;
-                let rate = base.powf(1.0 / (triple.meta.strength.max(1.0) * resist));
-                triple.meta.strength *= rate;
-
-                let pred_count = pred_counts.get(&triple.predicate).copied().unwrap_or(0);
-                if pred_count > 1 {
-                    let pressure = (pred_count as f32 / config.interference_divisor).ln_1p() * 0.01;
-                    let vulnerability = 1.0 / (1.0 + triple.meta.strength * 2.0);
-                    triple.meta.strength -= pressure * vulnerability;
-                }
-                triple.meta.strength = triple.meta.strength.max(0.0);
-                triple.meta.strength >= config.forget_threshold
-            });
+            run_decay_pass(&mut mind, &config);
         }
 
         assert!(
