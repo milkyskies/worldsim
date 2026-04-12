@@ -71,6 +71,12 @@ pub const HUMAN_INTROVERT_STRANGER_BASELINE: f32 = 0.02;
 /// humans is conversation, not mere proximity.
 pub const EXTRAVERT_STRANGER_BONUS: f32 = 0.06;
 
+/// Rate at which companionship drifts down per second when no conspecifics
+/// are visible. Modulated by extraversion (extraverts get lonelier faster).
+/// At baseline (extraversion 0.5) this drains ~0.006/sec, so a fully
+/// satisfied agent takes ~2-3 minutes of solitude to want company again.
+pub const LONELINESS_DECAY_PER_SEC: f32 = 0.006;
+
 /// Affection-weighted decay rate applied to the social drive per second.
 /// At `affection_sum = 1.0` (e.g. two herd-mates at 0.5 each, or one at 1.0)
 /// the social drive drops by this fraction per second. Tuned so a herd of 3
@@ -152,6 +158,9 @@ pub fn decay_social_from_proximity(
         }
 
         if affection_sum <= 0.0 {
+            let extraversion = personality.map(|p| p.traits.extraversion).unwrap_or(0.5);
+            let loneliness_rate = LONELINESS_DECAY_PER_SEC * (0.5 + extraversion);
+            drives.companionship = (drives.companionship - loneliness_rate * dt).max(0.0);
             continue;
         }
 
