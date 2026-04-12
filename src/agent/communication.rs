@@ -901,20 +901,15 @@ pub(crate) fn select_intent(
         .last()
         .filter(|t| t.speaker != conv.current_speaker());
 
-    // 7. Empathize: last speaker expressed negative emotion.
+    // 7. Empathize: last speaker expressed negative emotion (personality-relative).
+    let default_traits = crate::agent::psyche::personality::PersonalityTraits::default();
+    let traits = personality.map(|p| &p.traits).unwrap_or(&default_traits);
     if let Some(last) = other_last
         && let Some(emotion) = &last.emotion
+        && crate::agent::psyche::emotions::emotion_valence(emotion.emotion_type, traits) < 0.0
+        && agreeableness > 0.4
     {
-        let is_negative = matches!(
-            emotion.emotion_type,
-            crate::agent::psyche::emotions::EmotionType::Sadness
-                | crate::agent::psyche::emotions::EmotionType::Fear
-                | crate::agent::psyche::emotions::EmotionType::Anger
-                | crate::agent::psyche::emotions::EmotionType::Disgust
-        );
-        if is_negative && agreeableness > 0.4 {
-            return Intent::Empathize;
-        }
+        return Intent::Empathize;
     }
 
     // 8. Agree: last speaker shared content, agreeable agents affirm it.
