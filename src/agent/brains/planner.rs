@@ -384,10 +384,10 @@ pub fn check_plan_feasibility(
             reserves -= transfer;
         }
 
-        if action.action_type == ActionType::Walk {
-            if let Some(target) = action.target_position {
-                cursor = target;
-            }
+        if action.action_type == ActionType::Walk
+            && let Some(target) = action.target_position
+        {
+            cursor = target;
         }
 
         if glucose < crate::agent::body::metabolism::GLUCOSE_CRITICAL_THRESHOLD && reserves < 5.0 {
