@@ -37,13 +37,42 @@ impl UrgencySource {
     /// must be listed explicitly so adding a new one causes a compile error
     /// until someone classifies it.
     pub fn is_survival(self) -> bool {
+        self.survival_weight() > 0.0
+    }
+
+    /// How much this urgency source contributes to survival brain power.
+    /// Every variant must be listed explicitly — adding a new one causes
+    /// a compile error until someone assigns a weight.
+    ///
+    /// Higher weight = stronger survival brain takeover when this drive
+    /// is active. Zero = not a survival drive (emotional/rational handles it).
+    pub fn survival_weight(self) -> f32 {
+        match self {
+            Self::Hunger => 100.0,
+            Self::Thirst => 100.0,
+            Self::Pain => 100.0,
+            Self::Stamina => 80.0,
+            Self::Sleepiness => 80.0,
+            Self::Fear => 50.0,
+            Self::Social => 0.0,
+            Self::Fun => 0.0,
+            Self::Curiosity => 0.0,
+            Self::Territoriality => 0.0,
+        }
+    }
+
+    /// Whether this urgency source contributes to the deprivation penalty
+    /// that impairs rational thought. Only physical deficits (hunger,
+    /// thirst, pain) count — fatigue and sleepiness don't cloud thinking
+    /// the same way starvation does.
+    pub fn is_deprivation(self) -> bool {
         match self {
             Self::Hunger => true,
             Self::Thirst => true,
-            Self::Stamina => true,
             Self::Pain => true,
-            Self::Fear => true,
-            Self::Sleepiness => true,
+            Self::Stamina => false,
+            Self::Sleepiness => false,
+            Self::Fear => false,
             Self::Social => false,
             Self::Fun => false,
             Self::Curiosity => false,

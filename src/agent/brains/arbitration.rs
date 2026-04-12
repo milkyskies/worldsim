@@ -11,7 +11,6 @@ use super::proposal::{BrainPowers, BrainProposal, Intent};
 use crate::agent::actions::channel::ChannelCapacities;
 use crate::agent::body::needs::Consciousness;
 use crate::agent::nervous_system::cns::CentralNervousSystem;
-use crate::agent::nervous_system::urgency::UrgencySource;
 use crate::agent::psyche::emotions::EmotionalState;
 use crate::agent::psyche::personality::Personality;
 
@@ -34,14 +33,9 @@ pub fn calculate_brain_powers(
         let mut power = 0.0f32;
         let mut deprivation = 0.0f32;
         for u in &cns.urgencies {
-            match u.source {
-                UrgencySource::Hunger | UrgencySource::Thirst | UrgencySource::Pain => {
-                    power += u.value * 100.0;
-                    deprivation += u.value;
-                }
-                UrgencySource::Stamina => power += u.value * 80.0,
-                UrgencySource::Fear => power += u.value * 50.0,
-                _ => {}
+            power += u.value * u.source.survival_weight();
+            if u.source.is_deprivation() {
+                deprivation += u.value;
             }
         }
         (power, deprivation.min(1.0))
@@ -76,8 +70,19 @@ pub fn calculate_brain_powers(
     let rational_power =
         base_rational * (1.0 - stress_penalty) * (1.0 - needs_penalty) * (1.0 - alertness_penalty);
 
+    // A sleeping agent's survival brain must retain enough power to push
+    // WakeUp through arbitration once rested. Without this floor, a fully
+    // recovered sleeper has zero urgencies -> zero survival power -> the
+    // WakeUp proposal scores 0 and gets filtered out, trapping the agent
+    // in Sleep forever.
+    let survival_floor = if consciousness.alertness < 0.1 {
+        50.0
+    } else {
+        0.0
+    };
+
     BrainPowers {
-        survival: survival_power,
+        survival: survival_power.max(survival_floor),
         emotional: emotional_power,
         rational: rational_power,
     }
@@ -246,7 +251,7 @@ mod tests {
     use crate::agent::actions::{ActionRegistry, ActionType};
     use crate::agent::brains::proposal::BrainType;
     use crate::agent::brains::thinking::ActionTemplate;
-    use crate::agent::nervous_system::urgency::Urgency;
+    use crate::agent::nervous_system::urgency::{Urgency, UrgencySource};
     use crate::agent::psyche::emotions::{Emotion, EmotionType};
 
     fn make_proposal(
