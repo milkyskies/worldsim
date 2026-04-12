@@ -404,18 +404,6 @@ pub fn decay_stale_knowledge(
                 return false; // Forget this triple
             }
 
-            // Special case: Empty containers should decay faster
-            // (allows "optimistic fallback" - maybe it grew back?)
-            if triple.predicate == crate::agent::mind::knowledge::Predicate::Contains
-                && let crate::agent::mind::knowledge::Value::Item(_, 0) = triple.object
-            {
-                // Empty container beliefs decay after ~12 seconds regardless of memory type
-                let empty_decay_threshold = 12.0;
-                if age_seconds > empty_decay_threshold {
-                    return false;
-                }
-            }
-
             true // Keep this triple
         });
 

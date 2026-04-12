@@ -51,20 +51,66 @@ impl Action for HarvestAction {
     fn target_preconditions(
         &self,
         target: &TargetCandidate,
-        _mind: &MindGraph,
+        mind: &MindGraph,
     ) -> Vec<TriplePattern> {
-        match target.as_entity() {
-            Some(entity) => vec![TriplePattern::entity_contains(entity)],
-            None => vec![],
+        let Some(entity) = target.as_entity() else {
+            return vec![];
+        };
+
+        // If we have a fresh Contains belief, require it so the planner
+        // tracks consumption correctly across chained harvests.
+        let has_contains = mind
+            .query(Some(&Node::Entity(entity)), Some(Predicate::Contains), None)
+            .iter()
+            .any(|t| matches!(t.object, Value::Item(_, qty) if qty > 0));
+        if has_contains {
+            return vec![TriplePattern::entity_contains(entity)];
         }
+
+        // No Contains belief, but we may know the entity's type produces
+        // something (e.g. BerryBush -> Produces -> Berry via cultural
+        // knowledge). Trust that and skip the Contains precondition so the
+        // planner can still chain Walk -> Harvest -> Eat.
+        let type_produces = mind
+            .query(Some(&Node::Entity(entity)), Some(Predicate::IsA), None)
+            .iter()
+            .any(|t| {
+                if let Value::Concept(concept) = t.object {
+                    !mind
+                        .query(
+                            Some(&Node::Concept(concept)),
+                            Some(Predicate::Produces),
+                            None,
+                        )
+                        .is_empty()
+                } else {
+                    false
+                }
+            });
+        if type_produces {
+            return vec![];
+        }
+
+        // Fallback: require Contains (may block the plan if decayed).
+        vec![TriplePattern::entity_contains(entity)]
     }
 
     /// Per-target consumed pattern: harvesting removes items from the target
     /// entity's stock so two plan steps can't double-count the same stack.
-    fn target_consumes(&self, target: &TargetCandidate, _mind: &MindGraph) -> Vec<TriplePattern> {
-        match target.as_entity() {
-            Some(entity) => vec![TriplePattern::entity_contains(entity)],
-            None => vec![],
+    /// Only emitted when the agent has a concrete Contains belief — if we're
+    /// planning from type-level Produces knowledge there's nothing to consume.
+    fn target_consumes(&self, target: &TargetCandidate, mind: &MindGraph) -> Vec<TriplePattern> {
+        let Some(entity) = target.as_entity() else {
+            return vec![];
+        };
+        let has_contains = mind
+            .query(Some(&Node::Entity(entity)), Some(Predicate::Contains), None)
+            .iter()
+            .any(|t| matches!(t.object, Value::Item(_, qty) if qty > 0));
+        if has_contains {
+            vec![TriplePattern::entity_contains(entity)]
+        } else {
+            vec![]
         }
     }
 
@@ -92,6 +138,19 @@ impl Action for HarvestAction {
         let Some(target_entity) = target.as_entity() else {
             return false;
         };
+
+        // If we recently observed this entity is empty, skip it.
+        let known_empty = mind
+            .query(
+                Some(&Node::Entity(target_entity)),
+                Some(Predicate::Contains),
+                None,
+            )
+            .iter()
+            .any(|t| matches!(t.object, Value::Item(_, 0)));
+        if known_empty {
+            return false;
+        }
 
         let mut produced: Vec<Value> = mind
             .query(

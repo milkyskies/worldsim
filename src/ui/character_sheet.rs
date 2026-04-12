@@ -65,9 +65,110 @@ fn placeholder(ui: &mut egui::Ui, text: &str) {
     );
 }
 
+/// Render `body` into a height-smoothed container. Natural-height changes
+/// are debounced (100ms) so 1-tick content blips (e.g. a running action
+/// briefly gapping out) never trigger motion, and sustained changes are
+/// animated (250ms) so real transitions don't snap.
+fn smooth_height(
+    ui: &mut egui::Ui,
+    id_salt: impl std::hash::Hash,
+    body: impl FnOnce(&mut egui::Ui),
+) {
+    #[derive(Clone, Copy)]
+    struct AnimState {
+        committed: f32,
+        pending: f32,
+        pending_since: f64,
+    }
+    const DEBOUNCE_SEC: f64 = 0.1;
+    const ANIMATION_SEC: f32 = 0.25;
+
+    let anim_id = ui.id().with(("smooth_height", &id_salt));
+    let now = ui.ctx().input(|i| i.time);
+    let stored: Option<AnimState> = ui.ctx().data(|d| d.get_temp::<AnimState>(anim_id));
+
+    let natural = match stored {
+        None => {
+            let child_max = egui::Rect::from_min_size(
+                ui.cursor().min,
+                egui::vec2(ui.available_width(), f32::INFINITY),
+            );
+            ui.scope_builder(egui::UiBuilder::new().max_rect(child_max), |child| {
+                body(child);
+                child.min_rect().height()
+            })
+            .inner
+        }
+        Some(state) => {
+            let animated =
+                ui.ctx()
+                    .animate_value_with_time(anim_id, state.committed, ANIMATION_SEC);
+            let width = ui.available_width();
+            let (outer_rect, _) =
+                ui.allocate_exact_size(egui::vec2(width, animated.max(0.0)), egui::Sense::hover());
+            let layout = *ui.layout();
+            let mut child = ui.new_child(
+                egui::UiBuilder::new()
+                    .max_rect(egui::Rect::from_min_size(
+                        outer_rect.min,
+                        egui::vec2(width, f32::INFINITY),
+                    ))
+                    .layout(layout),
+            );
+            let mut clip = child.clip_rect();
+            clip.max.y = outer_rect.max.y;
+            child.set_clip_rect(clip);
+            body(&mut child);
+            child.min_rect().height()
+        }
+    };
+
+    let new_state = match stored {
+        None => AnimState {
+            committed: natural,
+            pending: natural,
+            pending_since: now,
+        },
+        Some(state) => {
+            if (natural - state.committed).abs() < 0.5 {
+                AnimState {
+                    committed: state.committed,
+                    pending: state.committed,
+                    pending_since: now,
+                }
+            } else if (natural - state.pending).abs() < 0.5 {
+                if now - state.pending_since >= DEBOUNCE_SEC {
+                    AnimState {
+                        committed: natural,
+                        pending: natural,
+                        pending_since: now,
+                    }
+                } else {
+                    ui.ctx()
+                        .request_repaint_after(std::time::Duration::from_secs_f64(
+                            DEBOUNCE_SEC - (now - state.pending_since),
+                        ));
+                    state
+                }
+            } else {
+                ui.ctx()
+                    .request_repaint_after(std::time::Duration::from_secs_f64(DEBOUNCE_SEC));
+                AnimState {
+                    committed: state.committed,
+                    pending: natural,
+                    pending_since: now,
+                }
+            }
+        }
+    };
+
+    ui.ctx().data_mut(|d| d.insert_temp(anim_id, new_state));
+}
+
 /// Indented, small, muted "Details" collapsible used for every
 /// contributor breakdown in the panel. Consistent look across Overview,
-/// Vitals, Drives, and Mood.
+/// Needs, Drives, and Mood. Body height is smoothed to avoid flicker
+/// when the underlying contributor list changes transiently.
 fn details_section(
     ui: &mut egui::Ui,
     id_salt: impl std::hash::Hash,
@@ -82,7 +183,11 @@ fn details_section(
         )
         .id_salt(id_salt)
         .default_open(false)
-        .show(ui, body);
+        .show(ui, |ui| {
+            // The collapsing header gives each body its own Ui id, so keying
+            // smooth_height off a constant salt still yields unique storage.
+            smooth_height(ui, "details_body", body);
+        });
     });
 }
 
@@ -381,7 +486,7 @@ pub struct CharacterSheetState {
 pub enum CharSheetTab {
     #[default]
     Overview,
-    Vitals,
+    Needs,
     Drives,
     Plans,
     Trace,
@@ -401,7 +506,7 @@ impl CharSheetTab {
     pub fn label(self) -> &'static str {
         match self {
             CharSheetTab::Overview => "Overview",
-            CharSheetTab::Vitals => "Vitals",
+            CharSheetTab::Needs => "Needs",
             CharSheetTab::Drives => "Drives",
             CharSheetTab::Plans => "Plans",
             CharSheetTab::Trace => "Trace",
@@ -523,7 +628,7 @@ fn character_sheet_system(world: &mut World) {
                 .auto_shrink([false, false])
                 .show(ui, |ui| match new_tab {
                     CharSheetTab::Overview => render_overview(ui, world, entity),
-                    CharSheetTab::Vitals => render_vitals(ui, world, entity),
+                    CharSheetTab::Needs => render_needs(ui, world, entity),
                     CharSheetTab::Drives => render_drives(ui, world, entity),
                     CharSheetTab::Plans => render_plans(ui, world, entity),
                     CharSheetTab::Trace => render_trace(ui, world, entity),
@@ -566,7 +671,7 @@ fn visible_tabs_for_entity(
 
     let mut tabs = vec![
         CharSheetTab::Overview,
-        CharSheetTab::Vitals,
+        CharSheetTab::Needs,
         CharSheetTab::Drives,
         CharSheetTab::Plans,
         CharSheetTab::Trace,
@@ -605,7 +710,7 @@ fn render_overview(ui: &mut egui::Ui, world: &World, entity: Entity) {
 
     ui.separator();
 
-    // ── Survival vitals (the numbers that actually predict death) ─────
+    // ── Survival needs (the numbers that actually predict death) ─────
     if let Some(needs) = world.get::<PhysicalNeeds>(entity) {
         let urgencies = world
             .get::<CentralNervousSystem>(entity)
@@ -917,25 +1022,16 @@ fn urgency_for_f32(world: &World, entity: Entity, source: UrgencySource) -> f32 
 // VITALS TAB — PhysicalNeeds only (things that can kill you)
 // ============================================================================
 
-fn render_vitals(ui: &mut egui::Ui, world: &World, entity: Entity) {
+fn render_needs(ui: &mut egui::Ui, world: &World, entity: Entity) {
     let Some(needs) = world.get::<PhysicalNeeds>(entity) else {
         placeholder(ui, "(no physical-needs component on this entity)");
         return;
     };
 
-    ui.label(
-        egui::RichText::new(
-            "Physical needs. Empty any of these for long enough and the agent dies.",
-        )
-        .italics()
-        .color(Color32::LIGHT_GRAY),
-    );
-    ui.add_space(4.0);
-
     ui.label(egui::RichText::new("Fuel").strong());
     vital_row_explained(
         ui,
-        "Satiety (stomach)",
+        "Stomach",
         needs.metabolism.stomach_fullness(),
         crate::agent::body::metabolism::STOMACH_CAPACITY,
         0.1,
@@ -945,7 +1041,7 @@ fn render_vitals(ui: &mut egui::Ui, world: &World, entity: Entity) {
     );
     vital_row_explained(
         ui,
-        "Energy (glucose)",
+        "Glucose",
         needs.metabolism.glucose,
         crate::agent::body::metabolism::GLUCOSE_MAX,
         0.2,
@@ -1034,15 +1130,6 @@ fn render_drives(ui: &mut egui::Ui, world: &World, entity: Entity) {
             .map(|u| u.value)
             .unwrap_or(0.0)
     };
-
-    ui.label(
-        egui::RichText::new(
-            "Psychological motivations. Push behavior but don't kill on their own.",
-        )
-        .italics()
-        .color(Color32::LIGHT_GRAY),
-    );
-    ui.add_space(4.0);
 
     if let Some(consc) = world.get::<Consciousness>(entity) {
         vital_row_fraction_explained(
@@ -2543,20 +2630,22 @@ fn render_overview_actions(ui: &mut egui::Ui, world: &World, entity: Entity) {
         }
     };
 
-    let non_idle: Vec<&ActionState> = active
-        .iter()
-        .filter(|a| !matches!(a.action_type, ActionType::Idle))
-        .collect();
-    if non_idle.is_empty() {
-        ui.horizontal(|ui| {
-            ui.label(egui::RichText::new("▶").color(Color32::YELLOW));
-            ui.label(egui::RichText::new("Idle").strong());
-        });
-        return;
-    }
-    for state in non_idle {
-        render_one(ui, state);
-    }
+    smooth_height(ui, "overview_actions", |ui| {
+        let non_idle: Vec<&ActionState> = active
+            .iter()
+            .filter(|a| !matches!(a.action_type, ActionType::Idle))
+            .collect();
+        if non_idle.is_empty() {
+            ui.horizontal(|ui| {
+                ui.label(egui::RichText::new("▶").color(Color32::YELLOW));
+                ui.label(egui::RichText::new("Idle").strong());
+            });
+        } else {
+            for state in non_idle {
+                render_one(ui, state);
+            }
+        }
+    });
 }
 
 fn emotion_label_color(e: EmotionType, intensity: f32) -> (&'static str, Color32) {
