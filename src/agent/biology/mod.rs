@@ -11,12 +11,10 @@ pub struct BiologyPlugin;
 impl Plugin for BiologyPlugin {
     fn build(&self, app: &mut App) {
         app.register_type::<body::Body>()
-            .register_type::<body::BodyPart>()
-            .register_type::<body::BodyPartKind>()
+            .register_type::<body::BodyNode>()
+            .register_type::<body::BodyNodeKind>()
             .register_type::<body::Injury>()
             .register_type::<body::InjuryType>()
-            .register_type::<body::Organ>()
-            .register_type::<body::OrganKind>()
             .add_systems(
                 Update,
                 (

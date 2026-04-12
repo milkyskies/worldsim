@@ -2,11 +2,11 @@
 //!
 //! Reads: nothing (pure spawn helpers)
 //! Writes: SeveredPart component, spawn entities
-//! Upstream: combat system (drops parts when a non-vital BodyPart HP hits 0)
+//! Upstream: combat system (drops parts when a non-vital BodyNode HP hits 0)
 //! Downstream: rendering (sprite), future harvest path (butcher parts for meat / bone),
 //!             perception (agents see severed parts on the ground and react)
 //!
-//! Covers any non-vital `BodyPart` that gets destroyed in combat: limbs
+//! Covers any non-vital `BodyNode` that gets destroyed in combat: limbs
 //! (arms, legs), jaws, ears, mouths. Vital parts (head, torso) never end
 //! up here — their destruction routes through the death path instead.
 //!
@@ -18,7 +18,7 @@
 
 use bevy::prelude::*;
 
-use crate::agent::biology::body::BodyPartKind;
+use crate::agent::biology::body::BodyNodeKind;
 use crate::agent::inventory::EntityType;
 use crate::agent::mind::knowledge::Concept;
 use crate::world::Physical;
@@ -29,7 +29,7 @@ use crate::world::Physical;
 pub struct SeveredPart {
     /// Which kind of body part this used to be. `kind.display_name()`
     /// gives the label for UI / logs.
-    pub kind: BodyPartKind,
+    pub kind: BodyNodeKind,
     /// The entity that used to own this part. Kept as forensic data —
     /// future work can read it to drive narrative. May point at an entity
     /// that's since become a Corpse.
@@ -42,7 +42,7 @@ pub struct SeveredPart {
 pub fn spawn_severed_part(
     commands: &mut Commands,
     owner: Entity,
-    kind: BodyPartKind,
+    kind: BodyNodeKind,
     position: Vec2,
     tick: u64,
 ) -> Entity {

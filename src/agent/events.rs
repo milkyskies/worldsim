@@ -365,7 +365,7 @@ pub enum SimEvent {
         attacker: Entity,
         defender: Entity,
         tick: u64,
-        part_kind: crate::agent::biology::body::BodyPartKind,
+        part_kind: crate::agent::biology::body::BodyNodeKind,
         damage: f32,
         injury_type: crate::agent::biology::body::InjuryType,
     },
@@ -385,7 +385,7 @@ pub enum SimEvent {
     PartSevered {
         entity: Entity,
         tick: u64,
-        part_kind: crate::agent::biology::body::BodyPartKind,
+        part_kind: crate::agent::biology::body::BodyNodeKind,
     },
 
     /// A genome was expressed into a phenotype at spawn.

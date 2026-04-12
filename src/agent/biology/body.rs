@@ -1,6 +1,6 @@
 //! Species-agnostic body model.
 //!
-//! A `Body` is a flat `Vec<BodyPart>`. Each part declares which action
+//! A `Body` is a tree of [`BodyNode`]s. Each node declares which action
 //! [`Channel`]s it provides and at what intensity — capability lives in the
 //! anatomy, not in a hardcoded struct. That lets a wolf's jaws offer
 //! Consumption + Bite while a human's arm offers Manipulation + Carry, without
@@ -22,67 +22,58 @@ use crate::core::GameLog;
 use crate::world::becomes::{Becomes, BecomesMode, BecomesTrigger};
 use bevy::prelude::*;
 
-/// A collection of anatomical parts. The shape is species-defined — a human
-/// has 7 parts (head, torso, 2 arms, 2 legs, mouth), a wolf has 7 but with
-/// four legs and jaws, a future octopus will have 10 tentacles.
+// ─── Body ──────────────────────────────────────────────────────────────────
+
+/// A tree of anatomical nodes. Root-level nodes are the outermost structural
+/// parts (head, torso, limbs); each can have children (organs, future: bones,
+/// tendons). The shape is species-defined.
 #[derive(Component, Debug, Clone, Reflect)]
 #[reflect(Component)]
 pub struct Body {
     #[reflect(ignore)]
-    pub parts: Vec<BodyPart>,
+    pub parts: Vec<BodyNode>,
 }
 
 impl Default for Body {
-    /// `Body::default()` returns the human anatomy so legacy tests and
-    /// spawners that don't know about species still get a usable body.
-    /// Prefer `Body::for_species` or the explicit factories in new code.
     fn default() -> Self {
         Self::human()
     }
 }
 
 impl Body {
-    /// Human anatomy: two arms, two legs, mouth, head, torso. Per-part
-    /// intensities add up to the legacy "fully functional human" baseline
-    /// of 1.0 per core channel: each arm provides Manipulation 0.5 and
-    /// Carry 0.25, each leg provides Locomotion 0.5, the mouth provides
-    /// Consumption + Vocalization at 1.0, and head/torso are FullBody
-    /// gates. Losing one arm halves Manipulation to 0.5 (still above the
-    /// 0.4 wolf-jaw ceiling but below Harvest's 0.9 requirement — a
-    /// one-armed human can't reliably pick berries).
     pub fn human() -> Self {
         Self {
             parts: vec![
-                BodyPart::vital(
-                    BodyPartKind::Head,
+                BodyNode::vital(
+                    BodyNodeKind::Head,
                     50.0,
                     vec![(Channel::Focus, 1.0), (Channel::Awareness, 1.0)],
                 )
-                .with_organs(head_organs()),
-                BodyPart::vital(BodyPartKind::Torso, 100.0, vec![(Channel::FullBody, 1.0)])
-                    .with_organs(torso_organs()),
-                BodyPart::new(
-                    BodyPartKind::LeftArm,
+                .with_children(head_organs()),
+                BodyNode::vital(BodyNodeKind::Torso, 100.0, vec![(Channel::FullBody, 1.0)])
+                    .with_children(torso_organs()),
+                BodyNode::new(
+                    BodyNodeKind::LeftArm,
                     60.0,
                     vec![(Channel::Manipulation, 0.5), (Channel::Carry, 0.25)],
                 ),
-                BodyPart::new(
-                    BodyPartKind::RightArm,
+                BodyNode::new(
+                    BodyNodeKind::RightArm,
                     60.0,
                     vec![(Channel::Manipulation, 0.5), (Channel::Carry, 0.25)],
                 ),
-                BodyPart::new(
-                    BodyPartKind::LeftLeg,
+                BodyNode::new(
+                    BodyNodeKind::LeftLeg,
                     70.0,
                     vec![(Channel::Locomotion, 0.5)],
                 ),
-                BodyPart::new(
-                    BodyPartKind::RightLeg,
+                BodyNode::new(
+                    BodyNodeKind::RightLeg,
                     70.0,
                     vec![(Channel::Locomotion, 0.5)],
                 ),
-                BodyPart::new(
-                    BodyPartKind::Mouth,
+                BodyNode::new(
+                    BodyNodeKind::Mouth,
                     30.0,
                     vec![(Channel::Consumption, 1.0), (Channel::Vocalization, 1.0)],
                 ),
@@ -90,43 +81,39 @@ impl Body {
         }
     }
 
-    /// Wolf anatomy: four legs (each 0.3 Locomotion, so the pack outruns
-    /// humans at 1.2 total), jaws that do double-duty as manipulator, eater,
-    /// howler and weapon. No arms — wolves fail any action that demands
-    /// Manipulation above the jaw's 0.4 ceiling.
     pub fn wolf() -> Self {
         Self {
             parts: vec![
-                BodyPart::vital(
-                    BodyPartKind::Head,
+                BodyNode::vital(
+                    BodyNodeKind::Head,
                     50.0,
                     vec![(Channel::Focus, 0.6), (Channel::Awareness, 0.8)],
                 )
-                .with_organs(head_organs()),
-                BodyPart::vital(BodyPartKind::Torso, 100.0, vec![(Channel::FullBody, 1.0)])
-                    .with_organs(torso_organs()),
-                BodyPart::new(
-                    BodyPartKind::LeftForeleg,
+                .with_children(head_organs()),
+                BodyNode::vital(BodyNodeKind::Torso, 100.0, vec![(Channel::FullBody, 1.0)])
+                    .with_children(torso_organs()),
+                BodyNode::new(
+                    BodyNodeKind::LeftForeleg,
                     55.0,
                     vec![(Channel::Locomotion, 0.3)],
                 ),
-                BodyPart::new(
-                    BodyPartKind::RightForeleg,
+                BodyNode::new(
+                    BodyNodeKind::RightForeleg,
                     55.0,
                     vec![(Channel::Locomotion, 0.3)],
                 ),
-                BodyPart::new(
-                    BodyPartKind::LeftHindleg,
+                BodyNode::new(
+                    BodyNodeKind::LeftHindleg,
                     55.0,
                     vec![(Channel::Locomotion, 0.3)],
                 ),
-                BodyPart::new(
-                    BodyPartKind::RightHindleg,
+                BodyNode::new(
+                    BodyNodeKind::RightHindleg,
                     55.0,
                     vec![(Channel::Locomotion, 0.3)],
                 ),
-                BodyPart::new(
-                    BodyPartKind::Jaws,
+                BodyNode::new(
+                    BodyNodeKind::Jaws,
                     40.0,
                     vec![
                         (Channel::Manipulation, 0.4),
@@ -139,42 +126,39 @@ impl Body {
         }
     }
 
-    /// Deer anatomy: four legs (total Locomotion 1.2, fast prey), a grazing
-    /// mouth that provides Consumption + weak Vocalization (grunts, alarm
-    /// calls). No Manipulation, no Bite — deer cannot harvest or fight.
     pub fn deer() -> Self {
         Self {
             parts: vec![
-                BodyPart::vital(
-                    BodyPartKind::Head,
+                BodyNode::vital(
+                    BodyNodeKind::Head,
                     40.0,
                     vec![(Channel::Focus, 0.4), (Channel::Awareness, 1.0)],
                 )
-                .with_organs(head_organs()),
-                BodyPart::vital(BodyPartKind::Torso, 80.0, vec![(Channel::FullBody, 1.0)])
-                    .with_organs(torso_organs()),
-                BodyPart::new(
-                    BodyPartKind::LeftForeleg,
+                .with_children(head_organs()),
+                BodyNode::vital(BodyNodeKind::Torso, 80.0, vec![(Channel::FullBody, 1.0)])
+                    .with_children(torso_organs()),
+                BodyNode::new(
+                    BodyNodeKind::LeftForeleg,
                     50.0,
                     vec![(Channel::Locomotion, 0.3)],
                 ),
-                BodyPart::new(
-                    BodyPartKind::RightForeleg,
+                BodyNode::new(
+                    BodyNodeKind::RightForeleg,
                     50.0,
                     vec![(Channel::Locomotion, 0.3)],
                 ),
-                BodyPart::new(
-                    BodyPartKind::LeftHindleg,
+                BodyNode::new(
+                    BodyNodeKind::LeftHindleg,
                     50.0,
                     vec![(Channel::Locomotion, 0.3)],
                 ),
-                BodyPart::new(
-                    BodyPartKind::RightHindleg,
+                BodyNode::new(
+                    BodyNodeKind::RightHindleg,
                     50.0,
                     vec![(Channel::Locomotion, 0.3)],
                 ),
-                BodyPart::new(
-                    BodyPartKind::Mouth,
+                BodyNode::new(
+                    BodyNodeKind::Mouth,
                     25.0,
                     vec![(Channel::Consumption, 1.0), (Channel::Vocalization, 0.3)],
                 ),
@@ -182,9 +166,6 @@ impl Body {
         }
     }
 
-    /// Pick the right anatomy for a species. Rabbits reuse the deer shape for
-    /// now; birds fall back to the human template until we have a wing
-    /// anatomy. Adding a new species is a one-line match arm plus a factory.
     pub fn for_species(species: Species) -> Self {
         match species {
             Species::Human => Self::human(),
@@ -194,187 +175,188 @@ impl Body {
         }
     }
 
-    pub fn parts(&self) -> impl Iterator<Item = &BodyPart> {
+    /// Root-level nodes only (head, torso, limbs).
+    pub fn parts(&self) -> impl Iterator<Item = &BodyNode> {
         self.parts.iter()
     }
 
-    pub fn part(&self, kind: BodyPartKind) -> Option<&BodyPart> {
+    /// Find a root-level node by kind. For combat hit location, UI rendering.
+    pub fn part(&self, kind: BodyNodeKind) -> Option<&BodyNode> {
         self.parts.iter().find(|p| p.kind == kind)
     }
 
-    pub fn part_mut(&mut self, kind: BodyPartKind) -> Option<&mut BodyPart> {
+    pub fn part_mut(&mut self, kind: BodyNodeKind) -> Option<&mut BodyNode> {
         self.parts.iter_mut().find(|p| p.kind == kind)
     }
 
-    /// Sum of pain across every part, weighted by unhealed severity.
-    /// Feeds the pain urgency signal.
+    /// Find any node anywhere in the tree by kind.
+    pub fn node(&self, kind: BodyNodeKind) -> Option<&BodyNode> {
+        self.parts.iter().find_map(|p| p.find(kind))
+    }
+
+    pub fn node_mut(&mut self, kind: BodyNodeKind) -> Option<&mut BodyNode> {
+        self.parts.iter_mut().find_map(|p| p.find_mut(kind))
+    }
+
+    /// Sum of pain across every node in the tree.
     pub fn total_pain(&self) -> f32 {
-        self.parts.iter().map(BodyPart::total_pain).sum()
+        self.parts.iter().map(BodyNode::tree_pain).sum()
     }
 
-    /// Any vital part (head / torso) at critically low function. Locks out
-    /// active channels — the agent falls through to Idle, passive healing
-    /// continues.
+    /// Any vital node at critically low function.
     pub fn is_incapacitated(&self) -> bool {
-        self.parts
-            .iter()
-            .filter(|p| p.vital)
-            .any(|p| p.function_rate < 0.2)
+        for part in &self.parts {
+            if part.vital && part.function_rate < 0.2 {
+                return true;
+            }
+            for child in &part.children {
+                if child.vital && child.function_rate < 0.2 {
+                    return true;
+                }
+            }
+        }
+        false
     }
 
-    /// Total intensity this body can deliver on `channel`, taking injury
-    /// into account. Sums across every part that provides the channel, so
-    /// losing a leg drops Locomotion proportionally and a quadruped (four
-    /// 0.3 legs) outpaces a biped (two 0.5 legs). Intensities are declared
-    /// per part with this additive semantic in mind — each human arm
-    /// provides Manipulation 0.5, for example, so both arms together equal
-    /// the legacy "one fully functional agent" baseline of 1.0.
+    /// Total intensity this body can deliver on `channel`, summed across
+    /// every node in the tree (root + children).
     pub fn channel_capacity(&self, channel: Channel) -> f32 {
-        self.parts
-            .iter()
-            .filter_map(|p| p.channel_intensity(channel))
-            .sum()
+        let mut total = 0.0;
+        for part in &self.parts {
+            if let Some(v) = part.channel_intensity(channel) {
+                total += v;
+            }
+            for child in &part.children {
+                if let Some(v) = child.channel_intensity(channel) {
+                    total += v;
+                }
+            }
+        }
+        total
     }
 
-    /// Iterator over every organ across every body part. Downstream systems
-    /// use this to fan a single pass over the whole anatomy without caring
-    /// which part an organ lives in.
-    pub fn organs(&self) -> impl Iterator<Item = &Organ> {
-        self.parts.iter().flat_map(|p| p.organs.iter())
-    }
-
-    /// Look up the first organ of the given kind anywhere on the body.
-    /// Returns `None` for anatomies that don't carry that organ — e.g. no
-    /// species has more than one brain, but "find the lungs" might still
-    /// miss on a future species that lacks them.
-    pub fn organ(&self, kind: OrganKind) -> Option<&Organ> {
-        self.organs().find(|o| o.kind == kind)
-    }
-
-    /// Mutable variant of [`Body::organ`]. Used by future systems (combat
-    /// damage, disease, poison) that need to mutate a specific organ's HP.
-    pub fn organ_mut(&mut self, kind: OrganKind) -> Option<&mut Organ> {
-        self.parts
-            .iter_mut()
-            .flat_map(|p| p.organs.iter_mut())
-            .find(|o| o.kind == kind)
-    }
-
-    /// True when any vital organ (brain, heart, lungs) has been reduced to
-    /// zero HP. Future death-path work reads this to trigger `die()` when
-    /// combat or disease destroys a life-critical organ. The data structure
-    /// publishes the predicate; the policy of "what to do about it" lives
-    /// in the systems that consume it.
+    /// True when any vital node has been reduced to zero HP.
     pub fn any_vital_organ_destroyed(&self) -> bool {
-        self.organs().any(|o| o.vital && o.is_destroyed())
+        for part in &self.parts {
+            if part.vital && part.is_destroyed() {
+                return true;
+            }
+            for child in &part.children {
+                if child.vital && child.is_destroyed() {
+                    return true;
+                }
+            }
+        }
+        false
     }
 
     /// Derive the digestive-organ multipliers the metabolism tick consumes.
-    /// Missing organs (e.g. a future species that doesn't carry one) default
-    /// to `1.0` so the absence of data never degrades the pipeline — only
-    /// *damaged* organs slow the metabolism.
     pub fn organ_mods(&self) -> crate::agent::body::metabolism::OrganMods {
         crate::agent::body::metabolism::OrganMods {
             stomach: self
-                .organ(OrganKind::Stomach)
+                .node(BodyNodeKind::Stomach)
                 .map(|o| o.condition())
                 .unwrap_or(1.0),
             liver: self
-                .organ(OrganKind::Liver)
+                .node(BodyNodeKind::Liver)
                 .map(|o| o.condition())
                 .unwrap_or(1.0),
             gut: self
-                .organ(OrganKind::Gut)
+                .node(BodyNodeKind::Gut)
                 .map(|o| o.condition())
                 .unwrap_or(1.0),
         }
     }
 
-    /// Respiration multiplier: lung condition in `[0, 1]`. Consumed by the
-    /// activity-effects stamina recovery path — oxygen delivery gates how
-    /// fast aerobic reserves refill, so damaged lungs slow recovery without
-    /// making activities themselves cheaper.
-    ///
-    /// Missing lungs default to `1.0` for the same reason `organ_mods`
-    /// does: absence of anatomy never degrades the pipeline.
+    /// Respiration multiplier: lung condition in `[0, 1]`.
     pub fn lung_condition(&self) -> f32 {
-        self.organ(OrganKind::Lungs)
+        self.node(BodyNodeKind::Lungs)
             .map(|o| o.condition())
             .unwrap_or(1.0)
     }
 }
 
-/// Head organ seed — brain (vital), eyes, ears, nose. Shared across every
-/// species that has a head. HP values reflect rough fragility: the brain is
-/// the most delicate vital organ, sensory organs are small and fragile but
-/// non-vital at the data layer.
-fn head_organs() -> Vec<Organ> {
+/// Head organ seed — brain (vital), eyes, ears, nose.
+fn head_organs() -> Vec<BodyNode> {
     vec![
-        Organ::vital(OrganKind::Brain, 30.0),
-        Organ::new(OrganKind::Eyes, 10.0),
-        Organ::new(OrganKind::Ears, 10.0),
-        Organ::new(OrganKind::Nose, 10.0),
+        BodyNode::vital(BodyNodeKind::Brain, 30.0, vec![]),
+        BodyNode::new(BodyNodeKind::Eyes, 10.0, vec![]),
+        BodyNode::new(BodyNodeKind::Ears, 10.0, vec![]),
+        BodyNode::new(BodyNodeKind::Nose, 10.0, vec![]),
     ]
 }
 
-/// Torso organ seed — heart and lungs vital, liver / stomach / gut non-vital
-/// at this layer (individual systems decide what partial damage means).
-/// Shared across every species that has a torso.
-fn torso_organs() -> Vec<Organ> {
+/// Torso organ seed — heart and lungs vital.
+fn torso_organs() -> Vec<BodyNode> {
     vec![
-        Organ::vital(OrganKind::Heart, 40.0),
-        Organ::vital(OrganKind::Lungs, 35.0),
-        Organ::new(OrganKind::Liver, 30.0),
-        Organ::new(OrganKind::Stomach, 25.0),
-        Organ::new(OrganKind::Gut, 25.0),
+        BodyNode::vital(BodyNodeKind::Heart, 40.0, vec![]),
+        BodyNode::vital(BodyNodeKind::Lungs, 35.0, vec![]),
+        BodyNode::new(BodyNodeKind::Liver, 30.0, vec![]),
+        BodyNode::new(BodyNodeKind::Stomach, 25.0, vec![]),
+        BodyNode::new(BodyNodeKind::Gut, 25.0, vec![]),
     ]
 }
 
-/// Typed identifier for every anatomical part any species can carry.
-///
-/// Using an enum instead of a `String` makes part lookups cheap, typo-free,
-/// and makes `SimEvent` variants that reference parts `Copy`-able without
-/// allocating. New parts (tail, wings, tentacles) land as new variants.
+// ─── BodyNodeKind ──────────────────────────────────────────────────────────
+
+/// Typed identifier for every anatomical node any species can carry.
+/// Merges the former `BodyPartKind` (structural) and `OrganKind` (internal).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect)]
-pub enum BodyPartKind {
-    // Vital structure — every species has these.
+pub enum BodyNodeKind {
+    // Structural
     Head,
     Torso,
-    // Biped limbs.
     LeftArm,
     RightArm,
     LeftLeg,
     RightLeg,
-    // Quadruped limbs.
     LeftForeleg,
     RightForeleg,
     LeftHindleg,
     RightHindleg,
-    // Feeding / combat appendages.
     Mouth,
     Jaws,
+    // Internal organs
+    Brain,
+    Eyes,
+    Ears,
+    Nose,
+    Heart,
+    Lungs,
+    Liver,
+    Stomach,
+    Gut,
 }
 
-impl BodyPartKind {
-    /// Human-readable label used by the UI and by event-log serialisation.
-    /// Kept here so every consumer renders the same words for the same part.
+impl BodyNodeKind {
     pub fn display_name(self) -> &'static str {
         match self {
-            BodyPartKind::Head => "head",
-            BodyPartKind::Torso => "torso",
-            BodyPartKind::LeftArm => "left arm",
-            BodyPartKind::RightArm => "right arm",
-            BodyPartKind::LeftLeg => "left leg",
-            BodyPartKind::RightLeg => "right leg",
-            BodyPartKind::LeftForeleg => "front left leg",
-            BodyPartKind::RightForeleg => "front right leg",
-            BodyPartKind::LeftHindleg => "back left leg",
-            BodyPartKind::RightHindleg => "back right leg",
-            BodyPartKind::Mouth => "mouth",
-            BodyPartKind::Jaws => "jaws",
+            Self::Head => "head",
+            Self::Torso => "torso",
+            Self::LeftArm => "left arm",
+            Self::RightArm => "right arm",
+            Self::LeftLeg => "left leg",
+            Self::RightLeg => "right leg",
+            Self::LeftForeleg => "front left leg",
+            Self::RightForeleg => "front right leg",
+            Self::LeftHindleg => "back left leg",
+            Self::RightHindleg => "back right leg",
+            Self::Mouth => "mouth",
+            Self::Jaws => "jaws",
+            Self::Brain => "brain",
+            Self::Eyes => "eyes",
+            Self::Ears => "ears",
+            Self::Nose => "nose",
+            Self::Heart => "heart",
+            Self::Lungs => "lungs",
+            Self::Liver => "liver",
+            Self::Stomach => "stomach",
+            Self::Gut => "gut",
         }
     }
 }
+
+// ─── Injury ────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Copy, PartialEq, Reflect)]
 pub enum InjuryType {
@@ -383,153 +365,49 @@ pub enum InjuryType {
     Fracture,
     Burn,
     Infection,
-    /// Pointed weapons (arrows, spears, claws, fangs). Deep, narrow wounds
-    /// with a high chance of reaching internal organs and a heavy bleed.
     Pierce,
-    /// Edged weapons (swords, claws, large fangs). Wide wounds with the
-    /// highest bleed rate but less organ penetration than Pierce.
     Slash,
-    /// Blunt weapons (fists, maces, hooves, falls). Damages bone and soft
-    /// tissue without bleeding much; the main consequence is function loss.
     Crush,
-}
-
-/// Species-agnostic organ kinds carried inside a [`BodyPart`]. Each entry is
-/// a seed point for future systems: combat hit locations (#334) target
-/// specific organs, metabolism modulation (#351) reads digestive organ
-/// condition, perception reads eyes / ears / nose, respiration reads lungs,
-/// circulation reads heart, cognition reads brain, and so on.
-///
-/// Organs are intentionally minimal at this layer — they carry HP, a vital
-/// flag, and nothing else. Downstream systems add multipliers on top of the
-/// `condition()` accessor without ever changing this enum's shape.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect)]
-pub enum OrganKind {
-    // Head
-    Brain,
-    Eyes,
-    Ears,
-    Nose,
-    // Torso
-    Heart,
-    Lungs,
-    Liver,
-    Stomach,
-    Gut,
-}
-
-/// An anatomical organ living inside a [`BodyPart`]. Pure data — the only
-/// behaviour is the derived `condition()` accessor that every downstream
-/// system reads to scale its own effect (digestion rate, perception range,
-/// stamina ceiling, etc.). See [`OrganKind`] for the rationale.
-///
-/// Construction-time invariants: `max_hp > 0.0`, `hp == max_hp` at spawn
-/// (organs always start intact), `vital` set only for organs whose
-/// destruction represents instant death in future death-path work.
-#[derive(Debug, Clone, Reflect)]
-pub struct Organ {
-    pub kind: OrganKind,
-    pub hp: f32,
-    pub max_hp: f32,
-    /// Losing a vital organ (heart, lungs, brain) represents a lethal wound
-    /// in future combat/disease work. The data structure just carries the
-    /// flag; actual death logic belongs in the systems that read it.
-    pub vital: bool,
-}
-
-impl Organ {
-    /// Construct an organ at full HP.
-    pub fn new(kind: OrganKind, max_hp: f32) -> Self {
-        Self {
-            kind,
-            hp: max_hp,
-            max_hp,
-            vital: false,
-        }
-    }
-
-    /// Construct a vital organ at full HP (Brain, Heart, Lungs).
-    pub fn vital(kind: OrganKind, max_hp: f32) -> Self {
-        Self {
-            kind,
-            hp: max_hp,
-            max_hp,
-            vital: true,
-        }
-    }
-
-    /// Fractional HP in [0, 1]. Every downstream consumer (metabolism
-    /// modulation, perception, respiration, etc.) reads through this so the
-    /// underlying `hp / max_hp` math stays in one place.
-    pub fn condition(&self) -> f32 {
-        if self.max_hp <= 0.0 {
-            0.0
-        } else {
-            (self.hp / self.max_hp).clamp(0.0, 1.0)
-        }
-    }
-
-    /// True when the organ has been reduced to zero HP. Kept separate from
-    /// `condition() == 0.0` so future scar / destruction work can evolve
-    /// the predicate without breaking callers.
-    pub fn is_destroyed(&self) -> bool {
-        self.hp <= 0.0
-    }
 }
 
 #[derive(Debug, Clone, Reflect)]
 pub struct Injury {
     pub injury_type: InjuryType,
-    pub severity: f32,      // 0.0 to 1.0 (1.0 = Max severity)
-    pub pain: f32,          // 0.0 to 10.0
-    pub healed_amount: f32, // 0.0 to 1.0 (1.0 = Fully healed)
-    /// Ongoing HP loss per second from open wounds. Zero for crush/bruise,
-    /// larger for slash/pierce. Decays to zero as `healed_amount` climbs so
-    /// a clotting wound stops bleeding before it fully closes.
+    pub severity: f32,
+    pub pain: f32,
+    pub healed_amount: f32,
     pub bleed_rate: f32,
 }
 
 impl Injury {
-    /// Effective bleeding rate right now. Decoupled from `healed_amount`
-    /// because clotting happens on a minutes timescale while tissue
-    /// healing happens on a weeks timescale — they're two different
-    /// biological processes. The bleed system decays `bleed_rate`
-    /// directly over time via [`CLOT_DECAY_PER_SEC`] so a fresh wound
-    /// stops bleeding in a handful of game minutes even though the
-    /// tissue itself takes weeks to close.
     pub fn effective_bleed(&self) -> f32 {
         self.bleed_rate.max(0.0)
     }
 }
 
-/// Per-real-second decay on `Injury::bleed_rate` applied by the bleed
-/// system. Matches the codebase's rate-per-real-second convention
-/// (same as starvation damage, digestion rates, etc.). 1/300 means a
-/// fresh wound's bleed rate decays to zero in 300 real seconds
-/// (5 real minutes) — fast enough to match real-world clotting
-/// timescales, but slow enough that a gushing Pierce wound still
-/// matters during a fight.
 pub const CLOT_DECAY_PER_SEC: f32 = 1.0 / 300.0;
 
+// ─── BodyNode ──────────────────────────────────────────────────────────────
+
+/// A single anatomical node. Replaces both the former `BodyPart` and `Organ`
+/// types. Every node uniformly has HP, vital flag, channel contributions,
+/// injury list, and function rate. Nodes can nest arbitrarily deep via
+/// `children`.
 #[derive(Debug, Clone, Reflect)]
-pub struct BodyPart {
-    pub kind: BodyPartKind,
+pub struct BodyNode {
+    pub kind: BodyNodeKind,
     #[reflect(ignore)]
     pub provides: Vec<(Channel, f32)>,
-    /// Losing a vital part (head / torso) incapacitates the whole body.
     pub vital: bool,
     pub max_hp: f32,
     pub current_hp: f32,
     pub function_rate: f32,
     pub injuries: Vec<Injury>,
-    /// Organs nested inside this part. Head holds brain/eyes/ears/nose,
-    /// torso holds heart/lungs/liver/stomach/gut, limbs stay empty for now
-    /// (future: bones in arms, tendons in legs).
-    pub organs: Vec<Organ>,
+    pub children: Vec<BodyNode>,
 }
 
-impl BodyPart {
-    pub fn new(kind: BodyPartKind, max_hp: f32, provides: Vec<(Channel, f32)>) -> Self {
+impl BodyNode {
+    pub fn new(kind: BodyNodeKind, max_hp: f32, provides: Vec<(Channel, f32)>) -> Self {
         Self {
             kind,
             provides,
@@ -538,32 +416,38 @@ impl BodyPart {
             current_hp: max_hp,
             function_rate: 1.0,
             injuries: Vec::new(),
-            organs: Vec::new(),
+            children: Vec::new(),
         }
     }
 
-    pub fn vital(kind: BodyPartKind, max_hp: f32, provides: Vec<(Channel, f32)>) -> Self {
-        let mut part = Self::new(kind, max_hp, provides);
-        part.vital = true;
-        part
+    pub fn vital(kind: BodyNodeKind, max_hp: f32, provides: Vec<(Channel, f32)>) -> Self {
+        let mut node = Self::new(kind, max_hp, provides);
+        node.vital = true;
+        node
     }
 
-    /// Human-readable label for UI / logs. Shortcut for `kind.display_name()`.
+    pub fn with_children(mut self, children: Vec<BodyNode>) -> Self {
+        self.children = children;
+        self
+    }
+
     pub fn name(&self) -> &'static str {
         self.kind.display_name()
     }
 
-    /// Builder: attach a set of organs to this part. Used in the species
-    /// factories (`Body::human`, `Body::wolf`, etc.) to seed head and torso
-    /// with their anatomical contents.
-    pub fn with_organs(mut self, organs: Vec<Organ>) -> Self {
-        self.organs = organs;
-        self
+    /// Fractional HP in [0, 1].
+    pub fn condition(&self) -> f32 {
+        if self.max_hp <= 0.0 {
+            0.0
+        } else {
+            (self.current_hp / self.max_hp).clamp(0.0, 1.0)
+        }
     }
 
-    /// Intensity this part offers for `channel` after injury scaling, or
-    /// `None` if the part doesn't participate in that channel at all. Used
-    /// by `Body::channel_capacity` and direct capability queries.
+    pub fn is_destroyed(&self) -> bool {
+        self.current_hp <= 0.0
+    }
+
     pub fn channel_intensity(&self, channel: Channel) -> Option<f32> {
         self.provides
             .iter()
@@ -578,7 +462,11 @@ impl BodyPart {
     }
 
     pub fn recalculate_function(&mut self) {
-        let hp_factor = self.current_hp / self.max_hp;
+        let hp_factor = if self.max_hp > 0.0 {
+            self.current_hp / self.max_hp
+        } else {
+            0.0
+        };
 
         let mut injury_penalty = 0.0;
         for injury in &self.injuries {
@@ -595,28 +483,34 @@ impl BodyPart {
             .map(|injury| injury.pain * (1.0 - injury.healed_amount))
             .sum()
     }
+
+    /// Total pain including all descendants.
+    fn tree_pain(&self) -> f32 {
+        let mut pain = self.total_pain();
+        for child in &self.children {
+            pain += child.tree_pain();
+        }
+        pain
+    }
+
+    /// Find a node by kind in this subtree (self + descendants).
+    pub fn find(&self, kind: BodyNodeKind) -> Option<&BodyNode> {
+        if self.kind == kind {
+            return Some(self);
+        }
+        self.children.iter().find_map(|c| c.find(kind))
+    }
+
+    pub fn find_mut(&mut self, kind: BodyNodeKind) -> Option<&mut BodyNode> {
+        if self.kind == kind {
+            return Some(self);
+        }
+        self.children.iter_mut().find_map(|c| c.find_mut(kind))
+    }
 }
 
-/// Target time to fully heal a fresh injury of the given type, in the
-/// codebase's per-second rate convention. `TickCount::dt()` accumulates
-/// to 1.0 per real second at 1x simulation speed, so these durations
-/// are in **real seconds** — the same unit starvation, digestion, and
-/// every other rate-per-second constant uses.
-///
-/// At the game's 1 real second = 1 game minute compression, the
-/// durations below map to roughly:
-///
-/// - Bruise / Cut: ~3 real minutes = ~3 game hours
-/// - Slash: ~4 real minutes = ~4 game hours
-/// - Crush: ~5 real minutes = ~5 game hours
-/// - Burn: ~7 real minutes = ~7 game hours
-/// - Pierce / Infection: ~10 real minutes = ~10 game hours
-/// - Fracture: ~20 real minutes = ~20 game hours
-///
-/// Still compressed vs real-world recovery (a real bruise takes weeks)
-/// but long enough that a wounded agent stays meaningfully
-/// disadvantaged for several real minutes instead of a fraction of a
-/// second, without making tests hang on week-long heals.
+// ─── Healing system ────────────────────────────────────────────────────────
+
 fn heal_duration_seconds(kind: InjuryType) -> f32 {
     const MINUTE: f32 = 60.0;
     match kind {
@@ -631,6 +525,38 @@ fn heal_duration_seconds(kind: InjuryType) -> f32 {
     }
 }
 
+/// Heal a single node: advance injury healing, apply scar damage, regen HP.
+fn heal_node(node: &mut BodyNode, dt: f32, condition_mult: f32) {
+    let mut fully_healed_indices = Vec::new();
+
+    for (i, injury) in node.injuries.iter_mut().enumerate() {
+        if injury.healed_amount < 1.0 {
+            let duration = heal_duration_seconds(injury.injury_type).max(1.0);
+            let rate = condition_mult / duration;
+            injury.healed_amount += rate * dt;
+            if injury.healed_amount >= 1.0 {
+                injury.healed_amount = 1.0;
+                fully_healed_indices.push(i);
+            }
+        }
+    }
+
+    for index in fully_healed_indices.iter().rev() {
+        let severity = node.injuries[*index].severity;
+        let scar_damage = severity * 2.0;
+        node.max_hp = (node.max_hp - scar_damage).max(1.0);
+        node.current_hp = node.current_hp.min(node.max_hp);
+        node.injuries.remove(*index);
+    }
+
+    if node.current_hp < node.max_hp {
+        node.current_hp += 1.0 * dt;
+        node.current_hp = node.current_hp.min(node.max_hp);
+    }
+
+    node.recalculate_function();
+}
+
 pub fn process_healing(
     mut query: Query<(&mut Body, Option<&PhysicalNeeds>), With<Alive>>,
     tick: Res<crate::core::tick::TickCount>,
@@ -638,8 +564,6 @@ pub fn process_healing(
     let dt = tick.dt();
 
     for (mut body, needs) in query.iter_mut() {
-        // Rested, well-fueled agents recover twice as fast. Consumes the
-        // existing stamina-aerobic signal the previous healing pass used.
         let condition_mult = if let Some(physical) = needs
             && physical.stamina.aerobic > 80.0
         {
@@ -649,51 +573,16 @@ pub fn process_healing(
         };
 
         for part in body.parts.iter_mut() {
-            let mut fully_healed_indices = Vec::new();
-
-            for (i, injury) in part.injuries.iter_mut().enumerate() {
-                if injury.healed_amount < 1.0 {
-                    let duration = heal_duration_seconds(injury.injury_type).max(1.0);
-                    let rate = condition_mult / duration;
-                    injury.healed_amount += rate * dt;
-                    if injury.healed_amount >= 1.0 {
-                        injury.healed_amount = 1.0;
-                        fully_healed_indices.push(i);
-                    }
-                }
+            heal_node(part, dt, condition_mult);
+            for child in part.children.iter_mut() {
+                heal_node(child, dt, condition_mult);
             }
-
-            for index in fully_healed_indices.iter().rev() {
-                let severity = part.injuries[*index].severity;
-                let scar_damage = severity * 2.0;
-                part.max_hp = (part.max_hp - scar_damage).max(1.0);
-                // Scarring shrinks max_hp. If regen had already refilled
-                // current_hp up to the pre-scar maximum, clamp it back
-                // down — otherwise current_hp stays stranded above the
-                // new max_hp forever and trips the body invariant.
-                part.current_hp = part.current_hp.min(part.max_hp);
-
-                part.injuries.remove(*index);
-            }
-
-            if part.current_hp < part.max_hp {
-                part.current_hp += 1.0 * dt;
-                part.current_hp = part.current_hp.min(part.max_hp);
-            }
-
-            part.recalculate_function();
         }
     }
 }
 
-/// Starvation and dehydration: gradient damage when the metabolism has nothing
-/// left to burn, or thirst is at the critical threshold. Ticks glucose / fat
-/// / stomach flow lives in `activity_effects` — this system only applies the
-/// *consequences* of a depleted metabolism (HP damage).
-///
-/// The gradient: reserves mobilize to cover low glucose as a first line of
-/// defense. Once reserves are empty AND glucose stays critical, HP damage
-/// begins. Well-fed agents can fast for days; lean agents die faster.
+// ─── Starvation / death ────────────────────────────────────────────────────
+
 pub fn process_starvation(
     tick: Res<crate::core::tick::TickCount>,
     mut query: Query<&mut PhysicalNeeds, With<Alive>>,
@@ -716,17 +605,6 @@ pub fn process_starvation(
     }
 }
 
-/// Unified death path.
-///
-/// Every cause of death — starvation, combat, future disease / drowning / old
-/// age — routes through this helper so corpses spawn via the same `Becomes
-/// InPlace Corpse` substrate. Previously `check_death` called `despawn()`
-/// directly, which skipped corpse spawning entirely (the bug that #356 was
-/// supposed to fix but never did).
-///
-/// The `Becomes` component with `AfterTicks(0)` fires on the next tick of the
-/// becomes system, which morphs the entity into a Corpse in place — preserving
-/// entity ID, MindGraph, Body, and relationship references.
 pub fn die(
     commands: &mut Commands,
     entity: Entity,
@@ -765,10 +643,6 @@ pub fn check_death(
 ) {
     for (entity, physical, name) in query.iter() {
         if physical.health <= 0.0 {
-            // Read the source that was damaging health when it hit zero.
-            // `None` shouldn't happen in practice — health only drops via
-            // the systems that stamp it — but fall back to a neutral label
-            // if some future system drains health without marking why.
             let cause = physical
                 .last_health_damage
                 .map(|s| s.as_cause())
@@ -786,144 +660,120 @@ pub fn check_death(
     }
 }
 
+// ─── Tests ─────────────────────────────────────────────────────────────────
+
 #[cfg(test)]
-mod organ_tests {
+mod tests {
     use super::*;
 
-    /// A freshly constructed organ reports full condition and is not destroyed.
     #[test]
     fn fresh_organ_is_fully_intact() {
-        let heart = Organ::vital(OrganKind::Heart, 40.0);
+        let heart = BodyNode::vital(BodyNodeKind::Heart, 40.0, vec![]);
         assert!((heart.condition() - 1.0).abs() < 1e-6);
         assert!(!heart.is_destroyed());
         assert!(heart.vital);
     }
 
-    /// Zero HP drives condition to zero and flags destruction, regardless of
-    /// how `hp` was zeroed.
     #[test]
     fn zero_hp_organ_is_destroyed() {
-        let mut lungs = Organ::vital(OrganKind::Lungs, 35.0);
-        lungs.hp = 0.0;
+        let mut lungs = BodyNode::vital(BodyNodeKind::Lungs, 35.0, vec![]);
+        lungs.current_hp = 0.0;
+        lungs.recalculate_function();
         assert_eq!(lungs.condition(), 0.0);
         assert!(lungs.is_destroyed());
     }
 
-    /// Condition clamps to [0, 1] even if `hp` somehow drifts out of range.
     #[test]
     fn organ_condition_clamps_to_unit_interval() {
-        let mut gut = Organ::new(OrganKind::Gut, 25.0);
-        gut.hp = 100.0; // above max — should clamp, not overflow the ratio
+        let mut gut = BodyNode::new(BodyNodeKind::Gut, 25.0, vec![]);
+        gut.current_hp = 100.0;
         assert!((gut.condition() - 1.0).abs() < 1e-6);
-        gut.hp = -5.0;
+        gut.current_hp = -5.0;
         assert_eq!(gut.condition(), 0.0);
     }
 
-    /// A fresh human body carries every expected organ at full HP in the
-    /// expected parts — head holds brain/eyes/ears/nose, torso holds
-    /// heart/lungs/liver/stomach/gut, limbs stay flat.
     #[test]
     fn human_has_expected_organs_in_head_and_torso() {
         let body = Body::human();
 
-        let head = body.part(BodyPartKind::Head).expect("human has a head");
-        let head_kinds: Vec<OrganKind> = head.organs.iter().map(|o| o.kind).collect();
+        let head = body.part(BodyNodeKind::Head).expect("human has a head");
+        let head_kinds: Vec<BodyNodeKind> = head.children.iter().map(|o| o.kind).collect();
         assert_eq!(
             head_kinds,
             vec![
-                OrganKind::Brain,
-                OrganKind::Eyes,
-                OrganKind::Ears,
-                OrganKind::Nose
+                BodyNodeKind::Brain,
+                BodyNodeKind::Eyes,
+                BodyNodeKind::Ears,
+                BodyNodeKind::Nose,
             ]
         );
 
-        let torso = body.part(BodyPartKind::Torso).expect("human has a torso");
-        let torso_kinds: Vec<OrganKind> = torso.organs.iter().map(|o| o.kind).collect();
+        let torso = body.part(BodyNodeKind::Torso).expect("human has a torso");
+        let torso_kinds: Vec<BodyNodeKind> = torso.children.iter().map(|o| o.kind).collect();
         assert_eq!(
             torso_kinds,
             vec![
-                OrganKind::Heart,
-                OrganKind::Lungs,
-                OrganKind::Liver,
-                OrganKind::Stomach,
-                OrganKind::Gut,
+                BodyNodeKind::Heart,
+                BodyNodeKind::Lungs,
+                BodyNodeKind::Liver,
+                BodyNodeKind::Stomach,
+                BodyNodeKind::Gut,
             ]
         );
 
         let left_arm = body
-            .part(BodyPartKind::LeftArm)
+            .part(BodyNodeKind::LeftArm)
             .expect("human has a left arm");
-        assert!(
-            left_arm.organs.is_empty(),
-            "limbs carry no organs in MVP, got {:?}",
-            left_arm.organs
-        );
+        assert!(left_arm.children.is_empty());
     }
 
-    /// Wolves and deer share the same organ seed as humans — head and torso
-    /// both stocked on both species.
     #[test]
     fn wolf_and_deer_also_carry_head_and_torso_organs() {
         for body in [Body::wolf(), Body::deer()] {
-            assert!(body.organ(OrganKind::Brain).is_some());
-            assert!(body.organ(OrganKind::Heart).is_some());
-            assert!(body.organ(OrganKind::Lungs).is_some());
-            assert!(body.organ(OrganKind::Stomach).is_some());
+            assert!(body.node(BodyNodeKind::Brain).is_some());
+            assert!(body.node(BodyNodeKind::Heart).is_some());
+            assert!(body.node(BodyNodeKind::Lungs).is_some());
+            assert!(body.node(BodyNodeKind::Stomach).is_some());
         }
     }
 
-    /// `Body::organ` looks up the first organ of a kind anywhere on the body
-    /// and returns a full-hp reading on a fresh anatomy.
     #[test]
-    fn body_organ_lookup_returns_full_hp_on_fresh_body() {
+    fn body_node_lookup_returns_full_hp_on_fresh_body() {
         let body = Body::human();
         let stomach = body
-            .organ(OrganKind::Stomach)
+            .node(BodyNodeKind::Stomach)
             .expect("humans have a stomach");
         assert!((stomach.condition() - 1.0).abs() < 1e-6);
     }
 
-    /// `any_vital_organ_destroyed` is false on a fresh anatomy and true once
-    /// a vital organ has been zeroed. Exercises the downstream predicate
-    /// that future combat/disease death paths will read.
     #[test]
     fn any_vital_organ_destroyed_tracks_heart_hp() {
         let mut body = Body::human();
         assert!(!body.any_vital_organ_destroyed());
 
-        body.organ_mut(OrganKind::Heart)
+        body.node_mut(BodyNodeKind::Heart)
             .expect("humans have a heart")
-            .hp = 0.0;
+            .current_hp = 0.0;
         assert!(body.any_vital_organ_destroyed());
     }
 
-    /// Destroying a non-vital organ (liver, eyes, etc.) does NOT trip the
-    /// vital-destroyed predicate — the flag is per-organ, not per-body-part.
     #[test]
     fn destroying_non_vital_organ_does_not_trip_vital_predicate() {
         let mut body = Body::human();
-        body.organ_mut(OrganKind::Liver)
+        body.node_mut(BodyNodeKind::Liver)
             .expect("humans have a liver")
-            .hp = 0.0;
-        assert!(
-            !body.any_vital_organ_destroyed(),
-            "a destroyed liver is serious but not instant death at the data layer"
-        );
+            .current_hp = 0.0;
+        assert!(!body.any_vital_organ_destroyed());
     }
 
-    /// Every organ iterator walks head + torso on every species. Total count
-    /// matches the head (4) + torso (5) seed.
     #[test]
     fn organs_iterator_walks_head_and_torso_organs() {
         for body in [Body::human(), Body::wolf(), Body::deer()] {
-            let count = body.organs().count();
+            let count: usize = body.parts.iter().map(|p| p.children.len()).sum();
             assert_eq!(count, 9, "every species carries 4 head + 5 torso organs");
         }
     }
 
-    /// Fresh lungs report full condition; damaging them scales `lung_condition`
-    /// proportionally. Feeds the respiration bridge into activity_effects.
     #[test]
     fn lung_condition_tracks_lung_organ_hp() {
         let healthy = Body::human();
@@ -931,9 +781,9 @@ mod organ_tests {
 
         let mut damaged = Body::human();
         let lungs = damaged
-            .organ_mut(OrganKind::Lungs)
+            .node_mut(BodyNodeKind::Lungs)
             .expect("humans have lungs");
-        lungs.hp = lungs.max_hp * 0.25;
+        lungs.current_hp = lungs.max_hp * 0.25;
         assert!(
             (damaged.lung_condition() - 0.25).abs() < 1e-6,
             "quarter-hp lungs should report 0.25, got {}",
@@ -941,10 +791,6 @@ mod organ_tests {
         );
     }
 
-    /// A fresh body produces fully-intact organ mods (all 1.0). Degrading
-    /// stomach / liver / gut HP drops the matching mod toward zero without
-    /// touching the others. Exercises the #351 bridge from organ condition
-    /// into [`metabolism::OrganMods`].
     #[test]
     fn organ_mods_reflects_digestive_organ_condition() {
         let body = Body::human();
@@ -955,22 +801,16 @@ mod organ_tests {
 
         let mut damaged = Body::human();
         let stomach = damaged
-            .organ_mut(OrganKind::Stomach)
+            .node_mut(BodyNodeKind::Stomach)
             .expect("humans have a stomach");
-        stomach.hp = stomach.max_hp * 0.5;
+        stomach.current_hp = stomach.max_hp * 0.5;
         let mods = damaged.organ_mods();
         assert!(
             (mods.stomach - 0.5).abs() < 1e-6,
             "half-hp stomach should report ~0.5, got {}",
             mods.stomach
         );
-        assert!(
-            (mods.liver - 1.0).abs() < 1e-6,
-            "liver is untouched, should still report 1.0"
-        );
-        assert!(
-            (mods.gut - 1.0).abs() < 1e-6,
-            "gut is untouched, should still report 1.0"
-        );
+        assert!((mods.liver - 1.0).abs() < 1e-6);
+        assert!((mods.gut - 1.0).abs() < 1e-6);
     }
 }
