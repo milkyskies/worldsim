@@ -268,6 +268,11 @@ fn event_meta<'a>(
         SimEvent::PhenotypeDeveloped { agent, tick, .. } => {
             one("PhenotypeDeveloped", *tick, *agent, true)
         }
+        SimEvent::SocialAcknowledgment {
+            actor,
+            target,
+            tick,
+        } => two("SocialAcknowledgment", *tick, *actor, *target, true),
     }
 }
 
@@ -673,6 +678,16 @@ fn event_to_json(
                 "bmr": phenotype.bmr,
                 "aerobic_capacity": phenotype.aerobic_capacity,
                 "anaerobic_capacity": phenotype.anaerobic_capacity,
+            })
+        }
+        SimEvent::SocialAcknowledgment { actor, target, .. } => {
+            serde_json::json!({
+                "tick": tick,
+                "type": event_type,
+                "actor": resolve(*actor),
+                "actor_id": entity_id_str(*actor),
+                "target": resolve(*target),
+                "target_id": entity_id_str(*target),
             })
         }
     }

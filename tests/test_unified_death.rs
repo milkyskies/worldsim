@@ -13,11 +13,13 @@
 //! starvation → corpse path end-to-end.
 
 use bevy::math::Vec2;
+use bevy::prelude::With;
 use worldsim::agent::body::metabolism::Metabolism;
 use worldsim::agent::body::needs::PhysicalNeeds;
 use worldsim::agent::events::SimEvent;
 use worldsim::agent::inventory::EntityType;
 use worldsim::agent::mind::knowledge::Concept;
+use worldsim::agent::{Alive, Dead};
 use worldsim::testing::{AgentConfig, TestWorld};
 
 /// A starving agent whose health reaches zero must morph into a Corpse in
@@ -103,13 +105,9 @@ fn prolonged_starvation_eventually_spawns_a_corpse() {
 }
 
 /// Regression test for #402: a corpse must not re-emit death SimEvents after
-/// the initial transformation. Before the fix, `check_death` queried
-/// `Without<Becomes>` but never excluded corpses. Once the first `Becomes`
-/// fired and was removed, the corpse's `PhysicalNeeds { health <= 0 }` made
-/// `check_death` insert a new `Becomes` every tick — producing death-event spam.
-///
-/// With the fix (`With<Agent>` added to the query), only living entities are
-/// checked; the corpse (Agent marker stripped) is invisible to `check_death`.
+/// the initial transformation. `check_death` queries `With<Alive>`, so once
+/// `die()` removes `Alive` and inserts `Dead`, the corpse is invisible to
+/// `check_death` regardless of what happens to `Becomes` or `Agent`.
 #[test]
 fn corpse_emits_death_event_exactly_once() {
     let mut world = TestWorld::with_seed(42);
@@ -139,5 +137,132 @@ fn corpse_emits_death_event_exactly_once() {
     assert_eq!(
         death_count, 1,
         "death SimEvent must fire exactly once per agent, got {death_count}"
+    );
+}
+
+/// Living agents have `Alive` but not `Dead`. After death, `Alive` is removed
+/// and `Dead` is inserted. The corpse retains `Dead` permanently.
+#[test]
+fn alive_marker_removed_and_dead_inserted_on_death() {
+    let mut world = TestWorld::with_seed(42);
+    let agent = world.spawn_agent(AgentConfig {
+        pos: Vec2::new(50.0, 50.0),
+        metabolism: Metabolism::empty(),
+        ..Default::default()
+    });
+
+    assert!(
+        world.app().world().get::<Alive>(agent).is_some(),
+        "living agent must have Alive marker"
+    );
+    assert!(
+        world.app().world().get::<Dead>(agent).is_none(),
+        "living agent must not have Dead marker"
+    );
+
+    world
+        .app_mut()
+        .world_mut()
+        .get_mut::<PhysicalNeeds>(agent)
+        .expect("agent has physical needs")
+        .health = 0.1;
+
+    world.tick(60);
+
+    assert!(
+        world.app().world().get::<Alive>(agent).is_none(),
+        "corpse must not have Alive marker"
+    );
+    assert!(
+        world.app().world().get::<Dead>(agent).is_some(),
+        "corpse must have Dead marker"
+    );
+}
+
+/// `With<Alive>` queries must skip corpses. This is the primary liveness
+/// predicate — it replaces the old `(With<Agent>, Without<Becomes>)` pattern.
+#[test]
+fn alive_query_skips_corpses() {
+    let mut world = TestWorld::with_seed(42);
+    let agent = world.spawn_agent(AgentConfig {
+        pos: Vec2::new(50.0, 50.0),
+        metabolism: Metabolism::empty(),
+        ..Default::default()
+    });
+
+    let alive_before = {
+        let mut q = world
+            .app_mut()
+            .world_mut()
+            .query_filtered::<bevy::prelude::Entity, With<Alive>>();
+        q.iter(world.app().world()).count()
+    };
+    assert!(alive_before >= 1, "at least one living agent");
+
+    world
+        .app_mut()
+        .world_mut()
+        .get_mut::<PhysicalNeeds>(agent)
+        .expect("agent has physical needs")
+        .health = 0.1;
+
+    world.tick(60);
+
+    let alive_after = {
+        let mut q = world
+            .app_mut()
+            .world_mut()
+            .query_filtered::<bevy::prelude::Entity, With<Alive>>();
+        q.iter(world.app().world()).count()
+    };
+    assert_eq!(
+        alive_after,
+        alive_before - 1,
+        "one agent died, alive count should drop by 1"
+    );
+}
+
+/// Biology components (PhysicalNeeds, Body) must remain on the corpse for
+/// post-mortem inspection, but their values must be frozen — no metabolism
+/// ticking, no healing, no starvation damage after death.
+#[test]
+fn corpse_biology_is_frozen() {
+    let mut world = TestWorld::with_seed(42);
+    let agent = world.spawn_agent(AgentConfig {
+        pos: Vec2::new(50.0, 50.0),
+        metabolism: Metabolism::empty(),
+        ..Default::default()
+    });
+
+    world
+        .app_mut()
+        .world_mut()
+        .get_mut::<PhysicalNeeds>(agent)
+        .expect("agent has physical needs")
+        .health = 0.1;
+
+    // Let the agent die.
+    world.tick(60);
+
+    let entity_type = world.get::<EntityType>(agent);
+    assert_eq!(entity_type.0, Concept::Corpse, "agent must be dead");
+
+    // Snapshot the corpse's physical needs.
+    let health_after_death = world.get::<PhysicalNeeds>(agent).health;
+    let glucose_after_death = world.get::<PhysicalNeeds>(agent).metabolism.glucose;
+
+    // Tick 200 more times — biology systems should not touch the corpse.
+    world.tick(200);
+
+    let health_later = world.get::<PhysicalNeeds>(agent).health;
+    let glucose_later = world.get::<PhysicalNeeds>(agent).metabolism.glucose;
+
+    assert_eq!(
+        health_after_death, health_later,
+        "corpse health must not change (was {health_after_death}, now {health_later})"
+    );
+    assert_eq!(
+        glucose_after_death, glucose_later,
+        "corpse glucose must not change (was {glucose_after_death}, now {glucose_later})"
     );
 }

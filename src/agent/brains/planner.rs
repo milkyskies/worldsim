@@ -1158,9 +1158,17 @@ fn build_walk_goals(
 /// `WalkAction::to_template_for_target` because Walk is `TargetSource::Implicit`
 /// and never gets enumerated by the brain — its only entry point is here.
 fn build_walk_template(world_pos: Vec2, tile: (i32, i32)) -> ActionTemplate {
+    let behavior = crate::agent::actions::motor::Behavior::new(
+        crate::agent::actions::motor::ActionPrimitive::Locomote,
+        crate::agent::actions::motor::TargetSelector::InPlace,
+        crate::agent::actions::motor::IntensityPolicy::Normal,
+        crate::agent::actions::motor::Intent::Goal,
+    );
+    let locomotion_intensity = behavior.intensity.resolve();
     ActionTemplate {
         name: crate::agent::actions::action::walk::WALK_NAME.to_string(),
         action_type: ActionType::Walk,
+        behavior,
         target_entity: None,
         target_position: Some(world_pos),
         preconditions: Vec::new(),
@@ -1171,7 +1179,7 @@ fn build_walk_template(world_pos: Vec2, tile: (i32, i32)) -> ActionTemplate {
         )],
         consumes: Vec::new(),
         base_cost: 0.0,
-        locomotion_intensity: ActionType::Walk.default_intensity_policy().resolve(),
+        locomotion_intensity,
     }
 }
 
@@ -1276,6 +1284,7 @@ mod tests {
         ActionTemplate {
             name: format!("Gather({:?})", concept),
             action_type: ActionType::Harvest,
+            behavior: Default::default(),
             target_entity: Some(target),
             target_position: None,
             preconditions: vec![TriplePattern::entity_contains(target)],
@@ -1508,6 +1517,7 @@ mod tests {
         ActionTemplate {
             name: format!("Harvest({:?})", concept),
             action_type: ActionType::Harvest,
+            behavior: Default::default(),
             target_entity: Some(entity),
             target_position: None,
             preconditions: vec![
@@ -1676,6 +1686,7 @@ mod tests {
             ActionTemplate {
                 name: "HarvestStone".to_string(),
                 action_type: ActionType::Harvest,
+                behavior: Default::default(),
                 target_entity: Some(stone),
                 target_position: None,
                 preconditions: vec![
@@ -1754,6 +1765,7 @@ mod tests {
         let eat_action = ActionTemplate {
             name: "Eat".to_string(),
             action_type: ActionType::Eat,
+            behavior: Default::default(),
             target_entity: None,
             target_position: None,
             preconditions: vec![TriplePattern::self_contains_food()],
@@ -1769,6 +1781,7 @@ mod tests {
         let harvest_stone = ActionTemplate {
             name: "HarvestStone".to_string(),
             action_type: ActionType::Harvest,
+            behavior: Default::default(),
             target_entity: Some(stone_node),
             target_position: None,
             preconditions: vec![
@@ -2090,9 +2103,16 @@ mod tests {
     // ─── Subjective plan cost ─────────────────────────────────────────────────
 
     fn physical_action(target: Entity, concept: Concept, tile: (i32, i32)) -> ActionTemplate {
+        let registry = crate::agent::actions::ActionRegistry::new();
+        let behavior = registry
+            .get(ActionType::Harvest)
+            .unwrap()
+            .default_behavior();
+        let locomotion_intensity = behavior.intensity.resolve();
         ActionTemplate {
             name: format!("TestPhysical({:?})", concept),
             action_type: ActionType::Harvest,
+            behavior,
             target_entity: Some(target),
             target_position: None,
             preconditions: vec![TriplePattern::entity_contains(target)],
@@ -2110,7 +2130,7 @@ mod tests {
             ],
             consumes: vec![TriplePattern::entity_contains(target)],
             base_cost: 10.0,
-            locomotion_intensity: ActionType::Harvest.default_intensity_policy().resolve(),
+            locomotion_intensity,
         }
     }
 
@@ -2286,16 +2306,23 @@ mod tests {
     #[test]
     fn drained_alertness_inflates_cognitive_action_cost() {
         let mind = test_mind();
+        let registry = crate::agent::actions::ActionRegistry::new();
+        let behavior = registry
+            .get(ActionType::Converse)
+            .unwrap()
+            .default_behavior();
+        let locomotion_intensity = behavior.intensity.resolve();
         let action = ActionTemplate {
             name: "TalkToFriend".to_string(),
             action_type: ActionType::Converse,
+            behavior,
             target_entity: None,
             target_position: None,
             preconditions: Vec::new(),
             effects: Vec::new(),
             consumes: Vec::new(),
             base_cost: 8.0,
-            locomotion_intensity: ActionType::Converse.default_intensity_policy().resolve(),
+            locomotion_intensity,
         };
 
         let alert = PlanCostContext {
@@ -2325,16 +2352,23 @@ mod tests {
         // uncertainty / risk data — cost must equal base_cost under a
         // neutral context.
         let mind = test_mind();
+        let registry = crate::agent::actions::ActionRegistry::new();
+        let behavior = registry
+            .get(ActionType::Harvest)
+            .unwrap()
+            .default_behavior();
+        let locomotion_intensity = behavior.intensity.resolve();
         let action = ActionTemplate {
             name: "NoTarget".to_string(),
             action_type: ActionType::Harvest,
+            behavior,
             target_entity: None,
             target_position: None,
             preconditions: Vec::new(),
             effects: Vec::new(),
             consumes: Vec::new(),
             base_cost: 4.0,
-            locomotion_intensity: ActionType::Harvest.default_intensity_policy().resolve(),
+            locomotion_intensity,
         };
         let ctx = PlanCostContext::neutral();
         let cache = PlanCostCache::new(&ctx, &mind);
@@ -2387,6 +2421,17 @@ mod tests {
         assert_eq!(
             chosen_target, near,
             "planner should prefer the closer apple tree"
+        );
+    }
+
+    #[test]
+    fn planner_generates_walk_behavior_for_locomotion() {
+        use crate::agent::actions::motor::ActionPrimitive;
+        let template = build_walk_template(bevy::math::Vec2::new(100.0, 100.0), (5, 5));
+        assert_eq!(
+            template.behavior.primitive,
+            ActionPrimitive::Locomote,
+            "Walk template must carry Locomote primitive"
         );
     }
 }

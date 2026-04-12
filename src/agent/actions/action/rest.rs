@@ -16,6 +16,9 @@
 
 use crate::agent::actions::ActionType;
 use crate::agent::actions::channel::{ChannelSlices, ChannelUsage, Posture};
+use crate::agent::actions::motor::{
+    ActionPrimitive, Behavior, IntensityPolicy, Intent, TargetSelector,
+};
 use crate::agent::actions::registry::{Action, ActionKind};
 use crate::agent::mind::knowledge::{Node, Predicate, Triple, Value};
 
@@ -28,6 +31,15 @@ impl Action for RestAction {
 
     fn name(&self) -> &'static str {
         "Rest"
+    }
+
+    fn default_behavior(&self) -> Behavior {
+        Behavior::new(
+            ActionPrimitive::Rest,
+            TargetSelector::InPlace,
+            IntensityPolicy::Fixed(0.4),
+            Intent::Fatigue,
+        )
     }
 
     fn kind(&self) -> ActionKind {

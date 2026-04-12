@@ -33,7 +33,7 @@ use crate::agent::nervous_system::cns::CentralNervousSystem;
 use crate::agent::psyche::emotions::EmotionalState;
 use crate::agent::skills::Skills;
 use crate::agent::spawn_human::{PersonInit, build_person_logic};
-use crate::agent::{Agent, TargetPosition};
+use crate::agent::{Agent, Alive, TargetPosition};
 use crate::testing::config::AgentConfig;
 use crate::world::Physical;
 use crate::world::apple_tree::ResourceRegeneration;
@@ -122,6 +122,7 @@ pub(super) fn spawn_test_deer(
         .spawn((
             Name::new(display_name),
             Agent,
+            Alive,
             Deer,
             EntityType(Concept::Deer),
             species,
@@ -182,6 +183,7 @@ pub(super) fn spawn_test_wolf(
         .spawn((
             Name::new(display_name),
             Agent,
+            Alive,
             Wolf,
             EntityType(Concept::Wolf),
             SpeciesProfile::wolf(),

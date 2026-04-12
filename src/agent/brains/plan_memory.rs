@@ -316,8 +316,17 @@ impl PlanMemory {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::agent::actions::ActionType;
     use crate::agent::brains::thinking::TriplePattern;
     use crate::agent::mind::knowledge::{Concept, Node as MindNode, Predicate, Value};
+
+    fn test_template(action_type: ActionType) -> ActionTemplate {
+        let registry = crate::agent::actions::ActionRegistry::new();
+        registry
+            .get(action_type)
+            .map(|a| a.to_template(None))
+            .unwrap()
+    }
 
     fn test_goal(concept: Concept) -> Goal {
         Goal {
@@ -528,17 +537,7 @@ mod tests {
             1.0,
         );
         plan.goal = goal.clone();
-        plan.steps = vec![ActionTemplate {
-            name: "Walk".into(),
-            action_type: ActionType::Walk,
-            target_entity: None,
-            target_position: None,
-            preconditions: vec![],
-            effects: vec![],
-            consumes: vec![],
-            base_cost: 0.0,
-            locomotion_intensity: ActionType::Walk.default_intensity_policy().resolve(),
-        }];
+        plan.steps = vec![test_template(ActionType::Walk)];
         mem.insert(plan);
         assert!(!mem.needs_replan_for(&goal));
     }
@@ -578,17 +577,7 @@ mod tests {
             1.0,
         );
         plan.goal = apple;
-        plan.steps = vec![ActionTemplate {
-            name: "Walk".into(),
-            action_type: ActionType::Walk,
-            target_entity: None,
-            target_position: None,
-            preconditions: vec![],
-            effects: vec![],
-            consumes: vec![],
-            base_cost: 0.0,
-            locomotion_intensity: ActionType::Walk.default_intensity_policy().resolve(),
-        }];
+        plan.steps = vec![test_template(ActionType::Walk)];
         mem.insert(plan);
         assert!(
             mem.needs_replan_for(&berry),

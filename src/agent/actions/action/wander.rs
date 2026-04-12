@@ -2,6 +2,9 @@
 
 use crate::agent::actions::ActionType;
 use crate::agent::actions::channel::{Channel, ChannelUsage, Posture};
+use crate::agent::actions::motor::{
+    ActionPrimitive, Behavior, IntensityPolicy, Intent, TargetSelector,
+};
 use crate::agent::actions::registry::{Action, ActionKind};
 
 pub struct WanderAction;
@@ -13,6 +16,15 @@ impl Action for WanderAction {
 
     fn name(&self) -> &'static str {
         "Wander"
+    }
+
+    fn default_behavior(&self) -> Behavior {
+        Behavior::new(
+            ActionPrimitive::Locomote,
+            TargetSelector::RandomNearby,
+            IntensityPolicy::Ambient,
+            Intent::Curiosity,
+        )
     }
 
     fn kind(&self) -> ActionKind {

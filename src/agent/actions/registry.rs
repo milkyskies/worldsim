@@ -6,6 +6,7 @@
 use crate::agent::actions::ActionType;
 use crate::agent::actions::action::{AttackAction, BiteAction};
 use crate::agent::actions::channel::{ChannelUsage, Posture};
+use crate::agent::actions::motor::Behavior;
 use crate::agent::brains::thinking::{ActionTemplate, TriplePattern};
 use crate::agent::events::FailureReason;
 use crate::agent::item_slots::ItemSlots;
@@ -239,12 +240,12 @@ pub trait Action: Send + Sync + 'static {
     /// Human-readable name
     fn name(&self) -> &'static str;
 
+    /// The default behavior configuration for this action.
+    fn default_behavior(&self) -> Behavior;
+
     /// The motor primitive this action resolves to.
-    ///
-    /// Default delegates to `ActionType::motor_primitive()` so existing
-    /// actions work without override. New code should override directly.
     fn motor_primitive(&self) -> crate::agent::actions::motor::ActionPrimitive {
-        self.action_type().motor_primitive()
+        self.default_behavior().primitive
     }
 
     // === FOR PLANNING (GOAP) ===
@@ -421,19 +422,19 @@ pub trait Action: Send + Sync + 'static {
     /// (Harvest yielding what the target produces, Drink with `self_at(tile)`)
     /// must go through `to_template_for_target`.
     fn to_template(&self, target_entity: Option<Entity>) -> ActionTemplate {
-        let action_type = self.action_type();
+        let behavior = self.default_behavior();
+        let locomotion_intensity = behavior.intensity.resolve();
         ActionTemplate {
             name: self.name().to_string(),
-            action_type,
+            action_type: self.action_type(),
+            behavior,
             target_entity,
             target_position: None,
             preconditions: self.preconditions(),
             effects: self.plan_effects(),
             consumes: self.plan_consumes(),
             base_cost: self.cost(),
-            // Start with the action's default locomotion intensity. The
-            // brain may override it based on urgency before admission.
-            locomotion_intensity: action_type.default_intensity_policy().resolve(),
+            locomotion_intensity,
         }
     }
 
@@ -468,17 +469,19 @@ pub trait Action: Send + Sync + 'static {
             TargetCandidate::Tile { pos, .. } => (None, Some(*pos)),
         };
 
-        let action_type = self.action_type();
+        let behavior = self.default_behavior();
+        let locomotion_intensity = behavior.intensity.resolve();
         ActionTemplate {
             name: self.name().to_string(),
-            action_type,
+            action_type: self.action_type(),
+            behavior,
             target_entity,
             target_position,
             preconditions,
             effects: self.plan_effects_for_target(target, mind),
             consumes,
             base_cost: self.cost(),
-            locomotion_intensity: action_type.default_intensity_policy().resolve(),
+            locomotion_intensity,
         }
     }
 }
@@ -531,7 +534,11 @@ impl ActionState {
             progress_accumulator: 0.0,
             target_entity: None,
             target_position: None,
-            locomotion_intensity: action_type.default_intensity_policy().resolve(),
+            // Default to 0; the execution system's fallback resolves
+            // from the Action's default_behavior().intensity when this
+            // is zero. Callers that have a template set the resolved
+            // value via with_locomotion_intensity().
+            locomotion_intensity: 0.0,
         }
     }
 

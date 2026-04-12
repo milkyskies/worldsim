@@ -16,10 +16,9 @@ use worldsim::testing::TestWorld;
 #[test]
 #[ignore = "slow: 10k-tick game_defaults run"]
 fn migrated_action_calorie_totals_within_15pct_of_baseline() {
-    use bevy::prelude::{With, Without};
+    use bevy::prelude::With;
     use worldsim::agent::body::needs::PhysicalNeeds;
-    use worldsim::agent::{Agent, Person};
-    use worldsim::world::becomes::Becomes;
+    use worldsim::agent::{Alive, Person};
 
     let mut world = TestWorld::game_defaults(42);
 
@@ -27,8 +26,7 @@ fn migrated_action_calorie_totals_within_15pct_of_baseline() {
         let mut q = world
             .app_mut()
             .world_mut()
-            .query_filtered::<bevy::prelude::Entity, (With<Person>, With<Agent>, Without<Becomes>)>(
-            );
+            .query_filtered::<bevy::prelude::Entity, (With<Person>, With<Alive>)>();
         q.iter(world.app().world()).count()
     };
 
@@ -51,7 +49,7 @@ fn migrated_action_calorie_totals_within_15pct_of_baseline() {
     let mut starving_count = 0;
     {
         let w = world.app_mut().world_mut();
-        let mut q = w.query_filtered::<&PhysicalNeeds, (With<Person>, With<Agent>)>();
+        let mut q = w.query_filtered::<&PhysicalNeeds, (With<Person>, With<Alive>)>();
         for needs in q.iter(w) {
             if needs.metabolism.glucose < 15.0 && needs.metabolism.reserves < 5.0 {
                 starving_count += 1;

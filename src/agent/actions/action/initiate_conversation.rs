@@ -17,6 +17,9 @@
 
 use crate::agent::actions::ActionType;
 use crate::agent::actions::channel::{Channel, ChannelUsage, Posture};
+use crate::agent::actions::motor::{
+    ActionPrimitive, Behavior, IntensityPolicy, Intent, TargetSelector,
+};
 use crate::agent::actions::registry::{Action, ActionContext, ActionKind, TargetSource};
 use crate::agent::events::FailureReason;
 
@@ -25,6 +28,15 @@ pub struct InitiateConversationAction;
 impl Action for InitiateConversationAction {
     fn action_type(&self) -> ActionType {
         ActionType::InitiateConversation
+    }
+
+    fn default_behavior(&self) -> Behavior {
+        Behavior::new(
+            ActionPrimitive::Locomote,
+            TargetSelector::InPlace,
+            IntensityPolicy::Normal,
+            Intent::Social,
+        )
     }
 
     fn name(&self) -> &'static str {

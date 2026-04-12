@@ -5,7 +5,6 @@
 //! Upstream: world::spawner (calls spawn_wolf), world::map (biome placement)
 //! Downstream: agent brains (fear/flee in humans/deer, anger/attack in wolves)
 
-use crate::agent::Agent;
 use crate::agent::body::genetics::founder::random_genome;
 use crate::agent::body::needs::PsychologicalDrives;
 use crate::agent::body::species::{Species, SpeciesProfile};
@@ -13,6 +12,7 @@ use crate::agent::inventory::EntityType;
 use crate::agent::item_slots::ItemSlots;
 use crate::agent::mind::knowledge::{Concept, MindGraph, Ontology};
 use crate::agent::naming::wolf_name;
+use crate::agent::{Agent, Alive};
 use crate::world::map::TILE_SIZE;
 use bevy::prelude::*;
 use rand::Rng;
@@ -49,6 +49,7 @@ pub fn spawn_wolf<R: Rng>(
         .spawn((
             Name::new(wolf_name(index)),
             Agent,
+            Alive,
             Wolf,
             EntityType(Concept::Wolf),
             species_profile,

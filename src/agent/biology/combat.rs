@@ -33,7 +33,7 @@ use rand::Rng;
 use crate::agent::Agent;
 use crate::agent::actions::ActionType;
 use crate::agent::actions::channel::Channel;
-use crate::agent::biology::body::{Body, BodyPartKind, Injury, InjuryType, OrganKind};
+use crate::agent::biology::body::{Body, BodyNodeKind, Injury, InjuryType};
 use crate::agent::body::needs::Consciousness;
 use crate::agent::events::SimEvent;
 use crate::agent::item_slots::ItemSlots;
@@ -126,7 +126,7 @@ fn bleed_coefficient(kind: InjuryType) -> f32 {
 }
 
 /// Weighted pick of a target body part. Bigger parts catch more hits.
-fn pick_hit_location(rng: &mut impl Rng, body: &Body) -> Option<BodyPartKind> {
+fn pick_hit_location(rng: &mut impl Rng, body: &Body) -> Option<BodyNodeKind> {
     let total: f32 = body.parts.iter().map(|p| p.max_hp).sum();
     if total <= 0.0 {
         return None;
@@ -151,10 +151,10 @@ enum Resolution {
 
 #[derive(Debug, Clone, Copy)]
 struct HitOutcome {
-    part_kind: BodyPartKind,
+    part_kind: BodyNodeKind,
     damage: f32,
     injury_type: InjuryType,
-    vital_organ_destroyed: Option<OrganKind>,
+    vital_organ_destroyed: Option<BodyNodeKind>,
     defender_died: bool,
 }
 
@@ -193,13 +193,8 @@ fn apply_strike(
     };
     let injury_type = default_damage_type(action);
 
-    let mut vital_organ_destroyed: Option<OrganKind> = None;
+    let mut vital_organ_destroyed: Option<BodyNodeKind> = None;
     if let Some(part) = defender_body.part_mut(part_kind) {
-        // Combat applies damage directly to current_hp. The existing
-        // `BodyPart::add_injury` path uses a severity-scaled drop
-        // (`severity * 20`) which was designed before a damage layer
-        // existed - routing through it would cap each hit at a 20x
-        // fraction of its real damage, and a deer would never die.
         part.current_hp = (part.current_hp - damage).max(0.0);
         let severity = (damage / part.max_hp.max(1.0)).clamp(0.0, 1.0);
         let pain = severity * PAIN_PER_SEVERITY;
@@ -213,13 +208,14 @@ fn apply_strike(
         });
         part.recalculate_function();
 
-        if !part.organs.is_empty() && rng.random::<f32>() < organ_chance(injury_type) {
-            let idx = rng.random_range(0..part.organs.len());
-            let organ = &mut part.organs[idx];
+        if !part.children.is_empty() && rng.random::<f32>() < organ_chance(injury_type) {
+            let idx = rng.random_range(0..part.children.len());
+            let child = &mut part.children[idx];
             let penetration = damage * ORGAN_PENETRATION_FRACTION;
-            organ.hp = (organ.hp - penetration).max(0.0);
-            if organ.is_destroyed() && organ.vital {
-                vital_organ_destroyed = Some(organ.kind);
+            child.current_hp = (child.current_hp - penetration).max(0.0);
+            child.recalculate_function();
+            if child.is_destroyed() && child.vital {
+                vital_organ_destroyed = Some(child.kind);
             }
         }
     }
@@ -302,11 +298,11 @@ struct CombatEffect {
 enum CombatOutcome {
     Dodged,
     Hit {
-        part_kind: BodyPartKind,
+        part_kind: BodyNodeKind,
         damage: f32,
         injury_type: InjuryType,
         defender_died: bool,
-        vital_organ_destroyed: Option<OrganKind>,
+        vital_organ_destroyed: Option<BodyNodeKind>,
     },
 }
 
@@ -542,9 +538,24 @@ pub fn resolve_combat_hits(
 // BLEEDING SYSTEM
 // ════════════════════════════════════════════════════════════════════════════
 
-/// Drain HP from parts with open bleeding injuries, decay each
-/// injury's clotting, and drip blood at the bleeder's current position
-/// so fleeing wounded agents leave a trail.
+fn bleed_node(node: &mut crate::agent::biology::body::BodyNode, dt: f32) -> f32 {
+    let mut node_bleed = 0.0_f32;
+    for injury in node.injuries.iter_mut() {
+        node_bleed += injury.effective_bleed();
+        injury.bleed_rate =
+            (injury.bleed_rate - crate::agent::biology::body::CLOT_DECAY_PER_SEC * dt).max(0.0);
+    }
+    if node_bleed > 0.0 {
+        let drain = node_bleed * dt;
+        node.current_hp = (node.current_hp - drain).max(0.0);
+        node.recalculate_function();
+        drain
+    } else {
+        node.recalculate_function();
+        0.0
+    }
+}
+
 pub fn bleed_system(
     mut commands: Commands,
     tick: Res<TickCount>,
@@ -561,23 +572,10 @@ pub fn bleed_system(
     for (mut body, transform) in agents.iter_mut() {
         let mut total_drain = 0.0_f32;
         for part in body.parts.iter_mut() {
-            let mut part_bleed = 0.0_f32;
-            for injury in part.injuries.iter_mut() {
-                let bleed = injury.effective_bleed();
-                part_bleed += bleed;
-                // Clot decay runs every tick regardless of whether the
-                // wound is currently bleeding, so fresh wounds stop
-                // bleeding in minutes even when nothing drains them.
-                injury.bleed_rate = (injury.bleed_rate
-                    - crate::agent::biology::body::CLOT_DECAY_PER_SEC * dt)
-                    .max(0.0);
+            total_drain += bleed_node(part, dt);
+            for child in part.children.iter_mut() {
+                total_drain += bleed_node(child, dt);
             }
-            if part_bleed > 0.0 {
-                let drain = part_bleed * dt;
-                part.current_hp = (part.current_hp - drain).max(0.0);
-                total_drain += drain;
-            }
-            part.recalculate_function();
         }
         if total_drain > 0.0 {
             drips.push((transform.translation.truncate(), total_drain));
@@ -608,7 +606,7 @@ pub fn severance_system(
     mut sim_events: MessageWriter<SimEvent>,
     mut liquids: Query<(Entity, &Transform, &mut Liquid)>,
 ) {
-    let mut drops: Vec<(Entity, BodyPartKind, Vec2)> = Vec::new();
+    let mut drops: Vec<(Entity, BodyNodeKind, Vec2)> = Vec::new();
 
     for (entity, mut body, transform) in agents.iter_mut() {
         let pos = transform.translation.truncate();
@@ -682,8 +680,8 @@ mod tests {
         let iterations = 2000;
         for _ in 0..iterations {
             match pick_hit_location(&mut rng, &body).unwrap() {
-                BodyPartKind::Torso => torso_count += 1,
-                BodyPartKind::Mouth => mouth_count += 1,
+                BodyNodeKind::Torso => torso_count += 1,
+                BodyNodeKind::Mouth => mouth_count += 1,
                 _ => {}
             }
         }

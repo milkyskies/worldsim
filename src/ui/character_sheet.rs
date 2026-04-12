@@ -12,7 +12,7 @@ use egui::Color32;
 use crate::agent::actions::ActionType;
 use crate::agent::actions::channel::Channel;
 use crate::agent::actions::registry::ActiveActions;
-use crate::agent::biology::body::{Body, BodyPart, InjuryType};
+use crate::agent::biology::body::{Body, BodyNode, InjuryType};
 use crate::agent::body::needs::{Consciousness, PhysicalNeeds, PsychologicalDrives};
 use crate::agent::body::species::SpeciesProfile;
 use crate::agent::brains::plan_memory::{PlanMemory, PlanState};
@@ -296,7 +296,7 @@ fn glucose_contributions(world: &World, entity: Entity) -> Vec<Contribution> {
             {
                 effective_intensity(state.locomotion_intensity, &stamina)
             } else {
-                state.action_type.default_intensity_policy().resolve()
+                action.default_behavior().intensity.resolve()
             };
             let profile = primitive.effort_profile().scaled(intensity);
             let cost = compute_action_cost(&profile, body_mass);
@@ -351,7 +351,7 @@ fn stamina_contributions(world: &World, entity: Entity) -> Vec<Contribution> {
             {
                 effective_intensity(state.locomotion_intensity, &stamina)
             } else {
-                state.action_type.default_intensity_policy().resolve()
+                action.default_behavior().intensity.resolve()
             };
             let profile = primitive.effort_profile().scaled(intensity);
             let cost = compute_action_cost(&profile, body_mass);
@@ -1912,7 +1912,7 @@ fn injury_label(kind: InjuryType) -> &'static str {
     }
 }
 
-fn render_body_part_row(ui: &mut egui::Ui, part: &BodyPart) {
+fn render_body_part_row(ui: &mut egui::Ui, part: &BodyNode) {
     ui.label(part.name());
     let hp_pct = (part.current_hp / part.max_hp).clamp(0.0, 1.0);
     ui.add(

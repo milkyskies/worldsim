@@ -273,6 +273,15 @@ pub enum SimEvent {
         stranger: Entity,
     },
 
+    /// Two agents acknowledged each other in passing (wave, nod, brief
+    /// greeting). Not a conversation — no turns, no state machine. Just a
+    /// social signal that bumps companionship and relationship warmth.
+    SocialAcknowledgment {
+        actor: Entity,
+        target: Entity,
+        tick: u64,
+    },
+
     /// Knowledge was shared between agents.
     KnowledgeShared {
         speaker: Entity,
@@ -356,7 +365,7 @@ pub enum SimEvent {
         attacker: Entity,
         defender: Entity,
         tick: u64,
-        part_kind: crate::agent::biology::body::BodyPartKind,
+        part_kind: crate::agent::biology::body::BodyNodeKind,
         damage: f32,
         injury_type: crate::agent::biology::body::InjuryType,
     },
@@ -376,7 +385,7 @@ pub enum SimEvent {
     PartSevered {
         entity: Entity,
         tick: u64,
-        part_kind: crate::agent::biology::body::BodyPartKind,
+        part_kind: crate::agent::biology::body::BodyNodeKind,
     },
 
     /// A genome was expressed into a phenotype at spawn.

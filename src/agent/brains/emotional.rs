@@ -725,4 +725,42 @@ mod tests {
             "Groom baseline must be very low urgency"
         );
     }
+
+    #[test]
+    fn emotional_brain_flee_carries_safety_intent() {
+        use crate::agent::actions::motor::{ActionPrimitive, Intent as MotorIntent};
+
+        let mut state = EmotionalState::default();
+        state.add_emotion(Emotion::new(EmotionType::Fear, 0.9));
+
+        let mind = setup_mind();
+        let visible = VisibleObjects::default();
+
+        let mut registry = crate::agent::actions::ActionRegistry::default();
+        registry.register(crate::agent::actions::action::FleeAction);
+
+        let proposal = emotional_brain_propose(
+            &state,
+            &mind,
+            &visible,
+            None,
+            None,
+            None,
+            &Default::default(),
+            &registry,
+        )
+        .expect("should propose Flee");
+
+        let behavior = &proposal.action.behavior;
+        assert_eq!(
+            behavior.primitive,
+            ActionPrimitive::Locomote,
+            "Flee should use the Locomote primitive"
+        );
+        assert_eq!(
+            behavior.intent,
+            MotorIntent::Safety,
+            "Flee should carry Safety intent"
+        );
+    }
 }
