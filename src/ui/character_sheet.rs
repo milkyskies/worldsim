@@ -65,6 +65,27 @@ fn placeholder(ui: &mut egui::Ui, text: &str) {
     );
 }
 
+/// Indented, small, muted "Details" collapsible used for every
+/// contributor breakdown in the panel. Consistent look across Overview,
+/// Vitals, Drives, and Mood.
+fn details_section(
+    ui: &mut egui::Ui,
+    id_salt: impl std::hash::Hash,
+    body: impl FnOnce(&mut egui::Ui),
+) {
+    ui.horizontal(|ui| {
+        ui.add_space(16.0);
+        egui::CollapsingHeader::new(
+            egui::RichText::new("Details")
+                .small()
+                .color(Color32::from_gray(140)),
+        )
+        .id_salt(id_salt)
+        .default_open(false)
+        .show(ui, body);
+    });
+}
+
 // ============================================================================
 // EXPLAIN — contributors for "why is this stat moving"
 // ============================================================================
@@ -406,8 +427,6 @@ fn character_sheet_system(world: &mut World) {
         .get::<SpeciesProfile>(entity)
         .map(|s| format!("{:?}", s.species))
         .unwrap_or_else(|| "Unknown".to_string());
-    let summary = build_header_summary(world, entity);
-
     let mut new_tab = active_tab;
     let mut dismiss = false;
 
@@ -429,12 +448,6 @@ fn character_sheet_system(world: &mut World) {
                         dismiss = true;
                     }
                 });
-            });
-
-            ui.horizontal(|ui| {
-                ui.colored_label(summary.mood_color, &summary.mood_label);
-                ui.separator();
-                ui.label(egui::RichText::new(&summary.action_text).italics());
             });
 
             ui.add_space(4.0);
@@ -476,31 +489,6 @@ fn character_sheet_system(world: &mut World) {
     cs.active_tab = new_tab;
     if dismiss {
         cs.dismissed_for = Some(entity);
-    }
-}
-
-// ============================================================================
-// HEADER SUMMARY
-// ============================================================================
-
-struct HeaderSummary {
-    mood_label: String,
-    mood_color: Color32,
-    action_text: String,
-}
-
-fn build_header_summary(world: &World, entity: Entity) -> HeaderSummary {
-    let (mood_label, mood_color) = world
-        .get::<EmotionalState>(entity)
-        .map(mood_descriptor)
-        .unwrap_or_else(|| ("Unknown".into(), Color32::GRAY));
-
-    let action_text = current_action_summary(world, entity);
-
-    HeaderSummary {
-        mood_label,
-        mood_color,
-        action_text,
     }
 }
 
@@ -582,13 +570,15 @@ fn render_overview(ui: &mut egui::Ui, world: &World, entity: Entity) {
         // imminent death. A single "hunger %" bar can't disambiguate.
         let m = &needs.metabolism;
         ui.label(egui::RichText::new("Fuel").strong());
-        vital_row(
+        vital_row_explained(
             ui,
             "Stomach",
             m.stomach_fullness(),
             crate::agent::body::metabolism::STOMACH_CAPACITY,
             0.1,
             0.3,
+            Some(stomach_contributions(world, entity)),
+            " /sec",
         );
         vital_row_explained(
             ui,
@@ -744,14 +734,11 @@ fn render_overview(ui: &mut egui::Ui, world: &World, entity: Entity) {
                 ui.colored_label(stress_color(stress), format!("stress {:.0}", stress));
             }
         });
-        egui::CollapsingHeader::new("Details")
-            .id_salt(egui::Id::new("mood_why"))
-            .default_open(false)
-            .show(ui, |ui| {
-                for line in mood_contributions(emotions) {
-                    ui.label(line);
-                }
-            });
+        details_section(ui, "mood_why", |ui| {
+            for line in mood_contributions(emotions) {
+                ui.label(line);
+            }
+        });
 
         if !emotions.active_emotions.is_empty() {
             let mut sorted: Vec<_> = emotions.active_emotions.iter().collect();
@@ -806,10 +793,10 @@ fn vital_row_explained(
         );
     });
     if let Some(contribs) = contribs {
-        egui::CollapsingHeader::new("Details")
-            .id_salt(egui::Id::new(("vital_why", label)))
-            .default_open(false)
-            .show(ui, |ui| render_contributions(ui, unit, &contribs));
+        let label_owned = label.to_string();
+        details_section(ui, ("vital_why", label_owned), |ui| {
+            render_contributions(ui, unit, &contribs);
+        });
     }
 }
 
@@ -833,10 +820,10 @@ fn vital_row_fraction_explained(
         );
     });
     if let Some(contribs) = contribs {
-        egui::CollapsingHeader::new("Details")
-            .id_salt(egui::Id::new(("vital_frac_why", label)))
-            .default_open(false)
-            .show(ui, |ui| render_contributions(ui, unit, &contribs));
+        let label_owned = label.to_string();
+        details_section(ui, ("vital_frac_why", label_owned), |ui| {
+            render_contributions(ui, unit, &contribs);
+        });
     }
 }
 
@@ -2423,27 +2410,31 @@ fn render_brain(ui: &mut egui::Ui, world: &World, entity: Entity) {
 // HELPERS
 // ============================================================================
 
-/// Render one row per running (non-Idle) action on the agent, annotated
-/// with the brain that proposed it and that brain's reasoning. When
-/// nothing non-Idle is running, print "Idle". Multi-channel agents
-/// show multiple rows — each row is a truthful (action, brain, reason)
-/// triple instead of the old "one arbitrary action plus one winner
-/// reason" mismatch.
 fn render_overview_actions(ui: &mut egui::Ui, world: &World, entity: Entity) {
     use crate::agent::actions::registry::ActionState;
+    use crate::agent::brains::history::BrainHistory;
+
     let Some(active) = world.get::<ActiveActions>(entity) else {
         ui.label(egui::RichText::new("Idle").strong());
         return;
     };
     let brain = world.get::<BrainState>(entity);
+    let history = world.get::<BrainHistory>(entity);
 
-    let brain_for = |action_type: ActionType| -> Option<(&str, &str)> {
-        let brain = brain?;
-        let proposal = brain
-            .proposals
-            .iter()
-            .find(|p| p.action.action_type == action_type)?;
-        Some((proposal.brain.display_name(), proposal.reasoning.as_str()))
+    let attribution_for = |action_type: ActionType| -> (Option<&str>, Option<&str>) {
+        let from_proposal = brain.and_then(|b| {
+            b.proposals
+                .iter()
+                .find(|p| p.action.action_type == action_type)
+                .map(|p| (p.brain.display_name(), p.reasoning.as_str()))
+        });
+        if let Some((n, r)) = from_proposal {
+            return (Some(n), Some(r));
+        }
+        let brain_only = history
+            .and_then(|h| h.active.get(&action_type).copied())
+            .map(|b| b.display_name());
+        (brain_only, None)
     };
 
     let render_one = |ui: &mut egui::Ui, state: &ActionState| {
@@ -2464,17 +2455,37 @@ fn render_overview_actions(ui: &mut egui::Ui, world: &World, entity: Entity) {
         ui.horizontal(|ui| {
             ui.label(egui::RichText::new("▶").color(Color32::YELLOW));
             ui.label(egui::RichText::new(format!("{}{}", base, target_str)).strong());
-            if let Some((brain_name, reason)) = brain_for(state.action_type) {
-                ui.label(
-                    egui::RichText::new(format!("· {}:", brain_name)).color(Color32::LIGHT_GRAY),
-                );
-                ui.label(
-                    egui::RichText::new(format!("\"{}\"", reason))
-                        .italics()
-                        .color(Color32::LIGHT_GRAY),
-                );
-            }
         });
+        let (brain_name, reason) = attribution_for(state.action_type);
+        match (brain_name, reason) {
+            (Some(name), Some(r)) => {
+                ui.horizontal(|ui| {
+                    ui.add_space(16.0);
+                    ui.label(
+                        egui::RichText::new(format!("{}:", name))
+                            .small()
+                            .color(Color32::from_gray(170)),
+                    );
+                    ui.label(
+                        egui::RichText::new(r)
+                            .small()
+                            .italics()
+                            .color(Color32::from_gray(170)),
+                    );
+                });
+            }
+            (Some(name), None) => {
+                ui.horizontal(|ui| {
+                    ui.add_space(16.0);
+                    ui.label(
+                        egui::RichText::new(format!("{} brain (no fresh reason)", name))
+                            .small()
+                            .color(Color32::from_gray(140)),
+                    );
+                });
+            }
+            _ => {}
+        }
     };
 
     let non_idle: Vec<&ActionState> = active
@@ -2491,68 +2502,6 @@ fn render_overview_actions(ui: &mut egui::Ui, world: &World, entity: Entity) {
     for state in non_idle {
         render_one(ui, state);
     }
-}
-
-fn current_action_summary(world: &World, entity: Entity) -> String {
-    let Some(active) = world.get::<ActiveActions>(entity) else {
-        return "Idle".into();
-    };
-    if active.is_empty() {
-        return "Idle".into();
-    }
-
-    let render_one = |a: &crate::agent::actions::registry::ActionState| -> String {
-        let base = a.action_type.verb();
-        if let Some(target) = a.target_entity {
-            let target_name = world
-                .get::<Name>(target)
-                .map(|n| n.to_string())
-                .unwrap_or_else(|| format!("{:?}", target));
-            format!("{} {}", base, target_name)
-        } else if let Some(pos) = a.target_position
-            && !matches!(a.action_type, ActionType::Flee)
-        {
-            format!("{} ({:.0}, {:.0})", base, pos.x, pos.y)
-        } else {
-            base.to_string()
-        }
-    };
-
-    let non_idle: Vec<_> = active
-        .iter()
-        .filter(|a| !matches!(a.action_type, ActionType::Idle))
-        .collect();
-    if non_idle.is_empty() {
-        return "Idle".into();
-    }
-    non_idle
-        .iter()
-        .map(|a| render_one(a))
-        .collect::<Vec<_>>()
-        .join(" + ")
-}
-
-fn mood_descriptor(emotions: &EmotionalState) -> (String, Color32) {
-    // If there's a dominant emotion, use its label
-    if let Some(top) = emotions.active_emotions.iter().max_by(|a, b| {
-        a.intensity
-            .partial_cmp(&b.intensity)
-            .unwrap_or(std::cmp::Ordering::Equal)
-    }) && top.intensity > 0.2
-    {
-        let (label, color) = emotion_label_color(top.emotion_type, top.intensity);
-        return (label.to_string(), color);
-    }
-    let mood = emotions.current_mood;
-    let label = mood_text(mood).to_string();
-    let color = if mood > 0.0 {
-        Color32::from_rgb(100, 220, 140)
-    } else if mood < 0.0 {
-        Color32::from_rgb(220, 120, 120)
-    } else {
-        Color32::LIGHT_GRAY
-    };
-    (label, color)
 }
 
 fn emotion_label_color(e: EmotionType, intensity: f32) -> (&'static str, Color32) {
