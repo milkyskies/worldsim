@@ -105,13 +105,14 @@ impl MotorPrimitive {
 
 /// What effort level the behavior wants *before* a regulator dials it down
 /// for fatigue (#400). The regulator always runs after the policy resolves.
-#[derive(Debug, Clone, Reflect)]
+#[derive(Debug, Clone, Default, Reflect)]
 pub enum IntensityPolicy {
     /// Casual, no goal pressure. A deer browsing between feeding spots.
     Ambient,
     /// Stay under the aerobic threshold, long duration. A wolf pack migrating.
     Sustained,
     /// Goal-directed, finite duration. Walking to a water source.
+    #[default]
     Normal,
     /// Deliberately low for concealment. A cat stalking a bird.
     Stealth,
@@ -125,12 +126,6 @@ pub enum IntensityPolicy {
     Maximal,
     /// Literal 0..1 escape hatch for scripted/test cases only.
     Fixed(f32),
-}
-
-impl Default for IntensityPolicy {
-    fn default() -> Self {
-        Self::Normal
-    }
 }
 
 impl IntensityPolicy {
@@ -173,9 +168,10 @@ impl IntensityPolicy {
 // ---------------------------------------------------------------------------
 
 /// Where/what the behavior is directed at.
-#[derive(Debug, Clone, Reflect)]
+#[derive(Debug, Clone, Default, Reflect)]
 pub enum TargetSelector {
     /// No spatial target — action runs in place. Sleep, Rest, Idle, Eat.
+    #[default]
     InPlace,
     /// Random walkable point nearby. Wander.
     RandomNearby,
@@ -187,12 +183,6 @@ pub enum TargetSelector {
     ThreatAvoidant,
     /// Move toward unexplored territory. Explore.
     UnknownArea,
-}
-
-impl Default for TargetSelector {
-    fn default() -> Self {
-        Self::InPlace
-    }
 }
 
 // ---------------------------------------------------------------------------
