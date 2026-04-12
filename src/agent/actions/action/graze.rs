@@ -18,6 +18,7 @@
 
 use crate::agent::actions::ActionType;
 use crate::agent::actions::channel::{Channel, ChannelUsage, Posture};
+use crate::agent::actions::motor::{ActionPrimitive, Behavior, IntensityPolicy, TargetSelector};
 use crate::agent::actions::registry::{
     Action, ActionContext, ActionKind, RuntimeEffects, TargetSource,
 };
@@ -35,6 +36,15 @@ impl Action for GrazeAction {
 
     fn name(&self) -> &'static str {
         "Graze"
+    }
+
+    fn default_behavior(&self) -> Behavior {
+        Behavior::new(
+            ActionPrimitive::Ingest,
+            TargetSelector::InPlace,
+            IntensityPolicy::Ambient,
+            crate::agent::actions::motor::Intent::Hunger,
+        )
     }
 
     fn kind(&self) -> ActionKind {

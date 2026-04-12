@@ -2,6 +2,7 @@
 
 use crate::agent::actions::ActionType;
 use crate::agent::actions::channel::{Channel, ChannelUsage, Posture};
+use crate::agent::actions::motor::{ActionPrimitive, Behavior, IntensityPolicy, TargetSelector};
 use crate::agent::actions::registry::{
     Action, ActionContext, ActionKind, CompletionContext, SpawnRequest, TargetCandidate,
 };
@@ -15,6 +16,15 @@ pub struct BuildAction;
 impl Action for BuildAction {
     fn action_type(&self) -> ActionType {
         ActionType::Build
+    }
+
+    fn default_behavior(&self) -> Behavior {
+        Behavior::new(
+            ActionPrimitive::Manipulate,
+            TargetSelector::InPlace,
+            IntensityPolicy::Fixed(0.0),
+            crate::agent::actions::motor::Intent::Goal,
+        )
     }
 
     fn name(&self) -> &'static str {

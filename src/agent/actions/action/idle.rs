@@ -2,6 +2,7 @@
 
 use crate::agent::actions::ActionType;
 use crate::agent::actions::channel::{ChannelSlices, ChannelUsage, Posture};
+use crate::agent::actions::motor::{ActionPrimitive, Behavior, IntensityPolicy, TargetSelector};
 use crate::agent::actions::registry::{Action, ActionKind, RuntimeEffects};
 
 pub struct IdleAction;
@@ -13,6 +14,15 @@ impl Action for IdleAction {
 
     fn name(&self) -> &'static str {
         "Idle"
+    }
+
+    fn default_behavior(&self) -> Behavior {
+        Behavior::new(
+            ActionPrimitive::Rest,
+            TargetSelector::InPlace,
+            IntensityPolicy::Fixed(0.0),
+            crate::agent::actions::motor::Intent::Goal,
+        )
     }
 
     fn kind(&self) -> ActionKind {

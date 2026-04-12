@@ -2,6 +2,7 @@
 
 use crate::agent::actions::ActionType;
 use crate::agent::actions::channel::{Channel, ChannelUsage, Posture};
+use crate::agent::actions::motor::{ActionPrimitive, Behavior, IntensityPolicy, TargetSelector};
 use crate::agent::actions::registry::{Action, ActionKind, RuntimeEffects};
 use crate::agent::mind::knowledge::{Node, Predicate, Triple, Value};
 
@@ -14,6 +15,15 @@ impl Action for SleepAction {
 
     fn name(&self) -> &'static str {
         "Sleep"
+    }
+
+    fn default_behavior(&self) -> Behavior {
+        Behavior::new(
+            ActionPrimitive::Rest,
+            TargetSelector::InPlace,
+            IntensityPolicy::Fixed(1.0),
+            crate::agent::actions::motor::Intent::Fatigue,
+        )
     }
 
     fn kind(&self) -> ActionKind {

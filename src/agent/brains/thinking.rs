@@ -6,6 +6,7 @@
 //! Downstream: all brain systems, belief_state, nervous_system::cns (goal formulation)
 
 use crate::agent::actions::ActionType;
+use crate::agent::actions::motor::Behavior;
 use crate::agent::mind::knowledge::{Concept, Node, Predicate, Triple, Value};
 use bevy::prelude::*;
 
@@ -103,6 +104,10 @@ impl TriplePattern {
 pub struct ActionTemplate {
     pub name: String,
     pub action_type: ActionType,
+    /// The motor configuration: primitive, target strategy, intensity policy,
+    /// and motivational intent. Brains build this directly via
+    /// `Action::default_behavior()` instead of going through ActionType bridges.
+    pub behavior: Behavior,
     pub target_entity: Option<Entity>,
     pub target_position: Option<Vec2>,
     /// Patterns that must match in MindGraph for action to be valid
@@ -114,10 +119,9 @@ pub struct ActionTemplate {
     /// preventing it from generating plans that rely on the same finite resource twice.
     pub consumes: Vec<TriplePattern>,
     pub base_cost: f32,
-    /// Desired locomotion intensity in [0, 1] for Movement-class actions (#339).
-    /// `0.0` means "use the action's default". Brains populate this at
-    /// admission time from `IntensityPolicy::resolve_with_urgency()`
-    /// so the body gets an urgency-scaled push.
+    /// Resolved locomotion intensity in [0, 1] for Movement-class actions (#339).
+    /// Derived from `behavior.intensity` at template creation; the brain
+    /// overrides it at admission time with urgency-scaled resolution.
     pub locomotion_intensity: f32,
 }
 

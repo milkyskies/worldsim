@@ -2,6 +2,7 @@
 
 use crate::agent::actions::ActionType;
 use crate::agent::actions::channel::{Channel, ChannelUsage, Posture};
+use crate::agent::actions::motor::{ActionPrimitive, Behavior, IntensityPolicy, TargetSelector};
 use crate::agent::actions::registry::{Action, ActionKind, RuntimeEffects};
 
 pub struct ExploreAction;
@@ -13,6 +14,15 @@ impl Action for ExploreAction {
 
     fn name(&self) -> &'static str {
         "Explore"
+    }
+
+    fn default_behavior(&self) -> Behavior {
+        Behavior::new(
+            ActionPrimitive::Locomote,
+            TargetSelector::UnknownArea,
+            IntensityPolicy::Normal,
+            crate::agent::actions::motor::Intent::Curiosity,
+        )
     }
 
     fn kind(&self) -> ActionKind {

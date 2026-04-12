@@ -2,6 +2,7 @@
 
 use crate::agent::actions::ActionType;
 use crate::agent::actions::channel::{Channel, ChannelUsage, Posture};
+use crate::agent::actions::motor::{ActionPrimitive, Behavior, IntensityPolicy, TargetSelector};
 use crate::agent::actions::registry::{Action, ActionKind, RuntimeEffects};
 
 pub struct FleeAction;
@@ -13,6 +14,15 @@ impl Action for FleeAction {
 
     fn name(&self) -> &'static str {
         "Flee"
+    }
+
+    fn default_behavior(&self) -> Behavior {
+        Behavior::new(
+            ActionPrimitive::Locomote,
+            TargetSelector::ThreatAvoidant,
+            IntensityPolicy::Maximal,
+            crate::agent::actions::motor::Intent::Safety,
+        )
     }
 
     fn kind(&self) -> ActionKind {

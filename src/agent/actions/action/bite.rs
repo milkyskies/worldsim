@@ -6,6 +6,7 @@
 use crate::agent::actions::ActionType;
 use crate::agent::actions::action::attack::{prey_produces_useful_item, prey_yield_effects};
 use crate::agent::actions::channel::{Channel, ChannelUsage, Posture};
+use crate::agent::actions::motor::{ActionPrimitive, Behavior, IntensityPolicy, TargetSelector};
 use crate::agent::actions::registry::{
     Action, ActionContext, ActionKind, CompletionContext, TargetCandidate, TargetSource,
 };
@@ -15,6 +16,15 @@ use crate::constants::actions::attack::{BASE_COST, DURATION_TICKS};
 pub struct BiteAction;
 
 impl Action for BiteAction {
+    fn default_behavior(&self) -> Behavior {
+        Behavior::new(
+            ActionPrimitive::Manipulate,
+            TargetSelector::InPlace,
+            IntensityPolicy::Fixed(0.0),
+            crate::agent::actions::motor::Intent::Safety,
+        )
+    }
+
     fn name(&self) -> &'static str {
         "Bite"
     }
