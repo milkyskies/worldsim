@@ -733,7 +733,10 @@ mod tests {
             agent_filter: AgentFilter::All,
             ..Default::default()
         };
-        let e = Entity::from_bits(0);
+        // bevy 0.18's `Entity::from_bits(0)` panics (index 0 generation 0
+        // is the reserved placeholder), so use a non-zero synthetic bit
+        // pattern. Anything with a non-zero generation works.
+        let e = Entity::from_bits(1);
         assert!(config.matches_agent("Alice", e));
         assert!(config.matches_agent("Bob", e));
         assert!(config.matches_agent("unknown", e));
@@ -745,7 +748,7 @@ mod tests {
             agent_filter: AgentFilter::Named("alice".to_string()),
             ..Default::default()
         };
-        let e = Entity::from_bits(0);
+        let e = Entity::from_bits(1);
         assert!(config.matches_agent("Alice", e));
         assert!(config.matches_agent("ALICE", e));
         assert!(!config.matches_agent("Bob", e));
