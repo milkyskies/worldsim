@@ -527,7 +527,11 @@ fn suspended_plan_decays_to_background_when_commitment_hits_zero() {
     });
 
     // Inject a Suspended plan with a tiny commitment so the per-tick
-    // decay reaches zero quickly.
+    // decay reaches zero quickly. Use a verbal commitment source so
+    // the rational brain's every-tick stale-plan sweep (#424) doesn't
+    // nuke the plan for not matching the current CNS goal — this test
+    // is about the decay → Background state-machine transition, not
+    // the stale-sweep.
     let plan_id = {
         let mut memory = world
             .app_mut()
@@ -553,7 +557,10 @@ fn suspended_plan_decays_to_background_when_commitment_hits_zero() {
             state: PlanState::Suspended,
             commitment: 0.04,
             subjective_cost: 10.0,
-            source: PlanSource::Brain(BrainType::Rational),
+            source: PlanSource::VerbalCommitment {
+                promised_to: Entity::from_bits(42),
+                agreement_tick: 0,
+            },
             created_at: 0,
             last_touched: 0,
             current_step: 0,

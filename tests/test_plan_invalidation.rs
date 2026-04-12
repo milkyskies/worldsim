@@ -1,6 +1,8 @@
 //! Verifies that when a plan step's preconditions fail mid-cycle, the execution
 //! system stops re-proposing the stale action immediately — not deferred to the
-//! next thinking interval (up to 60 ticks later).
+//! next thinking interval. Post-#424 arbitration runs every tick so a failed
+//! plan is both removed from memory and replaced in BrainState the same tick
+//! the invalidation fires.
 
 use bevy::prelude::*;
 use worldsim::agent::actions::ActionType;
@@ -103,22 +105,30 @@ fn plan_invalidation_clears_stale_chosen_actions_immediately() {
         "chosen_actions should be non-empty before tick"
     );
 
-    // One tick: plan verification fires (every tick), detects failing precondition.
-    // chosen_actions must be cleared in this same tick, not after the next
-    // thinking interval (10 000 ticks away).
+    // One tick: plan verification fires (every tick), detects failing precondition,
+    // removes the plan. Arbitration — also every tick post-#424 — sees no
+    // Rational plan in Executing and the BrainState.chosen_actions list no
+    // longer contains the stale Harvest. (The slot may be filled by whatever
+    // other brain wins this tick; the invariant that matters is "the invalid
+    // action is gone.")
     world.tick(1);
 
-    let still_proposing = world
+    let still_proposing_stale = world
         .app()
         .world()
         .get::<BrainState>(agent)
-        .map(|bs| !bs.chosen_actions.is_empty())
+        .map(|bs| {
+            bs.chosen_actions
+                .iter()
+                .any(|a| a.action_type == ActionType::Harvest)
+        })
         .unwrap_or(false);
 
     assert!(
-        !still_proposing,
-        "chosen_actions should be cleared immediately when plan precondition fails, \
-         not deferred to the next thinking interval"
+        !still_proposing_stale,
+        "the stale Harvest action must be gone from BrainState.chosen_actions \
+         in the same tick the precondition failure was detected, not deferred \
+         to the next thinking interval"
     );
 
     let plan_cleared = world
