@@ -465,7 +465,7 @@ pub trait Action: Send + Sync + 'static {
             base_cost: self.cost(),
             // Start with the action's default locomotion intensity. The
             // brain may override it based on urgency before admission.
-            locomotion_intensity: action_type.default_locomotion_intensity(),
+            locomotion_intensity: action_type.default_intensity_policy().resolve(),
         }
     }
 
@@ -510,7 +510,7 @@ pub trait Action: Send + Sync + 'static {
             effects: self.plan_effects_for_target(target, mind),
             consumes,
             base_cost: self.cost(),
-            locomotion_intensity: action_type.default_locomotion_intensity(),
+            locomotion_intensity: action_type.default_intensity_policy().resolve(),
         }
     }
 }
@@ -546,7 +546,7 @@ pub struct ActionState {
     /// Desired locomotion intensity in [0, 1] for Movement-class actions (#339).
     /// `0.0` means this action isn't locomotion and the field is unused.
     /// The brain sets this from the action's default plus an urgency boost
-    /// (see `ActionType::pick_locomotion_intensity`). The *effective*
+    /// (see `IntensityPolicy::resolve_with_urgency`). The *effective*
     /// intensity used by the body may be lower when stamina is exhausted,
     /// but the desired intensity stored here stays put so the intent stays
     /// clear (e.g. an exhausted Flee is still trying to Flee at 1.0).
@@ -563,7 +563,7 @@ impl ActionState {
             progress_accumulator: 0.0,
             target_entity: None,
             target_position: None,
-            locomotion_intensity: action_type.default_locomotion_intensity(),
+            locomotion_intensity: action_type.default_intensity_policy().resolve(),
         }
     }
 

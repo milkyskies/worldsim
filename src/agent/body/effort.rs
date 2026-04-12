@@ -100,6 +100,22 @@ impl EffortProfile {
             .max(self.isometric)
             .max(self.cognition)
     }
+
+    /// Scale all channels by a scalar intensity in [0, 1].
+    ///
+    /// Used to derive the effective profile from a motor primitive's base
+    /// profile and the behavior's resolved intensity. At intensity 0.5,
+    /// a Locomote primitive (locomotion: 1.0) becomes locomotion: 0.5.
+    pub fn scaled(&self, intensity: f32) -> Self {
+        let i = intensity.clamp(0.0, 1.0);
+        Self {
+            locomotion: self.locomotion * i,
+            manipulation: self.manipulation * i,
+            isometric: self.isometric * i,
+            cognition: self.cognition * i,
+            recovery: self.recovery * i,
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------

@@ -152,6 +152,20 @@ impl IntensityPolicy {
             IntensityPolicy::Fixed(v) => v.clamp(0.0, 1.0),
         }
     }
+
+    /// Resolve with an urgency boost. Urgency in [0, 1] pushes the
+    /// intensity up by up to 0.3, so an ambient walk can accelerate
+    /// toward sprint without jumping straight to 1.0.
+    ///
+    /// Replaces the old `ActionType::pick_locomotion_intensity(urgency)`.
+    pub fn resolve_with_urgency(&self, urgency_unit: f32) -> f32 {
+        let base = self.resolve();
+        if base == 0.0 {
+            return 0.0;
+        }
+        let boost = urgency_unit.clamp(0.0, 1.0) * 0.3;
+        (base + boost).clamp(0.0, 1.0)
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -248,11 +262,45 @@ impl Behavior {
 use super::ActionType;
 
 impl ActionType {
-    /// The motor primitive this action resolves to.
+    /// The default intensity policy for this action.
     ///
-    /// This is the migration bridge: existing code that matches on
-    /// `ActionType` can call this to get the primitive without a full
-    /// rewrite. New code should use `Behavior` directly.
+    /// Replaces the old `default_locomotion_intensity()` /
+    /// `pick_locomotion_intensity()` methods. The resolved scalar from this
+    /// policy is what the execution system uses for effort scaling.
+    pub fn default_intensity_policy(self) -> IntensityPolicy {
+        match self {
+            // Locomotion actions — intensity determines speed and stamina cost
+            ActionType::Wander | ActionType::Graze => IntensityPolicy::Ambient,
+            ActionType::Walk | ActionType::Explore | ActionType::InitiateConversation => {
+                IntensityPolicy::Normal
+            }
+            ActionType::Flee => IntensityPolicy::Maximal,
+
+            // Non-locomotion actions — intensity is not applicable (no movement).
+            // Fixed(0.0) so resolve_with_urgency returns 0.0 for these.
+            ActionType::Eat
+            | ActionType::Drink
+            | ActionType::Harvest
+            | ActionType::Build
+            | ActionType::Construct
+            | ActionType::Deposit
+            | ActionType::Take
+            | ActionType::Attack
+            | ActionType::Bite
+            | ActionType::Pickup
+            | ActionType::Drop
+            | ActionType::Wave
+            | ActionType::Converse => IntensityPolicy::Fixed(0.0),
+
+            // Recovery/passive — low intensity
+            ActionType::Rest | ActionType::Idle | ActionType::Groom | ActionType::Observe => {
+                IntensityPolicy::Ambient
+            }
+            ActionType::Sleep | ActionType::WakeUp => IntensityPolicy::Fixed(1.0),
+        }
+    }
+
+    /// The motor primitive this action resolves to.
     pub fn motor_primitive(self) -> MotorPrimitive {
         match self {
             // Locomote

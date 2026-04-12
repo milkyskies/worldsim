@@ -537,7 +537,7 @@ mod tests {
             effects: vec![],
             consumes: vec![],
             base_cost: 0.0,
-            locomotion_intensity: ActionType::Walk.default_locomotion_intensity(),
+            locomotion_intensity: ActionType::Walk.default_intensity_policy().resolve(),
         }];
         mem.insert(plan);
         assert!(!mem.needs_replan_for(&goal));
@@ -587,7 +587,7 @@ mod tests {
             effects: vec![],
             consumes: vec![],
             base_cost: 0.0,
-            locomotion_intensity: ActionType::Walk.default_locomotion_intensity(),
+            locomotion_intensity: ActionType::Walk.default_intensity_policy().resolve(),
         }];
         mem.insert(plan);
         assert!(
