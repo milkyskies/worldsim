@@ -12,7 +12,7 @@ use egui::Color32;
 use crate::agent::actions::ActionType;
 use crate::agent::actions::channel::Channel;
 use crate::agent::actions::registry::ActiveActions;
-use crate::agent::biology::body::{Body, BodyPart, InjuryType};
+use crate::agent::biology::body::{Body, BodyNode, InjuryType};
 use crate::agent::body::needs::{Consciousness, PhysicalNeeds, PsychologicalDrives};
 use crate::agent::body::species::SpeciesProfile;
 use crate::agent::brains::plan_memory::{PlanMemory, PlanState};
@@ -1900,7 +1900,7 @@ fn injury_label(kind: InjuryType) -> &'static str {
     }
 }
 
-fn render_body_part_row(ui: &mut egui::Ui, part: &BodyPart) {
+fn render_body_part_row(ui: &mut egui::Ui, part: &BodyNode) {
     ui.label(part.name());
     let hp_pct = (part.current_hp / part.max_hp).clamp(0.0, 1.0);
     ui.add(

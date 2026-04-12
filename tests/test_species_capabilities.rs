@@ -18,7 +18,7 @@ use worldsim::agent::actions::ChannelCapacities;
 use worldsim::agent::actions::ChannelLoad;
 use worldsim::agent::actions::ChannelUsage;
 use worldsim::agent::actions::{ActionRegistry, ActionType};
-use worldsim::agent::biology::body::{Body, BodyPartKind, Injury, InjuryType};
+use worldsim::agent::biology::body::{Body, BodyNodeKind, Injury, InjuryType};
 
 fn requirements_for(registry: &ActionRegistry, action: ActionType) -> &'static [ChannelUsage] {
     registry
@@ -153,7 +153,7 @@ fn wolf_quadruped_has_higher_locomotion_than_human() {
 fn wolf_broken_jaws_loses_manipulation_consumption_vocalization_and_bite() {
     let mut body = Body::wolf();
     let jaws = body
-        .part_mut(BodyPartKind::Jaws)
+        .part_mut(BodyNodeKind::Jaws)
         .expect("wolf body has jaws");
     jaws.add_injury(Injury {
         injury_type: InjuryType::Fracture,
@@ -192,7 +192,7 @@ fn wolf_broken_jaws_loses_manipulation_consumption_vocalization_and_bite() {
 fn human_one_broken_arm_halves_manipulation() {
     let mut body = Body::human();
     let right = body
-        .part_mut(BodyPartKind::RightArm)
+        .part_mut(BodyNodeKind::RightArm)
         .expect("human has right arm");
     right.add_injury(Injury {
         injury_type: InjuryType::Fracture,
