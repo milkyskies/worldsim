@@ -535,7 +535,7 @@ fn dump_contributions_headless(
                     {
                         effective_intensity(state.locomotion_intensity, &stamina)
                     } else {
-                        state.action_type.default_intensity_policy().resolve()
+                        action.default_behavior().intensity.resolve()
                     };
                     let profile = primitive.effort_profile().scaled(intensity);
                     let cost = compute_action_cost(&profile, body_mass);
@@ -581,7 +581,7 @@ fn dump_contributions_headless(
                     {
                         effective_intensity(state.locomotion_intensity, &stamina)
                     } else {
-                        state.action_type.default_intensity_policy().resolve()
+                        action.default_behavior().intensity.resolve()
                     };
                     let profile = primitive.effort_profile().scaled(intensity);
                     let cost = compute_action_cost(&profile, body_mass);

@@ -424,7 +424,7 @@ pub fn tick_actions(
                                 let desired = if action_state.locomotion_intensity > 0.0 {
                                     action_state.locomotion_intensity
                                 } else {
-                                    action_type.default_intensity_policy().resolve()
+                                    action_def.default_behavior().intensity.resolve()
                                 };
                                 let effective = effective_intensity(desired, &physical.stamina);
                                 let intensity_mult = intensity_speed_multiplier(effective);
@@ -783,10 +783,7 @@ pub fn apply_action_effects(
             let intensity = if is_movement && action_state.locomotion_intensity > 0.0 {
                 cap_intensity(action_state.locomotion_intensity, &stamina_snapshot)
             } else {
-                action_state
-                    .action_type
-                    .default_intensity_policy()
-                    .resolve()
+                action_def.default_behavior().intensity.resolve()
             };
             let profile = if intensity > 0.0 {
                 base_profile.scaled(intensity)

@@ -771,16 +771,23 @@ mod tests {
     use crate::agent::nervous_system::urgency::{Urgency, UrgencySource};
 
     fn template(name: &str, action_type: ActionType) -> ActionTemplate {
+        let registry = crate::agent::actions::ActionRegistry::new();
+        let behavior = registry
+            .get(action_type)
+            .map(|a| a.default_behavior())
+            .unwrap_or_default();
+        let locomotion_intensity = behavior.intensity.resolve();
         ActionTemplate {
             name: name.to_string(),
             action_type,
+            behavior,
             target_entity: None,
             target_position: None,
             preconditions: vec![],
             effects: vec![],
             consumes: vec![],
             base_cost: 1.0,
-            locomotion_intensity: action_type.default_intensity_policy().resolve(),
+            locomotion_intensity,
         }
     }
 

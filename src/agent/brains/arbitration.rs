@@ -255,18 +255,32 @@ mod tests {
         urgency: f32,
         intent: Intent,
     ) -> BrainProposal {
+        let registry = ActionRegistry::new();
+        let behavior = registry
+            .get(action_type)
+            .map(|a| a.default_behavior())
+            .unwrap_or_else(|| {
+                crate::agent::actions::motor::Behavior::new(
+                    action_type.motor_primitive(),
+                    Default::default(),
+                    action_type.default_intensity_policy(),
+                    Default::default(),
+                )
+            });
+        let locomotion_intensity = behavior.intensity.resolve();
         BrainProposal {
             brain,
             action: ActionTemplate {
                 name: format!("{action_type:?}"),
                 action_type,
+                behavior,
                 target_entity: None,
                 target_position: None,
                 preconditions: vec![],
                 effects: vec![],
                 consumes: vec![],
                 base_cost: 1.0,
-                locomotion_intensity: action_type.default_intensity_policy().resolve(),
+                locomotion_intensity,
             },
             urgency,
             intent,

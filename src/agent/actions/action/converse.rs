@@ -17,6 +17,7 @@
 
 use crate::agent::actions::ActionType;
 use crate::agent::actions::channel::{Channel, ChannelUsage, Posture};
+use crate::agent::actions::motor::{ActionPrimitive, Behavior, IntensityPolicy, TargetSelector};
 use crate::agent::actions::registry::{Action, ActionKind};
 
 pub struct ConverseAction;
@@ -24,6 +25,15 @@ pub struct ConverseAction;
 impl Action for ConverseAction {
     fn action_type(&self) -> ActionType {
         ActionType::Converse
+    }
+
+    fn default_behavior(&self) -> Behavior {
+        Behavior::new(
+            ActionPrimitive::Vocalize,
+            TargetSelector::InPlace,
+            IntensityPolicy::Fixed(0.0),
+            crate::agent::actions::motor::Intent::Social,
+        )
     }
 
     fn name(&self) -> &'static str {

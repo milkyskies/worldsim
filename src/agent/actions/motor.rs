@@ -317,7 +317,7 @@ impl Intent {
 ///
 /// Same motor primitive, same cost code path, same animation channel.
 /// The only differences are the three small policies.
-#[derive(Debug, Clone, Reflect)]
+#[derive(Debug, Clone, Default, Reflect)]
 pub struct Behavior {
     /// What the body is physically doing.
     pub primitive: ActionPrimitive,

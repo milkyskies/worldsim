@@ -13,6 +13,7 @@
 
 use crate::agent::actions::ActionType;
 use crate::agent::actions::channel::{Channel, ChannelUsage, Posture};
+use crate::agent::actions::motor::{ActionPrimitive, Behavior, IntensityPolicy, TargetSelector};
 use crate::agent::actions::registry::{Action, ActionKind};
 
 pub struct ObserveAction;
@@ -24,6 +25,15 @@ impl Action for ObserveAction {
 
     fn name(&self) -> &'static str {
         "Observe"
+    }
+
+    fn default_behavior(&self) -> Behavior {
+        Behavior::new(
+            ActionPrimitive::Observe,
+            TargetSelector::InPlace,
+            IntensityPolicy::Ambient,
+            crate::agent::actions::motor::Intent::Curiosity,
+        )
     }
 
     fn kind(&self) -> ActionKind {
