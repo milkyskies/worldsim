@@ -538,9 +538,24 @@ pub fn resolve_combat_hits(
 // BLEEDING SYSTEM
 // ════════════════════════════════════════════════════════════════════════════
 
-/// Drain HP from parts with open bleeding injuries, decay each
-/// injury's clotting, and drip blood at the bleeder's current position
-/// so fleeing wounded agents leave a trail.
+fn bleed_node(node: &mut crate::agent::biology::body::BodyNode, dt: f32) -> f32 {
+    let mut node_bleed = 0.0_f32;
+    for injury in node.injuries.iter_mut() {
+        node_bleed += injury.effective_bleed();
+        injury.bleed_rate =
+            (injury.bleed_rate - crate::agent::biology::body::CLOT_DECAY_PER_SEC * dt).max(0.0);
+    }
+    if node_bleed > 0.0 {
+        let drain = node_bleed * dt;
+        node.current_hp = (node.current_hp - drain).max(0.0);
+        node.recalculate_function();
+        drain
+    } else {
+        node.recalculate_function();
+        0.0
+    }
+}
+
 pub fn bleed_system(
     mut commands: Commands,
     tick: Res<TickCount>,
@@ -557,23 +572,10 @@ pub fn bleed_system(
     for (mut body, transform) in agents.iter_mut() {
         let mut total_drain = 0.0_f32;
         for part in body.parts.iter_mut() {
-            let mut part_bleed = 0.0_f32;
-            for injury in part.injuries.iter_mut() {
-                let bleed = injury.effective_bleed();
-                part_bleed += bleed;
-                // Clot decay runs every tick regardless of whether the
-                // wound is currently bleeding, so fresh wounds stop
-                // bleeding in minutes even when nothing drains them.
-                injury.bleed_rate = (injury.bleed_rate
-                    - crate::agent::biology::body::CLOT_DECAY_PER_SEC * dt)
-                    .max(0.0);
+            total_drain += bleed_node(part, dt);
+            for child in part.children.iter_mut() {
+                total_drain += bleed_node(child, dt);
             }
-            if part_bleed > 0.0 {
-                let drain = part_bleed * dt;
-                part.current_hp = (part.current_hp - drain).max(0.0);
-                total_drain += drain;
-            }
-            part.recalculate_function();
         }
         if total_drain > 0.0 {
             drips.push((transform.translation.truncate(), total_drain));

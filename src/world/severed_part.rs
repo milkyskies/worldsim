@@ -2,11 +2,11 @@
 //!
 //! Reads: nothing (pure spawn helpers)
 //! Writes: SeveredPart component, spawn entities
-//! Upstream: combat system (drops parts when a non-vital BodyPart HP hits 0)
+//! Upstream: combat system (drops parts when a non-vital BodyNode HP hits 0)
 //! Downstream: rendering (sprite), future harvest path (butcher parts for meat / bone),
 //!             perception (agents see severed parts on the ground and react)
 //!
-//! Covers any non-vital `BodyPart` that gets destroyed in combat: limbs
+//! Covers any non-vital `BodyNode` that gets destroyed in combat: limbs
 //! (arms, legs), jaws, ears, mouths. Vital parts (head, torso) never end
 //! up here — their destruction routes through the death path instead.
 //!
