@@ -100,7 +100,7 @@ fn apply_light_tint(base: &Color, light: f32, tint: Vec3) -> Color {
     )
 }
 
-fn update_light_level(
+pub fn update_light_level(
     time: Res<GameTime>,
     mut light: ResMut<LightLevel>,
     mut tint: ResMut<ColorTint>,

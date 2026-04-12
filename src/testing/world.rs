@@ -746,6 +746,8 @@ impl TestWorld {
         app.insert_resource(setup_ontology());
         app.insert_resource(map);
         app.insert_resource(LightLevel(1.0));
+        app.init_resource::<crate::world::environment::ColorTint>();
+        app.add_systems(Update, crate::world::environment::update_light_level);
         app.insert_resource(TickCount::new(60.0));
         app.insert_resource(GameLog::new(100));
         app.init_resource::<GameTime>();
@@ -1282,20 +1284,34 @@ impl TestWorld {
             eprintln!("  Position:  ({:.1}, {:.1})", pos.x, pos.y);
         }
 
-        // Current action
+        // Current actions (all channels)
         if let Some(active) = world.get::<ActiveActions>(agent) {
-            let registry = world.resource::<ActionRegistry>();
-            if let Some(primary) = active.primary(registry) {
-                eprintln!("  Action:    {:?}", primary.action_type);
-            } else {
-                eprintln!("  Action:    Idle");
+            let history = world.get::<crate::agent::brains::history::BrainHistory>(agent);
+            let brain_state = world.get::<BrainState>(agent);
+            if active.iter().count() == 0 {
+                eprintln!("  Actions:   Idle");
             }
-            let running: Vec<_> = active
-                .iter()
-                .map(|s| format!("{:?}", s.action_type))
-                .collect();
-            if running.len() > 1 {
-                eprintln!("  All running: [{}]", running.join(", "));
+            for state in active.iter() {
+                let brain_name = history
+                    .and_then(|h| h.active.get(&state.action_type).copied())
+                    .map(|b| b.display_name())
+                    .unwrap_or("?");
+                let reason = brain_state
+                    .and_then(|bs| {
+                        bs.proposals
+                            .iter()
+                            .find(|p| p.action.action_type == state.action_type)
+                            .map(|p| p.reasoning.as_str())
+                    })
+                    .unwrap_or("");
+                let target = state
+                    .target_entity
+                    .and_then(|e| world.get::<Name>(e).map(|n| format!(" → {n}")))
+                    .unwrap_or_default();
+                eprintln!(
+                    "  Action:    {:?}{target}  ({brain_name}: {reason})",
+                    state.action_type
+                );
             }
         }
 
@@ -1315,11 +1331,12 @@ impl TestWorld {
             let m = &needs.metabolism;
             let starving = if m.is_starving() { "  STARVING" } else { "" };
             eprintln!(
-                "  Vitals:    health={:.1}  thirst={:.1}  stamina(a/an)={:.1}/{:.1}",
+                "  Vitals:    health={:.1}  thirst={:.1}  stamina(a/an)={:.1}/{:.1}  wakefulness={:.2}",
                 needs.health,
                 100.0 - needs.hydration,
                 needs.stamina.aerobic,
-                needs.stamina.anaerobic
+                needs.stamina.anaerobic,
+                needs.wakefulness
             );
             eprintln!(
                 "  Metabolism: stomach(c/f)={:.1}/{:.1}  glucose={:.1}/100  reserves={:.0}/500  hunger={:.2}{}",
@@ -2175,9 +2192,42 @@ impl TestWorld {
                     eprintln!("  (no EmotionalState component)");
                 }
             }
+            "wakefulness" => {
+                if let Some(needs) = world.get::<PhysicalNeeds>(agent) {
+                    let active = world.get::<ActiveActions>(agent);
+                    let is_sleeping = active.is_some_and(|a| a.contains(ActionType::Sleep));
+                    let light = world.resource::<crate::world::environment::LightLevel>();
+                    let phenotype =
+                        world.get::<crate::agent::body::genetics::phenotype::Phenotype>(agent);
+                    let efficiency = phenotype.map(|p| p.sleep_efficiency).unwrap_or(1.0);
+                    let circadian = 1.0
+                        + crate::constants::brains::wakefulness::CIRCADIAN_NIGHT_BOOST
+                            * (crate::constants::brains::wakefulness::CIRCADIAN_LIGHT_CEILING
+                                - light.0)
+                                .max(0.0);
+                    if is_sleeping {
+                        eprintln!(
+                            "  +{:.4} /sec  sleep restore (efficiency {:.2})",
+                            crate::constants::brains::wakefulness::SLEEP_RESTORE_RATE * efficiency,
+                            efficiency
+                        );
+                    } else {
+                        eprintln!(
+                            "  -{:.4} /sec  adenosine decay (circadian {:.2}x, light {:.2})",
+                            crate::constants::brains::wakefulness::ADENOSINE_RATE * circadian,
+                            circadian,
+                            light.0
+                        );
+                    }
+                    eprintln!(
+                        "  wakefulness: {:.3}  (sleeping: {})",
+                        needs.wakefulness, is_sleeping
+                    );
+                }
+            }
             other => {
                 eprintln!(
-                    "  unknown metric {:?}. try glucose / stamina / hydration / stomach / mood",
+                    "  unknown metric {:?}. try glucose / stamina / hydration / stomach / wakefulness / mood",
                     other
                 );
             }
