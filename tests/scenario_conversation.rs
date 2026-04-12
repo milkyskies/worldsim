@@ -319,6 +319,7 @@ fn agent_warns_partner_about_personally_observed_danger() {
             evidence: Vec::new(),
             salience: 0.9, // above DANGER_WARN_SALIENCE (0.7)
             source_sense: None,
+            strength: 1.0,
         },
     );
 
@@ -484,6 +485,7 @@ fn shared_knowledge_broadcasts_to_all_group_listeners() {
             evidence: Vec::new(),
             salience: 0.9,
             source_sense: None,
+            strength: 1.0,
         },
     );
 
@@ -777,6 +779,7 @@ fn knowledge_flows_through_turn_content() {
             evidence: Vec::new(),
             salience: 0.8,
             source_sense: None,
+            strength: 1.0,
         },
     );
 

@@ -461,6 +461,11 @@ pub struct Metadata {
 
     /// Which sense produced this triple (None for non-perceptual knowledge)
     pub source_sense: Option<Sense>,
+
+    /// How deeply encoded is this memory? Reinforced by repeated perception,
+    /// decays passively, reduced by interference from competing memories.
+    /// Range: 0.0 to MAX_STRENGTH (10.0). Forgotten when < forget_threshold.
+    pub strength: f32,
 }
 
 impl Default for Metadata {
@@ -474,6 +479,7 @@ impl Default for Metadata {
             evidence: Vec::new(),
             salience: 0.0,
             source_sense: None,
+            strength: 1.0,
         }
     }
 }
@@ -489,6 +495,7 @@ impl Metadata {
             evidence: Vec::new(),
             salience: 0.0,
             source_sense: None,
+            strength: 1.0,
         }
     }
 
@@ -502,6 +509,7 @@ impl Metadata {
             evidence: Vec::new(),
             salience: 0.0,
             source_sense: Some(sense),
+            strength: 1.0,
         }
     }
 
@@ -515,6 +523,7 @@ impl Metadata {
             evidence: Vec::new(),
             salience: 0.0,
             source_sense: None,
+            strength: 1.0,
         }
     }
 
@@ -528,6 +537,7 @@ impl Metadata {
             evidence: Vec::new(),
             salience: 0.0,
             source_sense: None,
+            strength: 1.0,
         }
     }
 
@@ -541,6 +551,7 @@ impl Metadata {
             evidence: Vec::new(),
             salience: 0.0,
             source_sense: None,
+            strength: 1.0,
         }
     }
 
@@ -554,6 +565,7 @@ impl Metadata {
             evidence: Vec::new(),
             salience: 0.0,
             source_sense: None,
+            strength: 1.0,
         }
     }
 
@@ -570,7 +582,15 @@ impl Metadata {
             evidence: Vec::new(),
             salience: 0.0,
             source_sense: None,
+            strength: 0.7,
         }
+    }
+
+    /// Reinforce and refresh from a re-assertion of the same fact.
+    pub fn refresh_from(&mut self, incoming: &Metadata) {
+        reinforce(self, incoming.timestamp);
+        self.timestamp = incoming.timestamp;
+        self.confidence = incoming.confidence;
     }
 }
 
@@ -606,7 +626,24 @@ impl Triple {
     }
 }
 
-// NOTE: Ontology is now defined in the ONTOLOGY section below with caching support
+// ═══════════════════════════════════════════════════════════════════════════
+// MEMORY STRENGTH — Constants for reinforcement model
+// ═══════════════════════════════════════════════════════════════════════════
+
+const REINFORCE_COOLDOWN_TICKS: u64 = 60;
+const REINFORCEMENT_BOOST: f32 = 0.2;
+const RETRIEVAL_BOOST: f32 = 0.05;
+pub const MAX_STRENGTH: f32 = 10.0;
+
+/// Apply reinforcement to an existing triple during re-assertion.
+/// Must be called BEFORE overwriting the existing timestamp.
+fn reinforce(existing: &mut Metadata, incoming_timestamp: u64) {
+    let elapsed = incoming_timestamp.saturating_sub(existing.timestamp);
+    if elapsed >= REINFORCE_COOLDOWN_TICKS {
+        let boost = REINFORCEMENT_BOOST * (1.0 + existing.salience);
+        existing.strength = (existing.strength + boost).min(MAX_STRENGTH);
+    }
+}
 
 // ═══════════════════════════════════════════════════════════════════════════
 // MINDGRAPH — Triple store with subject / predicate / (subject,predicate) indexes
@@ -815,6 +852,50 @@ impl MindGraph {
         removed
     }
 
+    /// Like `retain` but the closure receives `&mut Triple`, allowing it to
+    /// modify strength before deciding whether to keep the triple. Returns the
+    /// number of triples that were removed.
+    pub fn decay_pass<F>(&mut self, mut f: F) -> usize
+    where
+        F: FnMut(&mut Triple) -> bool,
+    {
+        let mut removed = 0;
+        for i in 0..self.triples.len() {
+            let drop = match self.triples[i].as_mut() {
+                Some(triple) => !f(triple),
+                None => false,
+            };
+            if drop {
+                self.tombstone(i);
+                removed += 1;
+            }
+        }
+        removed
+    }
+
+    /// Snapshot of live triple counts per predicate, for interference calculations.
+    pub fn predicate_count_map(&self) -> HashMap<Predicate, usize> {
+        self.by_predicate
+            .iter()
+            .map(|(pred, list)| (*pred, list.len()))
+            .collect()
+    }
+
+    /// Flat boost for triples accessed during planning. No cooldown or salience
+    /// scaling because retrieval is infrequent compared to perception.
+    pub fn reinforce_retrieval(&mut self, subject: &Node, predicate: Predicate) {
+        let key = (subject.clone(), predicate);
+        if let Some(ids) = self.by_subject_predicate.get(&key) {
+            let ids_snapshot: SmallVec<[usize; 4]> = ids.clone();
+            for idx in ids_snapshot {
+                if let Some(Some(triple)) = self.triples.get_mut(idx) {
+                    triple.meta.strength =
+                        (triple.meta.strength + RETRIEVAL_BOOST).min(MAX_STRENGTH);
+                }
+            }
+        }
+    }
+
     pub fn remove(&mut self, subject: &Node, predicate: Predicate, object: &Value) {
         let Some(list) = self.by_subject_predicate.get(&(subject.clone(), predicate)) else {
             return;
@@ -850,8 +931,7 @@ impl MindGraph {
                 // Safe: find_existing_id only returns live ids.
                 let existing = self.triples[idx].as_mut().expect("live slot");
                 if existing.object == triple.object {
-                    existing.meta.timestamp = triple.meta.timestamp;
-                    existing.meta.confidence = triple.meta.confidence;
+                    existing.meta.refresh_from(&triple.meta);
                     return;
                 }
                 self.tombstone(idx);
@@ -867,8 +947,7 @@ impl MindGraph {
             if let Some(idx) = self.find_existing_id(&key, |_| true) {
                 let existing = self.triples[idx].as_mut().expect("live slot");
                 if existing.object == triple.object {
-                    existing.meta.timestamp = triple.meta.timestamp;
-                    existing.meta.confidence = triple.meta.confidence;
+                    existing.meta.refresh_from(&triple.meta);
                     return;
                 }
                 self.tombstone(idx);
@@ -885,10 +964,11 @@ impl MindGraph {
         if let Some(idx) = self.find_existing_id(&key, |t| t.object == triple.object) {
             let existing = self.triples[idx].as_mut().expect("live slot");
             if triple.meta.source.priority() > existing.meta.source.priority() {
+                let preserved_strength = existing.meta.strength.max(triple.meta.strength);
                 *existing = triple;
+                existing.meta.strength = preserved_strength;
             } else {
-                existing.meta.timestamp = triple.meta.timestamp;
-                existing.meta.confidence = triple.meta.confidence;
+                existing.meta.refresh_from(&triple.meta);
             }
             return;
         }
@@ -1959,5 +2039,201 @@ mod tests {
             Some(&Value::Concept(Concept::Dangerous)),
         );
         assert_eq!(indexed.len(), 25);
+    }
+
+    // ─── Reinforcement tests ───────────────────────────────────────────────
+
+    #[test]
+    fn reinforcement_boosts_strength_on_reassert() {
+        let mut mind = MindGraph::default();
+        let tree = Entity::from_bits(42);
+
+        mind.assert(Triple::with_meta(
+            Node::Entity(tree),
+            Predicate::LocatedAt,
+            Value::Tile((5, 5)),
+            Metadata::perception(0),
+        ));
+
+        // Re-assert after cooldown (60 ticks)
+        mind.assert(Triple::with_meta(
+            Node::Entity(tree),
+            Predicate::LocatedAt,
+            Value::Tile((5, 5)),
+            Metadata::perception(60),
+        ));
+
+        let results = mind.query(Some(&Node::Entity(tree)), Some(Predicate::LocatedAt), None);
+        assert_eq!(results.len(), 1);
+        assert!(
+            results[0].meta.strength > 1.0,
+            "strength should increase after reinforcement, got {}",
+            results[0].meta.strength
+        );
+    }
+
+    #[test]
+    fn reinforcement_cooldown_prevents_rapid_boost() {
+        let mut mind = MindGraph::default();
+        let tree = Entity::from_bits(42);
+
+        mind.assert(Triple::with_meta(
+            Node::Entity(tree),
+            Predicate::LocatedAt,
+            Value::Tile((5, 5)),
+            Metadata::perception(0),
+        ));
+
+        // Re-assert within cooldown (10 ticks < 60)
+        mind.assert(Triple::with_meta(
+            Node::Entity(tree),
+            Predicate::LocatedAt,
+            Value::Tile((5, 5)),
+            Metadata::perception(10),
+        ));
+
+        let results = mind.query(Some(&Node::Entity(tree)), Some(Predicate::LocatedAt), None);
+        assert!(
+            (results[0].meta.strength - 1.0).abs() < f32::EPSILON,
+            "strength should not change within cooldown, got {}",
+            results[0].meta.strength
+        );
+    }
+
+    #[test]
+    fn reinforcement_caps_at_max_strength() {
+        let mut mind = MindGraph::default();
+        let tree = Entity::from_bits(42);
+
+        mind.assert(Triple::with_meta(
+            Node::Entity(tree),
+            Predicate::LocatedAt,
+            Value::Tile((5, 5)),
+            Metadata::perception(0),
+        ));
+
+        // Re-assert 100 times, each past cooldown
+        for i in 1..=100 {
+            mind.assert(Triple::with_meta(
+                Node::Entity(tree),
+                Predicate::LocatedAt,
+                Value::Tile((5, 5)),
+                Metadata::perception(i * REINFORCE_COOLDOWN_TICKS),
+            ));
+        }
+
+        let results = mind.query(Some(&Node::Entity(tree)), Some(Predicate::LocatedAt), None);
+        assert!(
+            (results[0].meta.strength - MAX_STRENGTH).abs() < f32::EPSILON,
+            "strength should cap at {MAX_STRENGTH}, got {}",
+            results[0].meta.strength
+        );
+    }
+
+    #[test]
+    fn reinforcement_scales_with_salience() {
+        let mut mind = MindGraph::default();
+
+        // Triple with salience 0.0 (default perception)
+        let tree_a = Entity::from_bits(10);
+        mind.assert(Triple::with_meta(
+            Node::Entity(tree_a),
+            Predicate::LocatedAt,
+            Value::Tile((1, 1)),
+            Metadata::perception(0),
+        ));
+        mind.assert(Triple::with_meta(
+            Node::Entity(tree_a),
+            Predicate::LocatedAt,
+            Value::Tile((1, 1)),
+            Metadata::perception(60),
+        ));
+
+        // Triple with salience 0.5 (emotional)
+        let tree_b = Entity::from_bits(20);
+        let mut meta_salient = Metadata::perception(0);
+        meta_salient.salience = 0.5;
+        mind.assert(Triple::with_meta(
+            Node::Entity(tree_b),
+            Predicate::LocatedAt,
+            Value::Tile((2, 2)),
+            meta_salient,
+        ));
+        let mut meta_salient2 = Metadata::perception(60);
+        meta_salient2.salience = 0.5;
+        mind.assert(Triple::with_meta(
+            Node::Entity(tree_b),
+            Predicate::LocatedAt,
+            Value::Tile((2, 2)),
+            meta_salient2,
+        ));
+
+        let a = mind.query(
+            Some(&Node::Entity(tree_a)),
+            Some(Predicate::LocatedAt),
+            None,
+        );
+        let b = mind.query(
+            Some(&Node::Entity(tree_b)),
+            Some(Predicate::LocatedAt),
+            None,
+        );
+
+        assert!(
+            b[0].meta.strength > a[0].meta.strength,
+            "salient memory should get bigger boost: {} vs {}",
+            b[0].meta.strength,
+            a[0].meta.strength,
+        );
+    }
+
+    #[test]
+    fn stronger_source_preserves_accumulated_strength() {
+        let mut mind = MindGraph::default();
+        let tree = Entity::from_bits(42);
+
+        // Cultural belief about tree trait
+        let mut cultural_meta = Metadata {
+            source: Source::Cultural,
+            memory_type: MemoryType::Cultural,
+            timestamp: 0,
+            confidence: 0.8,
+            ..Default::default()
+        };
+        cultural_meta.strength = 5.0;
+        mind.assert(Triple::with_meta(
+            Node::Entity(tree),
+            Predicate::HasTrait,
+            Value::Concept(Concept::Dangerous),
+            cultural_meta,
+        ));
+
+        // Personal experience overrides source but should keep the higher strength
+        mind.assert(Triple::with_meta(
+            Node::Entity(tree),
+            Predicate::HasTrait,
+            Value::Concept(Concept::Dangerous),
+            Metadata {
+                source: Source::Experienced,
+                memory_type: MemoryType::Semantic,
+                timestamp: 100,
+                confidence: 1.0,
+                strength: 1.0,
+                ..Default::default()
+            },
+        ));
+
+        let results = mind.query(
+            Some(&Node::Entity(tree)),
+            Some(Predicate::HasTrait),
+            Some(&Value::Concept(Concept::Dangerous)),
+        );
+        assert_eq!(results.len(), 1);
+        assert!(
+            results[0].meta.strength >= 5.0,
+            "stronger source should preserve accumulated strength, got {}",
+            results[0].meta.strength
+        );
+        assert_eq!(results[0].meta.source, Source::Experienced);
     }
 }
