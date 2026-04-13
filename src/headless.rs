@@ -15,7 +15,10 @@ use crate::agent::body::needs::{Consciousness, PhysicalNeeds};
 use crate::agent::brains::trace::{DecisionTraceBuffer, TraceConfig, dump_trace};
 use crate::agent::mind::conversation::ConversationManager;
 use crate::agent::psyche::emotions::{EmotionType, EmotionalState};
-use crate::core::{EventLogBuffer, EventLogConfig, collect_event_log, dump_event_log};
+use crate::core::{
+    EventLogBuffer, EventLogConfig, FieldLoggerBuffer, FieldLoggerConfig, collect_event_log,
+    collect_field_log, dump_event_log, dump_field_log,
+};
 use crate::testing::TestWorld;
 use crate::world::map::WorldMap;
 use crate::world::spawn_config::{SpawnAlgorithm, WorldSpawnConfig};
@@ -101,6 +104,8 @@ pub struct HeadlessConfig {
     pub event_log: Option<EventLogConfig>,
     /// Inspection commands to run after the simulation completes.
     pub inspect: InspectConfig,
+    /// Per-tick field logger configuration. `None` disables the logger.
+    pub field_logger: Option<FieldLoggerConfig>,
 }
 
 impl Default for HeadlessConfig {
@@ -117,6 +122,7 @@ impl Default for HeadlessConfig {
             trace: TraceConfig::default(),
             event_log: None,
             inspect: InspectConfig::default(),
+            field_logger: None,
         }
     }
 }
@@ -200,6 +206,15 @@ pub fn run_headless(config: HeadlessConfig) -> HeadlessReport {
             .add_systems(bevy::app::Last, collect_event_log);
     }
 
+    // Register the per-tick field logger if --log-field/--log-preset was set.
+    if let Some(logger_config) = &config.field_logger {
+        world.app_mut().insert_resource(logger_config.clone());
+        world.app_mut().init_resource::<FieldLoggerBuffer>();
+        world
+            .app_mut()
+            .add_systems(bevy::app::Last, collect_field_log);
+    }
+
     // Suppress GameLog stdout noise when inspection flags are active,
     // so --inspect / --why output isn't buried under brain traces.
     if config.inspect.is_active() {
@@ -249,6 +264,12 @@ pub fn run_headless(config: HeadlessConfig) -> HeadlessReport {
     if let Some(log_config) = &config.event_log {
         let buffer = world.app().world().resource::<EventLogBuffer>();
         dump_event_log(buffer, log_config);
+    }
+
+    // Dump field logger if configured.
+    if let Some(logger_config) = &config.field_logger {
+        let buffer = world.app().world().resource::<FieldLoggerBuffer>();
+        dump_field_log(buffer, logger_config);
     }
 
     // Final inspection if no --at-tick was specified.
