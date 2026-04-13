@@ -9,7 +9,7 @@
 
 use crate::agent::Agent;
 use crate::agent::actions::registry::{ActionRegistry, ActiveActions};
-use crate::agent::body::needs::PhysicalNeeds;
+use crate::agent::biology::body::Body;
 use crate::agent::inventory::EntityType;
 use crate::agent::mind::knowledge::{
     AgentName, Concept, Metadata, MindGraph, Node, Predicate, Triple, Value,
@@ -32,7 +32,7 @@ pub fn perceive_other_agents(
             &Transform,
             &ActiveActions,
             &EmotionalState,
-            &PhysicalNeeds,
+            &Body,
             &EntityType,
         ),
         With<Agent>,
@@ -52,7 +52,7 @@ pub fn perceive_other_agents(
             }
 
             // Only perceive other agents
-            let Ok((_, name, target_transform, active, emotional_state, physical, entity_type)) =
+            let Ok((_, name, target_transform, active, emotional_state, body, entity_type)) =
                 observable_agents.get(visible_entity)
             else {
                 continue;
@@ -96,8 +96,8 @@ pub fn perceive_other_agents(
                 meta.clone(),
             ));
 
-            // 4. Perceive if they appear injured (low health or high pain markers)
-            let appears_injured = physical.health < 70.0;
+            // 4. Perceive if they appear injured (derived health below 70%)
+            let appears_injured = body.overall_health() < 0.7;
             mind.assert(Triple::with_meta(
                 target_node.clone(),
                 Predicate::AppearsInjured,

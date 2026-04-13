@@ -75,11 +75,6 @@ pub const HUNGER_WEIGHT_STOMACH: f32 = 0.4;
 pub const HUNGER_WEIGHT_GLUCOSE: f32 = 0.4;
 pub const HUNGER_WEIGHT_RESERVES: f32 = 0.2;
 
-/// HP damage per second when glucose is critical and reserves are empty.
-/// Calibrated so a fresh agent without food survives ~several in-game days
-/// before dying, not minutes.
-pub const STARVATION_DAMAGE_PER_SEC: f32 = 0.3;
-
 /// Macros carried by a food item. Lookup via `food_macros` for each edible
 /// `Concept`. Non-edible concepts return `None`.
 #[derive(Debug, Clone, Copy, PartialEq)]

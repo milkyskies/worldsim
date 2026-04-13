@@ -1330,9 +1330,12 @@ impl TestWorld {
         if let Some(needs) = world.get::<PhysicalNeeds>(agent) {
             let m = &needs.metabolism;
             let starving = if m.is_starving() { "  STARVING" } else { "" };
+            let body_health = world
+                .get::<crate::agent::biology::body::Body>(agent)
+                .map_or(1.0, |b| b.overall_health());
             eprintln!(
-                "  Vitals:    health={:.1}  thirst={:.1}  stamina(a/an)={:.1}/{:.1}  wakefulness={:.2}",
-                needs.health,
+                "  Vitals:    health={:.1}%  thirst={:.1}  stamina(a/an)={:.1}/{:.1}  wakefulness={:.2}",
+                body_health * 100.0,
                 100.0 - needs.hydration,
                 needs.stamina.aerobic,
                 needs.stamina.anaerobic,
@@ -1347,9 +1350,6 @@ impl TestWorld {
                 needs.hunger_urgency(),
                 starving
             );
-            if let Some(src) = needs.last_health_damage {
-                eprintln!("  Last damage: {:?}", src);
-            }
         }
 
         // Inventory

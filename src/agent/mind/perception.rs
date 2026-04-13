@@ -478,6 +478,7 @@ const BASE_THREAT: f32 = 0.8;
 fn assess_threat(
     personality: &crate::agent::psyche::personality::Personality,
     needs: &crate::agent::body::needs::PhysicalNeeds,
+    body_health: f32,
     items: Option<&crate::agent::item_slots::ItemSlots>,
 ) -> f32 {
     // Neuroticism amplifies fear; emotional stability dampens it.
@@ -486,7 +487,7 @@ fn assess_threat(
 
     // Low health amplifies perceived threat — a wounded agent has more to lose.
     // Full health → 1.0×, zero health → 1.4×.
-    let health_loss = (1.0 - needs.health / 100.0).clamp(0.0, 1.0);
+    let health_loss = (1.0 - body_health).clamp(0.0, 1.0);
     let health_mod = 1.0 + health_loss * 0.4;
 
     // Holding a weapon reduces perceived threat. For now Stick is the only
@@ -515,6 +516,7 @@ pub fn react_to_danger(
             &mut crate::agent::psyche::emotions::EmotionalState,
             &crate::agent::psyche::personality::Personality,
             &crate::agent::body::needs::PhysicalNeeds,
+            Option<&crate::agent::biology::body::Body>,
             Option<&crate::agent::item_slots::ItemSlots>,
         ),
         With<Agent>,
@@ -523,7 +525,7 @@ pub fn react_to_danger(
 ) {
     use crate::agent::psyche::emotions::{Emotion, EmotionType};
 
-    for (visible, mind, mut emotions, personality, needs, items) in agents.iter_mut() {
+    for (visible, mind, mut emotions, personality, needs, body, items) in agents.iter_mut() {
         // Count how many visible entities this agent considers dangerous.
         let dangerous_count = visible
             .entities
@@ -547,7 +549,8 @@ pub fn react_to_danger(
         }
 
         // Single contextual threat score, scaled up by the number of threats visible.
-        let per_threat = assess_threat(personality, needs, items);
+        let body_health = body.map_or(1.0, |b| b.overall_health());
+        let per_threat = assess_threat(personality, needs, body_health, items);
         let fear_intensity = (per_threat * dangerous_count as f32).clamp(0.0, 1.0);
 
         // Only top up fear if we're not already scared enough — prevents
@@ -760,9 +763,7 @@ mod threat_tests {
             metabolism: crate::agent::body::metabolism::Metabolism::well_fed(),
             hydration: 100.0,
             stamina: Stamina::default(),
-            health: 100.0,
             wakefulness: 1.0,
-            last_health_damage: None,
         }
     }
 
@@ -779,7 +780,7 @@ mod threat_tests {
     fn calm_healthy_unarmed_agent_matches_previous_hardcoded_fear() {
         let personality = personality_with_neuroticism(0.5);
         let needs = default_needs();
-        let score = assess_threat(&personality, &needs, None);
+        let score = assess_threat(&personality, &needs, 1.0, None);
         // 0.8 × 1.0 × 1.0 × 1.0 × 1.0 = 0.8
         assert!((score - 0.8).abs() < 1e-4, "expected 0.8, got {score}");
     }
@@ -789,11 +790,11 @@ mod threat_tests {
         let personality = personality_with_neuroticism(0.5);
         let needs = default_needs();
 
-        let unarmed = assess_threat(&personality, &needs, None);
+        let unarmed = assess_threat(&personality, &needs, 1.0, None);
 
         let mut slots = ItemSlots::agent_carry();
         slots.add(Concept::Stick, 1);
-        let armed = assess_threat(&personality, &needs, Some(&slots));
+        let armed = assess_threat(&personality, &needs, 1.0, Some(&slots));
 
         assert!(
             armed < unarmed,
@@ -803,8 +804,18 @@ mod threat_tests {
 
     #[test]
     fn neurotic_agent_feels_more_fear_than_stable_agent() {
-        let stable = assess_threat(&personality_with_neuroticism(0.0), &default_needs(), None);
-        let neurotic = assess_threat(&personality_with_neuroticism(1.0), &default_needs(), None);
+        let stable = assess_threat(
+            &personality_with_neuroticism(0.0),
+            &default_needs(),
+            1.0,
+            None,
+        );
+        let neurotic = assess_threat(
+            &personality_with_neuroticism(1.0),
+            &default_needs(),
+            1.0,
+            None,
+        );
         assert!(
             neurotic > stable,
             "neurotic ({neurotic}) should exceed stable ({stable})"
@@ -814,15 +825,8 @@ mod threat_tests {
     #[test]
     fn wounded_agent_feels_more_fear_than_healthy_one() {
         let personality = personality_with_neuroticism(0.5);
-        let healthy = assess_threat(&personality, &default_needs(), None);
-        let wounded = assess_threat(
-            &personality,
-            &PhysicalNeeds {
-                health: 20.0,
-                ..default_needs()
-            },
-            None,
-        );
+        let healthy = assess_threat(&personality, &default_needs(), 1.0, None);
+        let wounded = assess_threat(&personality, &default_needs(), 0.2, None);
         assert!(
             wounded > healthy,
             "wounded ({wounded}) should exceed healthy ({healthy})"
@@ -832,13 +836,14 @@ mod threat_tests {
     #[test]
     fn desperate_agent_feels_less_fear_so_other_urgencies_can_win() {
         let personality = personality_with_neuroticism(0.5);
-        let calm_full = assess_threat(&personality, &default_needs(), None);
+        let calm_full = assess_threat(&personality, &default_needs(), 1.0, None);
         let starving = assess_threat(
             &personality,
             &PhysicalNeeds {
                 metabolism: crate::agent::body::metabolism::Metabolism::at_urgency(0.95),
                 ..default_needs()
             },
+            1.0,
             None,
         );
         assert!(
@@ -851,15 +856,8 @@ mod threat_tests {
     fn threat_score_clamped_to_unit_interval() {
         // Max-anxiety, max-wounded, unarmed, calm → should still clamp to ≤1.0
         let personality = personality_with_neuroticism(1.0);
-        let needs = PhysicalNeeds {
-            metabolism: crate::agent::body::metabolism::Metabolism::well_fed(),
-            hydration: 100.0,
-            stamina: Stamina::default(),
-            health: 0.0,
-            wakefulness: 1.0,
-            last_health_damage: None,
-        };
-        let score = assess_threat(&personality, &needs, None);
+        let needs = default_needs();
+        let score = assess_threat(&personality, &needs, 0.0, None);
         assert!(score <= 1.0, "score {score} should be clamped to ≤1.0");
         assert!(score >= 0.0, "score {score} should be non-negative");
     }

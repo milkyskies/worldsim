@@ -6,14 +6,13 @@
 //! Consumption + Bite while a human's arm offers Manipulation + Carry, without
 //! the action system knowing anything about species.
 //!
-//! Reads: PhysicalNeeds (for healing boost + starvation gradient)
-//! Writes: Body (healing/scarring), PhysicalNeeds (starvation damage)
+//! Reads: PhysicalNeeds (healing boost, starvation/dehydration checks)
+//! Writes: Body (healing/scarring, deprivation cascade)
 //! Upstream: BiologyPlugin (auto-spawn), per-species spawners
 //! Downstream: channel::ChannelCapacities (capability queries),
 //!             movement::calculate_speed (injury penalty), UI/debug
 
 use crate::agent::actions::channel::Channel;
-use crate::agent::body::metabolism::STARVATION_DAMAGE_PER_SEC;
 use crate::agent::body::needs::PhysicalNeeds;
 use crate::agent::body::species::Species;
 use crate::agent::mind::knowledge::Concept;
@@ -242,6 +241,83 @@ impl Body {
                 .map(|o| o.condition())
                 .unwrap_or(1.0),
         }
+    }
+
+    /// Derive an overall health score from node conditions. Vital nodes
+    /// (heart, brain, lungs) are weighted 3x; non-vital nodes contribute 1x.
+    /// Returns `0.0..=1.0` where `1.0` = every node at full HP.
+    pub fn overall_health(&self) -> f32 {
+        fn accumulate(node: &BodyNode, sum: &mut f32, weight_total: &mut f32) {
+            let weight = if node.vital { 3.0 } else { 1.0 };
+            *sum += node.condition() * weight;
+            *weight_total += weight;
+            for child in &node.children {
+                accumulate(child, sum, weight_total);
+            }
+        }
+
+        let mut weighted_sum = 0.0f32;
+        let mut total_weight = 0.0f32;
+        for part in &self.parts {
+            accumulate(part, &mut weighted_sum, &mut total_weight);
+        }
+        if total_weight > 0.0 {
+            (weighted_sum / total_weight).clamp(0.0, 1.0)
+        } else {
+            0.0
+        }
+    }
+
+    /// If any vital organ is destroyed, return the death cause string.
+    /// Priority: heart > brain > both lungs > head > torso.
+    pub fn death_cause(&self) -> Option<&'static str> {
+        if self
+            .node(BodyNodeKind::Heart)
+            .is_some_and(|n| n.is_destroyed())
+        {
+            return Some("heart failure");
+        }
+        if self
+            .node(BodyNodeKind::Brain)
+            .is_some_and(|n| n.is_destroyed())
+        {
+            return Some("brain death");
+        }
+        let left_lung_dead = self
+            .node(BodyNodeKind::LeftLung)
+            .is_some_and(|n| n.is_destroyed());
+        let right_lung_dead = self
+            .node(BodyNodeKind::RightLung)
+            .is_some_and(|n| n.is_destroyed());
+        if left_lung_dead && right_lung_dead {
+            return Some("respiratory failure");
+        }
+        if self
+            .part(BodyNodeKind::Head)
+            .is_some_and(|n| n.is_destroyed())
+        {
+            return Some("head destroyed");
+        }
+        if self
+            .part(BodyNodeKind::Torso)
+            .is_some_and(|n| n.is_destroyed())
+        {
+            return Some("torso destroyed");
+        }
+        None
+    }
+
+    /// Average condition of all non-vital root parts (limbs).
+    fn avg_limb_condition(&self) -> f32 {
+        let mut sum = 0.0f32;
+        let mut count = 0u32;
+        for part in &self.parts {
+            if !part.vital {
+                sum += part.condition();
+                count += 1;
+            }
+        }
+        if count > 0 { sum / count as f32 } else { 1.0 }
     }
 
     /// Respiration multiplier: average condition of both lungs in `[0, 1]`.
@@ -594,6 +670,14 @@ impl BodyNode {
         self.current_hp <= 0.0
     }
 
+    /// Apply raw HP damage without creating an injury. Used by starvation
+    /// and dehydration cascades that degrade nodes through metabolic failure
+    /// rather than trauma.
+    pub fn damage_hp(&mut self, amount: f32) {
+        self.current_hp = (self.current_hp - amount).max(0.0);
+        self.recalculate_function();
+    }
+
     pub fn add_injury(&mut self, injury: Injury) {
         self.current_hp = (self.current_hp - (injury.severity * 20.0)).max(0.0);
         self.injuries.push(injury);
@@ -720,26 +804,127 @@ pub fn process_healing(
     }
 }
 
-// ─── Starvation / death ────────────────────────────────────────────────────
+// ─── Starvation / dehydration cascade ─────────────────────────────────────
 
-pub fn process_starvation(
+/// HP damage per second applied to limb nodes during starvation.
+/// Must outpace the 1.0 HP/sec natural heal regen to cause net degradation.
+const STARVATION_LIMB_DAMAGE: f32 = 1.5;
+
+/// HP damage per second applied to organ nodes during starvation.
+const STARVATION_ORGAN_DAMAGE: f32 = 1.3;
+
+/// HP damage per second applied to the brain (last to degrade).
+const STARVATION_BRAIN_DAMAGE: f32 = 1.1;
+
+/// Dehydration cascade runs faster than starvation.
+const DEHYDRATION_RATE_MULTIPLIER: f32 = 1.5;
+
+/// Condition threshold at which the next cascade stage activates.
+const CASCADE_STAGE_THRESHOLD: f32 = 0.7;
+
+/// Condition threshold for the final (brain) cascade stage.
+const CASCADE_SEVERE_THRESHOLD: f32 = 0.3;
+
+/// Moderate degradation threshold — gates liver (from gut) and heart (from liver).
+const CASCADE_MODERATE_THRESHOLD: f32 = 0.5;
+
+/// Apply the starvation/dehydration organ-failure cascade.
+///
+/// Stages fire sequentially — each is gated by the prior stage's
+/// degradation reaching a threshold:
+///
+/// 1. **Muscle wasting** — limb nodes lose HP (immediate)
+/// 2. **Gut atrophy** — Gut HP drops (when avg limb condition < 0.7)
+/// 3. **Liver deterioration** — Liver HP drops (when Gut condition < 0.5)
+/// 4. **Heart weakening** — Heart HP drops (when Liver condition < 0.5)
+/// 5. **Lung capacity loss** — Lung HP drops (when Liver condition < 0.3)
+/// 6. **Brain last** — Brain HP drops (when Heart or Lung condition < 0.3)
+fn apply_cascade(body: &mut Body, dt: f32, rate_mult: f32) {
+    let organ_dmg = STARVATION_ORGAN_DAMAGE * rate_mult * dt;
+
+    // Stage 1: Muscle wasting — damage all non-vital root parts (limbs)
+    // and their children (hands, feet, paws, hooves).
+    let limb_dmg = STARVATION_LIMB_DAMAGE * rate_mult * dt;
+    for part in &mut body.parts {
+        if !part.vital {
+            part.damage_hp(limb_dmg);
+            for child in &mut part.children {
+                child.damage_hp(limb_dmg);
+            }
+        }
+    }
+
+    // Stage 2: Gut atrophy — when limbs are weakened
+    let mut gut_cond = 1.0f32;
+    if body.avg_limb_condition() < CASCADE_STAGE_THRESHOLD {
+        if let Some(gut) = body.node_mut(BodyNodeKind::Gut) {
+            gut.damage_hp(organ_dmg);
+            gut_cond = gut.condition();
+        }
+    } else {
+        gut_cond = body.node(BodyNodeKind::Gut).map_or(1.0, |n| n.condition());
+    }
+
+    // Stage 3: Liver deterioration — when gut degraded
+    let mut liver_cond = 1.0f32;
+    if gut_cond < CASCADE_MODERATE_THRESHOLD {
+        if let Some(liver) = body.node_mut(BodyNodeKind::Liver) {
+            liver.damage_hp(organ_dmg);
+            liver_cond = liver.condition();
+        }
+    } else {
+        liver_cond = body
+            .node(BodyNodeKind::Liver)
+            .map_or(1.0, |n| n.condition());
+    }
+
+    // Stage 4: Heart weakening — when liver degraded
+    let mut heart_cond = 1.0f32;
+    if liver_cond < CASCADE_MODERATE_THRESHOLD {
+        if let Some(heart) = body.node_mut(BodyNodeKind::Heart) {
+            heart.damage_hp(organ_dmg);
+            heart_cond = heart.condition();
+        }
+    } else {
+        heart_cond = body
+            .node(BodyNodeKind::Heart)
+            .map_or(1.0, |n| n.condition());
+    }
+
+    // Stage 5: Lung capacity loss — when liver severely degraded
+    let mut lung_cond = 1.0f32;
+    if liver_cond < CASCADE_SEVERE_THRESHOLD {
+        if let Some(left) = body.node_mut(BodyNodeKind::LeftLung) {
+            left.damage_hp(organ_dmg);
+        }
+        if let Some(right) = body.node_mut(BodyNodeKind::RightLung) {
+            right.damage_hp(organ_dmg);
+        }
+        lung_cond = body.lung_condition();
+    }
+
+    // Stage 6: Brain protected last — when heart or lungs severely damaged
+    if heart_cond < CASCADE_SEVERE_THRESHOLD || lung_cond < CASCADE_SEVERE_THRESHOLD {
+        let brain_dmg = STARVATION_BRAIN_DAMAGE * rate_mult * dt;
+        if let Some(brain) = body.node_mut(BodyNodeKind::Brain) {
+            brain.damage_hp(brain_dmg);
+        }
+    }
+}
+
+pub fn process_deprivation(
     tick: Res<crate::core::tick::TickCount>,
-    mut query: Query<&mut PhysicalNeeds, With<Alive>>,
+    mut query: Query<(&mut PhysicalNeeds, &mut Body), With<Alive>>,
 ) {
-    use crate::agent::body::needs::HealthDamageSource;
     let dt = tick.dt();
 
-    for mut physical in query.iter_mut() {
+    for (physical, mut body) in query.iter_mut() {
         if physical.metabolism.is_starving() {
-            let health_damage = dt * STARVATION_DAMAGE_PER_SEC;
-            physical.health = (physical.health - health_damage).clamp(0.0, 100.0);
-            physical.last_health_damage = Some(HealthDamageSource::Starvation);
+            apply_cascade(&mut body, dt, 1.0);
         }
 
         if physical.hydration <= 10.0 {
-            let health_damage = dt * 0.3;
-            physical.health = (physical.health - health_damage).clamp(0.0, 100.0);
-            physical.last_health_damage = Some(HealthDamageSource::Dehydration);
+            apply_cascade(&mut body, dt, DEHYDRATION_RATE_MULTIPLIER);
         }
     }
 }
@@ -775,17 +960,13 @@ pub fn die(
 
 pub fn check_death(
     mut commands: Commands,
-    query: Query<(Entity, &PhysicalNeeds, Option<&Name>), With<Alive>>,
+    query: Query<(Entity, &Body, Option<&Name>), With<Alive>>,
     mut game_log: ResMut<GameLog>,
     tick: Res<crate::core::tick::TickCount>,
     mut sim_events: MessageWriter<crate::agent::events::SimEvent>,
 ) {
-    for (entity, physical, name) in query.iter() {
-        if physical.health <= 0.0 {
-            let cause = physical
-                .last_health_damage
-                .map(|s| s.as_cause())
-                .unwrap_or("unknown health drain");
+    for (entity, body, name) in query.iter() {
+        if let Some(cause) = body.death_cause() {
             die(
                 &mut commands,
                 entity,
@@ -1189,6 +1370,221 @@ mod tests {
             Body::deer().nodes_with_tag(Stance).len(),
             4,
             "deer: 4 hooves"
+        );
+    }
+
+    // ─── Derived health (#456) ────────────────────────────────────────
+
+    #[test]
+    fn healthy_body_has_overall_health_one() {
+        let body = Body::human();
+        assert!(
+            (body.overall_health() - 1.0).abs() < 1e-6,
+            "fresh body should be 1.0, got {}",
+            body.overall_health()
+        );
+    }
+
+    #[test]
+    fn damaged_heart_tanks_overall_health() {
+        let mut body = Body::human();
+        // Destroy the heart entirely — vital organs are weighted 3x, so
+        // this should produce a noticeable drop in overall health.
+        body.node_mut(BodyNodeKind::Heart).unwrap().damage_hp(40.0);
+        let health = body.overall_health();
+        assert!(
+            health < 0.92,
+            "destroyed heart should lower health, got {health}"
+        );
+    }
+
+    #[test]
+    fn death_cause_heart_failure() {
+        let mut body = Body::human();
+        body.node_mut(BodyNodeKind::Heart).unwrap().current_hp = 0.0;
+        assert_eq!(body.death_cause(), Some("heart failure"));
+    }
+
+    #[test]
+    fn death_cause_brain_death() {
+        let mut body = Body::human();
+        body.node_mut(BodyNodeKind::Brain).unwrap().current_hp = 0.0;
+        assert_eq!(body.death_cause(), Some("brain death"));
+    }
+
+    #[test]
+    fn death_cause_respiratory_failure_requires_both_lungs() {
+        let mut body = Body::human();
+        body.node_mut(BodyNodeKind::LeftLung).unwrap().current_hp = 0.0;
+        assert_eq!(
+            body.death_cause(),
+            None,
+            "one lung destroyed should not kill"
+        );
+        body.node_mut(BodyNodeKind::RightLung).unwrap().current_hp = 0.0;
+        assert_eq!(body.death_cause(), Some("respiratory failure"));
+    }
+
+    #[test]
+    fn no_death_when_non_vital_nodes_destroyed() {
+        let mut body = Body::human();
+        body.node_mut(BodyNodeKind::LeftArm).unwrap().current_hp = 0.0;
+        body.node_mut(BodyNodeKind::RightLeg).unwrap().current_hp = 0.0;
+        body.node_mut(BodyNodeKind::Liver).unwrap().current_hp = 0.0;
+        assert_eq!(
+            body.death_cause(),
+            None,
+            "destroying non-vital nodes should not kill"
+        );
+    }
+
+    #[test]
+    fn damage_hp_reduces_current_hp_and_function_rate() {
+        let mut node = BodyNode::new(BodyNodeKind::LeftArm, 60.0);
+        assert!((node.condition() - 1.0).abs() < 1e-6);
+        node.damage_hp(30.0);
+        assert!(
+            (node.condition() - 0.5).abs() < 1e-6,
+            "half HP should give 0.5 condition, got {}",
+            node.condition()
+        );
+        assert!(
+            node.function_rate < 1.0,
+            "damaged node should have reduced function_rate"
+        );
+    }
+
+    #[test]
+    fn damage_hp_clamps_at_zero() {
+        let mut node = BodyNode::new(BodyNodeKind::Gut, 25.0);
+        node.damage_hp(100.0);
+        assert_eq!(node.current_hp, 0.0);
+        assert!(node.is_destroyed());
+    }
+
+    // ─── Starvation cascade (#457) ────────────────────────────────────
+
+    #[test]
+    fn starvation_cascade_damages_limbs_first() {
+        let mut body = Body::human();
+        apply_cascade(&mut body, 5.0, 1.0);
+
+        let left_arm = body.part(BodyNodeKind::LeftArm).unwrap();
+        assert!(
+            left_arm.condition() < 1.0,
+            "limb should be damaged, got {}",
+            left_arm.condition()
+        );
+
+        let gut = body.node(BodyNodeKind::Gut).unwrap();
+        assert!(
+            (gut.condition() - 1.0).abs() < 1e-6,
+            "gut should not be damaged yet (limbs haven't degraded enough)"
+        );
+    }
+
+    #[test]
+    fn starvation_cascade_gut_degrades_before_heart() {
+        let mut body = Body::human();
+
+        // Run the cascade long enough for limbs to degrade past the threshold
+        // and gut to start taking damage, but not long enough for heart damage.
+        for _ in 0..300 {
+            apply_cascade(&mut body, 0.1, 1.0);
+        }
+
+        let gut_cond = body.node(BodyNodeKind::Gut).unwrap().condition();
+        let heart_cond = body.node(BodyNodeKind::Heart).unwrap().condition();
+        assert!(
+            gut_cond < heart_cond,
+            "gut ({gut_cond}) should be more damaged than heart ({heart_cond})"
+        );
+    }
+
+    #[test]
+    fn starvation_cascade_eventually_kills_via_heart_failure() {
+        let mut body = Body::human();
+
+        // Run the cascade for a long time
+        for _ in 0..5000 {
+            apply_cascade(&mut body, 0.1, 1.0);
+        }
+
+        assert!(
+            body.death_cause().is_some(),
+            "prolonged starvation should cause death"
+        );
+        assert_eq!(
+            body.death_cause(),
+            Some("heart failure"),
+            "death should come from heart failure"
+        );
+    }
+
+    #[test]
+    fn dehydration_cascade_is_faster_than_starvation() {
+        let mut starving_body = Body::human();
+        let mut dehydrated_body = Body::human();
+
+        for _ in 0..200 {
+            apply_cascade(&mut starving_body, 0.1, 1.0);
+            apply_cascade(&mut dehydrated_body, 0.1, DEHYDRATION_RATE_MULTIPLIER);
+        }
+
+        let starving_health = starving_body.overall_health();
+        let dehydrated_health = dehydrated_body.overall_health();
+        assert!(
+            dehydrated_health < starving_health,
+            "dehydration ({dehydrated_health}) should degrade faster than starvation ({starving_health})"
+        );
+    }
+
+    #[test]
+    fn gut_damage_reduces_food_absorption_via_organ_mods() {
+        let mut body = Body::human();
+
+        // Run cascade enough to damage gut
+        for _ in 0..500 {
+            apply_cascade(&mut body, 0.1, 1.0);
+        }
+
+        let mods = body.organ_mods();
+        assert!(
+            mods.gut < 1.0,
+            "gut should be damaged from starvation cascade, organ_mod={}",
+            mods.gut
+        );
+    }
+
+    #[test]
+    fn brain_survives_when_heart_dies_first() {
+        let mut body = Body::human();
+
+        // Run cascade until the heart is destroyed (death would fire in-game).
+        // The brain stage activates once heart drops below 0.3, so the brain
+        // takes some damage in the final stretch, but it should still be
+        // alive when the heart hits zero.
+        for _ in 0..5000 {
+            apply_cascade(&mut body, 0.1, 1.0);
+            if body.node(BodyNodeKind::Heart).unwrap().is_destroyed() {
+                break;
+            }
+        }
+
+        assert!(
+            body.node(BodyNodeKind::Heart).unwrap().is_destroyed(),
+            "heart should be destroyed"
+        );
+        let brain = body.node(BodyNodeKind::Brain).unwrap();
+        assert!(
+            !brain.is_destroyed(),
+            "brain should survive — heart dies first (brain condition: {})",
+            brain.condition()
+        );
+        assert!(
+            brain.condition() > 0.2,
+            "brain should retain most function when heart fails (got {})",
+            brain.condition()
         );
     }
 }

@@ -10,6 +10,7 @@ use std::time::{Duration, Instant};
 use bevy::ecs::entity::Entity;
 use serde::Serialize;
 
+use crate::agent::biology::body::Body;
 use crate::agent::body::needs::{Consciousness, PhysicalNeeds};
 use crate::agent::brains::trace::{DecisionTraceBuffer, TraceConfig, dump_trace};
 use crate::agent::mind::conversation::ConversationManager;
@@ -461,7 +462,12 @@ fn collect_physical_means(world: &TestWorld, agents: &[Entity]) -> PhysicalMeans
             sum.hunger += needs.hunger_urgency();
             sum.thirst += 100.0 - needs.hydration;
             sum.stamina += needs.stamina.aerobic;
-            sum.health += needs.health;
+            let body_health = world
+                .app()
+                .world()
+                .get::<Body>(*entity)
+                .map_or(1.0, |b| b.overall_health());
+            sum.health += body_health * 100.0;
             count += 1.0;
         }
     }
