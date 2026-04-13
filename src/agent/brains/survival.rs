@@ -12,9 +12,7 @@ use crate::agent::item_slots::ItemSlots;
 use crate::agent::mind::knowledge::Ontology;
 use crate::agent::nervous_system::cns::CentralNervousSystem;
 use crate::agent::nervous_system::urgency::UrgencySource;
-use crate::constants::brains::survival::{
-    SLEEPINESS_SLEEP_THRESHOLD, WAKE_STAMINA_THRESHOLD, WAKE_WAKEFULNESS_THRESHOLD,
-};
+use crate::constants::brains::survival::{WAKE_STAMINA_THRESHOLD, WAKE_WAKEFULNESS_THRESHOLD};
 use bevy::prelude::*;
 
 pub struct SurvivalBrainContext<'a> {
@@ -34,96 +32,89 @@ pub fn survival_brain_propose(
     active: &ActiveActions,
     ontology: &Ontology,
     action_registry: &crate::agent::actions::ActionRegistry,
-) -> Option<BrainProposal> {
+) -> Vec<BrainProposal> {
     // While sleeping, the sleep/wake gate owns the decision — either stay
-    // asleep or transition through WakeUp. The urgency ladder below runs
-    // normally once awake.
+    // asleep or transition through WakeUp. No other proposals are generated.
     if let Some(proposal) = check_sleep_wake(&context, active, action_registry) {
-        return Some(proposal);
+        return vec![proposal];
     }
 
-    // Find the top survival-relevant urgency (urgencies are sorted highest-first).
-    // Special case: if Sleepiness is above the sleep threshold, it always
-    // wins over other survival drives that would only produce Rest. An agent
-    // who is both physically tired and sleepy should Sleep, not Rest — Sleep
-    // recovers both wakefulness and stamina, while Rest only recovers stamina.
-    if let Some(s) = context
+    // One proposal per active survival urgency. Arbitration picks the winner
+    // via score (urgency * survival_power). No priority gates needed — if
+    // Sleepiness is higher than Stamina, Sleep naturally outscores Rest.
+    let mut proposals = Vec::new();
+    for u in context
         .cns
         .urgencies
         .iter()
-        .find(|u| u.source == UrgencySource::Sleepiness)
-        && s.value >= SLEEPINESS_SLEEP_THRESHOLD
-        && let Some(action) = action_registry.get(ActionType::Sleep)
+        .filter(|u| u.source.is_survival())
     {
-        return Some(BrainProposal {
-            brain: BrainType::Survival,
-            action: action.to_template(None),
-            urgency: s.value * 100.0,
-            intent: Intent::SatisfySleepiness,
-            reasoning: format!("Sleepiness urgency {:.2} — sleeping!", s.value),
-        });
+        if let Some(proposal) = propose_for_source(
+            u.source,
+            u.value,
+            &context,
+            inventory,
+            ontology,
+            action_registry,
+        ) {
+            proposals.push(proposal);
+        }
     }
+    proposals
+}
 
-    let top = context
-        .cns
-        .urgencies
-        .iter()
-        .find(|u| u.source.is_survival())?;
+fn propose_for_source(
+    source: UrgencySource,
+    value: f32,
+    context: &SurvivalBrainContext,
+    inventory: &ItemSlots,
+    ontology: &Ontology,
+    action_registry: &crate::agent::actions::ActionRegistry,
+) -> Option<BrainProposal> {
+    let urgency_score = value * 100.0;
+    let intent = Intent::from_urgency_source(source);
 
-    let urgency_score = top.value * 100.0;
-    let intent = Intent::from_urgency_source(top.source);
-
-    let escalated_template = |action: &dyn crate::agent::actions::registry::Action,
-                              target: Option<bevy::prelude::Entity>|
+    let escalated = |action: &dyn crate::agent::actions::registry::Action,
+                     target: Option<bevy::prelude::Entity>|
      -> super::thinking::ActionTemplate {
         let mut t = action.to_template(target);
-        t.escalate_intensity(top.value);
+        t.escalate_intensity(value);
         t
     };
 
-    match top.source {
+    match source {
         UrgencySource::Hunger => {
-            // Direct reflex: eat if we have something edible in hand.
             if inventory.has_edible(ontology)
                 && let Some(action) = action_registry.get(ActionType::Eat)
             {
                 return Some(BrainProposal {
                     brain: BrainType::Survival,
-                    action: escalated_template(action, None),
+                    action: escalated(action, None),
                     urgency: urgency_score,
                     intent,
-                    reasoning: format!("Hunger urgency {:.2} — eating!", top.value),
+                    reasoning: format!("Hunger urgency {:.2} — eating!", value),
                 });
             }
-            // No food in hand — defer to Rational. The planner can find a known
-            // food source or fall back to its own Explore. Survival proposing
-            // Explore here would duplicate Rational's job and outscore the
-            // planner's actual plan inside intent dedup, blocking it.
         }
         UrgencySource::Thirst => {
             if let Some(action) = action_registry.get(ActionType::Drink) {
                 return Some(BrainProposal {
                     brain: BrainType::Survival,
-                    action: escalated_template(action, None),
+                    action: escalated(action, None),
                     urgency: urgency_score,
                     intent,
-                    reasoning: format!("Thirst urgency {:.2} — drinking!", top.value),
+                    reasoning: format!("Thirst urgency {:.2} — drinking!", value),
                 });
             }
         }
         UrgencySource::Stamina => {
-            // Stamina fatigue only proposes Rest (sit-and-recover). Full
-            // Sleep is now driven exclusively by the Sleepiness urgency
-            // from wakefulness decay (#462). This decouples physical
-            // exhaustion from sleepiness — a tired agent rests, a drowsy
-            // agent sleeps.
             if let Some(action) = action_registry.get(ActionType::Rest) {
                 return Some(BrainProposal {
                     brain: BrainType::Survival,
-                    action: escalated_template(action, None),
+                    action: escalated(action, None),
                     urgency: urgency_score,
                     intent,
-                    reasoning: format!("Fatigue urgency {:.2} — resting.", top.value),
+                    reasoning: format!("Fatigue urgency {:.2} — resting.", value),
                 });
             }
         }
@@ -131,10 +122,10 @@ pub fn survival_brain_propose(
             if let Some(action) = action_registry.get(ActionType::Idle) {
                 return Some(BrainProposal {
                     brain: BrainType::Survival,
-                    action: escalated_template(action, None),
+                    action: escalated(action, None),
                     urgency: urgency_score,
                     intent,
-                    reasoning: format!("Pain urgency {:.2} — can't move!", top.value),
+                    reasoning: format!("Pain urgency {:.2} — can't move!", value),
                 });
             }
         }
@@ -142,38 +133,26 @@ pub fn survival_brain_propose(
             if let Some(action) = action_registry.get(ActionType::Flee) {
                 return Some(BrainProposal {
                     brain: BrainType::Survival,
-                    action: escalated_template(action, context.most_feared_entity),
+                    action: escalated(action, context.most_feared_entity),
                     urgency: urgency_score,
                     intent,
-                    reasoning: format!("Fear urgency {:.2} — fleeing!", top.value),
+                    reasoning: format!("Fear urgency {:.2} — fleeing!", value),
                 });
             }
         }
         UrgencySource::Sleepiness => {
-            let action_type = if top.value >= SLEEPINESS_SLEEP_THRESHOLD {
-                ActionType::Sleep
-            } else {
-                ActionType::Rest
-            };
-            if let Some(action) = action_registry.get(action_type) {
-                let reasoning = match action_type {
-                    ActionType::Sleep => {
-                        format!("Sleepiness urgency {:.2} — sleeping!", top.value)
-                    }
-                    _ => format!("Sleepiness urgency {:.2} — resting.", top.value),
-                };
+            if let Some(action) = action_registry.get(ActionType::Sleep) {
                 return Some(BrainProposal {
                     brain: BrainType::Survival,
                     action: action.to_template(None),
                     urgency: urgency_score,
                     intent: Intent::SatisfySleepiness,
-                    reasoning,
+                    reasoning: format!("Sleepiness urgency {:.2} — sleeping!", value),
                 });
             }
         }
         _ => {}
     }
-
     None
 }
 
@@ -251,6 +230,16 @@ mod tests {
         cns
     }
 
+    /// Helper: find a proposal by action type from the multi-proposal Vec.
+    fn find_proposal(
+        proposals: &[BrainProposal],
+        action_type: ActionType,
+    ) -> Option<&BrainProposal> {
+        proposals
+            .iter()
+            .find(|p| p.action.action_type == action_type)
+    }
+
     #[test]
     fn high_hunger_urgency_proposes_eat_when_food_available() {
         let ontology = setup_ontology();
@@ -265,20 +254,12 @@ mod tests {
         let mut registry = crate::agent::actions::ActionRegistry::default();
         registry.register(crate::agent::actions::action::EatAction);
 
-        let proposal = survival_brain_propose(context, &inventory, &active, &ontology, &registry);
-
-        assert!(proposal.is_some());
-        assert_eq!(proposal.unwrap().action.name, "Eat");
+        let proposals = survival_brain_propose(context, &inventory, &active, &ontology, &registry);
+        assert!(find_proposal(&proposals, ActionType::Eat).is_some());
     }
 
-    /// Survival is for direct reflexive actions only — eating food in hand,
-    /// drinking, sleeping, fleeing, curling up in pain. Random exploration to
-    /// FIND food is a planning concern; Rational owns it (planner +
-    /// rational.rs's own Explore fallback). Survival proposing Explore would
-    /// duplicate Rational's job and outscore Rational's actual plan inside
-    /// intent dedup, blocking the planner from ever executing.
     #[test]
-    fn hunger_with_no_food_returns_none_so_rational_can_plan() {
+    fn hunger_with_no_food_produces_no_eat_proposal() {
         let ontology = setup_ontology();
         let physical = PhysicalNeeds::default();
         let cns = cns_with_top(UrgencySource::Hunger, 0.9);
@@ -291,21 +272,16 @@ mod tests {
         registry.register(crate::agent::actions::action::ExploreAction);
         registry.register(crate::agent::actions::action::EatAction);
 
-        let proposal = survival_brain_propose(context, &inventory, &active, &ontology, &registry);
-
+        let proposals = survival_brain_propose(context, &inventory, &active, &ontology, &registry);
         assert!(
-            proposal.is_none(),
+            find_proposal(&proposals, ActionType::Eat).is_none(),
             "Survival must defer to Rational when starving but empty-handed; \
-             got proposal: {proposal:?}"
+             got proposals: {proposals:?}"
         );
     }
 
     #[test]
     fn stamina_fatigue_always_proposes_rest() {
-        // #462: Stamina urgency always routes to Rest, never Sleep.
-        // Sleep is now driven exclusively by the Sleepiness urgency
-        // from wakefulness decay, decoupling physical exhaustion from
-        // sleepiness.
         let ontology = setup_ontology();
         let physical = PhysicalNeeds::default();
         let inventory = crate::agent::item_slots::ItemSlots::agent_carry();
@@ -315,28 +291,26 @@ mod tests {
         registry.register(crate::agent::actions::action::RestAction);
         registry.register(crate::agent::actions::action::SleepAction);
 
-        // Mild fatigue → Rest
+        // Mild fatigue -> Rest
         let cns = cns_with_top(UrgencySource::Stamina, 0.4);
         let context = context_with_urgency(&physical, &cns);
-        let proposal = survival_brain_propose(context, &inventory, &active, &ontology, &registry);
-        let proposal = proposal.expect("mild fatigue must produce a proposal");
-        assert_eq!(proposal.action.action_type, ActionType::Rest);
+        let proposals = survival_brain_propose(context, &inventory, &active, &ontology, &registry);
+        assert!(find_proposal(&proposals, ActionType::Rest).is_some());
+        assert!(find_proposal(&proposals, ActionType::Sleep).is_none());
 
-        // Severe fatigue → still Rest (not Sleep)
+        // Severe fatigue -> still Rest (not Sleep)
         let cns = cns_with_top(UrgencySource::Stamina, 0.9);
         let context = context_with_urgency(&physical, &cns);
-        let proposal = survival_brain_propose(context, &inventory, &active, &ontology, &registry);
-        let proposal = proposal.expect("severe fatigue must produce a proposal");
-        assert_eq!(
-            proposal.action.action_type,
-            ActionType::Rest,
-            "stamina fatigue must never propose Sleep; got {:?}",
-            proposal.action.name,
+        let proposals = survival_brain_propose(context, &inventory, &active, &ontology, &registry);
+        assert!(find_proposal(&proposals, ActionType::Rest).is_some());
+        assert!(
+            find_proposal(&proposals, ActionType::Sleep).is_none(),
+            "stamina fatigue must never propose Sleep"
         );
     }
 
     #[test]
-    fn low_urgency_returns_none_when_action_missing_from_registry() {
+    fn low_urgency_returns_empty_when_action_missing_from_registry() {
         let ontology = setup_ontology();
         let physical = PhysicalNeeds::default();
         let cns = cns_with_top(UrgencySource::Hunger, 0.9);
@@ -346,15 +320,14 @@ mod tests {
         let active = ActiveActions::default();
         let registry = crate::agent::actions::ActionRegistry::default(); // no actions
 
-        let proposal = survival_brain_propose(context, &inventory, &active, &ontology, &registry);
-        assert!(proposal.is_none());
+        let proposals = survival_brain_propose(context, &inventory, &active, &ontology, &registry);
+        assert!(proposals.is_empty());
     }
 
     #[test]
-    fn no_survival_urgency_returns_none() {
+    fn no_survival_urgency_returns_empty() {
         let ontology = setup_ontology();
         let physical = PhysicalNeeds::default();
-        // Only social urgency — not a survival concern
         let cns = cns_with_top(UrgencySource::Social, 0.9);
         let context = context_with_urgency(&physical, &cns);
 
@@ -362,8 +335,8 @@ mod tests {
         let active = ActiveActions::default();
         let registry = crate::agent::actions::ActionRegistry::default();
 
-        let proposal = survival_brain_propose(context, &inventory, &active, &ontology, &registry);
-        assert!(proposal.is_none());
+        let proposals = survival_brain_propose(context, &inventory, &active, &ontology, &registry);
+        assert!(proposals.is_empty());
     }
 
     #[test]
@@ -381,25 +354,25 @@ mod tests {
         let cns_high = cns_with_top(UrgencySource::Hunger, 0.9);
         let cns_low = cns_with_top(UrgencySource::Hunger, 0.3);
 
-        let high_proposal = survival_brain_propose(
+        let high = survival_brain_propose(
             context_with_urgency(&physical, &cns_high),
             &inventory,
             &active,
             &ontology,
             &registry,
-        )
-        .unwrap();
-        let low_proposal = survival_brain_propose(
+        );
+        let low = survival_brain_propose(
             context_with_urgency(&physical, &cns_low),
             &inventory,
             &active,
             &ontology,
             &registry,
-        )
-        .unwrap();
+        );
 
+        let high_eat = find_proposal(&high, ActionType::Eat).expect("high urgency should propose");
+        let low_eat = find_proposal(&low, ActionType::Eat).expect("low urgency should propose");
         assert!(
-            high_proposal.urgency > low_proposal.urgency,
+            high_eat.urgency > low_eat.urgency,
             "higher urgency input should produce higher urgency proposal"
         );
     }
@@ -450,12 +423,10 @@ mod tests {
         let active = active_sleep();
         let registry = sleeping_agent_registry();
 
-        let proposal = survival_brain_propose(context, &inventory, &active, &ontology, &registry)
-            .expect("sleeping agent with wake trigger should propose WakeUp");
-        assert_eq!(
-            proposal.action.name, "Wake Up",
-            "got {:?}",
-            proposal.action.name
+        let proposals = survival_brain_propose(context, &inventory, &active, &ontology, &registry);
+        assert!(
+            find_proposal(&proposals, ActionType::WakeUp).is_some(),
+            "sleeping agent with wake trigger should propose WakeUp; got {proposals:?}"
         );
     }
 
@@ -463,7 +434,6 @@ mod tests {
     fn no_sleep_wake_trigger_keeps_sleeping_agent_asleep() {
         let ontology = setup_ontology();
         let physical = tired_needs();
-        // No trigger, no urgency — the gate should keep the agent asleep.
         let cns = CentralNervousSystem::default();
         let context = context_with_urgency(&physical, &cns);
 
@@ -471,20 +441,18 @@ mod tests {
         let active = active_sleep();
         let registry = sleeping_agent_registry();
 
-        let proposal = survival_brain_propose(context, &inventory, &active, &ontology, &registry)
-            .expect("sleeping agent should keep sleeping");
-        assert_eq!(
-            proposal.action.name, "Sleep",
-            "expected Sleep, got {:?}",
-            proposal.action.name
+        let proposals = survival_brain_propose(context, &inventory, &active, &ontology, &registry);
+        assert!(
+            find_proposal(&proposals, ActionType::Sleep).is_some(),
+            "sleeping agent should keep sleeping; got {proposals:?}"
         );
+        assert!(find_proposal(&proposals, ActionType::WakeUp).is_none());
     }
 
     #[test]
     fn rested_sleeping_agent_wakes_even_without_trigger() {
         let ontology = setup_ontology();
-        // Aerobic at the wake threshold — normal homeostatic wake.
-        let physical = PhysicalNeeds::default(); // aerobic = 100
+        let physical = PhysicalNeeds::default(); // aerobic = 100, wakefulness = 1.0
         let cns = CentralNervousSystem::default();
         let context = context_with_urgency(&physical, &cns);
 
@@ -492,17 +460,12 @@ mod tests {
         let active = active_sleep();
         let registry = sleeping_agent_registry();
 
-        let proposal = survival_brain_propose(context, &inventory, &active, &ontology, &registry)
-            .expect("rested sleeping agent should wake");
-        assert_eq!(proposal.action.name, "Wake Up");
+        let proposals = survival_brain_propose(context, &inventory, &active, &ontology, &registry);
+        assert!(find_proposal(&proposals, ActionType::WakeUp).is_some());
     }
 
     #[test]
     fn sleep_wake_trigger_ignored_when_awake() {
-        // A trigger set on an awake agent should NOT propose WakeUp through
-        // the sleep gate — check_sleep_wake bails out immediately and the
-        // normal urgency ladder runs. With only a trigger (no urgencies),
-        // the ladder proposes nothing.
         let ontology = setup_ontology();
         let physical = PhysicalNeeds::default();
         let cns = CentralNervousSystem {
@@ -515,10 +478,10 @@ mod tests {
         let active = ActiveActions::default(); // not sleeping
         let registry = sleeping_agent_registry();
 
-        let proposal = survival_brain_propose(context, &inventory, &active, &ontology, &registry);
+        let proposals = survival_brain_propose(context, &inventory, &active, &ontology, &registry);
         assert!(
-            proposal.is_none(),
-            "awake agents route through the urgency ladder, not the sleep gate; got {proposal:?}"
+            proposals.is_empty(),
+            "awake agents route through the urgency ladder, not the sleep gate; got {proposals:?}"
         );
     }
 
@@ -538,8 +501,8 @@ mod tests {
         let mut registry = crate::agent::actions::ActionRegistry::default();
         registry.register(crate::agent::actions::action::EatAction);
 
-        let proposal = survival_brain_propose(context, &inventory, &active, &ontology, &registry)
-            .expect("should propose Eat");
+        let proposals = survival_brain_propose(context, &inventory, &active, &ontology, &registry);
+        let proposal = find_proposal(&proposals, ActionType::Eat).expect("should propose Eat");
 
         let behavior = &proposal.action.behavior;
         assert_eq!(
@@ -575,10 +538,9 @@ mod tests {
         let mut registry = crate::agent::actions::ActionRegistry::default();
         registry.register(crate::agent::actions::action::FleeAction);
 
-        let proposal = survival_brain_propose(context, &inventory, &active, &ontology, &registry)
-            .expect("should propose Flee");
+        let proposals = survival_brain_propose(context, &inventory, &active, &ontology, &registry);
+        let proposal = find_proposal(&proposals, ActionType::Flee).expect("should propose Flee");
 
-        // Flee's default is already Maximal; escalation should preserve it.
         assert!(
             matches!(proposal.action.behavior.intensity, IntensityPolicy::Maximal),
             "Flee at high urgency should be Maximal"
@@ -600,11 +562,9 @@ mod tests {
         let mut registry = crate::agent::actions::ActionRegistry::default();
         registry.register(crate::agent::actions::action::DrinkAction);
 
-        let proposal = survival_brain_propose(context, &inventory, &active, &ontology, &registry)
-            .expect("should propose Drink");
+        let proposals = survival_brain_propose(context, &inventory, &active, &ontology, &registry);
+        let proposal = find_proposal(&proposals, ActionType::Drink).expect("should propose Drink");
 
-        // Drink's default is Fixed(0.0) — not a locomotion action, so
-        // escalation doesn't apply.
         assert!(
             matches!(
                 proposal.action.behavior.intensity,

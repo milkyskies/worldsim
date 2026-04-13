@@ -150,10 +150,6 @@ pub mod brains {
         /// Set just below 1.0 so the agent wakes well-rested but doesn't
         /// need to hit the absolute ceiling.
         pub const WAKE_WAKEFULNESS_THRESHOLD: f32 = 0.9;
-        /// Sleepiness urgency above which the survival brain proposes full
-        /// Sleep (drops alertness, indefinite duration). Below it, sleepiness
-        /// only triggers Rest.
-        pub const SLEEPINESS_SLEEP_THRESHOLD: f32 = 0.7;
     }
 
     pub mod wakefulness {

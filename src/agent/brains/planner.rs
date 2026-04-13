@@ -69,6 +69,9 @@ pub struct PlanCostContext {
     pub reserves: f32,
     /// Current anaerobic stamina. Used by feasibility check.
     pub stamina_anaerobic: f32,
+    /// Current wakefulness (0.0 = must sleep, 1.0 = rested). Used by
+    /// feasibility check to reject plans the agent would fall asleep during.
+    pub wakefulness: f32,
 }
 
 /// How long a `(Tile, HasTrait, Unreachable)` belief suppresses walk
@@ -91,6 +94,7 @@ impl PlanCostContext {
             glucose: crate::agent::body::metabolism::GLUCOSE_MAX,
             reserves: crate::agent::body::metabolism::RESERVES_MAX,
             stamina_anaerobic: 100.0,
+            wakefulness: 1.0,
         }
     }
 
@@ -114,6 +118,7 @@ impl PlanCostContext {
             glucose: physical.metabolism.glucose,
             reserves: physical.metabolism.reserves,
             stamina_anaerobic: physical.stamina.anaerobic,
+            wakefulness: physical.wakefulness,
         }
     }
 
@@ -359,9 +364,12 @@ pub fn check_plan_feasibility(
     start_pos: Vec2,
     ctx: &PlanCostContext,
 ) -> bool {
+    use crate::constants::brains::wakefulness::{ADENOSINE_RATE, SLEEP_RESTORE_RATE};
+
     let mut glucose = ctx.glucose;
     let mut reserves = ctx.reserves;
     let mut aerobic = ctx.stamina_aerobic * 100.0; // fraction → absolute
+    let mut wakefulness = ctx.wakefulness;
     let mut cursor = start_pos;
 
     for action in plan {
@@ -373,6 +381,14 @@ pub fn check_plan_feasibility(
         glucose -= energy_drain * glucose_frac;
         reserves -= energy_drain * (1.0 - glucose_frac);
         aerobic -= aerobic_drain * duration_secs;
+
+        // Wakefulness: Sleep restores, everything else decays.
+        if action.action_type == ActionType::Sleep {
+            wakefulness += SLEEP_RESTORE_RATE * duration_secs;
+        } else {
+            wakefulness -= ADENOSINE_RATE * duration_secs;
+        }
+        wakefulness = wakefulness.clamp(0.0, 1.0);
 
         // Clamp negative aerobic (recovery actions produce negative drain)
         aerobic = aerobic.clamp(0.0, 100.0);
@@ -394,6 +410,9 @@ pub fn check_plan_feasibility(
             return false;
         }
         if aerobic < 5.0 {
+            return false;
+        }
+        if wakefulness < 0.1 {
             return false;
         }
     }
