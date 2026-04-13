@@ -862,8 +862,11 @@ pub fn default_change_threshold(path: &str) -> f32 {
 }
 
 /// Returns true if `current` differs from `previous` beyond the threshold for
-/// this path. Numeric leaves use the threshold; nested / list values use exact
-/// structural equality. A missing `previous` always counts as changed.
+/// this path. Numeric leaves use the threshold; list/struct values compare
+/// via [`change_signature`], which strips continuously-varying payloads
+/// (urgency values, channel loads, brain reasoning strings) so a steady
+/// action fed fresh urgency numbers every thinking cycle does not count as
+/// a change. A missing `previous` always counts as changed.
 pub fn value_changed(
     current: Option<&Value>,
     previous: Option<&Value>,
@@ -874,19 +877,137 @@ pub fn value_changed(
     let Some(previous) = previous else {
         return true;
     };
-    if current == previous {
+
+    let current_sig = change_signature(path, current);
+    let previous_sig = change_signature(path, previous);
+    if current_sig == previous_sig {
         return false;
     }
+
     let (Some(a), Some(b)) = (current.as_f64(), previous.as_f64()) else {
-        // Non-scalar → any structural difference already triggered above.
         return true;
     };
     let threshold = threshold_override.unwrap_or_else(|| default_change_threshold(path)) as f64;
     if threshold <= 0.0 {
-        // Structural equality path — any numeric difference counts.
         return (a - b).abs() > 0.0;
     }
     (a - b).abs() >= threshold
+}
+
+/// Project a resolved value onto the stable identity used for change
+/// detection. Continuously-varying numeric payloads (urgency values, channel
+/// loads, brain reasoning strings with live scores) are stripped so a steady
+/// action fed fresh urgency numbers every thinking cycle does not count as a
+/// change. Scalar leaves and unknown paths pass through untouched.
+pub fn change_signature(path: &str, value: &Value) -> Value {
+    match path {
+        "actions" => strip_actions_array(value),
+        "actions.primary" => strip_single_action(value),
+        "channels" => strip_channels_map(value),
+        p if p.starts_with("channels.") => strip_single_channel(value),
+        "cns.urgencies" => strip_urgencies(value),
+        "brain.proposals" => strip_proposals(value),
+        "plans" | "plans.executing" => strip_plans(value),
+        "emotions.active" => strip_emotions(value),
+        _ => value.clone(),
+    }
+}
+
+fn strip_single_action(value: &Value) -> Value {
+    let Some(obj) = value.as_object() else {
+        return value.clone();
+    };
+    json!({
+        "type": obj.get("type").cloned().unwrap_or(Value::Null),
+        "brain": obj.get("brain").cloned().unwrap_or(Value::Null),
+        "target": obj.get("target").cloned().unwrap_or(Value::Null),
+    })
+}
+
+fn strip_actions_array(value: &Value) -> Value {
+    let Some(arr) = value.as_array() else {
+        return value.clone();
+    };
+    Value::Array(arr.iter().map(strip_single_action).collect())
+}
+
+fn strip_single_channel(value: &Value) -> Value {
+    let Some(obj) = value.as_object() else {
+        return value.clone();
+    };
+    json!({
+        "holders": obj.get("holders").cloned().unwrap_or(Value::Null),
+    })
+}
+
+fn strip_channels_map(value: &Value) -> Value {
+    let Some(obj) = value.as_object() else {
+        return value.clone();
+    };
+    let mut out = Map::new();
+    for (k, v) in obj {
+        out.insert(k.clone(), strip_single_channel(v));
+    }
+    Value::Object(out)
+}
+
+fn strip_urgencies(value: &Value) -> Value {
+    let Some(arr) = value.as_array() else {
+        return value.clone();
+    };
+    let mut sources: Vec<String> = arr
+        .iter()
+        .filter_map(|u| u.get("source").and_then(Value::as_str).map(String::from))
+        .collect();
+    sources.sort();
+    json!(sources)
+}
+
+fn strip_proposals(value: &Value) -> Value {
+    let Some(arr) = value.as_array() else {
+        return value.clone();
+    };
+    Value::Array(
+        arr.iter()
+            .map(|p| {
+                let obj = p.as_object();
+                json!({
+                    "brain": obj.and_then(|o| o.get("brain")).cloned().unwrap_or(Value::Null),
+                    "action": obj.and_then(|o| o.get("action")).cloned().unwrap_or(Value::Null),
+                })
+            })
+            .collect(),
+    )
+}
+
+fn strip_plans(value: &Value) -> Value {
+    let Some(arr) = value.as_array() else {
+        return value.clone();
+    };
+    Value::Array(
+        arr.iter()
+            .map(|p| {
+                let obj = p.as_object();
+                json!({
+                    "id": obj.and_then(|o| o.get("id")).cloned().unwrap_or(Value::Null),
+                    "state": obj.and_then(|o| o.get("state")).cloned().unwrap_or(Value::Null),
+                    "step": obj.and_then(|o| o.get("step")).cloned().unwrap_or(Value::Null),
+                })
+            })
+            .collect(),
+    )
+}
+
+fn strip_emotions(value: &Value) -> Value {
+    let Some(arr) = value.as_array() else {
+        return value.clone();
+    };
+    let mut kinds: Vec<String> = arr
+        .iter()
+        .filter_map(|e| e.get("type").and_then(Value::as_str).map(String::from))
+        .collect();
+    kinds.sort();
+    json!(kinds)
 }
 
 // ============================================================================
@@ -1406,6 +1527,94 @@ mod tests {
     }
 
     // ─── Change thresholds ───────────────────────────────────────────────
+
+    #[test]
+    fn on_change_ignores_live_urgency_in_action_reason() {
+        // Reproduces the reported bug: Wander action with the same type/brain/target
+        // but a refreshed urgency number in the reasoning string must NOT count as
+        // a change — otherwise the logger fires every thinking cycle.
+        let before = json!([{
+            "type": "Wander",
+            "brain": "Emotional",
+            "reason": "Curious — exploring (0.51)",
+            "target": null,
+        }]);
+        let after = json!([{
+            "type": "Wander",
+            "brain": "Emotional",
+            "reason": "Curious — exploring (0.69)",
+            "target": null,
+        }]);
+        assert!(
+            !value_changed(Some(&after), Some(&before), None, "actions"),
+            "actions change detection must ignore the urgency number in reason"
+        );
+
+        let real_change = json!([{
+            "type": "Walk",
+            "brain": "Rational",
+            "reason": "Walking to berry bush (0.71)",
+            "target": "bush-3",
+        }]);
+        assert!(
+            value_changed(Some(&real_change), Some(&before), None, "actions"),
+            "a different action type should still trigger"
+        );
+    }
+
+    #[test]
+    fn on_change_channels_ignores_load_cap_fluctuations() {
+        let before = json!({
+            "locomotion": {"load": 0.4, "cap": 1.0, "holders": ["Walk"]},
+            "focus": {"load": 0.0, "cap": 1.0, "holders": []},
+        });
+        let after = json!({
+            "locomotion": {"load": 0.6, "cap": 0.95, "holders": ["Walk"]},
+            "focus": {"load": 0.0, "cap": 1.0, "holders": []},
+        });
+        assert!(
+            !value_changed(Some(&after), Some(&before), None, "channels"),
+            "load/cap drift should not count — holders are what matter"
+        );
+
+        let holder_change = json!({
+            "locomotion": {"load": 0.4, "cap": 1.0, "holders": ["Flee"]},
+            "focus": {"load": 0.0, "cap": 1.0, "holders": []},
+        });
+        assert!(value_changed(
+            Some(&holder_change),
+            Some(&before),
+            None,
+            "channels"
+        ));
+    }
+
+    #[test]
+    fn on_change_urgencies_ignores_value_drift() {
+        let before = json!([
+            {"source": "Hunger", "value": 0.31},
+            {"source": "Sleepiness", "value": 0.20},
+        ]);
+        let after = json!([
+            {"source": "Hunger", "value": 0.42},
+            {"source": "Sleepiness", "value": 0.18},
+        ]);
+        assert!(
+            !value_changed(Some(&after), Some(&before), None, "cns.urgencies"),
+            "urgency value drift should not fire — only source-set changes matter"
+        );
+
+        let new_source = json!([
+            {"source": "Hunger", "value": 0.31},
+            {"source": "Fear", "value": 0.6},
+        ]);
+        assert!(value_changed(
+            Some(&new_source),
+            Some(&before),
+            None,
+            "cns.urgencies"
+        ));
+    }
 
     #[test]
     fn change_threshold_defaults_and_overrides() {
