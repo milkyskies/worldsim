@@ -13,7 +13,7 @@ pub enum EpistemicGoal {
 pub fn identify_knowledge_gap(goal: &TriplePattern, mind: &MindGraph) -> Option<EpistemicGoal> {
     // Case 1: Goal is "Have Item(X)" but we don't know where X is
     if is_possession_goal(goal)
-        && let Some(Value::Int(_)) = goal.object
+        && let Some(Value::Quantity(_)) = goal.object
     {
         // It's a "Have Resource" goal (e.g. Hunger -> Have Food)
         // We need to know where the resource is located

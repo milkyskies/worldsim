@@ -1832,10 +1832,7 @@ fn category_label_color(cat: RelCategory) -> (&'static str, Color32) {
 fn query_float(mind: &MindGraph, other: Entity, predicate: Predicate) -> Option<f32> {
     mind.query(Some(&Node::Entity(other)), Some(predicate), None)
         .into_iter()
-        .find_map(|t| match t.object {
-            Value::Float(f) => Some(f),
-            _ => None,
-        })
+        .find_map(|t| t.object.as_quantity().map(|q| q.point_estimate()))
 }
 
 // ============================================================================

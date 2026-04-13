@@ -7,7 +7,7 @@
 
 use crate::agent::actions::ActionType;
 use crate::agent::actions::motor::Behavior;
-use crate::agent::mind::knowledge::{Concept, Node, Predicate, Triple, Value};
+use crate::agent::mind::knowledge::{Concept, Node, Predicate, Quantity, Triple, Value};
 use bevy::prelude::*;
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -91,7 +91,8 @@ impl TriplePattern {
 
     /// Check if self is awake (high alertness)
     pub fn self_awake() -> Self {
-        Self::self_has(Predicate::Stamina, Value::Int(1)) // Placeholder - actual check is more complex
+        // Placeholder - actual check is more complex.
+        Self::self_has(Predicate::Stamina, Value::Quantity(Quantity::Exact(1.0)))
     }
 }
 

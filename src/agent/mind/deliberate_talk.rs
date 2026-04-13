@@ -230,7 +230,7 @@ pub fn infer_topic(triples: &[Triple]) -> Topic {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::agent::mind::knowledge::{Metadata, Node, Predicate, Triple, Value};
+    use crate::agent::mind::knowledge::{Metadata, Node, Predicate, Quantity, Triple, Value};
     use crate::agent::mind::theory_of_mind::TheoryOfMind;
 
     fn episodic(
@@ -281,14 +281,14 @@ mod tests {
         speaker.assert(episodic(
             Node::Self_,
             Predicate::Hunger,
-            Value::Int(80),
+            Value::Quantity(Quantity::Exact(80.0)),
             100,
             0.9,
         ));
         speaker.assert(episodic(
             Node::Self_,
             Predicate::Stamina,
-            Value::Int(10),
+            Value::Quantity(Quantity::Exact(10.0)),
             100,
             0.9,
         ));
@@ -304,14 +304,14 @@ mod tests {
         speaker.assert(episodic(
             Node::Entity(e),
             Predicate::Trust,
-            Value::Float(0.9),
+            Value::Quantity(Quantity::Exact(0.9)),
             100,
             0.9,
         ));
         speaker.assert(episodic(
             Node::Entity(e),
             Predicate::Affection,
-            Value::Float(0.8),
+            Value::Quantity(Quantity::Exact(0.8)),
             100,
             0.9,
         ));

@@ -17,7 +17,9 @@ use std::collections::{HashMap, VecDeque};
 
 use crate::agent::Agent;
 use crate::agent::events::{ConversationTopic, GameEvent};
-use crate::agent::mind::knowledge::{Metadata, MindGraph, Node, Predicate, Triple, Value};
+use crate::agent::mind::knowledge::{
+    Metadata, MindGraph, Node, Predicate, Quantity, Triple, Value,
+};
 use crate::agent::mind::recognition::initialize_relationship;
 use crate::agent::psyche::personality::Personality;
 use crate::core::tick::TickCount;
@@ -192,24 +194,12 @@ pub fn update_relationships(
                     // Get current values
                     let current_trust = target_mind
                         .get(&actor_node, Predicate::Trust)
-                        .and_then(|v| {
-                            if let Value::Float(f) = v {
-                                Some(*f)
-                            } else {
-                                None
-                            }
-                        })
+                        .and_then(|v| v.as_quantity().map(|q| q.point_estimate()))
                         .unwrap_or(0.5);
 
                     let current_affection = target_mind
                         .get(&actor_node, Predicate::Affection)
-                        .and_then(|v| {
-                            if let Value::Float(f) = v {
-                                Some(*f)
-                            } else {
-                                None
-                            }
-                        })
+                        .and_then(|v| v.as_quantity().map(|q| q.point_estimate()))
                         .unwrap_or(0.5);
 
                     // Calculate changes based on valence
@@ -261,14 +251,14 @@ pub fn update_relationships(
                     target_mind.assert(Triple::with_meta(
                         actor_node.clone(),
                         Predicate::Trust,
-                        Value::Float(new_trust),
+                        Value::Quantity(Quantity::Exact(new_trust)),
                         Metadata::semantic(current_time),
                     ));
 
                     target_mind.assert(Triple::with_meta(
                         actor_node,
                         Predicate::Affection,
-                        Value::Float(new_affection),
+                        Value::Quantity(Quantity::Exact(new_affection)),
                         Metadata::semantic(current_time),
                     ));
 
@@ -382,9 +372,9 @@ fn decay_predicate(
         .into_iter()
         .filter_map(|t| {
             if let Node::Entity(e) = &t.subject
-                && let Value::Float(f) = &t.object
+                && let Value::Quantity(q) = &t.object
             {
-                return Some((*e, *f, t.meta.timestamp));
+                return Some((*e, q.point_estimate(), t.meta.timestamp));
             }
             None
         })
@@ -402,7 +392,7 @@ fn decay_predicate(
         mind.assert(Triple::with_meta(
             Node::Entity(entity),
             predicate,
-            Value::Float(new_value),
+            Value::Quantity(Quantity::Exact(new_value)),
             Metadata::semantic(current_time),
         ));
     }

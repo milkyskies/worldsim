@@ -748,7 +748,9 @@ impl TestWorld {
     /// mirroring the bonds established by `setup_wolf_pack_bonds` in the real game.
     pub fn spawn_wolf_pack(&mut self, positions: &[Vec2]) -> Vec<Entity> {
         use crate::agent::body::genetics::genome::Genome;
-        use crate::agent::mind::knowledge::{Concept, Metadata, Node, Predicate, Triple, Value};
+        use crate::agent::mind::knowledge::{
+            Concept, Metadata, Node, Predicate, Quantity, Triple, Value,
+        };
 
         let ontology = self.app.world().resource::<Ontology>().clone();
         let entities: Vec<Entity> = positions
@@ -778,13 +780,13 @@ impl TestWorld {
                 mind.assert(Triple::with_meta(
                     Node::Entity(packmate),
                     Predicate::Trust,
-                    Value::Float(0.9),
+                    Value::Quantity(Quantity::Exact(0.9)),
                     meta.clone(),
                 ));
                 mind.assert(Triple::with_meta(
                     Node::Entity(packmate),
                     Predicate::Affection,
-                    Value::Float(0.8),
+                    Value::Quantity(Quantity::Exact(0.8)),
                     meta.clone(),
                 ));
             }
@@ -1020,10 +1022,7 @@ impl TestWorld {
         let mind = self.get::<MindGraph>(agent);
         mind.query(Some(&MindNode::Entity(other)), Some(Predicate::Trust), None)
             .into_iter()
-            .find_map(|t| match &t.object {
-                Value::Float(f) => Some(*f),
-                _ => None,
-            })
+            .find_map(|t| t.object.as_quantity().map(|q| q.point_estimate()))
             .unwrap_or(0.0)
     }
 
@@ -1694,9 +1693,15 @@ impl TestWorld {
                 if let MindNode::Entity(e) = &triple.subject {
                     let entry = by_entity.entry(*e).or_default();
                     match (pred, &triple.object) {
-                        (Predicate::Trust, Value::Float(f)) => entry.trust = Some(*f),
-                        (Predicate::Affection, Value::Float(f)) => entry.affection = Some(*f),
-                        (Predicate::Respect, Value::Float(f)) => entry.respect = Some(*f),
+                        (Predicate::Trust, Value::Quantity(q)) => {
+                            entry.trust = Some(q.point_estimate())
+                        }
+                        (Predicate::Affection, Value::Quantity(q)) => {
+                            entry.affection = Some(q.point_estimate())
+                        }
+                        (Predicate::Respect, Value::Quantity(q)) => {
+                            entry.respect = Some(q.point_estimate())
+                        }
                         (Predicate::Knows, _) => entry.knows = true,
                         _ => {}
                     }

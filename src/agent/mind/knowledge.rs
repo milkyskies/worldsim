@@ -320,14 +320,179 @@ impl Predicate {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+// QUANTITY — Precision-aware numeric values
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Qualitative magnitude bucket used once the numeric anchor is gone.
+///
+/// Each bucket covers a range of normalized 0..1 values. Brains that read a
+/// qualitative belief use `lower_bound` / `upper_bound` to decide whether the
+/// underlying value clears a threshold, instead of pretending it's exact.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect)]
+pub enum Magnitude {
+    Trace,    // ~0.05 — "barely any"
+    Low,      // ~0.25 — "a little"
+    Moderate, // ~0.50 — "some"
+    High,     // ~0.75 — "a lot"
+    Extreme,  // ~0.95 — "tons"
+}
+
+impl Magnitude {
+    pub const fn center(self) -> f32 {
+        match self {
+            Magnitude::Trace => 0.05,
+            Magnitude::Low => 0.25,
+            Magnitude::Moderate => 0.50,
+            Magnitude::High => 0.75,
+            Magnitude::Extreme => 0.95,
+        }
+    }
+
+    pub const fn range(self) -> (f32, f32) {
+        match self {
+            Magnitude::Trace => (0.00, 0.10),
+            Magnitude::Low => (0.10, 0.35),
+            Magnitude::Moderate => (0.35, 0.65),
+            Magnitude::High => (0.65, 0.85),
+            Magnitude::Extreme => (0.85, 1.00),
+        }
+    }
+
+    /// Bucket a raw normalized value (0..1) into the nearest magnitude.
+    pub fn bucket(normalized: f32) -> Self {
+        let clamped = normalized.clamp(0.0, 1.0);
+        if clamped < Magnitude::Trace.range().1 {
+            Magnitude::Trace
+        } else if clamped < Magnitude::Low.range().1 {
+            Magnitude::Low
+        } else if clamped < Magnitude::Moderate.range().1 {
+            Magnitude::Moderate
+        } else if clamped < Magnitude::High.range().1 {
+            Magnitude::High
+        } else {
+            Magnitude::Extreme
+        }
+    }
+}
+
+/// A precision-aware numeric belief. The anchor collapses down the ladder as
+/// memory decays: `Exact -> Around -> OrderOfMagnitude -> Qualitative`. Past
+/// the last rung the triple is forgotten. Agents read via `at_least`, `compare`,
+/// and `point_estimate` instead of destructuring raw floats so every brain path
+/// handles every variant uniformly.
+#[derive(Debug, Clone, Copy, PartialEq, Reflect)]
+pub enum Quantity {
+    /// Self-sensed or freshly counted. The agent has a ground-truth number.
+    Exact(f32),
+    /// Eyeballed / remembered anchor — "about 60". Implicit tolerance of ±10%.
+    Around(f32),
+    /// Anchor collapsed to a power-of-ten bucket — "dozens", "hundreds".
+    OrderOfMagnitude(Magnitude),
+    /// Anchor gone; only a qualitative bucket remains.
+    Qualitative(Magnitude),
+}
+
+impl Quantity {
+    /// Pessimistic lower bound on the underlying value. For magnitudes this is
+    /// the bucket floor; for `Around` it's 10% below the anchor.
+    pub fn lower_bound(&self) -> f32 {
+        match self {
+            Quantity::Exact(v) => *v,
+            Quantity::Around(v) => v * 0.9,
+            Quantity::OrderOfMagnitude(m) | Quantity::Qualitative(m) => m.range().0,
+        }
+    }
+
+    /// Optimistic upper bound.
+    pub fn upper_bound(&self) -> f32 {
+        match self {
+            Quantity::Exact(v) => *v,
+            Quantity::Around(v) => v * 1.1,
+            Quantity::OrderOfMagnitude(m) | Quantity::Qualitative(m) => m.range().1,
+        }
+    }
+
+    /// Best single-value estimate — midpoint of the range.
+    pub fn point_estimate(&self) -> f32 {
+        match self {
+            Quantity::Exact(v) | Quantity::Around(v) => *v,
+            Quantity::OrderOfMagnitude(m) | Quantity::Qualitative(m) => m.center(),
+        }
+    }
+
+    /// `Some(true)` if the underlying value definitely clears `threshold`,
+    /// `Some(false)` if it definitely doesn't, `None` when the range straddles
+    /// the threshold (fuzzy compare unknown).
+    pub fn at_least(&self, threshold: f32) -> Option<bool> {
+        if self.lower_bound() >= threshold {
+            Some(true)
+        } else if self.upper_bound() < threshold {
+            Some(false)
+        } else {
+            None
+        }
+    }
+
+    /// Fuzzy comparison. `Less` / `Greater` when the ranges are separated or
+    /// touch at a single boundary point (adjacent magnitude buckets qualify).
+    /// `Equal` only when both ranges are identical. Everything in between is
+    /// `Unknown` — the agent genuinely cannot tell which is bigger.
+    pub fn compare(&self, other: &Quantity) -> FuzzyOrdering {
+        let (a_lo, a_hi) = (self.lower_bound(), self.upper_bound());
+        let (b_lo, b_hi) = (other.lower_bound(), other.upper_bound());
+        if (a_lo - b_lo).abs() < f32::EPSILON && (a_hi - b_hi).abs() < f32::EPSILON {
+            FuzzyOrdering::Equal
+        } else if a_hi <= b_lo {
+            FuzzyOrdering::Less
+        } else if a_lo >= b_hi {
+            FuzzyOrdering::Greater
+        } else {
+            FuzzyOrdering::Unknown
+        }
+    }
+
+    /// Step one rung down the precision ladder. Returns `None` from the last
+    /// rung to signal the caller should forget the triple entirely.
+    ///
+    /// ```text
+    /// Exact(37)          -> Around(37)
+    /// Around(37)         -> OrderOfMagnitude(bucket of 37/100)
+    /// OrderOfMagnitude(m) -> Qualitative(m)
+    /// Qualitative(_)     -> None (forget)
+    /// ```
+    pub fn fuzzify(&self) -> Option<Quantity> {
+        match self {
+            Quantity::Exact(v) => Some(Quantity::Around(*v)),
+            Quantity::Around(v) => {
+                // Stats like urgencies live in 0..100; normalize so the bucket
+                // boundaries in `Magnitude::range` still apply. Raw 0..1 floats
+                // pass through unchanged.
+                let normalized = if v.abs() > 1.0 { v / 100.0 } else { *v };
+                Some(Quantity::OrderOfMagnitude(Magnitude::bucket(normalized)))
+            }
+            Quantity::OrderOfMagnitude(m) => Some(Quantity::Qualitative(*m)),
+            Quantity::Qualitative(_) => None,
+        }
+    }
+}
+
+/// Ordering result that admits "I can't tell" as a first-class answer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FuzzyOrdering {
+    Less,
+    Equal,
+    Greater,
+    Unknown,
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // VALUES — What predicates evaluate to
 // ═══════════════════════════════════════════════════════════════════════════
 
 #[derive(Debug, Clone, PartialEq, Reflect)]
 pub enum Value {
-    Boolean(bool), // Truth value
-    Int(i32),
-    Float(f32),
+    Boolean(bool),      // Truth value
+    Quantity(Quantity), // Precision-aware numeric belief
     Concept(Concept),
     Entity(Entity),
     Tile((i32, i32)),
@@ -349,6 +514,13 @@ impl Value {
     pub fn as_entity(&self) -> Option<Entity> {
         match self {
             Value::Entity(e) => Some(*e),
+            _ => None,
+        }
+    }
+
+    pub fn as_quantity(&self) -> Option<Quantity> {
+        match self {
+            Value::Quantity(q) => Some(*q),
             _ => None,
         }
     }
@@ -1992,24 +2164,108 @@ mod tests {
     #[test]
     fn functional_assert_replaces_existing_via_indexes() {
         let mut mind = MindGraph::default();
-        mind.assert(Triple::new(Node::Self_, Predicate::Hunger, Value::Int(50)));
-        mind.assert(Triple::new(Node::Self_, Predicate::Hunger, Value::Int(80)));
+        let q = |v: f32| Value::Quantity(Quantity::Exact(v));
+        mind.assert(Triple::new(Node::Self_, Predicate::Hunger, q(50.0)));
+        mind.assert(Triple::new(Node::Self_, Predicate::Hunger, q(80.0)));
 
         // Only one live value; the old one is tombstoned.
         assert_eq!(mind.len(), 1);
-        assert_eq!(
-            mind.get(&Node::Self_, Predicate::Hunger),
-            Some(&Value::Int(80))
-        );
+        assert_eq!(mind.get(&Node::Self_, Predicate::Hunger), Some(&q(80.0)));
     }
 
     #[test]
     fn get_prefers_live_triple_after_tombstone() {
         let mut mind = MindGraph::default();
-        mind.assert(Triple::new(Node::Self_, Predicate::Hunger, Value::Int(50)));
-        mind.remove(&Node::Self_, Predicate::Hunger, &Value::Int(50));
+        let q = |v: f32| Value::Quantity(Quantity::Exact(v));
+        mind.assert(Triple::new(Node::Self_, Predicate::Hunger, q(50.0)));
+        mind.remove(&Node::Self_, Predicate::Hunger, &q(50.0));
         // Nothing live should survive.
         assert_eq!(mind.get(&Node::Self_, Predicate::Hunger), None);
+    }
+
+    // ─── Quantity (precision ladder) tests ─────────────────────────────────
+
+    #[test]
+    fn exact_quantity_lower_and_upper_bounds_are_identical() {
+        let q = Quantity::Exact(50.0);
+        assert_eq!(q.lower_bound(), 50.0);
+        assert_eq!(q.upper_bound(), 50.0);
+        assert_eq!(q.point_estimate(), 50.0);
+    }
+
+    #[test]
+    fn around_quantity_has_ten_percent_tolerance() {
+        let q = Quantity::Around(100.0);
+        assert!((q.lower_bound() - 90.0).abs() < 0.001);
+        assert!((q.upper_bound() - 110.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn magnitude_bucket_maps_normalized_value_to_correct_bucket() {
+        assert_eq!(Magnitude::bucket(0.00), Magnitude::Trace);
+        assert_eq!(Magnitude::bucket(0.05), Magnitude::Trace);
+        assert_eq!(Magnitude::bucket(0.20), Magnitude::Low);
+        assert_eq!(Magnitude::bucket(0.50), Magnitude::Moderate);
+        assert_eq!(Magnitude::bucket(0.70), Magnitude::High);
+        assert_eq!(Magnitude::bucket(0.95), Magnitude::Extreme);
+        assert_eq!(Magnitude::bucket(1.00), Magnitude::Extreme);
+    }
+
+    #[test]
+    fn at_least_uses_lower_bound_for_fuzzy_values() {
+        let high = Quantity::Qualitative(Magnitude::High);
+        assert_eq!(high.at_least(0.5), Some(true), "High.lower=0.65 >= 0.5");
+        assert_eq!(high.at_least(0.9), Some(false), "High.upper=0.85 < 0.9");
+        assert_eq!(
+            high.at_least(0.7),
+            None,
+            "0.7 straddles High range [0.65, 0.85]"
+        );
+    }
+
+    #[test]
+    fn fuzzy_compare_returns_unknown_when_ranges_overlap() {
+        let a = Quantity::Qualitative(Magnitude::Moderate); // [0.35, 0.65]
+        let b = Quantity::Qualitative(Magnitude::High); // [0.65, 0.85]
+        // Touching boundary — upper of Moderate == lower of High, so Less
+        assert_eq!(a.compare(&b), FuzzyOrdering::Less);
+
+        let c = Quantity::Around(50.0); // [45, 55]
+        let d = Quantity::Around(52.0); // [46.8, 57.2]
+        assert_eq!(c.compare(&d), FuzzyOrdering::Unknown);
+
+        let e = Quantity::Exact(10.0);
+        let f = Quantity::Exact(20.0);
+        assert_eq!(e.compare(&f), FuzzyOrdering::Less);
+        assert_eq!(f.compare(&e), FuzzyOrdering::Greater);
+        assert_eq!(e.compare(&Quantity::Exact(10.0)), FuzzyOrdering::Equal);
+    }
+
+    #[test]
+    fn fuzzify_steps_down_precision_ladder() {
+        let rung_1 = Quantity::Exact(37.0);
+        let rung_2 = rung_1.fuzzify().expect("Exact -> Around");
+        assert!(matches!(rung_2, Quantity::Around(v) if (v - 37.0).abs() < 0.001));
+
+        let rung_3 = rung_2.fuzzify().expect("Around -> OrderOfMagnitude");
+        assert!(matches!(rung_3, Quantity::OrderOfMagnitude(_)));
+
+        let rung_4 = rung_3.fuzzify().expect("OrderOfMagnitude -> Qualitative");
+        assert!(matches!(rung_4, Quantity::Qualitative(_)));
+
+        // Last rung returns None — caller should forget the triple.
+        assert!(rung_4.fuzzify().is_none());
+    }
+
+    #[test]
+    fn fuzzify_bucket_preserves_scale_across_urgency_and_normalized_ranges() {
+        // Urgency values (0..100) should normalize correctly when Around decays.
+        let urgency = Quantity::Around(75.0).fuzzify().unwrap();
+        assert_eq!(urgency, Quantity::OrderOfMagnitude(Magnitude::High));
+
+        // Normalized values (0..1) should bucket directly.
+        let normalized = Quantity::Around(0.20).fuzzify().unwrap();
+        assert_eq!(normalized, Quantity::OrderOfMagnitude(Magnitude::Low));
     }
 
     #[test]

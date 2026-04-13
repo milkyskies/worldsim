@@ -1139,13 +1139,7 @@ fn compute_interaction_valence(
         .get(listener)
         .ok()
         .and_then(|(mind, _, _)| mind.get(&Node::Entity(speaker), Predicate::Affection))
-        .and_then(|v| {
-            if let Value::Float(f) = v {
-                Some(*f)
-            } else {
-                None
-            }
-        })
+        .and_then(|v| v.as_quantity().map(|q| q.point_estimate()))
         .unwrap_or(0.5);
 
     let (speaker_mood, speaker_agreeableness) = agents

@@ -342,10 +342,7 @@ fn is_conspecific(mind: &MindGraph, entity: Entity, self_concept: Concept) -> bo
 
 fn read_affection(mind: &MindGraph, entity: Entity) -> f32 {
     mind.get(&Node::Entity(entity), Predicate::Affection)
-        .and_then(|v| match v {
-            Value::Float(f) => Some(*f),
-            _ => None,
-        })
+        .and_then(|v| v.as_quantity().map(|q| q.point_estimate()))
         .unwrap_or(0.5)
 }
 

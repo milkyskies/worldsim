@@ -182,7 +182,9 @@ fn record_interaction_event(
     mind: &mut crate::agent::mind::knowledge::MindGraph,
     game_log: &mut crate::core::GameLog,
 ) {
-    use crate::agent::mind::knowledge::{Concept, Metadata, Node, Predicate, Triple, Value};
+    use crate::agent::mind::knowledge::{
+        Concept, Metadata, Node, Predicate, Quantity, Triple, Value,
+    };
 
     let mut concepts = vec![];
     match action {
@@ -249,7 +251,7 @@ fn record_interaction_event(
     mind.assert(Triple::with_meta(
         Node::Event(event_id),
         Predicate::Timestamp,
-        Value::Int(item.timestamp as i32),
+        Value::Quantity(Quantity::Exact(item.timestamp as f32)),
         meta.clone(),
     ));
     mind.assert(Triple::with_meta(
