@@ -102,6 +102,8 @@ When you already know roughly where the bug is and want to take a hard look at a
 
 All `--inspect` / `--dump-*` / `--why` / `--trace` flags accept an agent selector as either a display name (`agent:alice`) or a stable entity id (`agent:0v0`). `find_agent` tries id first, then falls back to name, so either works — prefer the id when you're scripting or when the same name might appear twice.
 
+`--at-tick` can be repeated to inspect at multiple points in a single run. The sim pauses at each tick, runs all inspection commands, then continues. Use `2>/dev/null` to suppress brain progress traces that interleave with inspection output.
+
 ```bash
 # Full state snapshot of an agent at a specific tick
 cargo run --release -- --headless --ticks 5000 --seed 42 \
@@ -110,6 +112,11 @@ cargo run --release -- --headless --ticks 5000 --seed 42 \
 # Multiple agents in one run
 cargo run --release -- --headless --ticks 5000 --seed 42 \
   --inspect agent:alice --inspect agent:bob --at-tick 4521
+
+# Inspect at multiple ticks in one run
+cargo run --release -- --headless --ticks 90000 --seed 42 \
+  --inspect agent:alice --why "alice metric:glucose" \
+  --at-tick 500 --at-tick 5000 --at-tick 30000 --at-tick 60000 2>/dev/null
 
 # Dump the full MindGraph (everything an agent believes/knows)
 cargo run --release -- --headless --ticks 5000 --seed 42 \
