@@ -488,177 +488,25 @@ fn print_section_footer() {
     eprintln!("──────────────────────────────────────────────────");
 }
 
-enum ContributionKind {
-    Glucose,
-    Stamina,
-    Hydration,
-    Stomach,
-}
-
 fn dump_contributions_headless(
     world: &World,
     agent: Entity,
     label: &str,
     unit: &str,
-    kind: ContributionKind,
+    kind: crate::agent::body::contributions::ContributionKind,
 ) {
-    use crate::agent::actions::ActionRegistry;
-    use crate::agent::activity::{ActivityConfig, CurrentActivity};
+    use crate::agent::body::contributions::{compute_contributions, net_rate};
 
-    let mut contribs: Vec<(String, f32)> = Vec::new();
-    let cfg = world.get_resource::<ActivityConfig>();
-
-    match kind {
-        ContributionKind::Glucose => {
-            if let Some(cfg) = cfg {
-                let bmr = cfg.base.effects.glucose_drain;
-                if bmr != 0.0 {
-                    contribs.push(("BMR (base metabolic rate)".into(), -bmr));
-                }
-            }
-            if let (Some(active), Some(reg)) = (
-                world.get::<ActiveActions>(agent),
-                world.get_resource::<ActionRegistry>(),
-            ) {
-                use crate::agent::actions::registry::ActionKind;
-                use crate::agent::body::effort::{self, DEFAULT_BODY_MASS, compute_action_cost};
-                use crate::agent::body::species::SpeciesProfile;
-                use crate::agent::movement::effective_intensity;
-
-                let body_mass = world
-                    .get::<SpeciesProfile>(agent)
-                    .map(|s| s.mass_kg)
-                    .unwrap_or(DEFAULT_BODY_MASS);
-                let stamina = world
-                    .get::<PhysicalNeeds>(agent)
-                    .map(|p| p.stamina.clone())
-                    .unwrap_or_default();
-
-                for state in active.iter() {
-                    let Some(action) = reg.get(state.action_type) else {
-                        continue;
-                    };
-                    let primitive = action.motor_primitive();
-                    let intensity = if matches!(action.kind(), ActionKind::Movement)
-                        && state.locomotion_intensity > 0.0
-                    {
-                        effective_intensity(state.locomotion_intensity, &stamina)
-                    } else {
-                        action.default_behavior().intensity.resolve()
-                    };
-                    let profile = primitive.effort_profile().scaled(intensity);
-                    let cost = compute_action_cost(&profile, body_mass);
-                    if cost.energy != 0.0 {
-                        let reserves = world
-                            .get::<PhysicalNeeds>(agent)
-                            .map(|p| p.metabolism.reserves)
-                            .unwrap_or(0.0);
-                        let gluc_frac =
-                            effort::effective_glucose_fraction(profile.peak_intensity(), reserves);
-                        contribs
-                            .push((format!("{:?}", state.action_type), -cost.energy * gluc_frac));
-                    }
-                }
-            }
-        }
-        ContributionKind::Stamina => {
-            if let (Some(active), Some(reg)) = (
-                world.get::<ActiveActions>(agent),
-                world.get_resource::<ActionRegistry>(),
-            ) {
-                use crate::agent::actions::registry::ActionKind;
-                use crate::agent::body::effort::{DEFAULT_BODY_MASS, compute_action_cost};
-                use crate::agent::body::species::SpeciesProfile;
-                use crate::agent::movement::effective_intensity;
-
-                let body_mass = world
-                    .get::<SpeciesProfile>(agent)
-                    .map(|s| s.mass_kg)
-                    .unwrap_or(DEFAULT_BODY_MASS);
-                let stamina = world
-                    .get::<PhysicalNeeds>(agent)
-                    .map(|p| p.stamina.clone())
-                    .unwrap_or_default();
-
-                for state in active.iter() {
-                    let Some(action) = reg.get(state.action_type) else {
-                        continue;
-                    };
-                    let primitive = action.motor_primitive();
-                    let intensity = if matches!(action.kind(), ActionKind::Movement)
-                        && state.locomotion_intensity > 0.0
-                    {
-                        effective_intensity(state.locomotion_intensity, &stamina)
-                    } else {
-                        action.default_behavior().intensity.resolve()
-                    };
-                    let profile = primitive.effort_profile().scaled(intensity);
-                    let cost = compute_action_cost(&profile, body_mass);
-                    if cost.aerobic_drain != 0.0 {
-                        contribs.push((format!("{:?}", state.action_type), -cost.aerobic_drain));
-                    }
-                }
-            }
-        }
-        ContributionKind::Hydration => {
-            if let Some(cfg) = cfg {
-                let base = cfg.base.effects.hydration_change;
-                if base != 0.0 {
-                    contribs.push(("baseline".into(), base));
-                }
-                if let Some(activity) = world.get::<CurrentActivity>(agent) {
-                    let activity_delta = cfg.get(activity).effects.hydration_change;
-                    if activity_delta != 0.0 {
-                        contribs.push((format!("{:?}", activity), activity_delta));
-                    }
-                }
-            }
-        }
-        ContributionKind::Stomach => {
-            use crate::agent::body::metabolism::{DIGEST_CARB_RATE, DIGEST_FAT_RATE};
-            use crate::agent::body::needs::PhysicalNeeds;
-            if let Some(needs) = world.get::<PhysicalNeeds>(agent) {
-                let m = &needs.metabolism;
-                if m.stomach_carbs > 0.0 {
-                    contribs.push((
-                        "digestion: carbs → glucose".into(),
-                        -DIGEST_CARB_RATE.min(m.stomach_carbs),
-                    ));
-                }
-                if m.stomach_fat > 0.0 {
-                    contribs.push((
-                        "digestion: fat → reserves".into(),
-                        -DIGEST_FAT_RATE.min(m.stomach_fat),
-                    ));
-                }
-            }
-            if let (Some(active), Some(reg)) = (
-                world.get::<ActiveActions>(agent),
-                world.get_resource::<ActionRegistry>(),
-            ) {
-                for state in active.iter() {
-                    let Some(action) = reg.get(state.action_type) else {
-                        continue;
-                    };
-                    let rate = action.runtime_effects().stomach_carbs_per_sec;
-                    if rate != 0.0 {
-                        contribs.push((format!("{:?}: carbs in", state.action_type), rate));
-                    }
-                }
-            }
-        }
-    }
-
+    let contribs = compute_contributions(world, agent, kind);
     if contribs.is_empty() {
         eprintln!("  (no active contributors to {})", label);
-    } else {
-        for (src, rate) in &contribs {
-            eprintln!("  {:+.2}{}  {}", rate, unit, src);
-        }
-        let net: f32 = contribs.iter().map(|(_, r)| r).sum();
-        eprintln!("  ----");
-        eprintln!("  net {:+.2}{}", net, unit);
+        return;
     }
+    for c in &contribs {
+        eprintln!("  {:+.2}{}  {}", c.rate, unit, c.source);
+    }
+    eprintln!("  ----");
+    eprintln!("  net {:+.2}{}", net_rate(&contribs), unit);
 }
 
 /// A lightweight headless simulation harness. Wraps a Bevy `App` configured with
@@ -2120,6 +1968,7 @@ impl TestWorld {
         let name = entity_name(world, agent);
         print_section_header(&format!("Why {}", metric), &name, agent, tick);
 
+        use crate::agent::body::contributions::ContributionKind;
         match metric {
             "glucose" => dump_contributions_headless(
                 world,
