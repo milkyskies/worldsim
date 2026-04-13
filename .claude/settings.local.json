@@ -5,7 +5,9 @@
       "mcp__serena__get_current_config",
       "Bash(cargo test:*)",
       "Bash(cargo build:*)",
-      "Bash(cargo check:*)"
+      "Bash(cargo check:*)",
+      "Bash(cp /Users/onesc/Code/Projects/worldsim/.claude/skills/debug-worldsim/SKILL.md /Users/onesc/Code/Projects/worldsim-worktrees/416/.claude/skills/debug-worldsim/SKILL.md)",
+      "Bash(git checkout:*)"
     ]
   }
 }
