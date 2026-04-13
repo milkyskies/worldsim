@@ -104,6 +104,8 @@ When you already know roughly where the bug is and want to take a hard look at a
 
 All `--inspect` / `--dump-*` / `--why` / `--trace` flags accept an agent selector as either a display name (`agent:alice`) or a stable entity id (`agent:0v0`). `find_agent` tries id first, then falls back to name, so either works — prefer the id when you're scripting or when the same name might appear twice.
 
+`--at-tick` can be repeated to inspect at multiple points in a single run. The sim pauses at each tick, runs all inspection commands, then continues. Use `2>/dev/null` to suppress brain progress traces that interleave with inspection output.
+
 ```bash
 # Full state snapshot of an agent at a specific tick
 cargo run --release -- --headless --ticks 5000 --seed 42 \
@@ -112,6 +114,11 @@ cargo run --release -- --headless --ticks 5000 --seed 42 \
 # Multiple agents in one run
 cargo run --release -- --headless --ticks 5000 --seed 42 \
   --inspect agent:alice --inspect agent:bob --at-tick 4521
+
+# Inspect at multiple ticks in one run
+cargo run --release -- --headless --ticks 90000 --seed 42 \
+  --inspect agent:alice --why "alice metric:glucose" \
+  --at-tick 500 --at-tick 5000 --at-tick 30000 --at-tick 60000 2>/dev/null
 
 # Dump the full MindGraph (everything an agent believes/knows)
 cargo run --release -- --headless --ticks 5000 --seed 42 \
@@ -225,6 +232,16 @@ Use `--log-list-fields --log-preset full` to dump the canonical path list.
 | yes | yes | heartbeat OR change |
 
 **Change thresholds**: `0.05` for normalized `[0,1]` metrics (hunger, wakefulness, alertness, mood, brain powers, urgency values), `1.0` for raw stats (glucose, aerobic, reserves, stomach, hydration, health), structural equality for list/object fields. Override per-field: `--log-on-change needs.aerobic:2.0`.
+
+**Debounce** (`--log-debounce N`): hold change-driven emissions for N ticks. If the state reverts to the last-emitted signature inside the window, the change is dropped entirely; if it mutates to yet another state, the timer restarts against the new state. Applies only to `--log-on-change` — heartbeats (`--log-every`) and the default every-tick mode bypass debounce. Use this to suppress sub-second flickers (tick-level preemptions, emergency wakes) when you only care about persistent transitions.
+
+```bash
+# Only emit action changes that stick for at least 60 ticks (~1 sim-second)
+cargo run --release -- --headless --game-defaults --seed 42 --ticks 86400 \
+  --log-agent alice --log-preset vitals \
+  --log-on-change actions --log-debounce 60 \
+  --log-file /tmp/alice.jsonl
+```
 
 **Output**: `--log-file <path>` (default stderr, `-` for stdout). `--log-as csv` post-processes the buffered JSONL into a flat CSV with dotted-path columns for spreadsheet work.
 
