@@ -1,3 +1,4 @@
+pub mod contributions;
 pub mod effort;
 pub mod genetics;
 pub mod metabolism;

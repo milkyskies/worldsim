@@ -10,7 +10,10 @@ use std::path::PathBuf;
 use clap::Parser;
 
 use crate::agent::brains::trace::{AgentFilter, TraceConfig, TraceFormat};
-use crate::core::{EventLogConfig, EventLogOutput, parse_log_filter};
+use crate::core::{
+    EventLogConfig, EventLogOutput, FieldLoggerConfig, FieldLoggerFormat, FieldLoggerOutput,
+    expand_fields, parse_agent_selector, parse_log_filter, parse_on_change_spec,
+};
 use crate::headless::{HeadlessConfig, InspectConfig, InspectQuery, WhyQuery};
 use crate::world::spawn_config::WorldSpawnConfig;
 
@@ -169,6 +172,52 @@ pub struct CliArgs {
     /// placement without launching the game window.
     #[arg(long)]
     pub dump_map: bool,
+
+    // ─── Per-tick field logger (#490) ─────────────────────────────────────
+    /// Agents to log each tick. Repeatable. Accepts `all`, `species:<X>`
+    /// (Human/Deer/Wolf/Rabbit/Bird), `name:<substring>`, or a literal
+    /// agent name / Bevy entity id (e.g. `alice`, `19v0`).
+    #[arg(long = "log-agent")]
+    pub log_agent: Vec<String>,
+
+    /// Dotted field path(s) to capture each tick. Repeatable. Supports
+    /// wildcards like `needs.*` and a `:delta` suffix (e.g.
+    /// `needs.glucose:delta`) to inline the delta-since-last-emission.
+    #[arg(long = "log-field")]
+    pub log_field: Vec<String>,
+
+    /// Preset field bundle(s): `vitals`, `actions`, `brain`, or `full`.
+    /// Repeatable; combines with `--log-field`.
+    #[arg(long = "log-preset")]
+    pub log_preset: Vec<String>,
+
+    /// Where to write field-logger output. Default is stderr. `-` sends to
+    /// stdout. Anything else is treated as a file path (overwritten each run).
+    #[arg(long = "log-file")]
+    pub log_file: Option<String>,
+
+    /// Heartbeat interval in ticks. `1` (default) emits every tick; larger
+    /// values sample every Nth tick. Combined with `--log-on-change` via an
+    /// OR rule: emit on the heartbeat OR whenever a watched field changed.
+    #[arg(long = "log-every", default_value_t = 1)]
+    pub log_every: u64,
+
+    /// Only emit when the given field has changed since the last emission.
+    /// Repeatable. Supports a `:<threshold>` suffix (e.g.
+    /// `needs.aerobic:2.0`) to override the default change threshold for
+    /// that field.
+    #[arg(long = "log-on-change")]
+    pub log_on_change: Vec<String>,
+
+    /// Output format for the field logger. `jsonl` (default) or `csv`. CSV
+    /// flattens nested objects into dotted-path columns.
+    #[arg(long = "log-as", default_value = "jsonl")]
+    pub log_as: String,
+
+    /// Dry-run: expand `--log-preset` / `--log-field` / wildcards and print
+    /// the resolved field list to stdout, then exit without running a sim.
+    #[arg(long = "log-list-fields")]
+    pub log_list_fields: bool,
 }
 
 impl CliArgs {
@@ -202,7 +251,63 @@ impl CliArgs {
             trace: self.build_trace_config(),
             event_log: self.build_event_log_config(),
             inspect: self.build_inspect_config(),
+            field_logger: self.build_field_logger_config(),
         }
+    }
+
+    /// Build the per-tick field-logger config. Returns `None` when no
+    /// `--log-field` / `--log-preset` / `--log-agent` flags were given.
+    pub fn build_field_logger_config(&self) -> Option<FieldLoggerConfig> {
+        if self.log_field.is_empty() && self.log_preset.is_empty() && self.log_agent.is_empty() {
+            return None;
+        }
+
+        let fields = match expand_fields(&self.log_field, &self.log_preset) {
+            Ok(f) => f,
+            Err(e) => {
+                eprintln!("--log-field/--log-preset: {e}");
+                return None;
+            }
+        };
+        if fields.is_empty() {
+            return None;
+        }
+
+        let agents = if self.log_agent.is_empty() {
+            eprintln!("--log-field requires at least one --log-agent selector");
+            return None;
+        } else {
+            self.log_agent
+                .iter()
+                .map(|s| parse_agent_selector(s))
+                .collect()
+        };
+
+        let output = match self.log_file.as_deref() {
+            None => FieldLoggerOutput::Stderr,
+            Some("-") => FieldLoggerOutput::Stdout,
+            Some(path) => FieldLoggerOutput::File(PathBuf::from(path)),
+        };
+
+        let format = match self.log_as.as_str() {
+            "csv" => FieldLoggerFormat::Csv,
+            _ => FieldLoggerFormat::Jsonl,
+        };
+
+        let on_change: Vec<_> = self
+            .log_on_change
+            .iter()
+            .map(|s| parse_on_change_spec(s))
+            .collect();
+
+        Some(FieldLoggerConfig {
+            agents,
+            fields,
+            output,
+            format,
+            every: self.log_every.max(1),
+            on_change,
+        })
     }
 
     fn build_event_log_config(&self) -> Option<EventLogConfig> {

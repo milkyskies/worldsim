@@ -20,10 +20,12 @@ Read these files for current API and flag definitions — don't trust documented
 - `src/headless.rs` — what the headless runner does between ticks
 - `src/agent/events.rs` — `SimEvent` enum, the source of all observability
 - `src/core/event_log.rs` — JSONL logger, filter parsing
+- `src/core/field_logger.rs` — per-tick agent state logger (field resolver, presets, emission rules)
+- `src/agent/body/contributions.rs` — shared metabolism contributor breakdown (used by `--why` and `:why`)
 - `src/agent/brains/trace.rs` — decision trace ring buffer and config
 - `src/testing/world.rs` — `TestWorld` inspection methods (work in tests AND in the headless runner setup)
 
-## The five observability channels
+## The six observability channels
 
 Pick the right one for what you're trying to learn:
 
@@ -146,7 +148,107 @@ cargo run --release -- --headless --ticks 5000 --seed 42 \
 
 `--inspect`, `--dump-mind`, `--query`, `--why`, `--dump-channels`, `--dump-perception`, `--dump-all` are all repeatable — combine them in one run to get a full picture.
 
-### 4. TestWorld inspection methods — when debugging from inside a test
+### 4. Per-tick field logger — for continuous numeric state over time
+
+Captures one JSONL line per tick per agent, where each line carries a selected set of fields resolved from the component tree. Fills the gap between snapshot inspection (`--inspect`) and event streams (`--log events.jsonl`) — use it when you need "show me Alice's glucose curve for a full game day", not "what was Alice doing at tick 4521".
+
+```bash
+# Full vitals for Alice, every tick, to a file
+cargo run --release -- --headless --game-defaults --seed 42 --ticks 86400 \
+  --log-agent alice --log-preset vitals --log-file /tmp/alice.jsonl
+
+# Add actions and channels
+cargo run --release -- --headless --game-defaults --seed 42 --ticks 86400 \
+  --log-agent alice --log-preset vitals \
+  --log-field actions --log-field channels --log-file /tmp/alice.jsonl
+
+# Only when something changed (much smaller output)
+cargo run --release -- --headless --game-defaults --seed 42 --ticks 86400 \
+  --log-agent alice --log-preset vitals \
+  --log-on-change actions --log-on-change needs.glucose \
+  --log-file /tmp/alice.jsonl
+
+# Heartbeat every 5 sim-seconds PLUS all action transitions in between
+cargo run --release -- --headless --game-defaults --seed 42 --ticks 86400 \
+  --log-agent alice --log-preset vitals \
+  --log-every 300 --log-on-change actions \
+  --log-file /tmp/alice.jsonl
+
+# Whole species, exported as CSV for a spreadsheet
+cargo run --release -- --headless --game-defaults --seed 42 --ticks 10000 \
+  --log-agent species:Deer --log-preset vitals \
+  --log-as csv --log-file /tmp/deer.csv
+
+# Inline the contributor breakdown for a metabolism metric using the `:why` modifier
+cargo run --release -- --headless --game-defaults --seed 42 --ticks 30000 \
+  --log-agent alice --log-field needs.glucose:why --log-file /tmp/glucose.jsonl
+
+# Delta-since-last-emission with the `:delta` modifier
+cargo run --release -- --headless --game-defaults --seed 42 --ticks 30000 \
+  --log-agent alice --log-field needs.glucose:delta
+
+# Dry run: print the expanded field list without running the sim
+cargo run --release -- --log-list-fields --log-preset full
+```
+
+**Selectors** (`--log-agent`, repeatable): `all`, `species:Human|Deer|Wolf|Rabbit|Bird`, `name:<substring>` (case-insensitive), or a literal agent name / Bevy entity id (`alice`, `19v0`).
+
+**Fields**: dotted paths into the component tree. Top-level namespaces:
+
+- `needs.*` — aerobic, anaerobic, glucose, stomach, reserves, hunger, hydration, wakefulness, health
+- `consciousness.alertness`
+- `actions`, `actions.primary` — active actions with brain attribution and reason
+- `channels`, `channels.<name>` — body channels with load/cap/holders (locomotion, manipulation, consumption, vocalization, bite, carry, fullbody, focus, awareness)
+- `brain.winner`, `brain.powers[.survival|.emotional|.rational]`, `brain.proposals[.count]`
+- `cns.urgencies`, `cns.urgencies.<source>` (hunger, thirst, stamina, social, fun, fear, pain, curiosity, territoriality, sleepiness), `cns.sleep_wake_trigger`
+- `plans`, `plans.executing`, `plans.count`
+- `mind.size`, `mind.knows:<Concept>` (e.g. `mind.knows:Apple`, `mind.knows:Wolf`)
+- `position`
+- `emotions.mood`, `emotions.active`
+
+Use `--log-list-fields --log-preset full` to dump the canonical path list.
+
+**Presets** (`--log-preset`, repeatable):
+
+- `vitals` — aerobic + glucose + stomach + reserves + hunger + wakefulness + health
+- `actions` — actions + channels + brain.winner
+- `brain` — brain.winner + brain.powers + cns.urgencies + plans.executing
+- `full` — vitals + actions + brain
+
+**Wildcards**: `needs.*`, `cns.urgencies.*` expand to every child under that prefix.
+
+**Modifiers**:
+
+- `<path>:delta` — emit a `<path>_delta` sibling with the change since the last emitted line
+- `<path>:why` — emit a `<path>_why` sibling with the contributor breakdown (only valid for `needs.glucose`, `needs.aerobic`, `needs.hydration`, `needs.stomach` — same logic as `--why`)
+
+**Emission rules** (OR rule between heartbeat and change-detection):
+
+| `--log-every N` | `--log-on-change` | Behavior |
+|---|---|---|
+| no | no | every tick (default) |
+| yes | no | every Nth tick |
+| no | yes | only when a watched field changed |
+| yes | yes | heartbeat OR change |
+
+**Change thresholds**: `0.05` for normalized `[0,1]` metrics (hunger, wakefulness, alertness, mood, brain powers, urgency values), `1.0` for raw stats (glucose, aerobic, reserves, stomach, hydration, health), structural equality for list/object fields. Override per-field: `--log-on-change needs.aerobic:2.0`.
+
+**Output**: `--log-file <path>` (default stderr, `-` for stdout). `--log-as csv` post-processes the buffered JSONL into a flat CSV with dotted-path columns for spreadsheet work.
+
+**jq patterns:**
+
+```bash
+# Alice's glucose curve
+cat /tmp/alice.jsonl | jq -r '"\(.tick)\t\(.needs.glucose)"'
+
+# Every tick where she changed action
+cat /tmp/alice.jsonl | jq 'select(.actions[0].type != .actions[1].type)'
+
+# Find the first tick where hunger crossed 0.5
+cat /tmp/alice.jsonl | jq 'select(.needs.hunger > 0.5) | .tick' | head -1
+```
+
+### 5. TestWorld inspection methods — when debugging from inside a test
 
 If you're debugging a failing test (not a headless run), call these BEFORE the failing assertion. Output goes to stderr — visible with `cargo nextest run -E 'test(name)' --no-capture` (nextest swallows output by default; `--no-capture` streams it live) or in CI logs.
 
@@ -228,6 +330,17 @@ cat events.jsonl | jq 'select(.type == "RelationshipChanged" and .agent == "alic
 
 ```bash
 cat events.jsonl | jq -r 'select(.type == "Decision") | .agent' | sort | uniq -c | sort -rn
+```
+
+### "Show me Alice's glucose curve for a full game day"
+
+```bash
+cargo run --release -- --headless --game-defaults --seed 42 --ticks 86400 \
+  --log-agent alice --log-field needs.glucose --log-field needs.glucose:why \
+  --log-file /tmp/alice-glucose.jsonl
+
+# Plot it:
+cat /tmp/alice-glucose.jsonl | jq -r '"\(.tick)\t\(.needs.glucose)"' > /tmp/alice-glucose.tsv
 ```
 
 ### "Why is Alice's glucose / stamina / hydration dropping?"
