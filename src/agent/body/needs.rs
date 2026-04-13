@@ -2,7 +2,7 @@
 //!
 //! Reads: nothing (pure data components, written by other systems)
 //! Writes: PhysicalNeeds, Consciousness, PsychologicalDrives (ECS components)
-//! Upstream: nervous_system::activity_effects (modifies values each tick)
+//! Upstream: nervous_system::metabolism (BMR tick), nervous_system::execution::apply_action_effects (per-action drains)
 //! Downstream: nervous_system::urgency (drives urgency scores), brains::arbitration (survival power), brain_system
 
 use bevy::prelude::*;
@@ -145,9 +145,6 @@ impl Stamina {
         self.aerobic = self.aerobic_max;
     }
 
-    /// Adjust aerobic by a delta, clamped. Used by activity_effects for
-    /// legacy rate-based drain/recover until the locomotion intensity system
-    /// takes over.
     pub fn adjust_aerobic(&mut self, delta: f32) {
         self.aerobic = (self.aerobic + delta).clamp(0.0, self.aerobic_max);
     }

@@ -2,7 +2,7 @@
 //!
 //! Reads: nothing (pure data + pure tick function)
 //! Writes: Metabolism (pools mutate during `tick`, `eat`, and starvation damage)
-//! Upstream: nervous_system::activity_effects (drain rates per activity),
+//! Upstream: nervous_system::metabolism_system (BMR tick),
 //!           actions::eat / actions::graze (food ingestion)
 //! Downstream: urgency::hunger_urgency (derives a 0..1 urgency from pools),
 //!             biology::process_starvation (gradient starvation damage),
@@ -67,6 +67,16 @@ pub const GLUCOSE_OVERFLOW_RATE: f32 = 0.4;
 /// Rate at which reserves mobilize back to glucose when glucose is below
 /// `GLUCOSE_MOBILIZE_THRESHOLD` (per second). "Burning fat" during fasting.
 pub const RESERVE_MOBILIZE_RATE: f32 = 0.8;
+
+/// Basal metabolic rate: glucose burned per second while alive, independent
+/// of activity. Halved from 0.2 in #416 to slow the background march toward
+/// starvation: at 0.2 a fully-stocked agent with 700 fuel units burns
+/// through reserves in ~58 minutes of wall-clock, leaving no margin for
+/// slow eating cadences. 0.1 doubles that runway and matches the "agents
+/// should be able to nap and not die" feel. Applied to all agents with
+/// `PhysicalNeeds`, scaled by consciousness_factor during sleep and by
+/// genetic `Phenotype::bmr`.
+pub const BMR_GLUCOSE_DRAIN_PER_SEC: f32 = 0.1;
 
 /// Hunger urgency blend weights (must sum to 1.0).
 /// Stomach-heavy: ghrelin makes you hungry when your stomach empties,
@@ -286,9 +296,6 @@ impl Metabolism {
 
     /// Advance the metabolism one tick with no organ modulation. Delegates
     /// to [`Metabolism::tick_with_mods`] with a fully-intact [`OrganMods`].
-    /// Used by tests and other call sites that don't have access to an
-    /// anatomical [`Body`](crate::agent::biology::body::Body) (the normal
-    /// production path in `activity_effects` passes real mods).
     pub fn tick(&mut self, dt: f32, bmr_drain: f32, activity_drain: f32) {
         self.tick_with_mods(dt, bmr_drain, activity_drain, OrganMods::default());
     }

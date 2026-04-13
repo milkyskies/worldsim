@@ -5,7 +5,7 @@
 //! and that campfire is correctly composed from property components.
 
 use bevy::prelude::*;
-use worldsim::agent::activity::CurrentActivity;
+use worldsim::agent::actions::{ActionState, ActionType, ActiveActions};
 use worldsim::agent::body::needs::PhysicalNeeds;
 use worldsim::agent::inventory::EntityType;
 use worldsim::agent::item_slots::ItemSlots;
@@ -222,18 +222,13 @@ fn shelter_provider_improves_sleep_energy_recovery() {
         ..AgentConfig::default()
     });
 
-    // Insert Sleeping activity — agents aren't spawned with CurrentActivity,
-    // so we use entity_mut().insert() rather than get_mut().
-    world
-        .app_mut()
-        .world_mut()
-        .entity_mut(sheltered)
-        .insert(CurrentActivity::Sleeping);
-    world
-        .app_mut()
-        .world_mut()
-        .entity_mut(unsheltered)
-        .insert(CurrentActivity::Sleeping);
+    // Force Sleep into each agent's ActiveActions so the shelter system
+    // sees `active.contains(ActionType::Sleep)`.
+    for agent in [sheltered, unsheltered] {
+        let mut active = ActiveActions::empty();
+        active.insert(ActionState::new(ActionType::Sleep, 0));
+        world.app_mut().world_mut().entity_mut(agent).insert(active);
+    }
 
     let aerobic_before_sheltered = world.get::<PhysicalNeeds>(sheltered).stamina.aerobic;
     let aerobic_before_unsheltered = world.get::<PhysicalNeeds>(unsheltered).stamina.aerobic;

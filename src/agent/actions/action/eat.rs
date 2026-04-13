@@ -5,7 +5,9 @@ use crate::agent::actions::channel::{Channel, ChannelUsage, Posture};
 use crate::agent::actions::motor::{
     ActionPrimitive, Behavior, IntensityPolicy, Intent, TargetSelector,
 };
-use crate::agent::actions::registry::{Action, ActionContext, ActionKind, CompletionContext};
+use crate::agent::actions::registry::{
+    Action, ActionContext, ActionKind, CompletionContext, RuntimeEffects,
+};
 use crate::agent::body::metabolism::{FoodMacros, food_macros};
 use crate::agent::brains::thinking::TriplePattern;
 use crate::agent::events::FailureReason;
@@ -110,6 +112,13 @@ impl Action for EatAction {
 
         // Meals still grant a small stamina boost (fast glucose bolt).
         ctx.physical.stamina.adjust_aerobic(STAMINA_GAIN);
+    }
+
+    fn runtime_effects(&self) -> RuntimeEffects {
+        RuntimeEffects {
+            joy_per_sec: 5.0,
+            ..Default::default()
+        }
     }
 
     fn complete_log(&self) -> Option<&'static str> {

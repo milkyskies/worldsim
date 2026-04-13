@@ -1176,7 +1176,6 @@ pub fn contribution_kind_for_path(path: &str) -> Option<ContributionKind> {
     match path {
         "needs.glucose" => Some(ContributionKind::Glucose),
         "needs.aerobic" => Some(ContributionKind::Stamina),
-        "needs.hydration" => Some(ContributionKind::Hydration),
         "needs.stomach" => Some(ContributionKind::Stomach),
         _ => None,
     }

@@ -835,6 +835,7 @@ pub fn apply_action_effects(
         &mut PhysicalNeeds,
         &mut Consciousness,
         Option<&mut crate::agent::body::needs::PsychologicalDrives>,
+        &mut crate::agent::psyche::emotions::EmotionalState,
         Option<&Body>,
         Option<&SpeciesProfile>,
         Option<&crate::agent::body::genetics::phenotype::Phenotype>,
@@ -843,11 +844,20 @@ pub fn apply_action_effects(
 ) {
     use crate::agent::body::effort::{self, DEFAULT_BODY_MASS, compute_action_cost};
     use crate::agent::movement::effective_intensity as cap_intensity;
+    use crate::agent::psyche::emotions::{Emotion, EmotionType};
 
     let dt = tick.dt();
 
-    for (active, mut physical, mut consciousness, mut drives, body, species, phenotype) in
-        agents.iter_mut()
+    for (
+        active,
+        mut physical,
+        mut consciousness,
+        mut drives,
+        mut emotions,
+        body,
+        species,
+        phenotype,
+    ) in agents.iter_mut()
     {
         let load = active.channel_load(&registry);
         // Capacities freeze the start-of-tick stamina so degradation doesn't
@@ -856,6 +866,7 @@ pub fn apply_action_effects(
             ChannelCapacities::compute(body, Some(&*physical), Some(&*consciousness), &mapping);
         let bmr_mult = phenotype.map(|p| p.bmr).unwrap_or(1.0);
         let body_mass = species.map(|s| s.mass_kg).unwrap_or(DEFAULT_BODY_MASS);
+        let lung_condition = body.map(Body::lung_condition).unwrap_or(1.0);
 
         // Snapshot stamina for effective_intensity computation — the same
         // frozen snapshot as ChannelCapacities, so all actions in this
@@ -888,7 +899,7 @@ pub fn apply_action_effects(
                 crate::agent::body::effort::EffortProfile::ZERO
             };
 
-            let cost = compute_action_cost(&profile, body_mass);
+            let cost = compute_action_cost(&profile, body_mass, lung_condition);
 
             physical
                 .stamina
@@ -932,6 +943,15 @@ pub fn apply_action_effects(
                     ));
             }
 
+            // Comfort joy burst (Sleep, Eat). Clamped to [0, 1] so a
+            // high sim-speed `dt` can't push the first-insert path of
+            // `add_emotion` past the intensity invariant — that path
+            // only caps on merge, not on insert.
+            let joy_add = (effects.joy_per_sec * dt * degradation).clamp(0.0, 1.0);
+            if joy_add > 0.0 {
+                emotions.add_emotion(Emotion::new(EmotionType::Joy, joy_add));
+            }
+
             // --- Psychological effects derived from primitive + intent ---
             let intent = behavior.intent;
             let base_psych = primitive.psych_effect();
@@ -971,12 +991,10 @@ pub fn apply_action_effects(
         // Second mobilization pass (#397). The per-action glucose drain
         // above bypasses `Metabolism::tick_with_mods` and can push glucose
         // below `GLUCOSE_MOBILIZE_THRESHOLD` faster than the single
-        // `apply_activity_effects` mobilization pass can refill it — so
+        // BMR mobilization pass in `tick_metabolism` can refill it — so
         // an agent with multiple high-drain actions ends up stranded at
         // `glucose = 0, reserves > 0`. Running mobilization again after
-        // the action drains closes that loop: the fasting/reserve path
-        // gets a chance to respond to action-level cost every frame,
-        // not just the activity-level cost.
+        // the action drains closes that loop.
         let liver = body.map(|b| b.organ_mods().liver).unwrap_or(1.0);
         physical.metabolism.mobilize_reserves(dt, liver);
     }

@@ -3,21 +3,59 @@
 //! Verifies that the migration from per-action constants to channel-based
 //! EffortProfile + compute_action_cost does not blow up the calorie economy.
 
-use worldsim::testing::TestWorld;
+use worldsim::agent::actions::{ActionState, ActionType, ActiveActions};
+use worldsim::agent::body::needs::PhysicalNeeds;
+use worldsim::testing::{AgentConfig, TestWorld};
 
-/// Headless 10k-tick run on game_defaults(42) — assert that total glucose
-/// consumption (proxy for calorie expenditure) stays within a reasonable
-/// range after the effort model migration.
-///
+/// Force Sleep into ActiveActions and verify the effort model's recovery
+/// channel restores aerobic stamina without any per-activity plumbing.
+#[test]
+fn sleep_restores_aerobic_via_effort_model() {
+    let mut world = TestWorld::with_seed(0);
+    let agent = world.spawn_agent(AgentConfig::default());
+
+    {
+        let mut needs = world.get_mut::<PhysicalNeeds>(agent);
+        needs.stamina.aerobic = 20.0;
+    }
+
+    let mut active = ActiveActions::empty();
+    active.insert(ActionState::new(ActionType::Sleep, 0));
+    world.app_mut().world_mut().entity_mut(agent).insert(active);
+
+    let before = world.get::<PhysicalNeeds>(agent).stamina.aerobic;
+    world.tick(60);
+    let after = world.get::<PhysicalNeeds>(agent).stamina.aerobic;
+
+    assert!(
+        after > before + 5.0,
+        "Sleep should restore aerobic through the effort model \
+         (before={before:.1}, after={after:.1})"
+    );
+}
+
+/// Regression guard: the default-spawned agent carries no activity marker
+/// and must tick cleanly through the full nervous-system schedule.
+#[test]
+fn systems_tolerate_default_spawned_agent() {
+    let mut world = TestWorld::with_seed(0);
+    let agent = world.spawn_agent(AgentConfig::default());
+
+    world.tick(30);
+
+    let needs = world.get::<PhysicalNeeds>(agent);
+    assert!(needs.metabolism.glucose > 0.0);
+    assert!(needs.stamina.aerobic > 0.0);
+}
+
+/// Headless 10k-tick run on game_defaults(42) — assert that agents survive
+/// and the calorie economy doesn't collapse after the effort model migration.
 /// This is NOT a precise ±15% regression gate against a frozen baseline
-/// (the architecture changed, so exact parity is not the goal). Instead it
-/// checks that agents survive and the economy doesn't collapse — glucose
-/// doesn't hit 0 across the board and agents still eat, move, and rest.
+/// (the architecture changed, so exact parity is not the goal).
 #[test]
 #[ignore = "slow: 10k-tick game_defaults run"]
 fn migrated_action_calorie_totals_within_15pct_of_baseline() {
     use bevy::prelude::With;
-    use worldsim::agent::body::needs::PhysicalNeeds;
     use worldsim::agent::{Alive, Person};
 
     let mut world = TestWorld::game_defaults(42);

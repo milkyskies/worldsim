@@ -203,10 +203,6 @@ struct Contribution {
     rate: f32,
 }
 
-/// Per-second contributors to `PhysicalNeeds.metabolism.glucose` for the
-/// selected agent. Pulled from the same sources the live simulation
-/// reads: BMR from `ActivityConfig.base`, action drains from the
-/// currently running actions' `runtime_effects`.
 /// Per-second contributors to stomach fullness (carbs + fat). Digestion
 /// drains both pools at the constant rates in `metabolism.rs`; Eat
 /// adds in discrete steps (not shown here); Graze adds carbs
@@ -256,22 +252,18 @@ fn stomach_contributions(world: &World, entity: Entity) -> Vec<Contribution> {
 fn glucose_contributions(world: &World, entity: Entity) -> Vec<Contribution> {
     use crate::agent::actions::ActionRegistry;
     use crate::agent::actions::registry::ActionKind;
-    use crate::agent::activity::ActivityConfig;
+    use crate::agent::biology::body::Body;
     use crate::agent::body::effort::{self, DEFAULT_BODY_MASS, compute_action_cost};
+    use crate::agent::body::metabolism::BMR_GLUCOSE_DRAIN_PER_SEC;
     use crate::agent::body::species::SpeciesProfile;
     use crate::agent::movement::effective_intensity;
 
     let mut out = Vec::new();
 
-    if let Some(cfg) = world.get_resource::<ActivityConfig>() {
-        let bmr = cfg.base.effects.glucose_drain;
-        if bmr != 0.0 {
-            out.push(Contribution {
-                source: "BMR (base metabolic rate)".into(),
-                rate: -bmr,
-            });
-        }
-    }
+    out.push(Contribution {
+        source: "BMR (base metabolic rate)".into(),
+        rate: -BMR_GLUCOSE_DRAIN_PER_SEC,
+    });
 
     if let (Some(active), Some(registry)) = (
         world.get::<ActiveActions>(entity),
@@ -281,6 +273,10 @@ fn glucose_contributions(world: &World, entity: Entity) -> Vec<Contribution> {
             .get::<SpeciesProfile>(entity)
             .map(|s| s.mass_kg)
             .unwrap_or(DEFAULT_BODY_MASS);
+        let lung_condition = world
+            .get::<Body>(entity)
+            .map(Body::lung_condition)
+            .unwrap_or(1.0);
         let stamina = world
             .get::<PhysicalNeeds>(entity)
             .map(|p| p.stamina.clone())
@@ -299,7 +295,7 @@ fn glucose_contributions(world: &World, entity: Entity) -> Vec<Contribution> {
                 action.default_behavior().intensity.resolve()
             };
             let profile = primitive.effort_profile().scaled(intensity);
-            let cost = compute_action_cost(&profile, body_mass);
+            let cost = compute_action_cost(&profile, body_mass, lung_condition);
             if cost.energy != 0.0 {
                 let reserves = world
                     .get::<PhysicalNeeds>(entity)
@@ -322,6 +318,7 @@ fn glucose_contributions(world: &World, entity: Entity) -> Vec<Contribution> {
 fn stamina_contributions(world: &World, entity: Entity) -> Vec<Contribution> {
     use crate::agent::actions::ActionRegistry;
     use crate::agent::actions::registry::ActionKind;
+    use crate::agent::biology::body::Body;
     use crate::agent::body::effort::{DEFAULT_BODY_MASS, compute_action_cost};
     use crate::agent::body::species::SpeciesProfile;
     use crate::agent::movement::effective_intensity;
@@ -336,6 +333,10 @@ fn stamina_contributions(world: &World, entity: Entity) -> Vec<Contribution> {
             .get::<SpeciesProfile>(entity)
             .map(|s| s.mass_kg)
             .unwrap_or(DEFAULT_BODY_MASS);
+        let lung_condition = world
+            .get::<Body>(entity)
+            .map(Body::lung_condition)
+            .unwrap_or(1.0);
         let stamina = world
             .get::<PhysicalNeeds>(entity)
             .map(|p| p.stamina.clone())
@@ -354,40 +355,11 @@ fn stamina_contributions(world: &World, entity: Entity) -> Vec<Contribution> {
                 action.default_behavior().intensity.resolve()
             };
             let profile = primitive.effort_profile().scaled(intensity);
-            let cost = compute_action_cost(&profile, body_mass);
+            let cost = compute_action_cost(&profile, body_mass, lung_condition);
             if cost.aerobic_drain != 0.0 {
                 out.push(Contribution {
                     source: format!("{:?}", state.action_type),
                     rate: -cost.aerobic_drain,
-                });
-            }
-        }
-    }
-
-    out
-}
-
-/// Contributors to `PhysicalNeeds.hydration`. Mirrors
-/// `apply_activity_effects`'s `hydration_change` pipeline.
-fn hydration_contributions(world: &World, entity: Entity) -> Vec<Contribution> {
-    use crate::agent::activity::{ActivityConfig, CurrentActivity};
-    let mut out = Vec::new();
-
-    let cfg = world.get_resource::<ActivityConfig>();
-    if let Some(cfg) = cfg {
-        let base = cfg.base.effects.hydration_change;
-        if base != 0.0 {
-            out.push(Contribution {
-                source: "baseline".into(),
-                rate: base,
-            });
-        }
-        if let Some(activity) = world.get::<CurrentActivity>(entity) {
-            let activity_delta = cfg.get(activity).effects.hydration_change;
-            if activity_delta != 0.0 {
-                out.push(Contribution {
-                    source: format!("{:?}", activity),
-                    rate: activity_delta,
                 });
             }
         }
@@ -769,15 +741,7 @@ fn render_overview(ui: &mut egui::Ui, world: &World, entity: Entity) {
         let body_health = body_ref.map_or(1.0, |b| b.overall_health());
         vital_row(ui, "Health", body_health * 100.0, 100.0, 0.3, 0.7);
         let hydration = (needs.hydration / 100.0).clamp(0.0, 1.0);
-        vital_row_fraction_explained(
-            ui,
-            "Hydration",
-            hydration,
-            0.3,
-            0.7,
-            Some(hydration_contributions(world, entity)),
-            " /sec",
-        );
+        vital_row_fraction_explained(ui, "Hydration", hydration, 0.3, 0.7, None, " /sec");
         urgency_line(ui, "Thirst urgency", urgency_for(UrgencySource::Thirst));
         vital_row_explained(
             ui,
@@ -1081,7 +1045,7 @@ fn render_needs(ui: &mut egui::Ui, world: &World, entity: Entity) {
         (needs.hydration / 100.0).clamp(0.0, 1.0),
         0.3,
         0.7,
-        Some(hydration_contributions(world, entity)),
+        None,
         " /sec",
     );
     urgency_line(

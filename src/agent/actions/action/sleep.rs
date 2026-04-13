@@ -5,7 +5,7 @@ use crate::agent::actions::channel::{Channel, ChannelUsage, Posture};
 use crate::agent::actions::motor::{
     ActionPrimitive, Behavior, IntensityPolicy, Intent, TargetSelector,
 };
-use crate::agent::actions::registry::{Action, ActionKind};
+use crate::agent::actions::registry::{Action, ActionKind, RuntimeEffects};
 use crate::agent::mind::knowledge::{Node, Predicate, Triple, Value};
 
 pub struct SleepAction;
@@ -60,6 +60,13 @@ impl Action for SleepAction {
 
     fn posture(&self) -> Option<Posture> {
         Some(Posture::Stationary)
+    }
+
+    fn runtime_effects(&self) -> RuntimeEffects {
+        RuntimeEffects {
+            joy_per_sec: 2.0,
+            ..Default::default()
+        }
     }
 
     // Sleep uses the default `interruptible = true`. WakeUp has to preempt
