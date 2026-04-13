@@ -9,7 +9,8 @@ use crate::agent::TargetPosition;
 use crate::agent::actions::ActionType;
 use crate::agent::actions::channel::ChannelCapacities;
 use crate::agent::actions::registry::{
-    ActionContext, ActionKind, ActionRegistry, ActionState, ActiveActions,
+    ActionContext, ActionKind, ActionRegistry, ActionState, ActiveActions, LegCompleteContext,
+    LegResult,
 };
 use crate::agent::biology::body::{Body, TagChannelMapping};
 use crate::agent::body::genetics::phenotype::Phenotype;
@@ -221,7 +222,7 @@ pub fn start_actions(
                     new_state.with_locomotion_intensity(action_template.locomotion_intensity);
             }
 
-            if matches!(action_def.kind(), ActionKind::Movement) {
+            if action_def.kind().is_movement_like() {
                 let pos = transform.translation.truncate();
                 let rng = sim_rng.inner_mut();
                 let new_target = match wanted_action {
@@ -308,6 +309,7 @@ pub fn tick_actions(
     registry: Res<ActionRegistry>,
     tick: Res<TickCount>,
     world_map: Res<WorldMap>,
+    mut sim_rng: ResMut<crate::core::SimRng>,
     mut game_log: ResMut<GameLog>,
     mut sim_events: MessageWriter<crate::agent::events::SimEvent>,
     mut outcome_events: MessageWriter<ActionOutcomeEvent>,
@@ -404,7 +406,7 @@ pub fn tick_actions(
                         action_state.ticks_remaining == 0
                     }
                 }
-                ActionKind::Movement => match action_state.target_position {
+                ActionKind::Movement | ActionKind::Ambient => match action_state.target_position {
                     None => true,
                     Some(target_position) => {
                         let current_pos = transform.translation.truncate();
@@ -412,7 +414,51 @@ pub fn tick_actions(
                             // Snap to exact target so perceived tile matches Walk effect.
                             transform.translation.x = target_position.x;
                             transform.translation.y = target_position.y;
-                            true
+                            // Ask the action what to do now that this leg is done.
+                            let rng = sim_rng.inner_mut();
+                            let leg_ctx = LegCompleteContext {
+                                agent_position: current_pos,
+                                world_map: &world_map,
+                                mind,
+                                physical: &physical,
+                                target_entity: action_state.target_entity,
+                                target_position: Some(target_position),
+                                current_tick,
+                                rng,
+                            };
+                            let mut leg_ctx = leg_ctx;
+                            match action_def.on_leg_complete(&mut leg_ctx) {
+                                LegResult::NextLeg(next) => {
+                                    action_state.target_position = Some(next);
+                                    target_pos.0 = Some(next);
+                                    false
+                                }
+                                LegResult::Complete => {
+                                    // Ambient actions never self-complete: if the
+                                    // action itself returned Complete, try a
+                                    // Wander-style random-walkable fallback so the
+                                    // action stays alive. If even that fails, give
+                                    // up and let it terminate.
+                                    if action_def.kind().is_ambient() {
+                                        let rng2 = sim_rng.inner_mut();
+                                        match pick_random_walkable_target(
+                                            current_pos,
+                                            &world_map,
+                                            10.0..30.0,
+                                            rng2,
+                                        ) {
+                                            Some(next) => {
+                                                action_state.target_position = Some(next);
+                                                target_pos.0 = Some(next);
+                                                false
+                                            }
+                                            None => true,
+                                        }
+                                    } else {
+                                        true
+                                    }
+                                }
+                            }
                         } else {
                             let ticks =
                                 current_tick.saturating_sub(action_state.last_movement_tick);
@@ -458,7 +504,51 @@ pub fn tick_actions(
                                     &mut transform,
                                 ) {
                                     MoveResult::Moving => false,
-                                    MoveResult::Arrived => true,
+                                    MoveResult::Arrived => {
+                                        // Same on_leg_complete dispatch as the
+                                        // distance-based arrival check above.
+                                        let arrived_pos = transform.translation.truncate();
+                                        let rng = sim_rng.inner_mut();
+                                        let leg_ctx = LegCompleteContext {
+                                            agent_position: arrived_pos,
+                                            world_map: &world_map,
+                                            mind,
+                                            physical: &physical,
+                                            target_entity: action_state.target_entity,
+                                            target_position: Some(target_position),
+                                            current_tick,
+                                            rng,
+                                        };
+                                        let mut leg_ctx = leg_ctx;
+                                        match action_def.on_leg_complete(&mut leg_ctx) {
+                                            LegResult::NextLeg(next) => {
+                                                action_state.target_position = Some(next);
+                                                target_pos.0 = Some(next);
+                                                false
+                                            }
+                                            LegResult::Complete => {
+                                                if action_def.kind().is_ambient() {
+                                                    let rng2 = sim_rng.inner_mut();
+                                                    match pick_random_walkable_target(
+                                                        arrived_pos,
+                                                        &world_map,
+                                                        10.0..30.0,
+                                                        rng2,
+                                                    ) {
+                                                        Some(next) => {
+                                                            action_state.target_position =
+                                                                Some(next);
+                                                            target_pos.0 = Some(next);
+                                                            false
+                                                        }
+                                                        None => true,
+                                                    }
+                                                } else {
+                                                    true
+                                                }
+                                            }
+                                        }
+                                    }
                                     MoveResult::Blocked => {
                                         game_log
                                             .log_debug(format!("{} path blocked", name.as_str()));
@@ -719,12 +809,12 @@ pub fn tick_actions(
             active.reset_to_idle(current_tick);
         }
 
-        // Clear the movement target if no movement action remains.
+        // Clear the movement target if no movement-like action remains.
         let any_movement = active.iter().any(|a| {
-            matches!(
-                registry.get(a.action_type).map(|d| d.kind()),
-                Some(ActionKind::Movement)
-            )
+            registry
+                .get(a.action_type)
+                .map(|d| d.kind().is_movement_like())
+                .unwrap_or(false)
         });
         if !any_movement {
             target_pos.0 = None;
@@ -778,7 +868,7 @@ pub fn apply_action_effects(
             };
             let effects = action_def.runtime_effects();
             let degradation = load.degradation_factor(action_def.body_channels(), &capacities);
-            let is_movement = matches!(action_def.kind(), ActionKind::Movement);
+            let is_movement = action_def.kind().is_movement_like();
 
             // --- Effort model: primitive-based profile scaled by intensity ---
             let behavior = action_def.default_behavior();
@@ -921,12 +1011,12 @@ fn preempt_existing_movement(
     target: &mut TargetPosition,
     incoming_kind: ActionKind,
 ) -> Option<ActionType> {
-    if !matches!(incoming_kind, ActionKind::Movement) {
+    if !incoming_kind.is_movement_like() {
         return None;
     }
     let existing = active.iter().find_map(|s| {
         let def = registry.get(s.action_type)?;
-        if matches!(def.kind(), ActionKind::Movement) && def.interruptible() {
+        if def.kind().is_movement_like() && def.interruptible() {
             Some(s.action_type)
         } else {
             None
@@ -1002,10 +1092,11 @@ fn preempt_posture_conflicts(
 
     // All victims are interruptible — evict them.
     for victim in &victims {
-        if matches!(
-            registry.get(*victim).map(|d| d.kind()),
-            Some(ActionKind::Movement)
-        ) {
+        if registry
+            .get(*victim)
+            .map(|d| d.kind().is_movement_like())
+            .unwrap_or(false)
+        {
             target.0 = None;
         }
         active.remove(*victim);
@@ -1080,10 +1171,11 @@ fn preempt_to_make_room(
         load.remove(victim_channels);
         active.remove(victim_type);
 
-        if matches!(
-            registry.get(victim_type).map(|d| d.kind()),
-            Some(ActionKind::Movement)
-        ) {
+        if registry
+            .get(victim_type)
+            .map(|d| d.kind().is_movement_like())
+            .unwrap_or(false)
+        {
             target.0 = None;
         }
     }

@@ -5,7 +5,8 @@ use crate::agent::actions::channel::{Channel, ChannelUsage, Posture};
 use crate::agent::actions::motor::{
     ActionPrimitive, Behavior, IntensityPolicy, Intent, TargetSelector,
 };
-use crate::agent::actions::registry::{Action, ActionKind};
+use crate::agent::actions::registry::{Action, ActionKind, LegCompleteContext, LegResult};
+use bevy::prelude::Vec2;
 
 pub struct ExploreAction;
 
@@ -28,7 +29,11 @@ impl Action for ExploreAction {
     }
 
     fn kind(&self) -> ActionKind {
-        ActionKind::Movement
+        // Ambient: goal-directed movement that doesn't self-complete.
+        // When one leg arrives without finding anything new, the
+        // execution loop picks a new unknown-area target and keeps
+        // going. Stops via preemption (a real plan wins).
+        ActionKind::Ambient
     }
 
     fn cost(&self) -> f32 {
@@ -50,5 +55,23 @@ impl Action for ExploreAction {
 
     fn start_log(&self) -> Option<&'static str> {
         Some("exploring for resources")
+    }
+
+    fn on_leg_complete(&self, ctx: &mut LegCompleteContext) -> LegResult {
+        // Pick a random walkable tile from the full map. Same sampling
+        // pattern used by start_actions' initial target selection,
+        // without MindGraph-aware scoring (future improvement).
+        use rand::Rng;
+        let (map_w, map_h) = ctx.world_map.pixel_bounds();
+        for _ in 0..10 {
+            let test_pos = Vec2::new(
+                ctx.rng.random_range(0.0..map_w),
+                ctx.rng.random_range(0.0..map_h),
+            );
+            if ctx.world_map.is_walkable(test_pos) {
+                return LegResult::NextLeg(test_pos);
+            }
+        }
+        LegResult::Complete
     }
 }

@@ -129,8 +129,52 @@ pub enum ActionKind {
     Instant,
     /// Timed action (countdown ticks, then complete)
     Timed { duration_ticks: u32 },
-    /// Movement action (move toward target until arrival)
+    /// Movement action (move toward target until arrival). On arrival the
+    /// action calls `on_leg_complete` — returns Complete by default,
+    /// NextLeg to chain another movement.
     Movement,
+    /// Ambient movement — never self-completes. On arrival `on_leg_complete`
+    /// is still called, but a Complete return is interpreted as "try a
+    /// generic reselect" and only ends the action if no target can be found.
+    /// Only preemption ends an Ambient action reliably.
+    Ambient,
+}
+
+impl ActionKind {
+    /// True if this kind should be treated as movement for the "at most
+    /// one movement at a time" exclusivity check and target-resolution.
+    pub fn is_movement_like(&self) -> bool {
+        matches!(self, ActionKind::Movement | ActionKind::Ambient)
+    }
+
+    /// True if this kind never self-completes (only preemption ends it).
+    pub fn is_ambient(&self) -> bool {
+        matches!(self, ActionKind::Ambient)
+    }
+}
+
+/// Return value of `Action::on_leg_complete`. Tells the execution loop
+/// whether to finish the action or chain another leg without restarting.
+pub enum LegResult {
+    /// The action has achieved its goal. Fire completion events and
+    /// remove from `ActiveActions` (normal kind) or try a fallback
+    /// reselect (ambient kind).
+    Complete,
+    /// Keep running with a new target. No completion events fire.
+    NextLeg(bevy::prelude::Vec2),
+}
+
+/// Read-only context passed to `on_leg_complete`. Gives the action
+/// everything it needs to decide whether to continue or terminate.
+pub struct LegCompleteContext<'a> {
+    pub agent_position: bevy::prelude::Vec2,
+    pub world_map: &'a crate::world::map::WorldMap,
+    pub mind: &'a MindGraph,
+    pub physical: &'a crate::agent::body::needs::PhysicalNeeds,
+    pub target_entity: Option<bevy::prelude::Entity>,
+    pub target_position: Option<bevy::prelude::Vec2>,
+    pub current_tick: u64,
+    pub rng: &'a mut dyn rand::RngCore,
 }
 
 // ============================================================================
@@ -335,6 +379,23 @@ pub trait Action: Send + Sync + 'static {
     /// motor primitive's effort profile, scaled by intensity.
     fn runtime_effects(&self) -> RuntimeEffects {
         RuntimeEffects::default()
+    }
+
+    /// Called for `Movement` and `Ambient` actions when the current leg
+    /// arrives at its target. The action decides whether to complete
+    /// or continue with a new target.
+    ///
+    /// - `LegResult::Complete` — normal completion. Movement actions
+    ///   fire `on_complete`; Ambient actions fall back to a generic
+    ///   reselect (if even that fails, the action actually completes).
+    /// - `LegResult::NextLeg(Vec2)` — keep running with a new target.
+    ///   No completion event fires, no `on_complete` call.
+    ///
+    /// Default: always `Complete`. Override for chained behaviours
+    /// (Wander reselects forever, Graze picks next grass tile until
+    /// stomach full, Flee picks next tile away from threat until safe).
+    fn on_leg_complete(&self, _ctx: &mut LegCompleteContext) -> LegResult {
+        LegResult::Complete
     }
 
     /// Body channels this action occupies, with intensity 0.0..=1.0 each.
