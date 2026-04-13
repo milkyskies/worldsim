@@ -2396,7 +2396,7 @@ fn render_held_plan(
             ui.label(egui::RichText::new(chain.join("  →  ")).strong());
         }
 
-        // Goal
+        // Driving urgency + goal
         let goal_text = plan
             .goal
             .conditions
@@ -2417,13 +2417,14 @@ fn render_held_plan(
             .join(", ");
         ui.label(
             egui::RichText::new(format!(
-                "goal: {}  (priority {:.2})",
+                "for {:?} (urgency at creation {:.2}) — {}",
+                plan.driving_urgency,
+                plan.created_at_urgency,
                 if goal_text.is_empty() {
-                    "(none)".into()
+                    "(no specific goal)".into()
                 } else {
                     goal_text
                 },
-                plan.goal.priority,
             ))
             .small()
             .color(Color32::GRAY),
