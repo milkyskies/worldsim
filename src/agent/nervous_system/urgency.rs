@@ -111,6 +111,7 @@ use crate::agent::psyche::emotions::EmotionalState;
 pub fn generate_urgency(
     ns_config: Res<NervousSystemConfig>,
     tick: Res<crate::core::tick::TickCount>,
+    light: Res<crate::world::environment::LightLevel>,
     mut query: Query<
         (
             Entity,
@@ -261,7 +262,23 @@ pub fn generate_urgency(
                 }
             }
 
-            // 5. Clamp and threshold
+            // 5. Circadian dampening for Sleepiness. At full daylight
+            //    (light = 1.0) the score is multiplied by `1 -
+            //    SLEEPINESS_DAYLIGHT_DAMPEN` (= 0.5 by default), so a
+            //    rested-but-tiring agent doesn't fall asleep mid-harvest
+            //    at noon. At full darkness (light = 0.3) the dampening
+            //    vanishes and the full sigmoid score fires. Anchors
+            //    sleep to the late-night window in concert with the
+            //    sigmoid midpoint at 0.85 and the stronger
+            //    `ADENOSINE_RATE` / slower `SLEEP_RESTORE_RATE`.
+            if drive_config.source == UrgencySource::Sleepiness {
+                let normalized_light = ((light.0 - 0.3) / 0.7).clamp(0.0, 1.0);
+                let dampen = normalized_light
+                    * crate::constants::brains::wakefulness::SLEEPINESS_DAYLIGHT_DAMPEN;
+                score *= 1.0 - dampen;
+            }
+
+            // 6. Clamp and threshold
             score = score.max(0.0);
             if score > drive_config.min_threshold {
                 cns.urgencies.push(Urgency::new(drive_config.source, score));
