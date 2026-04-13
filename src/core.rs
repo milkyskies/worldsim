@@ -2,6 +2,7 @@ use bevy::prelude::*;
 
 pub mod diagnostics;
 pub mod event_log;
+pub mod field_logger;
 pub mod log;
 pub mod sim_rng;
 pub mod tick;
@@ -11,6 +12,12 @@ pub use diagnostics::DiagnosticsPlugin;
 pub use event_log::{
     EventLogBuffer, EventLogConfig, EventLogFilter, EventLogOutput, collect_event_log,
     dump_event_log, parse_log_filter,
+};
+pub use field_logger::{
+    AgentLogState, AgentSelector, FieldLoggerBuffer, FieldLoggerConfig, FieldLoggerFormat,
+    FieldLoggerOutput, FieldSpec, OnChangeSpec, collect_field_log, dump_field_log, expand_fields,
+    expand_preset, expand_wildcard, parse_agent_selector, parse_field_spec, parse_on_change_spec,
+    print_expanded_field_list,
 };
 pub use log::GameLog;
 pub use sim_rng::SimRng;

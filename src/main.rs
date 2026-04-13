@@ -25,6 +25,17 @@ fn main() {
         return;
     }
 
+    if args.log_list_fields {
+        match worldsim::core::expand_fields(&args.log_field, &args.log_preset) {
+            Ok(fields) => worldsim::core::print_expanded_field_list(&fields),
+            Err(e) => {
+                eprintln!("{e}");
+                std::process::exit(1);
+            }
+        }
+        return;
+    }
+
     if args.headless {
         let report = headless::run_headless(args.to_headless_config());
         if args.report {
