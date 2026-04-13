@@ -1,5 +1,4 @@
 pub mod actions;
-pub mod activity;
 pub mod affordance;
 pub mod biology;
 pub mod body;
@@ -75,7 +74,6 @@ impl Plugin for AgentPlugin {
             .register_type::<body::needs::Consciousness>()
             .register_type::<body::needs::PsychologicalDrives>()
             .register_type::<body::needs::SocialDriveOverride>()
-            .register_type::<activity::CurrentActivity>()
             .register_type::<mind::memory::WorkingMemory>()
             .register_type::<psyche::emotions::EmotionalState>()
             .register_type::<mind::knowledge::MindGraph>()

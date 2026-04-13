@@ -597,6 +597,7 @@ pub fn update_rational_planning(
                 &consciousness,
                 personality,
                 species,
+                body,
                 tick.current,
             );
             if let Some(steps) =

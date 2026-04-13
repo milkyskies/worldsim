@@ -1,8 +1,8 @@
 //! Per-metric causal breakdown: computes `(source, signed_rate)` contributors
-//! for glucose, stamina, hydration, and stomach so callers can explain *why*
-//! a metric is moving right now.
+//! for glucose, stamina, and stomach so callers can explain *why* a metric
+//! is moving right now.
 //!
-//! Reads: ActiveActions, PhysicalNeeds, ActivityConfig, ActionRegistry, SpeciesProfile, CurrentActivity
+//! Reads: ActiveActions, PhysicalNeeds, ActionRegistry, SpeciesProfile, Body
 //! Writes: nothing (returns a Vec)
 //! Upstream: testing::world::print_why (text dump), core::field_logger (JSON inline breakdown)
 //! Downstream: headless inspection output, JSONL field logger
@@ -10,7 +10,7 @@
 use bevy::prelude::*;
 
 use crate::agent::actions::{ActionRegistry, ActiveActions};
-use crate::agent::activity::{ActivityConfig, CurrentActivity};
+use crate::agent::biology::body::Body;
 use crate::agent::body::needs::PhysicalNeeds;
 
 /// Which metric the contributor breakdown is being computed for.
@@ -18,7 +18,6 @@ use crate::agent::body::needs::PhysicalNeeds;
 pub enum ContributionKind {
     Glucose,
     Stamina,
-    Hydration,
     Stomach,
 }
 
@@ -39,12 +38,10 @@ pub fn compute_contributions(
     kind: ContributionKind,
 ) -> Vec<Contribution> {
     let mut contribs: Vec<Contribution> = Vec::new();
-    let cfg = world.get_resource::<ActivityConfig>();
 
     match kind {
-        ContributionKind::Glucose => glucose_contributions(world, agent, cfg, &mut contribs),
+        ContributionKind::Glucose => glucose_contributions(world, agent, &mut contribs),
         ContributionKind::Stamina => stamina_contributions(world, agent, &mut contribs),
-        ContributionKind::Hydration => hydration_contributions(world, agent, cfg, &mut contribs),
         ContributionKind::Stomach => stomach_contributions(world, agent, &mut contribs),
     }
 
@@ -57,26 +54,18 @@ pub fn net_rate(contribs: &[Contribution]) -> f32 {
     contribs.iter().map(|c| c.rate).sum()
 }
 
-fn glucose_contributions(
-    world: &World,
-    agent: Entity,
-    cfg: Option<&ActivityConfig>,
-    out: &mut Vec<Contribution>,
-) {
+fn glucose_contributions(world: &World, agent: Entity, out: &mut Vec<Contribution>) {
     use crate::agent::actions::registry::ActionKind;
     use crate::agent::body::effort::{self, DEFAULT_BODY_MASS, compute_action_cost};
+    use crate::agent::body::metabolism::BMR_GLUCOSE_DRAIN_PER_SEC;
     use crate::agent::body::species::SpeciesProfile;
     use crate::agent::movement::effective_intensity;
 
-    if let Some(cfg) = cfg {
-        let bmr = cfg.base.effects.glucose_drain;
-        if bmr != 0.0 {
-            out.push(Contribution {
-                source: "BMR (base metabolic rate)".into(),
-                rate: -bmr,
-            });
-        }
-    }
+    out.push(Contribution {
+        source: "BMR (base metabolic rate)".into(),
+        rate: -BMR_GLUCOSE_DRAIN_PER_SEC,
+    });
+
     let (Some(active), Some(reg)) = (
         world.get::<ActiveActions>(agent),
         world.get_resource::<ActionRegistry>(),
@@ -87,6 +76,10 @@ fn glucose_contributions(
         .get::<SpeciesProfile>(agent)
         .map(|s| s.mass_kg)
         .unwrap_or(DEFAULT_BODY_MASS);
+    let lung_condition = world
+        .get::<Body>(agent)
+        .map(Body::lung_condition)
+        .unwrap_or(1.0);
     let stamina = world
         .get::<PhysicalNeeds>(agent)
         .map(|p| p.stamina.clone())
@@ -104,7 +97,7 @@ fn glucose_contributions(
                 action.default_behavior().intensity.resolve()
             };
         let profile = primitive.effort_profile().scaled(intensity);
-        let cost = compute_action_cost(&profile, body_mass);
+        let cost = compute_action_cost(&profile, body_mass, lung_condition);
         if cost.energy != 0.0 {
             let reserves = world
                 .get::<PhysicalNeeds>(agent)
@@ -135,6 +128,10 @@ fn stamina_contributions(world: &World, agent: Entity, out: &mut Vec<Contributio
         .get::<SpeciesProfile>(agent)
         .map(|s| s.mass_kg)
         .unwrap_or(DEFAULT_BODY_MASS);
+    let lung_condition = world
+        .get::<Body>(agent)
+        .map(Body::lung_condition)
+        .unwrap_or(1.0);
     let stamina = world
         .get::<PhysicalNeeds>(agent)
         .map(|p| p.stamina.clone())
@@ -152,38 +149,11 @@ fn stamina_contributions(world: &World, agent: Entity, out: &mut Vec<Contributio
                 action.default_behavior().intensity.resolve()
             };
         let profile = primitive.effort_profile().scaled(intensity);
-        let cost = compute_action_cost(&profile, body_mass);
+        let cost = compute_action_cost(&profile, body_mass, lung_condition);
         if cost.aerobic_drain != 0.0 {
             out.push(Contribution {
                 source: format!("{:?}", state.action_type),
                 rate: -cost.aerobic_drain,
-            });
-        }
-    }
-}
-
-fn hydration_contributions(
-    world: &World,
-    agent: Entity,
-    cfg: Option<&ActivityConfig>,
-    out: &mut Vec<Contribution>,
-) {
-    let Some(cfg) = cfg else {
-        return;
-    };
-    let base = cfg.base.effects.hydration_change;
-    if base != 0.0 {
-        out.push(Contribution {
-            source: "baseline".into(),
-            rate: base,
-        });
-    }
-    if let Some(activity) = world.get::<CurrentActivity>(agent) {
-        let activity_delta = cfg.get(activity).effects.hydration_change;
-        if activity_delta != 0.0 {
-            out.push(Contribution {
-                source: format!("{:?}", activity),
-                rate: activity_delta,
             });
         }
     }
