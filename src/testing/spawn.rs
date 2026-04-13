@@ -56,7 +56,19 @@ pub(super) fn spawn_test_person(
         .clone()
         .unwrap_or_else(|| world.resource_mut::<NameCounters>().next_human());
 
-    let cultural_knowledge = Arc::new(create_cultural_knowledge(Culture::default()));
+    // If the caller supplied explicit cultural knowledge via `config.knowledge`
+    // (e.g. `apply_spawn_layout` passing `create_cultural_knowledge(Gatherer)`),
+    // use that as the cultural baseline instead of layering the default-Nomad
+    // triples on top — otherwise a "Gatherer" test human ends up knowing both
+    // Nomad and Gatherer facts, which diverges from the windowed spawn path.
+    let (cultural_knowledge, extra_knowledge) = if config.knowledge.is_empty() {
+        (
+            Arc::new(create_cultural_knowledge(Culture::default())),
+            Vec::new(),
+        )
+    } else {
+        (Arc::new(config.knowledge.clone()), Vec::new())
+    };
 
     let social_drive_override = config.social_drive;
 
@@ -75,7 +87,7 @@ pub(super) fn spawn_test_person(
                 wakefulness: config.wakefulness,
             },
             cultural_knowledge,
-            extra_knowledge: config.knowledge,
+            extra_knowledge,
         },
         ontology,
     );

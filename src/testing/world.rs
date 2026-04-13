@@ -844,16 +844,45 @@ impl TestWorld {
     /// no-visuals) spawners. Counterpart to [`crate::world::spawner::apply_layout`]
     /// which uses the full visual spawners.
     ///
-    /// Spawns all entities from a layout using the test-compatible (logic-only,
-    /// no-visuals) spawners. Human personalities are left at the neutral default
-    /// (0.5 on all traits); genome-derived variation only applies after a tick
-    /// once `develop_phenotype_system` runs.
+    /// Humans get a randomized genome (via `random_genome`) and a culture
+    /// assignment that mirrors the windowed game: first-group humans roll
+    /// Nomad/Farmer, second-group humans roll Gatherer. Cultural triples are
+    /// pre-loaded into the MindGraph at spawn so a headless run matches the
+    /// debug-build human's starting knowledge exactly.
     pub fn apply_spawn_layout(&mut self, layout: &SpawnLayout) {
+        use crate::agent::body::genetics::founder::random_genome;
+        use crate::agent::body::species::Species;
+        use crate::agent::culture::{Culture, create_cultural_knowledge};
+        use rand::Rng;
+
+        let first_group_cultures = [Culture::Nomad, Culture::Farmer];
+        let second_group_cultures = [Culture::Gatherer];
+
         for &pos in &layout.human_positions {
-            self.spawn_agent(AgentConfig::at(pos));
+            let mut rng_guard = self.app.world_mut().resource_mut::<crate::core::SimRng>();
+            let rng = rng_guard.inner_mut();
+            let culture = first_group_cultures[rng.random_range(0..first_group_cultures.len())];
+            let genome = random_genome(rng, Species::Human);
+            drop(rng_guard);
+            let knowledge = create_cultural_knowledge(culture);
+            self.spawn_agent(AgentConfig {
+                genome,
+                knowledge,
+                ..AgentConfig::at(pos)
+            });
         }
         for &pos in &layout.second_human_positions {
-            self.spawn_agent(AgentConfig::at(pos));
+            let mut rng_guard = self.app.world_mut().resource_mut::<crate::core::SimRng>();
+            let rng = rng_guard.inner_mut();
+            let culture = second_group_cultures[rng.random_range(0..second_group_cultures.len())];
+            let genome = random_genome(rng, Species::Human);
+            drop(rng_guard);
+            let knowledge = create_cultural_knowledge(culture);
+            self.spawn_agent(AgentConfig {
+                genome,
+                knowledge,
+                ..AgentConfig::at(pos)
+            });
         }
         for herd in &layout.deer_herds {
             let members: Vec<Entity> = herd.iter().map(|&pos| self.spawn_deer(pos)).collect();
