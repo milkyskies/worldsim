@@ -1389,43 +1389,19 @@ impl TestWorld {
             }
         }
 
-        // Current CNS goal
+        // CNS urgencies — the "top drives" view
         if let Some(cns) =
             world.get::<crate::agent::nervous_system::cns::CentralNervousSystem>(agent)
         {
-            match &cns.current_goal {
-                Some(goal) => {
-                    let conds: Vec<String> = goal
-                        .conditions
-                        .iter()
-                        .map(|c| {
-                            format!(
-                                "{:?}={:?}",
-                                c.predicate.map(|p| format!("{p:?}")).unwrap_or_default(),
-                                c.object
-                            )
-                        })
-                        .collect();
-                    eprintln!(
-                        "  Goal:      {} (priority {:.2})",
-                        if conds.is_empty() {
-                            "(empty)".to_string()
-                        } else {
-                            conds.join(", ")
-                        },
-                        goal.priority
-                    );
-                }
-                None => eprintln!("  Goal:      (none)"),
-            }
-            // Top urgencies for context
             let top: Vec<String> = cns
                 .urgencies
                 .iter()
-                .take(3)
+                .take(5)
                 .map(|u| format!("{:?}={:.2}", u.source, u.value))
                 .collect();
-            if !top.is_empty() {
+            if top.is_empty() {
+                eprintln!("  Urgency:   (none)");
+            } else {
                 eprintln!("  Urgency:   [{}]", top.join(", "));
             }
         }

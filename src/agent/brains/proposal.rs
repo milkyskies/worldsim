@@ -32,6 +32,8 @@ pub enum Intent {
     SatisfyCuriosity,
     /// Reserved for future reproduction drive.
     SatisfyReproduction,
+    /// Fulfill a verbal promise made to another agent.
+    FulfillCommitment,
     /// Idle, ambient, or "nothing specific" behavior.
     #[default]
     None,
@@ -50,6 +52,7 @@ impl Intent {
             UrgencySource::Territoriality => Intent::SatisfyTerritoriality,
             UrgencySource::Fun | UrgencySource::Curiosity => Intent::SatisfyCuriosity,
             UrgencySource::Sleepiness => Intent::SatisfySleepiness,
+            UrgencySource::Commitment => Intent::FulfillCommitment,
         }
     }
 }

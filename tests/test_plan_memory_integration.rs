@@ -49,6 +49,8 @@ fn inject_verbal_commitment(
             promised_to,
             agreement_tick: tick,
         },
+        driving_urgency: worldsim::agent::nervous_system::urgency::UrgencySource::Commitment,
+        created_at_urgency: 0.5,
         created_at: tick,
         last_touched: tick,
         current_step: 0,
@@ -285,6 +287,8 @@ fn multiple_executing_plans_admit_in_parallel() {
         commitment: 5.0,
         subjective_cost: 10.0,
         source: PlanSource::Brain(BrainType::Rational),
+        driving_urgency: worldsim::agent::nervous_system::urgency::UrgencySource::Hunger,
+        created_at_urgency: 1.0,
         created_at: 0,
         last_touched: 0,
         current_step: 0,
@@ -318,6 +322,8 @@ fn multiple_executing_plans_admit_in_parallel() {
         commitment: 5.0,
         subjective_cost: 10.0,
         source: PlanSource::Brain(BrainType::Rational),
+        driving_urgency: worldsim::agent::nervous_system::urgency::UrgencySource::Hunger,
+        created_at_urgency: 1.0,
         created_at: 0,
         last_touched: 0,
         current_step: 0,
@@ -392,6 +398,8 @@ fn arbitration_admits_walk_and_converse_in_parallel() {
         commitment: 5.0,
         subjective_cost: 10.0,
         source: PlanSource::Brain(BrainType::Rational),
+        driving_urgency: worldsim::agent::nervous_system::urgency::UrgencySource::Hunger,
+        created_at_urgency: 1.0,
         created_at: 0,
         last_touched: 0,
         current_step: 0,
@@ -424,6 +432,8 @@ fn arbitration_admits_walk_and_converse_in_parallel() {
         commitment: 5.0,
         subjective_cost: 10.0,
         source: PlanSource::Brain(BrainType::Rational),
+        driving_urgency: worldsim::agent::nervous_system::urgency::UrgencySource::Social,
+        created_at_urgency: 0.6,
         created_at: 0,
         last_touched: 0,
         current_step: 0,
@@ -431,6 +441,7 @@ fn arbitration_admits_walk_and_converse_in_parallel() {
 
     let mut cns = CentralNervousSystem::default();
     cns.urgencies.push(Urgency::new(UrgencySource::Hunger, 0.7));
+    cns.urgencies.push(Urgency::new(UrgencySource::Social, 0.6));
     let registry = ActionRegistry::new();
     let proposals = rational_brain_propose(&memory, &cns, &MindGraph::default(), &registry);
 
@@ -572,6 +583,8 @@ fn suspended_plan_decays_to_background_when_commitment_hits_zero() {
                 promised_to: Entity::from_bits(42),
                 agreement_tick: 0,
             },
+            driving_urgency: worldsim::agent::nervous_system::urgency::UrgencySource::Commitment,
+            created_at_urgency: 0.5,
             created_at: 0,
             last_touched: 0,
             current_step: 0,
@@ -625,6 +638,8 @@ fn most_committed_plan_drives_conversation_content_seed() {
         commitment: 0.1,
         subjective_cost: 0.0,
         source: PlanSource::Brain(BrainType::Rational),
+        driving_urgency: worldsim::agent::nervous_system::urgency::UrgencySource::Hunger,
+        created_at_urgency: 1.0,
         created_at: 0,
         last_touched: 0,
         current_step: 0,
@@ -651,6 +666,8 @@ fn most_committed_plan_drives_conversation_content_seed() {
             promised_to: Entity::from_bits(42),
             agreement_tick: 0,
         },
+        driving_urgency: worldsim::agent::nervous_system::urgency::UrgencySource::Commitment,
+        created_at_urgency: 0.5,
         created_at: 0,
         last_touched: 0,
         current_step: 0,
@@ -740,14 +757,16 @@ fn mentioning_a_plan_in_conversation_refreshes_its_last_touched() {
 
 /// Listener-side demand reduction (#338): an agent whose MindGraph
 /// already records a peer's `Committed` triple for the same concept
-/// they would otherwise pursue should see their own goal priority
-/// discounted in CNS.
+/// they would otherwise pursue should see a discounted goal priority
+/// when the planner synthesizes a goal from the Commitment urgency.
 #[test]
 fn peer_commitment_discounts_listener_goal_priority() {
+    use worldsim::agent::brains::plan_memory::PlanMemory;
+    use worldsim::agent::brains::rational::goal_for_urgency;
     use worldsim::agent::mind::knowledge::{
         Concept, Metadata, MindGraph, Node, Predicate, Triple, Value,
     };
-    use worldsim::agent::nervous_system::cns::CentralNervousSystem;
+    use worldsim::agent::nervous_system::urgency::UrgencySource;
 
     let mut world = TestWorld::with_seed(42);
     let bob = world.spawn_agent(AgentConfig {
@@ -756,19 +775,19 @@ fn peer_commitment_discounts_listener_goal_priority() {
         ..Default::default()
     });
 
-    // Inject a verbal-commitment plan on Bob targeting Campfire so the
-    // CNS picks Campfire as Bob's commitment goal.
+    // Inject a verbal-commitment plan on Bob targeting Campfire.
     inject_verbal_commitment(&mut world, bob, Concept::Campfire, Entity::from_bits(99), 1);
 
-    // Tick once to let formulate_goals run with the verbal-only plan
-    // and pick the commitment goal.
+    // Tick once so urgency generation emits the Commitment urgency.
     world.tick(1);
-    let baseline_priority = world
-        .get::<CentralNervousSystem>(bob)
-        .current_goal
-        .as_ref()
-        .map(|g| g.priority)
-        .expect("CNS should formulate a commitment goal for Campfire");
+
+    let baseline_priority = {
+        let memory = world.get::<PlanMemory>(bob).clone();
+        let mind = world.get::<MindGraph>(bob).clone();
+        goal_for_urgency(UrgencySource::Commitment, 0.7, &memory, &mind)
+            .expect("should synthesize a commitment goal")
+            .priority
+    };
 
     // Now broadcast that a peer (entity 99) is also committed to
     // Campfire — exactly the triple `communication.rs` writes when an
@@ -784,12 +803,13 @@ fn peer_commitment_discounts_listener_goal_priority() {
         ));
     }
     world.tick(1);
-    let discounted_priority = world
-        .get::<CentralNervousSystem>(bob)
-        .current_goal
-        .as_ref()
-        .map(|g| g.priority)
-        .expect("CNS should still emit a goal after the peer commitment");
+    let discounted_priority = {
+        let memory = world.get::<PlanMemory>(bob).clone();
+        let mind = world.get::<MindGraph>(bob).clone();
+        goal_for_urgency(UrgencySource::Commitment, 0.7, &memory, &mind)
+            .expect("should still synthesize a goal")
+            .priority
+    };
 
     assert!(
         discounted_priority < baseline_priority,
@@ -815,6 +835,8 @@ fn eviction_protects_verbal_commitments() {
         commitment: 5.0,
         subjective_cost: 0.0,
         source: PlanSource::Brain(BrainType::Rational),
+        driving_urgency: worldsim::agent::nervous_system::urgency::UrgencySource::Hunger,
+        created_at_urgency: 1.0,
         created_at: 0,
         last_touched: 0,
         current_step: 0,
@@ -832,6 +854,8 @@ fn eviction_protects_verbal_commitments() {
             promised_to: Entity::from_bits(42),
             agreement_tick: 0,
         },
+        driving_urgency: worldsim::agent::nervous_system::urgency::UrgencySource::Commitment,
+        created_at_urgency: 0.5,
         created_at: 0,
         last_touched: 0,
         current_step: 0,

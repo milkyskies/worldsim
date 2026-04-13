@@ -15,9 +15,10 @@ use crate::agent::brains::plan_memory::{
 };
 use crate::agent::brains::proposal::{BrainProposal, BrainType, Intent};
 use crate::agent::brains::target_enumeration::enumerate_targets;
-use crate::agent::brains::thinking::{ActionTemplate, TriplePattern};
+use crate::agent::brains::thinking::{ActionTemplate, Goal, TriplePattern};
 use crate::agent::mind::knowledge::{MindGraph, Predicate, Value};
 use crate::agent::mind::perception::VisibleObjects;
+use crate::agent::nervous_system::urgency::UrgencySource;
 use crate::constants::brains::rational::{
     EXPLORE_FALLBACK_PRIORITY_MULTIPLIER, MIN_ALERTNESS_FOR_PLANNING,
 };
@@ -74,6 +75,90 @@ pub fn commitment_tick_delta(inputs: &CommitmentTickInputs) -> f32 {
         + announcement
         - inputs.neuroticism.clamp(0.0, 1.0) * COMMITMENT_NEUROTICISM_PENALTY
         + inputs.conscientiousness.clamp(0.0, 1.0) * COMMITMENT_CONSCIENTIOUSNESS_BONUS
+}
+
+/// Minimum urgency value for the planner to attempt a GOAP search.
+/// Below this the drive isn't pressing enough to justify thinking cost.
+pub const PLAN_GENERATION_MIN_URGENCY: f32 = 0.1;
+
+/// A plan is dropped when its driving urgency falls below this absolute
+/// floor, regardless of the relative-decay rule. Catches the case where a
+/// drive became essentially zero after satisfaction.
+pub const PLAN_STALE_FLOOR: f32 = 0.05;
+
+/// A plan survives as long as its driving urgency is at least this
+/// fraction of what it was when the plan was created. "Half as bad as
+/// when I started" is the "problem mostly solved itself" cutoff.
+pub const PLAN_STALE_RELATIVE_FRACTION: f32 = 0.5;
+
+/// Synthesize a concrete goal from an active urgency. Returns `None`
+/// for urgencies with no planner-level satisfier — those drives
+/// (Curiosity/Fun/Territoriality) are handled reactively by the
+/// emotional brain, not by GOAP. The returned goal's priority carries
+/// the current urgency value so downstream code can use it for
+/// commitment seeding and stale-plan decisions.
+///
+/// For `UrgencySource::Commitment`, walks PlanMemory for the
+/// highest-commitment verbal plan and reuses its conditions.
+pub fn goal_for_urgency(
+    source: UrgencySource,
+    value: f32,
+    plan_memory: &PlanMemory,
+    mind: &MindGraph,
+) -> Option<Goal> {
+    let conditions = match source {
+        UrgencySource::Hunger => {
+            vec![TriplePattern::self_has(Predicate::Hunger, Value::Int(0))]
+        }
+        UrgencySource::Stamina => {
+            vec![TriplePattern::self_has(Predicate::Stamina, Value::Int(100))]
+        }
+        UrgencySource::Social => vec![TriplePattern::self_has(
+            Predicate::SocialDrive,
+            Value::Int(0),
+        )],
+        UrgencySource::Pain => {
+            vec![TriplePattern::self_has(Predicate::Pain, Value::Int(0))]
+        }
+        UrgencySource::Thirst => {
+            vec![TriplePattern::self_has(Predicate::Thirst, Value::Int(0))]
+        }
+        UrgencySource::Commitment => {
+            // Use the conditions from the highest-commitment verbal
+            // plan currently held. No verbal plans → no commitment
+            // goal to plan for.
+            let plan = plan_memory
+                .plans
+                .iter()
+                .filter(|p| matches!(p.source, PlanSource::VerbalCommitment { .. }))
+                .max_by(|a, b| {
+                    a.commitment
+                        .partial_cmp(&b.commitment)
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                })?;
+            plan.goal.conditions.clone()
+        }
+        UrgencySource::Fun
+        | UrgencySource::Curiosity
+        | UrgencySource::Fear
+        | UrgencySource::Territoriality
+        | UrgencySource::Sleepiness => return None,
+    };
+
+    let mut goal = Goal {
+        conditions,
+        priority: value,
+    };
+
+    // Listener-side demand reduction (#338): if any peer has already
+    // publicly committed to this goal's concept, discount the priority.
+    if let Some(concept) = goal.target_concept()
+        && crate::agent::nervous_system::cns::peer_committed_to(mind, concept)
+    {
+        goal.priority *= 1.0 - crate::agent::nervous_system::cns::PEER_COMMITMENT_DISCOUNT;
+    }
+
+    Some(goal)
 }
 
 /// Derive the commit threshold from the plan's subjective cost and the
@@ -415,41 +500,62 @@ pub fn update_rational_planning(
             }
         }
 
-        // 4. Stale-plan sweep — drop Rational-sourced plans whose goal
-        //    no longer matches the current CNS goal (or whose goal is
-        //    obsolete because CNS has no current goal at all). Verbal
-        //    commitments are exempt: their motivation is external to
-        //    CNS urgencies. Runs every tick so a stale plan doesn't
-        //    linger as a ghost proposal in arbitration.
-        let cns_goal_snapshot = cns.current_goal.clone();
-        plan_memory.plans.retain(|p| {
-            if !matches!(p.source, PlanSource::Brain(BrainType::Rational)) {
+        // 4. Urgency-based stale-plan sweep. Drop Rational-sourced plans
+        //    whose driving urgency has dropped to less than half its
+        //    creation-time value (the "problem mostly solved itself" rule)
+        //    or whose urgency is no longer present in the CNS list at all.
+        //    Verbal commitments are exempt — they flow through a
+        //    `UrgencySource::Commitment` entry that `generate_urgency`
+        //    maintains based on promise state, not drive decay.
+        plan_memory.plans.retain(|plan| {
+            if !matches!(plan.source, PlanSource::Brain(BrainType::Rational)) {
                 return true;
             }
-            cns_goal_snapshot
-                .as_ref()
-                .is_some_and(|goal| &p.goal == goal)
+            match cns
+                .urgencies
+                .iter()
+                .find(|u| u.source == plan.driving_urgency)
+            {
+                Some(u) => {
+                    if u.value < PLAN_STALE_FLOOR {
+                        return false;
+                    }
+                    let origin = plan.created_at_urgency.max(0.01);
+                    u.value >= origin * PLAN_STALE_RELATIVE_FRACTION
+                }
+                None => false,
+            }
         });
 
-        // 5. Heavy thinking (regressive plan) — event-driven.
-        //
-        // Fires only when the current CNS goal has no concrete plan:
-        // `PlanMemory::needs_replan_for(goal)` is the event. Retries
-        // are throttled by `thinking_interval` so a persistently
-        // failing search (hungry agent, no known food source) doesn't
-        // spam the planner every tick — the cooldown doubles as the
-        // safety-net rhythm. In the happy path, a live plan satisfies
-        // `needs_replan_for` and the GOAP search is skipped forever.
+        // 5. Heavy thinking — planner runs per active urgency. Each
+        //    urgency with a mappable goal and no existing concrete plan
+        //    triggers a GOAP search, throttled by its own per-urgency
+        //    cooldown. High-urgency drives get shorter cooldowns so a
+        //    desperate agent thinks harder about the worst thing.
         if consciousness.alertness < MIN_ALERTNESS_FOR_PLANNING {
             continue;
         }
 
-        if let Some(goal) = cns_goal_snapshot
-            && plan_memory.needs_replan_for(&goal)
-        {
+        let urgencies_snapshot: Vec<(UrgencySource, f32)> =
+            cns.urgencies.iter().map(|u| (u.source, u.value)).collect();
+
+        for (source, value) in urgencies_snapshot {
+            if value < PLAN_GENERATION_MIN_URGENCY {
+                continue;
+            }
+            let Some(goal) = goal_for_urgency(source, value, plan_memory.as_ref(), mind) else {
+                continue;
+            };
+            if !plan_memory.needs_replan_for_urgency(source) {
+                continue;
+            }
+            let base_interval = ns_config.thinking_interval;
+            let scaled_interval =
+                (base_interval as f32 * (1.0 - value).clamp(0.1, 1.0)).round() as u64;
             let cooldown_ok = plan_memory
-                .last_plan_attempt_tick
-                .is_none_or(|t| current_tick.saturating_sub(t) >= ns_config.thinking_interval);
+                .last_plan_attempt
+                .get(&source)
+                .is_none_or(|t| current_tick.saturating_sub(*t) >= scaled_interval);
             if !cooldown_ok {
                 continue;
             }
@@ -464,13 +570,14 @@ pub fn update_rational_planning(
 
             plan_attempts += 1;
             plan_memory.plans_generated_total += 1;
-            plan_memory.last_plan_attempt_tick = Some(current_tick);
+            plan_memory.last_plan_attempt.insert(source, current_tick);
 
             if perf_logging && actions.len() > 20 {
                 let action_names: Vec<String> = actions.iter().map(|a| a.name.clone()).collect();
                 game_log.performance(format!(
-                    "[RationalBrain] Ent {:?} planning with {} actions: {:?}",
+                    "[RationalBrain] Ent {:?} planning for {:?} with {} actions: {:?}",
                     entity,
+                    source,
                     actions.len(),
                     action_names
                 ));
@@ -478,9 +585,7 @@ pub fn update_rational_planning(
 
             // GOAP search drains alertness. Curious (high-openness)
             // agents pay less. The cooldown gate above ensures this
-            // drain fires at most once per `thinking_interval`, so
-            // the per-wallclock cost is constant regardless of
-            // tick rate.
+            // drain fires at most once per interval per urgency.
             let openness_relief = personality.traits.openness
                 * crate::constants::brains::cognition::OPENNESS_PLANNING_RELIEF;
             let plan_drain = crate::constants::brains::rational::PLAN_GENERATION_ALERTNESS_DRAIN
@@ -508,20 +613,11 @@ pub fn update_rational_planning(
                     &steps, agent_pos, &cost_ctx, mind,
                 );
                 let id = plan_memory.mint_plan_id();
-                // Self-generated goal-directed plans have their urgency
-                // and cost folded into the initial commitment so the
-                // plan's starting state reflects how quickly it should
-                // begin running. Background is reserved for passively
-                // held plans (verbal commitments etc.); goal-directed
-                // plans skip straight into Considering or Executing
-                // depending on how strongly the goal drives them.
                 let threshold =
                     compute_commit_threshold(cost, personality.traits.conscientiousness);
                 // Seed commitment with urgency-weighted boost so urgent
-                // plans cross the threshold immediately and non-urgent
-                // ones still get a head start — matches the pre-#338
-                // "commit same tick" behaviour for hunger/thirst.
-                let initial_commitment = threshold * (0.5 + goal.priority.clamp(0.0, 1.0));
+                // plans cross the threshold immediately.
+                let initial_commitment = threshold * (0.5 + value.clamp(0.0, 1.0));
                 let initial_state = if initial_commitment >= threshold {
                     PlanState::Executing
                 } else {
@@ -535,6 +631,8 @@ pub fn update_rational_planning(
                     commitment: initial_commitment,
                     subjective_cost: cost,
                     source: PlanSource::Brain(BrainType::Rational),
+                    driving_urgency: source,
+                    created_at_urgency: value,
                     created_at: current_tick,
                     last_touched: current_tick,
                     current_step: 0,
@@ -579,44 +677,6 @@ const MAX_COMMITMENT: f32 = 10.0;
 /// background split without a hardcoded dwell timer.
 const BACKGROUND_PROMOTE_RATIO: f32 = 0.5;
 
-/// Map a plan's goal to the arbitration `Intent` it should compete on.
-/// Returns `None` for goals whose conditions don't match any of the
-/// drive predicates the intent enum knows about — caller falls back to
-/// the top CNS urgency intent in that case.
-fn intent_for_goal(goal: &crate::agent::brains::thinking::Goal) -> Option<Intent> {
-    for cond in &goal.conditions {
-        let Some(predicate) = cond.predicate else {
-            continue;
-        };
-        let intent = match predicate {
-            Predicate::Hunger => Some(Intent::SatisfyHunger),
-            Predicate::Thirst => Some(Intent::SatisfyThirst),
-            Predicate::Stamina => Some(Intent::SatisfyStamina),
-            Predicate::SocialDrive => Some(Intent::SatisfySocial),
-            Predicate::Pain => Some(Intent::SatisfyPainRelief),
-            // `Contains` goals describe resource acquisition. Map by
-            // the concept's edibility / drinkability when known so a
-            // food-acquisition plan competes on Hunger and a water
-            // plan competes on Thirst.
-            Predicate::Contains => match &cond.object {
-                Some(Value::Item(concept, _)) => match concept {
-                    crate::agent::mind::knowledge::Concept::Apple
-                    | crate::agent::mind::knowledge::Concept::Berry
-                    | crate::agent::mind::knowledge::Concept::Meat => Some(Intent::SatisfyHunger),
-                    crate::agent::mind::knowledge::Concept::Water => Some(Intent::SatisfyThirst),
-                    _ => None,
-                },
-                _ => None,
-            },
-            _ => None,
-        };
-        if intent.is_some() {
-            return intent;
-        }
-    }
-    None
-}
-
 /// Emit rational-brain proposals for every plan currently in the
 /// Executing state. Arbitration consumes this list and admits as many as
 /// body channels allow; rejected proposals trigger Executing → Suspended
@@ -633,12 +693,6 @@ pub fn rational_brain_propose(
     mind: &MindGraph,
     action_registry: &crate::agent::actions::ActionRegistry,
 ) -> Vec<BrainProposal> {
-    let cns_intent = cns
-        .urgencies
-        .first()
-        .map(|u| Intent::from_urgency_source(u.source))
-        .unwrap_or(Intent::None);
-
     let mut out: Vec<BrainProposal> = Vec::new();
     for plan in plan_memory.in_state(PlanState::Executing) {
         let Some(action) = plan.current() else {
@@ -647,13 +701,17 @@ pub fn rational_brain_propose(
         if !are_preconditions_met(action, mind) {
             continue;
         }
-        let urgency = (plan.goal.priority * 100.0).max(1.0);
-        // Per-plan intent, derived from the plan's goal so multiple
-        // Executing plans don't all collapse onto the same intent in
-        // arbitration's dedup pass. Falls back to the top CNS urgency
-        // intent (or `None`) when the goal's conditions don't map to
-        // a specific drive.
-        let intent = intent_for_goal(&plan.goal).unwrap_or(cns_intent);
+        // Urgency score comes from the driving urgency's *current*
+        // value in the CNS list (not the stale priority captured at
+        // creation time). That way a plan's score tracks how bad the
+        // underlying drive actually is right now, so arbitration
+        // picks the plan that addresses the most pressing need.
+        let current_urgency = cns.urgency_value(plan.driving_urgency);
+        let urgency = (current_urgency * 100.0).max(1.0);
+        // Per-plan intent, derived from the plan's driving urgency so
+        // multiple Executing plans don't all collapse onto the same
+        // intent in arbitration's dedup pass.
+        let intent = Intent::from_urgency_source(plan.driving_urgency);
         out.push(BrainProposal {
             brain: BrainType::Rational,
             action: action.clone(),
@@ -670,21 +728,17 @@ pub fn rational_brain_propose(
         return out;
     }
 
-    // No executing plan. Rational is the *planning* brain; if the
-    // current goal is a state-directed drive whose plan isn't ready
-    // yet (Hunger/Thirst, no known food source), propose Explore as
+    // No executing plan. If any resource-acquisition urgency (Hunger
+    // or Thirst) is active without a ready plan, propose Explore as
     // the planner's concrete next step: "I can't form a plan yet,
     // but I know searching is the shape of the solution." Every
-    // other drive is owned by a different brain (Survival for
-    // Stamina/Fear/Pain, Emotional for Social/Boredom/Territoriality)
-    // and Rational has nothing useful to say about them — returning
-    // empty lets those brains carry the tick (#386).
-    //
-    // No idle fallback here. Emotional brain owns the "nothing to do"
-    // case via patrol/curiosity proposals.
-    if let Some(goal) = &cns.current_goal
-        && matches!(cns_intent, Intent::SatisfyHunger | Intent::SatisfyThirst)
-    {
+    // other drive is owned by a different brain and Rational has
+    // nothing useful to say about them.
+    let resource_urgency = cns
+        .urgencies
+        .iter()
+        .find(|u| matches!(u.source, UrgencySource::Hunger | UrgencySource::Thirst));
+    if let Some(urgency) = resource_urgency {
         let explore_action = action_registry
             .get(ActionType::Explore)
             .map(|a| a.to_template(None))
@@ -692,8 +746,8 @@ pub fn rational_brain_propose(
         return vec![BrainProposal {
             brain: BrainType::Rational,
             action: explore_action,
-            urgency: goal.priority * EXPLORE_FALLBACK_PRIORITY_MULTIPLIER * 100.0,
-            intent: cns_intent,
+            urgency: urgency.value * EXPLORE_FALLBACK_PRIORITY_MULTIPLIER * 100.0,
+            intent: Intent::from_urgency_source(urgency.source),
             reasoning: "No plan ready — exploring for resources".to_string(),
         }];
     }
@@ -813,11 +867,20 @@ mod tests {
         let mut cns = CentralNervousSystem::default();
         cns.urgencies
             .push(Urgency::new(UrgencySource::Hunger, priority));
-        cns.current_goal = Some(hunger_goal(priority));
         cns
     }
 
     fn executing_plan(memory: &mut PlanMemory, goal: Goal, step: ActionTemplate) -> PlanId {
+        executing_plan_for(memory, goal, step, UrgencySource::Hunger, 1.0)
+    }
+
+    fn executing_plan_for(
+        memory: &mut PlanMemory,
+        goal: Goal,
+        step: ActionTemplate,
+        driving_urgency: UrgencySource,
+        created_at_urgency: f32,
+    ) -> PlanId {
         let id = memory.mint_plan_id();
         memory.insert(HeldPlan {
             id,
@@ -827,6 +890,8 @@ mod tests {
             commitment: 10.0,
             subjective_cost: 10.0,
             source: PlanSource::Brain(BrainType::Rational),
+            driving_urgency,
+            created_at_urgency,
             created_at: 0,
             last_touched: 0,
             current_step: 0,
@@ -864,14 +929,6 @@ mod tests {
     fn propose_returns_empty_for_non_resource_goal_without_plan() {
         let mut cns = CentralNervousSystem::default();
         cns.urgencies.push(Urgency::new(UrgencySource::Social, 0.8));
-        cns.current_goal = Some(Goal {
-            conditions: vec![TriplePattern::new(
-                Some(MindNode::Self_),
-                Some(Predicate::SocialDrive),
-                Some(Value::Int(0)),
-            )],
-            priority: 0.8,
-        });
         let memory = PlanMemory::default();
 
         let proposals =
@@ -879,7 +936,7 @@ mod tests {
 
         assert!(
             proposals.is_empty(),
-            "rational must defer when the social goal has no executing plan"
+            "rational must defer when the social urgency has no executing plan"
         );
     }
 
@@ -1077,6 +1134,8 @@ mod tests {
             commitment: 0.0,
             subjective_cost: 50.0,
             source: PlanSource::Brain(BrainType::Rational),
+            driving_urgency: UrgencySource::Hunger,
+            created_at_urgency: 1.0,
             created_at: 0,
             last_touched: 0,
             current_step: 0,

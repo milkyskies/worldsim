@@ -69,6 +69,8 @@ fn brain_walk_target_is_used_by_execution() {
                 promised_to: Entity::from_bits(1),
                 agreement_tick: 0,
             },
+            driving_urgency: worldsim::agent::nervous_system::urgency::UrgencySource::Commitment,
+            created_at_urgency: 0.5,
             created_at: 0,
             last_touched: 0,
             current_step: 0,

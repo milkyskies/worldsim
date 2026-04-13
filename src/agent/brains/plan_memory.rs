@@ -15,7 +15,9 @@
 
 use crate::agent::brains::proposal::BrainType;
 use crate::agent::brains::thinking::{ActionTemplate, Goal};
+use crate::agent::nervous_system::urgency::UrgencySource;
 use bevy::prelude::*;
+use std::collections::HashMap;
 
 /// Stable identifier for a `HeldPlan` within a single agent's memory.
 /// Unique per agent, not globally — two different agents can hold the
@@ -89,6 +91,14 @@ pub struct HeldPlan {
     pub subjective_cost: f32,
     /// Source of the plan — own brain vs. verbal commitment.
     pub source: PlanSource,
+    /// Which urgency source drove the creation of this plan. The stale
+    /// sweep retains plans whose driving urgency is still active;
+    /// otherwise the plan is dropped.
+    pub driving_urgency: UrgencySource,
+    /// Urgency value at plan creation time. The retention sweep uses
+    /// `current_value / created_at_urgency` to decide when a plan has
+    /// "mostly solved itself" and should be dropped.
+    pub created_at_urgency: f32,
     /// Tick the plan was generated.
     pub created_at: u64,
     /// Last tick the plan was touched by any system (state change,
@@ -149,15 +159,12 @@ pub struct PlanMemory {
     /// reused even after a plan is evicted.
     #[reflect(ignore)]
     next_id: u64,
-    /// Tick the rational brain last called `regressive_plan` for this
-    /// agent. `None` until the first attempt. Drives the safety-net
-    /// cooldown that stops the GOAP search from re-firing every tick
-    /// when `needs_replan_for` keeps returning true (e.g. a hungry
-    /// agent with no known food source). Absence means "first call
-    /// fires immediately" — a freshly-spawned agent never waits for
-    /// its first plan.
+    /// Per-urgency last-plan-attempt tick. Each urgency source has its
+    /// own cooldown so that a failed search for food doesn't block a
+    /// retry for water. Missing entry means "first call fires
+    /// immediately."
     #[reflect(ignore)]
-    pub last_plan_attempt_tick: Option<u64>,
+    pub last_plan_attempt: HashMap<UrgencySource, u64>,
     /// Count of `regressive_plan` invocations for this agent across
     /// the whole run. Monotonic. Used by tests to assert the planner
     /// stays silent while a live plan covers the current goal.
@@ -228,6 +235,17 @@ impl PlanMemory {
             .plans
             .iter()
             .any(|p| &p.goal == goal && !p.steps.is_empty())
+    }
+
+    /// True when no plan in memory targets the given urgency source
+    /// with concrete steps. Used by the urgency-driven planning loop:
+    /// each active urgency gets its own "do I already have a plan for
+    /// this?" check independent of whether other urgencies are handled.
+    pub fn needs_replan_for_urgency(&self, source: UrgencySource) -> bool {
+        !self
+            .plans
+            .iter()
+            .any(|p| p.driving_urgency == source && !p.steps.is_empty())
     }
 
     /// Mutable lookup by goal.
@@ -348,6 +366,8 @@ mod tests {
             commitment,
             subjective_cost: 0.0,
             source,
+            driving_urgency: UrgencySource::Hunger,
+            created_at_urgency: 0.5,
             created_at: 0,
             last_touched: 0,
             current_step: 0,
