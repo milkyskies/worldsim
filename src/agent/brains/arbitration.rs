@@ -303,6 +303,7 @@ mod tests {
                 base_cost: 1.0,
                 locomotion_intensity,
                 estimated_duration_ticks: None,
+                search_filter: None,
             },
             urgency,
             intent,

@@ -15,7 +15,9 @@ use crate::agent::brains::plan_memory::{
 };
 use crate::agent::brains::proposal::{BrainProposal, BrainType, Intent};
 use crate::agent::brains::target_enumeration::enumerate_targets;
-use crate::agent::brains::thinking::{ActionTemplate, Goal, TriplePattern};
+use crate::agent::brains::thinking::{
+    ActionTemplate, Goal, SearchFilter, TriplePattern, derive_search_concept,
+};
 use crate::agent::mind::knowledge::{MindGraph, Predicate, Value};
 use crate::agent::mind::perception::VisibleObjects;
 use crate::agent::nervous_system::urgency::UrgencySource;
@@ -383,17 +385,6 @@ pub fn update_rational_planning(
                     invalid_ids.push(plan.id);
                     continue;
                 }
-                if let Some(action) = plan.current()
-                    && action.action_type == ActionType::Explore
-                {
-                    let has_known = mind
-                        .query(None, Some(Predicate::Contains), None)
-                        .iter()
-                        .any(|triple| matches!(&triple.object, Value::Item(_, qty) if *qty > 0));
-                    if has_known {
-                        finished_ids.push(plan.id);
-                    }
-                }
             }
             if plan.is_finished() {
                 finished_ids.push(plan.id);
@@ -683,11 +674,14 @@ const BACKGROUND_PROMOTE_RATIO: f32 = 0.5;
 /// body channels allow; rejected proposals trigger Executing → Suspended
 /// transitions back in `brain_system`.
 ///
-/// When no plan is executing, falls back to Explore (for hunger/thirst
-/// goals with no known target) or Wander (idle). The Wander fallback is
-/// gated when the agent is currently in a conversation — emitting it
-/// would walk them out of conversation range and collapse the social
-/// turn (the 1-tick flicker bug from #330).
+/// When no plan is executing, walks the CNS urgency list and for each
+/// drive whose satisfying action has a concept filter precondition,
+/// proposes `LookFor(concept)` as a goal-directed search fallback.
+/// Concepts are derived via `derive_search_concept` one step back from
+/// the goal, so any future drive with an `isa_filter` precondition gets
+/// LookFor automatically — no enum sniffing. Curiosity-driven open
+/// wandering (`ExploreAction`) is emotional-brain territory after #561
+/// and never surfaces here.
 pub fn rational_brain_propose(
     plan_memory: &PlanMemory,
     cns: &crate::agent::nervous_system::cns::CentralNervousSystem,
@@ -729,27 +723,36 @@ pub fn rational_brain_propose(
         return out;
     }
 
-    // No executing plan. If any resource-acquisition urgency (Hunger
-    // or Thirst) is active without a ready plan, propose Explore as
-    // the planner's concrete next step: "I can't form a plan yet,
-    // but I know searching is the shape of the solution." Every
-    // other drive is owned by a different brain and Rational has
-    // nothing useful to say about them.
-    let resource_urgency = cns
-        .urgencies
-        .iter()
-        .find(|u| matches!(u.source, UrgencySource::Hunger | UrgencySource::Thirst));
-    if let Some(urgency) = resource_urgency {
-        let explore_action = action_registry
-            .get(ActionType::Explore)
-            .map(|a| a.to_template(None))
-            .expect("Explore action must be registered");
+    // No executing plan. Walk the CNS urgency list (already sorted
+    // high-to-low) and for each drive whose satisfying action has a
+    // concept filter, propose `LookFor(concept)`. The planner can't
+    // build a real plan until MindGraph knows an instance, but it can
+    // still say "search is the shape of the solution" — and the
+    // concept comes from one-step-back introspection on the action
+    // registry, not a hardcoded `Hunger | Thirst` match.
+    //
+    // Returns the first viable proposal: highest-urgency drive wins,
+    // and once the MindGraph gains a matching `Contains` triple the
+    // normal planning path will generate a real plan whose urgency
+    // outranks this fallback during arbitration.
+    for urgency in &cns.urgencies {
+        let Some(goal) = goal_for_urgency(urgency.source, urgency.value, plan_memory, mind) else {
+            continue;
+        };
+        let Some(filter) = derive_search_concept(&goal, action_registry) else {
+            continue;
+        };
+        let Some(look_for) = action_registry.get(ActionType::LookFor) else {
+            continue;
+        };
+        let mut template = look_for.to_template(None);
+        template.search_filter = Some(filter);
         return vec![BrainProposal {
             brain: BrainType::Rational,
-            action: explore_action,
+            action: template,
             urgency: urgency.value * EXPLORE_FALLBACK_PRIORITY_MULTIPLIER * 100.0,
             intent: Intent::from_urgency_source(urgency.source),
-            reasoning: "No plan ready — exploring for resources".to_string(),
+            reasoning: format!("No plan ready — looking for {}", filter.describe()),
         }];
     }
 
@@ -850,6 +853,7 @@ mod tests {
             base_cost: 1.0,
             locomotion_intensity,
             estimated_duration_ticks: None,
+            search_filter: None,
         }
     }
 
@@ -904,6 +908,8 @@ mod tests {
         let mut r = ActionRegistry::default();
         r.register(crate::agent::actions::action::WanderAction);
         r.register(crate::agent::actions::action::ExploreAction);
+        r.register(crate::agent::actions::action::LookForAction);
+        r.register(crate::agent::actions::action::EatAction);
         r
     }
 
@@ -942,7 +948,7 @@ mod tests {
     }
 
     #[test]
-    fn propose_explore_fallback_for_hunger_without_plan() {
+    fn propose_look_for_fallback_for_hunger_without_plan() {
         let cns = cns_with_hunger(1.0);
         let memory = PlanMemory::default();
 
@@ -950,9 +956,70 @@ mod tests {
             rational_brain_propose(&memory, &cns, &MindGraph::default(), &test_registry());
 
         assert_eq!(proposals.len(), 1);
-        assert_eq!(proposals[0].action.action_type, ActionType::Explore);
+        assert_eq!(
+            proposals[0].action.action_type,
+            ActionType::LookFor,
+            "Rational must propose LookFor (not Explore) when hungry with no known food"
+        );
+        assert_eq!(
+            proposals[0].action.search_filter,
+            Some(SearchFilter::concept(Concept::Food)),
+            "LookFor's search filter must be derived from Eat's isa_filter"
+        );
         let expected = 1.0 * EXPLORE_FALLBACK_PRIORITY_MULTIPLIER * 100.0;
         assert!((proposals[0].urgency - expected).abs() < 0.01);
+    }
+
+    #[test]
+    fn look_for_fallback_suppressed_when_executing_plan_exists() {
+        // An Executing plan must short-circuit the LookFor fallback
+        // loop; without this invariant the fallback would double-propose
+        // alongside the running plan and churn arbitration.
+        let mut memory = PlanMemory::default();
+        let cns = cns_with_hunger(1.0);
+        executing_plan(
+            &mut memory,
+            hunger_goal(1.0),
+            template("WalkToApple", ActionType::Walk),
+        );
+
+        let proposals =
+            rational_brain_propose(&memory, &cns, &MindGraph::default(), &test_registry());
+
+        assert_eq!(
+            proposals.len(),
+            1,
+            "Executing plan must suppress the LookFor fallback; got {proposals:?}"
+        );
+        assert_eq!(
+            proposals[0].action.action_type,
+            ActionType::Walk,
+            "the Executing plan's step must win, not the fallback"
+        );
+        assert!(
+            proposals
+                .iter()
+                .all(|p| p.action.action_type != ActionType::LookFor),
+            "LookFor fallback must not fire when a real plan is executing"
+        );
+    }
+
+    #[test]
+    fn rational_never_proposes_explore_after_split() {
+        // Explore is emotional-brain-only; Rational's goal-directed
+        // fallback is LookFor.
+        let cns = cns_with_hunger(1.0);
+        let memory = PlanMemory::default();
+
+        let proposals =
+            rational_brain_propose(&memory, &cns, &MindGraph::default(), &test_registry());
+
+        assert!(
+            proposals
+                .iter()
+                .all(|p| p.action.action_type != ActionType::Explore),
+            "Rational brain must never propose Explore after the split; got {proposals:?}"
+        );
     }
 
     #[test]
@@ -1145,10 +1212,10 @@ mod tests {
         let proposals =
             rational_brain_propose(&memory, &cns, &MindGraph::default(), &test_registry());
 
-        // Background plans aren't proposed — Explore fallback fires because
-        // hunger is a resource goal with no executing plan yet.
+        // Background plans don't propose; the LookFor fallback fires
+        // because hunger has no executing plan.
         assert_eq!(proposals.len(), 1);
-        assert_eq!(proposals[0].action.action_type, ActionType::Explore);
+        assert_eq!(proposals[0].action.action_type, ActionType::LookFor);
     }
 
     /// Regression for #345: the planner's feasibility gate must reject

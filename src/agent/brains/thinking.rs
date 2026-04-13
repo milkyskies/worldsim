@@ -125,6 +125,48 @@ pub struct ActionTemplate {
     /// Movement actions (duration depends on distance) and indefinite
     /// actions (Sleep, Idle, Construct with `u32::MAX`).
     pub estimated_duration_ticks: Option<u32>,
+    /// Concept filter for `LookFor`-style goal-directed search. Flows
+    /// from the brain's fallback proposal through execution dispatch
+    /// into `ActionState` and `LegCompleteContext` so the target picker
+    /// can bias chunk selection. `None` for every non-search action.
+    pub search_filter: Option<SearchFilter>,
+}
+
+/// Concept/trait filter for goal-directed search actions.
+///
+/// Mirrors `TriplePattern::isa_filter` / `trait_filter` in a compact form
+/// that can be stored on `ActionTemplate`/`ActionState` without dragging
+/// the whole pattern shape onto the runtime state. `LookForAction`
+/// consumes one of these via its `LegCompleteContext` to pick targets
+/// biased toward chunks with matching `Produces` hints.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Reflect)]
+pub struct SearchFilter {
+    pub isa: Option<Concept>,
+    pub trait_: Option<Concept>,
+}
+
+impl SearchFilter {
+    pub fn concept(isa: Concept) -> Self {
+        Self {
+            isa: Some(isa),
+            trait_: None,
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.isa.is_none() && self.trait_.is_none()
+    }
+
+    /// Human-readable short label for logs and reasoning strings.
+    pub fn describe(&self) -> String {
+        if let Some(c) = self.isa {
+            format!("{:?}", c)
+        } else if let Some(t) = self.trait_ {
+            format!("trait {:?}", t)
+        } else {
+            "something".to_string()
+        }
+    }
 }
 
 impl ActionTemplate {
@@ -179,3 +221,136 @@ impl PartialEq for Goal {
 // NOTE: Static ActionTemplate methods (wake_up, wander, explore, etc.) have been removed.
 // Actions are now defined via the Action trait and accessed through ActionRegistry.
 // Use: action_registry.get(ActionType::Wander).map(|a| a.to_template(None))
+
+/// Walk one planning step backward from a goal to find the concept the
+/// agent should be searching for when no concrete instance is known.
+///
+/// For each action in the registry, check whether any of its planning
+/// effects satisfies any condition on `goal`. If so, look at that
+/// action's preconditions for a `TriplePattern` that carries an
+/// `isa_filter` / `trait_filter` — those are the "look for something
+/// matching this concept" expressions the planner already uses (see
+/// `TriplePattern::self_contains_food`).
+///
+/// Returns a `SearchFilter` built from the first matching action's
+/// filter. `None` when no action satisfies the goal, or when the
+/// satisfier has no concept filter at all (meaning "there's nothing
+/// specific to search for" — e.g. `RestAction` acts on self-state, not
+/// on a findable resource).
+pub fn derive_search_concept(
+    goal: &Goal,
+    registry: &crate::agent::actions::ActionRegistry,
+) -> Option<SearchFilter> {
+    let mut actions: Vec<&dyn crate::agent::actions::registry::Action> = registry.all().collect();
+    actions.sort_by_key(|a| a.action_type() as usize);
+
+    for action in actions {
+        let effects = action.plan_effects();
+        if effects.is_empty() {
+            continue;
+        }
+        let satisfies_goal = effects.iter().any(|effect| {
+            goal.conditions
+                .iter()
+                .any(|cond| goal_condition_matches_effect(cond, effect))
+        });
+        if !satisfies_goal {
+            continue;
+        }
+        for pre in action.preconditions() {
+            if pre.isa_filter.is_some() || pre.trait_filter.is_some() {
+                return Some(SearchFilter {
+                    isa: pre.isa_filter,
+                    trait_: pre.trait_filter,
+                });
+            }
+        }
+    }
+    None
+}
+
+/// True when the concrete `effect` satisfies the goal `cond`. Goal
+/// conditions rarely carry `isa_filter`/`trait_filter` (they're
+/// `self_has` patterns produced by `goal_for_urgency`), so this is the
+/// subject/predicate/object portion of the planner's
+/// `pattern_matches_triple`. If a future goal ever uses ontology
+/// filters, plumb the MindGraph through here and delegate to the
+/// planner's version with an ontology.
+fn goal_condition_matches_effect(cond: &TriplePattern, effect: &Triple) -> bool {
+    if let Some(s) = &cond.subject
+        && &effect.subject != s
+    {
+        return false;
+    }
+    if let Some(p) = cond.predicate
+        && effect.predicate != p
+    {
+        return false;
+    }
+    if let Some(o) = &cond.object
+        && &effect.object != o
+    {
+        return false;
+    }
+    true
+}
+
+#[cfg(test)]
+mod derive_search_concept_tests {
+    use super::*;
+    use crate::agent::actions::{ActionRegistry, action};
+
+    #[test]
+    fn derive_search_concept_chases_eat_precondition_to_food() {
+        // Eat's plan_effect is (Self, Hunger, 0) and its precondition is
+        // self_contains_food (isa_filter = Food). A hunger goal must
+        // resolve to a Food search via one-step-back introspection.
+        let mut registry = ActionRegistry::default();
+        registry.register(action::EatAction);
+
+        let goal = Goal {
+            conditions: vec![TriplePattern::self_has(Predicate::Hunger, Value::Int(0))],
+            priority: 1.0,
+        };
+
+        let result = derive_search_concept(&goal, &registry);
+        assert_eq!(result, Some(SearchFilter::concept(Concept::Food)));
+    }
+
+    #[test]
+    fn derive_search_concept_returns_none_for_drives_without_isa_filter() {
+        // Rest has a (Self, Stamina, 100) effect but its precondition
+        // has no concept filter — it's a self-state action, not a
+        // resource-acquisition one. Derive must return None so the
+        // Rational fallback skips this drive instead of proposing a
+        // useless search.
+        let mut registry = ActionRegistry::default();
+        registry.register(action::RestAction);
+
+        let goal = Goal {
+            conditions: vec![TriplePattern::self_has(Predicate::Stamina, Value::Int(100))],
+            priority: 1.0,
+        };
+
+        let result = derive_search_concept(&goal, &registry);
+        assert!(
+            result.is_none(),
+            "drives whose satisfier has no isa_filter must not trigger LookFor; got {result:?}"
+        );
+    }
+
+    #[test]
+    fn derive_search_concept_returns_none_when_no_action_satisfies_goal() {
+        // Registry with an unrelated action (Wander has no effects).
+        // A hunger goal has nothing that matches, so derive returns None.
+        let mut registry = ActionRegistry::default();
+        registry.register(action::WanderAction);
+
+        let goal = Goal {
+            conditions: vec![TriplePattern::self_has(Predicate::Hunger, Value::Int(0))],
+            priority: 1.0,
+        };
+
+        assert!(derive_search_concept(&goal, &registry).is_none());
+    }
+}
