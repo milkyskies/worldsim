@@ -10,6 +10,7 @@ use bevy::math::Vec2;
 use worldsim::agent::actions::{ActionType, ActiveActions};
 use worldsim::agent::biology::body::{Body, Injury, InjuryType};
 use worldsim::agent::body::needs::PhysicalNeeds;
+use worldsim::agent::events::SimEvent;
 use worldsim::agent::nervous_system::cns::CentralNervousSystem;
 use worldsim::agent::nervous_system::urgency::UrgencySource;
 use worldsim::testing::TestWorld;
@@ -222,4 +223,75 @@ fn pain_wakes_sleeping_agent() {
         world.get::<Body>(sleeper).total_pain(),
         world.current_action(sleeper),
     );
+}
+
+/// Regression for the silent-Sleep-drop bug: in the observed #496 event log,
+/// two `ActionStarted Sleep` events fired for the same agent within a few
+/// hundred ticks of each other with no intervening `ActionPreempted`,
+/// `ActionCompleted`, or `ActionFailed` for Sleep. That means Sleep left
+/// `ActiveActions` invisibly, the brain re-proposed it, and it got admitted
+/// again — which is what the flapping timeline in the 4-day trace showed.
+///
+/// This test fails if any two consecutive `ActionStarted Sleep` events for
+/// the sleeper aren't separated by a terminating Sleep event.
+#[test]
+fn sleep_start_always_has_matching_terminator() {
+    let (mut world, sleeper) = tired_sleeper();
+
+    // Tick long enough for several sleep-wake cycles to happen. One full
+    // sleep cycle is roughly 7000 ticks; run 15k to cover the flap window
+    // the 4-day trace captured.
+    world.tick(15_000);
+
+    let events: Vec<_> = world
+        .sim_events()
+        .all()
+        .iter()
+        .filter_map(|e| match e {
+            SimEvent::ActionStarted {
+                agent,
+                tick,
+                action: ActionType::Sleep,
+                ..
+            } if *agent == sleeper => Some(("Started", *tick)),
+            SimEvent::ActionPreempted {
+                agent,
+                tick,
+                preempted_action: ActionType::Sleep,
+            } if *agent == sleeper => Some(("Preempted", *tick)),
+            SimEvent::ActionCompleted {
+                agent,
+                tick,
+                action: ActionType::Sleep,
+                ..
+            } if *agent == sleeper => Some(("Completed", *tick)),
+            SimEvent::ActionFailed {
+                agent,
+                tick,
+                action: ActionType::Sleep,
+                ..
+            } if *agent == sleeper => Some(("Failed", *tick)),
+            _ => None,
+        })
+        .collect();
+
+    // Walk the event list. Every "Started" must be either the first Sleep
+    // event, or immediately preceded by a terminator (Preempted/Completed/
+    // Failed). Two consecutive "Started"s indicate a silent drop.
+    let mut prev: Option<(&str, u64)> = None;
+    for (kind, tick) in &events {
+        if *kind == "Started"
+            && let Some((prev_kind, prev_tick)) = prev
+            && prev_kind == "Started"
+        {
+            panic!(
+                "silent Sleep drop: two ActionStarted Sleep events in a row \
+                 without an intervening terminator (Preempted/Completed/Failed). \
+                 previous start at tick {prev_tick}, next start at tick {tick}. \
+                 full event list: {:?}",
+                events
+            );
+        }
+        prev = Some((*kind, *tick));
+    }
 }
