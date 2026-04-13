@@ -209,6 +209,15 @@ pub struct CliArgs {
     #[arg(long = "log-on-change")]
     pub log_on_change: Vec<String>,
 
+    /// Debounce change-driven emissions by N ticks. A change must stay
+    /// different from the last emitted line for N ticks before it is
+    /// written out; transient flickers that revert inside the window are
+    /// dropped entirely. Applies only to `--log-on-change` — heartbeats
+    /// (`--log-every`) and the default every-tick mode bypass debounce.
+    /// `0` (default) disables it.
+    #[arg(long = "log-debounce", default_value_t = 0)]
+    pub log_debounce: u64,
+
     /// Output format for the field logger. `jsonl` (default) or `csv`. CSV
     /// flattens nested objects into dotted-path columns.
     #[arg(long = "log-as", default_value = "jsonl")]
@@ -307,6 +316,7 @@ impl CliArgs {
             format,
             every: self.log_every.max(1),
             on_change,
+            debounce: self.log_debounce,
         })
     }
 
