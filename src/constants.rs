@@ -142,7 +142,17 @@ pub mod actions {
 pub mod brains {
     pub mod survival {
         /// Stamina level at which a sleeping agent wakes up fully rested.
+        /// Legacy absolute threshold — still used by the planner's
+        /// exhaustion gate. Wake-up checks now use
+        /// `WAKE_STAMINA_FRACTION` so agents with genetic
+        /// `aerobic_capacity < 1.0` (and therefore `aerobic_max < 100`)
+        /// can still satisfy the rested-wake condition.
         pub const WAKE_STAMINA_THRESHOLD: f32 = 90.0;
+        /// Fraction of `aerobic_max` at which a sleeping agent wakes up
+        /// fully rested. Used instead of the absolute threshold so
+        /// genetically below-average individuals (whose max is below
+        /// the legacy 100) can actually reach a "well-rested" state.
+        pub const WAKE_STAMINA_FRACTION: f32 = 0.9;
         /// Stamina safety margin used by the planner: if a walk would leave the agent below
         /// this level, Sleep is prepended so the survival brain doesn't interrupt the trip.
         pub const EXHAUSTION_TRIGGER: f32 = 15.0;

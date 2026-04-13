@@ -12,7 +12,7 @@ use crate::agent::item_slots::ItemSlots;
 use crate::agent::mind::knowledge::Ontology;
 use crate::agent::nervous_system::cns::CentralNervousSystem;
 use crate::agent::nervous_system::urgency::UrgencySource;
-use crate::constants::brains::survival::{WAKE_STAMINA_THRESHOLD, WAKE_WAKEFULNESS_THRESHOLD};
+use crate::constants::brains::survival::{WAKE_STAMINA_FRACTION, WAKE_WAKEFULNESS_THRESHOLD};
 use bevy::prelude::*;
 
 pub struct SurvivalBrainContext<'a> {
@@ -166,6 +166,7 @@ fn check_sleep_wake(
     }
 
     let aerobic = context.physical.stamina.aerobic;
+    let aerobic_fraction = context.physical.stamina.aerobic_fraction();
     let wakefulness = context.physical.wakefulness;
 
     let wake_proposal = |urgency: f32, reasoning: String| BrainProposal {
@@ -180,10 +181,17 @@ fn check_sleep_wake(
     };
 
     // Rested wake: both wakefulness and stamina are recovered enough.
-    if wakefulness >= WAKE_WAKEFULNESS_THRESHOLD && aerobic >= WAKE_STAMINA_THRESHOLD {
+    // Compare aerobic as a fraction of max, not raw value — genetic
+    // `aerobic_capacity` can set `aerobic_max` below the legacy 100,
+    // which would otherwise keep the agent stuck asleep forever (their
+    // real ceiling is below the absolute threshold).
+    if wakefulness >= WAKE_WAKEFULNESS_THRESHOLD && aerobic_fraction >= WAKE_STAMINA_FRACTION {
         return Some(wake_proposal(
             50.0,
-            format!("Rested! Wakefulness {wakefulness:.2}, aerobic {aerobic:.0} — waking up"),
+            format!(
+                "Rested! Wakefulness {wakefulness:.2}, aerobic {aerobic:.0} ({:.0}% of max) — waking up",
+                aerobic_fraction * 100.0
+            ),
         ));
     }
 
