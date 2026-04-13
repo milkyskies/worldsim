@@ -103,6 +103,12 @@ pub struct FieldLoggerConfig {
     pub format: FieldLoggerFormat,
     pub every: u64,
     pub on_change: Vec<OnChangeSpec>,
+    /// When set, hold change-driven emissions for N ticks. If the state
+    /// reverts to the last-emitted signature within the window, the change
+    /// is dropped entirely. If it mutates again within the window, the timer
+    /// restarts against the new state. Heartbeat emissions (`--log-every`)
+    /// and the default every-tick mode bypass debounce. `0` disables it.
+    pub debounce: u64,
 }
 
 impl FieldLoggerConfig {
@@ -124,6 +130,20 @@ impl FieldLoggerConfig {
 pub struct AgentLogState {
     pub last_emit_tick: Option<u64>,
     pub last_values: HashMap<String, Value>,
+    /// A change the logger saw but is still holding for the debounce window.
+    /// `None` when nothing is pending. Cleared on emit or when the state
+    /// reverts to `last_values`.
+    pub pending: Option<PendingChange>,
+}
+
+/// A change-detected snapshot that is waiting for the debounce window to
+/// pass before it is emitted. Stores the tick the state first differed from
+/// `last_values` and the values captured at that moment — the emission logic
+/// compares the live signature against this on every subsequent tick.
+#[derive(Debug, Clone)]
+pub struct PendingChange {
+    pub first_seen_tick: u64,
+    pub values: HashMap<String, Value>,
 }
 
 /// Buffers JSONL lines produced during a run plus the per-agent state the
@@ -1014,13 +1034,22 @@ fn strip_emotions(value: &Value) -> Value {
 // EMISSION DECISION
 // ============================================================================
 
-/// Decide whether to emit a line this tick for a given agent given their
-/// previous state and the current field values. Implements the OR rule
-/// documented in issue #490: `--log-every` heartbeat OR `--log-on-change`
-/// change detection.
+/// Decide whether to emit a line this tick, advancing the agent's pending
+/// debounce state as a side effect.
+///
+/// Rules:
+/// - Default (no `--log-every`, no `--log-on-change`): emit every tick.
+/// - `--log-every N`: emit on every Nth tick; bypasses debounce.
+/// - `--log-on-change`: emit when any watched field changes. With
+///   `--log-debounce K > 0`, hold the candidate emission for K ticks. If
+///   the state reverts to the last-emitted signature within the window,
+///   drop the emission. If it mutates to yet another state within the
+///   window, restart the timer against the new state.
+/// - When both flags are set, the OR rule still applies — a heartbeat tick
+///   emits regardless of debounce state and clears any pending change.
 pub fn decide_emit(
     tick: u64,
-    state: &AgentLogState,
+    state: &mut AgentLogState,
     config: &FieldLoggerConfig,
     values: &HashMap<String, Value>,
 ) -> bool {
@@ -1028,25 +1057,68 @@ pub fn decide_emit(
     let has_on_change = !config.on_change.is_empty();
 
     if !has_every && !has_on_change {
-        return true; // default: every tick
+        return true; // default: every tick, debounce doesn't apply
     }
 
     let heartbeat_hit = has_every && tick > 0 && tick.is_multiple_of(config.every);
-    let change_hit = has_on_change
-        && config.on_change.iter().any(|spec| {
-            value_changed(
-                values.get(&spec.path),
-                state.last_values.get(&spec.path),
-                spec.threshold,
-                &spec.path,
-            )
-        });
+    if heartbeat_hit {
+        // Heartbeats bypass debounce — they're scheduled samples, not
+        // transition detections. Clear any pending so we don't double-emit.
+        state.pending = None;
+        return true;
+    }
 
-    match (has_every, has_on_change) {
-        (true, false) => heartbeat_hit,
-        (false, true) => change_hit,
-        (true, true) => heartbeat_hit || change_hit,
-        (false, false) => unreachable!(),
+    if !has_on_change {
+        return false;
+    }
+
+    let change_hit = config.on_change.iter().any(|spec| {
+        value_changed(
+            values.get(&spec.path),
+            state.last_values.get(&spec.path),
+            spec.threshold,
+            &spec.path,
+        )
+    });
+
+    if !change_hit {
+        // Back to the last-emitted baseline — any pending transition reverted
+        // inside the debounce window and should be dropped entirely.
+        state.pending = None;
+        return false;
+    }
+
+    if config.debounce == 0 {
+        return true;
+    }
+
+    match &state.pending {
+        None => {
+            state.pending = Some(PendingChange {
+                first_seen_tick: tick,
+                values: values.clone(),
+            });
+            false
+        }
+        Some(pending) => {
+            let mutated_again = config.on_change.iter().any(|spec| {
+                value_changed(
+                    values.get(&spec.path),
+                    pending.values.get(&spec.path),
+                    spec.threshold,
+                    &spec.path,
+                )
+            });
+            if mutated_again {
+                state.pending = Some(PendingChange {
+                    first_seen_tick: tick,
+                    values: values.clone(),
+                });
+                false
+            } else {
+                tick.saturating_sub(pending.first_seen_tick) >= config.debounce
+            }
+        }
     }
 }
 
@@ -1207,6 +1279,7 @@ pub fn collect_field_log(world: &mut World) {
         let line = build_line(tick, &name, entity, &values, &why_values, &config, state);
         state.last_emit_tick = Some(tick);
         state.last_values = values;
+        state.pending = None;
         lines_to_push.push(line);
     }
     buffer.lines.extend(lines_to_push);
@@ -1388,6 +1461,7 @@ mod tests {
             format: FieldLoggerFormat::Jsonl,
             every: 1,
             on_change: Vec::new(),
+            debounce: 0,
         }
     }
 
@@ -1667,12 +1741,12 @@ mod tests {
             every: 10,
             ..cfg_with(vec!["needs.glucose"])
         };
-        let state = AgentLogState::default();
+        let mut state = AgentLogState::default();
         let values = HashMap::from([("needs.glucose".to_string(), json!(100.0))]);
-        assert!(!decide_emit(1, &state, &config, &values));
-        assert!(decide_emit(10, &state, &config, &values));
-        assert!(decide_emit(20, &state, &config, &values));
-        assert!(!decide_emit(25, &state, &config, &values));
+        assert!(!decide_emit(1, &mut state, &config, &values));
+        assert!(decide_emit(10, &mut state, &config, &values));
+        assert!(decide_emit(20, &mut state, &config, &values));
+        assert!(!decide_emit(25, &mut state, &config, &values));
     }
 
     #[test]
@@ -1690,8 +1764,8 @@ mod tests {
             .insert("needs.glucose".to_string(), json!(100.0));
         let same = HashMap::from([("needs.glucose".to_string(), json!(100.5))]);
         let diff = HashMap::from([("needs.glucose".to_string(), json!(95.0))]);
-        assert!(!decide_emit(42, &state, &config, &same));
-        assert!(decide_emit(42, &state, &config, &diff));
+        assert!(!decide_emit(42, &mut state, &config, &same));
+        assert!(decide_emit(42, &mut state, &config, &diff));
     }
 
     #[test]
@@ -1713,11 +1787,141 @@ mod tests {
         let changed = HashMap::from([("needs.glucose".to_string(), json!(80.0))]);
 
         // Tick 5: not a heartbeat, unchanged → no emit.
-        assert!(!decide_emit(5, &state, &config, &unchanged));
+        assert!(!decide_emit(5, &mut state, &config, &unchanged));
         // Tick 10: heartbeat hits even though unchanged → emit.
-        assert!(decide_emit(10, &state, &config, &unchanged));
+        assert!(decide_emit(10, &mut state, &config, &unchanged));
         // Tick 7: not heartbeat, but the value changed → emit.
-        assert!(decide_emit(7, &state, &config, &changed));
+        assert!(decide_emit(7, &mut state, &config, &changed));
+    }
+
+    #[test]
+    fn debounce_suppresses_change_that_reverts_within_window() {
+        let config = FieldLoggerConfig {
+            on_change: vec![OnChangeSpec {
+                path: "actions".to_string(),
+                threshold: None,
+            }],
+            debounce: 3,
+            ..cfg_with(vec!["actions"])
+        };
+        let mut state = AgentLogState::default();
+        let steady = json!([{"type": "Wander", "brain": "Emotional", "target": null}]);
+        let transient = json!([{"type": "Flee", "brain": "Survival", "target": null}]);
+        state
+            .last_values
+            .insert("actions".to_string(), steady.clone());
+
+        // Tick 10: state flips to Flee, debounce window starts.
+        let changed = HashMap::from([("actions".to_string(), transient.clone())]);
+        assert!(!decide_emit(10, &mut state, &config, &changed));
+        assert!(state.pending.is_some());
+
+        // Tick 11: still Flee, but debounce not elapsed.
+        assert!(!decide_emit(11, &mut state, &config, &changed));
+
+        // Tick 12: state reverts to Wander — the transient must be dropped.
+        let reverted = HashMap::from([("actions".to_string(), steady.clone())]);
+        assert!(!decide_emit(12, &mut state, &config, &reverted));
+        assert!(
+            state.pending.is_none(),
+            "revert to baseline should clear pending"
+        );
+    }
+
+    #[test]
+    fn debounce_emits_once_state_is_stable_for_window() {
+        let config = FieldLoggerConfig {
+            on_change: vec![OnChangeSpec {
+                path: "actions".to_string(),
+                threshold: None,
+            }],
+            debounce: 3,
+            ..cfg_with(vec!["actions"])
+        };
+        let mut state = AgentLogState::default();
+        let before = json!([{"type": "Wander", "brain": "Emotional", "target": null}]);
+        let after = json!([{"type": "Eat", "brain": "Rational", "target": "bush-1"}]);
+        state.last_values.insert("actions".to_string(), before);
+
+        let changed = HashMap::from([("actions".to_string(), after.clone())]);
+        // Ticks 10, 11, 12: waiting. Tick 13 crosses the 3-tick window → emit.
+        assert!(!decide_emit(10, &mut state, &config, &changed));
+        assert!(!decide_emit(11, &mut state, &config, &changed));
+        assert!(!decide_emit(12, &mut state, &config, &changed));
+        assert!(decide_emit(13, &mut state, &config, &changed));
+    }
+
+    #[test]
+    fn debounce_restarts_timer_when_state_mutates_again() {
+        let config = FieldLoggerConfig {
+            on_change: vec![OnChangeSpec {
+                path: "actions".to_string(),
+                threshold: None,
+            }],
+            debounce: 3,
+            ..cfg_with(vec!["actions"])
+        };
+        let mut state = AgentLogState::default();
+        let a = json!([{"type": "Wander", "brain": "Emotional", "target": null}]);
+        let b = json!([{"type": "Flee", "brain": "Survival", "target": null}]);
+        let c = json!([{"type": "Eat", "brain": "Rational", "target": "bush-1"}]);
+        state.last_values.insert("actions".to_string(), a);
+
+        // Tick 10: flip to B, timer starts.
+        assert!(!decide_emit(
+            10,
+            &mut state,
+            &config,
+            &HashMap::from([("actions".to_string(), b)])
+        ));
+        // Tick 11: flip to C, timer restarts at 11.
+        assert!(!decide_emit(
+            11,
+            &mut state,
+            &config,
+            &HashMap::from([("actions".to_string(), c.clone())])
+        ));
+        assert_eq!(state.pending.as_ref().unwrap().first_seen_tick, 11);
+        // Tick 13: still C, but only 2 ticks since restart → not yet.
+        assert!(!decide_emit(
+            13,
+            &mut state,
+            &config,
+            &HashMap::from([("actions".to_string(), c.clone())])
+        ));
+        // Tick 14: C stable for 3 ticks → emit.
+        assert!(decide_emit(
+            14,
+            &mut state,
+            &config,
+            &HashMap::from([("actions".to_string(), c)])
+        ));
+    }
+
+    #[test]
+    fn heartbeat_bypasses_debounce_and_clears_pending() {
+        let config = FieldLoggerConfig {
+            every: 10,
+            on_change: vec![OnChangeSpec {
+                path: "actions".to_string(),
+                threshold: None,
+            }],
+            debounce: 5,
+            ..cfg_with(vec!["actions"])
+        };
+        let mut state = AgentLogState::default();
+        let before = json!([{"type": "Wander", "brain": "Emotional", "target": null}]);
+        let after = json!([{"type": "Flee", "brain": "Survival", "target": null}]);
+        state.last_values.insert("actions".to_string(), before);
+
+        // Tick 7: change detected, debounce started.
+        let changed = HashMap::from([("actions".to_string(), after)]);
+        assert!(!decide_emit(7, &mut state, &config, &changed));
+        assert!(state.pending.is_some());
+
+        // Tick 10: heartbeat hits → emit, regardless of debounce; pending cleared.
+        assert!(decide_emit(10, &mut state, &config, &changed));
+        assert!(state.pending.is_none());
     }
 
     // ─── Line / delta ────────────────────────────────────────────────────

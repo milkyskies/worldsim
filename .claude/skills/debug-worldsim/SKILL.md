@@ -233,6 +233,16 @@ Use `--log-list-fields --log-preset full` to dump the canonical path list.
 
 **Change thresholds**: `0.05` for normalized `[0,1]` metrics (hunger, wakefulness, alertness, mood, brain powers, urgency values), `1.0` for raw stats (glucose, aerobic, reserves, stomach, hydration, health), structural equality for list/object fields. Override per-field: `--log-on-change needs.aerobic:2.0`.
 
+**Debounce** (`--log-debounce N`): hold change-driven emissions for N ticks. If the state reverts to the last-emitted signature inside the window, the change is dropped entirely; if it mutates to yet another state, the timer restarts against the new state. Applies only to `--log-on-change` — heartbeats (`--log-every`) and the default every-tick mode bypass debounce. Use this to suppress sub-second flickers (tick-level preemptions, emergency wakes) when you only care about persistent transitions.
+
+```bash
+# Only emit action changes that stick for at least 60 ticks (~1 sim-second)
+cargo run --release -- --headless --game-defaults --seed 42 --ticks 86400 \
+  --log-agent alice --log-preset vitals \
+  --log-on-change actions --log-debounce 60 \
+  --log-file /tmp/alice.jsonl
+```
+
 **Output**: `--log-file <path>` (default stderr, `-` for stdout). `--log-as csv` post-processes the buffered JSONL into a flat CSV with dotted-path columns for spreadsheet work.
 
 **jq patterns:**
