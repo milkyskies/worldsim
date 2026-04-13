@@ -436,7 +436,7 @@ pub fn decay_stale_knowledge(
             }
 
             triple.meta.strength = triple.meta.strength.max(0.0);
-            triple.meta.strength >= decay_config.forget_threshold
+            step_precision_or_drop(triple, &decay_config)
         });
 
         // Episodic capacity cap: cull weakest events when over limit
@@ -460,6 +460,40 @@ pub fn decay_stale_knowledge(
             }
         }
     }
+}
+
+/// Final step in the decay pass. If a triple's strength is still above the
+/// forget threshold it stays as-is. Below the threshold, a numeric belief
+/// steps one rung down the precision ladder (Exact → Around → OoM → Qualitative)
+/// and gets a fresh strength allotment; when the ladder is exhausted, or when
+/// the object isn't a `Quantity`, the triple is dropped.
+///
+/// This is how the Quantity ladder produces believable forgetting: an agent
+/// doesn't just lose a fact, they lose *precision* first, then lose the fact.
+fn step_precision_or_drop(
+    triple: &mut crate::agent::mind::knowledge::Triple,
+    config: &MemoryDecayConfig,
+) -> bool {
+    use crate::agent::mind::knowledge::Value;
+
+    if triple.meta.strength >= config.forget_threshold {
+        return true;
+    }
+
+    // Triple is at the forget line — try to fuzzify instead of dropping.
+    if let Value::Quantity(q) = &triple.object
+        && let Some(fuzzy) = q.fuzzify()
+    {
+        triple.object = Value::Quantity(fuzzy);
+        // Rebound to 4× threshold so the now-fuzzier belief gets another
+        // decay window before stepping down again. Without this, the triple
+        // would fuzzify every pass and collapse straight to forgotten.
+        triple.meta.strength = config.forget_threshold * 4.0;
+        return true;
+    }
+
+    // Not a quantity (or end of ladder) — drop it.
+    false
 }
 
 /// Remove the weakest episodic events when the total event count exceeds capacity.
@@ -634,7 +668,7 @@ mod tests {
                 triple.meta.strength -= pressure * vulnerability;
             }
             triple.meta.strength = triple.meta.strength.max(0.0);
-            triple.meta.strength >= config.forget_threshold
+            step_precision_or_drop(triple, config)
         })
     }
 
@@ -682,6 +716,100 @@ mod tests {
             (mind.iter().next().unwrap().meta.strength - 1.0).abs() < f32::EPSILON,
             "intrinsic strength must not change"
         );
+    }
+
+    #[test]
+    fn aged_quantity_belief_steps_down_precision_ladder_not_deletion() {
+        use crate::agent::mind::knowledge::{Magnitude, Quantity};
+
+        let config = MemoryDecayConfig::default();
+        let mut mind = MindGraph::default();
+
+        // Perception-memory-type Quantity belief at bare-minimum strength.
+        // Next decay pass will push it below the forget threshold.
+        let mut meta = Metadata::perception(0);
+        meta.strength = config.forget_threshold;
+        mind.add(Triple::with_meta(
+            Node::Self_,
+            Predicate::Hunger,
+            Value::Quantity(Quantity::Exact(50.0)),
+            meta,
+        ));
+
+        // Rung 1: Exact -> Around
+        run_decay_pass(&mut mind, &config);
+        let observed = mind.iter().next().expect("triple must survive fuzzify");
+        assert!(
+            matches!(observed.object, Value::Quantity(Quantity::Around(v)) if (v - 50.0).abs() < 0.001),
+            "expected Around(50) after first stepdown, got {:?}",
+            observed.object
+        );
+        // Pin strength back down for the next stepdown.
+        mind.decay_pass(|t| {
+            t.meta.strength = config.forget_threshold;
+            true
+        });
+
+        // Rung 2: Around -> OrderOfMagnitude
+        run_decay_pass(&mut mind, &config);
+        let observed = mind.iter().next().expect("triple must survive fuzzify");
+        assert!(
+            matches!(
+                observed.object,
+                Value::Quantity(Quantity::OrderOfMagnitude(_))
+            ),
+            "expected OrderOfMagnitude after second stepdown, got {:?}",
+            observed.object
+        );
+        mind.decay_pass(|t| {
+            t.meta.strength = config.forget_threshold;
+            true
+        });
+
+        // Rung 3: OrderOfMagnitude -> Qualitative
+        run_decay_pass(&mut mind, &config);
+        let observed = mind.iter().next().expect("triple must survive fuzzify");
+        assert!(
+            matches!(
+                observed.object,
+                Value::Quantity(Quantity::Qualitative(Magnitude::Moderate))
+            ),
+            "expected Qualitative(Moderate) after third stepdown, got {:?}",
+            observed.object
+        );
+        mind.decay_pass(|t| {
+            t.meta.strength = config.forget_threshold;
+            true
+        });
+
+        // Rung 4: Qualitative -> forgotten
+        let removed = run_decay_pass(&mut mind, &config);
+        assert_eq!(removed, 1, "final rung should drop the triple");
+        assert!(
+            mind.iter().next().is_none(),
+            "triple should be forgotten at the last rung"
+        );
+    }
+
+    #[test]
+    fn non_quantity_triple_still_deletes_on_forget_threshold() {
+        // Non-numeric beliefs (Concept, Entity, Boolean) have nothing to
+        // fuzzify. They must still be tombstoned when their strength drops.
+        let config = MemoryDecayConfig::default();
+        let mut mind = MindGraph::default();
+        let mut meta = Metadata::perception(0);
+        meta.strength = config.forget_threshold;
+        mind.add(Triple::with_meta(
+            Node::Entity(bevy::prelude::Entity::from_bits(42)),
+            Predicate::HasTrait,
+            Value::Concept(Concept::Dangerous),
+            meta,
+        ));
+
+        let removed = run_decay_pass(&mut mind, &config);
+
+        assert_eq!(removed, 1);
+        assert!(mind.iter().next().is_none());
     }
 
     #[test]

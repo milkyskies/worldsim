@@ -1027,6 +1027,28 @@ pub fn update_speaker_theory_of_mind(
 // 3. Process received communication (write hearsay into listener's mind)
 // ============================================================================
 
+/// Convert a speaker's shared triple into a listener-side hearsay belief.
+///
+/// Numeric beliefs fuzzify one rung down the precision ladder: "Alice says
+/// 50 apples" becomes `Around(50)` in the listener's head, not `Exact(50)`.
+/// The listener is trusting Alice's count, not measuring for themselves, so
+/// they genuinely don't have sensor-grade access to the number. Gossip chains
+/// degrade information naturally — each retelling fuzzifies once more —
+/// until the value reaches `Qualitative` and can't drop any further.
+///
+/// Non-numeric triples (Concept, Entity, Boolean) pass through unchanged;
+/// there's no precision to lose.
+fn fuzzify_hearsay(source: &Triple, tick: u64, speaker: Entity) -> Triple {
+    let mut hearsay = source.clone();
+    if let Value::Quantity(q) = &hearsay.object
+        && let Some(fuzzy) = q.fuzzify()
+    {
+        hearsay.object = Value::Quantity(fuzzy);
+    }
+    hearsay.meta = Metadata::hearsay(tick, speaker);
+    hearsay
+}
+
 /// Apply the most recent turn's `content` triples to every listener's
 /// MindGraph as Hearsay knowledge. In group conversations this broadcasts
 /// shared knowledge to all participants simultaneously.
@@ -1052,9 +1074,7 @@ pub fn process_received_communication(
                 continue;
             };
             for triple in &turn.content {
-                let mut hearsay = triple.clone();
-                hearsay.meta = Metadata::hearsay(tick.current, turn.speaker);
-                mind.assert(hearsay);
+                mind.assert(fuzzify_hearsay(triple, tick.current, turn.speaker));
             }
 
             if let Ok(mut listener_tom) = toms.get_mut(listener) {
@@ -1366,6 +1386,93 @@ pub fn evaluate_conversation_continuation(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::agent::mind::knowledge::{Node, Predicate, Quantity};
+
+    #[test]
+    fn hearsay_fuzzifies_exact_quantity_to_around() {
+        let speaker = Entity::from_bits(1);
+        let source = Triple::new(
+            Node::Self_,
+            Predicate::Hunger,
+            Value::Quantity(Quantity::Exact(60.0)),
+        );
+        let hearsay = fuzzify_hearsay(&source, 100, speaker);
+        assert!(
+            matches!(hearsay.object, Value::Quantity(Quantity::Around(v)) if (v - 60.0).abs() < 0.001),
+            "Exact(60) hearsay should land as Around(60), got {:?}",
+            hearsay.object
+        );
+        assert_eq!(
+            hearsay.meta.source,
+            crate::agent::mind::knowledge::Source::Hearsay
+        );
+        assert_eq!(hearsay.meta.informant, Some(speaker));
+    }
+
+    #[test]
+    fn hearsay_chain_compounds_fuzzification() {
+        // Gossip chain: every retelling fuzzifies once more. Three hops
+        // should push Exact all the way to Qualitative.
+        let speaker = Entity::from_bits(1);
+        let hop_1 = fuzzify_hearsay(
+            &Triple::new(
+                Node::Self_,
+                Predicate::Hunger,
+                Value::Quantity(Quantity::Exact(37.0)),
+            ),
+            100,
+            speaker,
+        );
+        let hop_2 = fuzzify_hearsay(&hop_1, 200, speaker);
+        let hop_3 = fuzzify_hearsay(&hop_2, 300, speaker);
+        assert!(
+            matches!(hop_1.object, Value::Quantity(Quantity::Around(_))),
+            "hop 1 should be Around"
+        );
+        assert!(
+            matches!(hop_2.object, Value::Quantity(Quantity::OrderOfMagnitude(_))),
+            "hop 2 should be OrderOfMagnitude"
+        );
+        assert!(
+            matches!(hop_3.object, Value::Quantity(Quantity::Qualitative(_))),
+            "hop 3 should be Qualitative"
+        );
+    }
+
+    #[test]
+    fn hearsay_at_qualitative_floor_does_not_drop_triple() {
+        // Qualitative is the last rung. Hearsay keeps it at Qualitative
+        // instead of falling off the ladder — the listener still learns
+        // *something* from the speaker, even if it's the vaguest answer.
+        let speaker = Entity::from_bits(1);
+        let source = Triple::new(
+            Node::Self_,
+            Predicate::Hunger,
+            Value::Quantity(Quantity::Qualitative(
+                crate::agent::mind::knowledge::Magnitude::High,
+            )),
+        );
+        let hearsay = fuzzify_hearsay(&source, 100, speaker);
+        assert!(matches!(
+            hearsay.object,
+            Value::Quantity(Quantity::Qualitative(
+                crate::agent::mind::knowledge::Magnitude::High
+            ))
+        ));
+    }
+
+    #[test]
+    fn hearsay_preserves_non_quantity_triples() {
+        use crate::agent::mind::knowledge::Concept;
+        let speaker = Entity::from_bits(1);
+        let source = Triple::new(
+            Node::Concept(Concept::Wolf),
+            Predicate::HasTrait,
+            Value::Concept(Concept::Dangerous),
+        );
+        let hearsay = fuzzify_hearsay(&source, 100, speaker);
+        assert!(matches!(hearsay.object, Value::Concept(Concept::Dangerous)));
+    }
 
     #[test]
     fn ask_intent_produces_lower_base_valence_than_share() {
