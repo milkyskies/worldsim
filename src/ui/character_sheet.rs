@@ -1851,21 +1851,39 @@ fn render_health(ui: &mut egui::Ui, world: &World, entity: Entity) {
         return;
     };
 
+    // Overall derived health + death cause
+    let overall = body.overall_health();
+    ui.horizontal(|ui| {
+        ui.strong("Overall health:");
+        ui.add(
+            egui::ProgressBar::new(overall)
+                .desired_width(200.0)
+                .fill(severity_color(overall, 0.3, 0.7))
+                .text(format!("{:.0}%", overall * 100.0)),
+        );
+    });
+    if let Some(cause) = body.death_cause() {
+        ui.colored_label(
+            Color32::RED,
+            egui::RichText::new(format!("⚠ Critical: {cause}")).strong(),
+        );
+    }
+
+    // Deprivation stage — where the agent sits on the starvation/dehydration cascade
+    if let Some(needs) = world.get::<PhysicalNeeds>(entity) {
+        let stage = deprivation_stage(body, needs);
+        ui.horizontal(|ui| {
+            ui.strong("Deprivation:");
+            ui.colored_label(stage.color(), stage.label());
+        });
+    }
+
+    ui.separator();
     ui.heading("Anatomy");
 
-    egui::Grid::new("anatomy_grid")
-        .num_columns(3)
-        .striped(true)
-        .show(ui, |ui| {
-            ui.strong("Part");
-            ui.strong("Condition");
-            ui.strong("Status");
-            ui.end_row();
-
-            for part in body.parts() {
-                render_body_part_row(ui, part);
-            }
-        });
+    for part in body.parts() {
+        render_body_node(ui, part);
+    }
 
     ui.separator();
     ui.heading("Capabilities");
@@ -1890,25 +1908,152 @@ fn render_health(ui: &mut egui::Ui, world: &World, entity: Entity) {
         );
     }
 
-    let has_injuries = body.parts().any(|p| !p.injuries.is_empty());
+    let has_injuries = body
+        .parts()
+        .any(|p| !p.injuries.is_empty() || p.children.iter().any(|c| !c.injuries.is_empty()));
     if has_injuries {
         ui.separator();
         ui.heading("Injuries");
         for part in body.parts() {
-            for injury in &part.injuries {
-                let kind = injury_label(injury.injury_type);
-                let healed_pct = (injury.healed_amount * 100.0).min(100.0);
-                ui.horizontal(|ui| {
-                    ui.label(format!("{} (severity {:.1})", kind, injury.severity));
-                    ui.add(
-                        egui::ProgressBar::new(injury.healed_amount.clamp(0.0, 1.0))
-                            .desired_width(140.0)
-                            .text(format!("healed {:.0}%", healed_pct)),
-                    );
-                });
+            render_node_injuries(ui, part);
+            for child in &part.children {
+                render_node_injuries(ui, child);
             }
         }
     }
+}
+
+/// Render a root body node as a collapsible header; nested nodes (organs,
+/// extremities) render inline inside the header body.
+fn render_body_node(ui: &mut egui::Ui, node: &BodyNode) {
+    let header = body_node_header(node);
+    egui::CollapsingHeader::new(header)
+        .default_open(true)
+        .id_salt(("body_node", node.name()))
+        .show(ui, |ui| {
+            condition_row(ui, node);
+            for child in &node.children {
+                ui.horizontal(|ui| {
+                    ui.add_space(12.0);
+                    ui.vertical(|ui| {
+                        ui.label(child_node_label(child));
+                        condition_row(ui, child);
+                    });
+                });
+            }
+        });
+}
+
+fn body_node_header(node: &BodyNode) -> egui::RichText {
+    let name = format!("{}{}", if node.vital { "★ " } else { "" }, node.name());
+    egui::RichText::new(name).strong()
+}
+
+fn child_node_label(node: &BodyNode) -> egui::RichText {
+    let name = if node.vital {
+        format!("★ {}", node.name())
+    } else {
+        node.name().to_string()
+    };
+    egui::RichText::new(name)
+}
+
+fn condition_row(ui: &mut egui::Ui, node: &BodyNode) {
+    let hp_pct = node.condition();
+    ui.horizontal(|ui| {
+        ui.add(
+            egui::ProgressBar::new(hp_pct)
+                .desired_width(160.0)
+                .fill(severity_color(hp_pct, 0.4, 0.7))
+                .text(format!("{:.0}/{:.0}", node.current_hp, node.max_hp)),
+        );
+        if !node.injuries.is_empty() {
+            ui.colored_label(Color32::RED, format!("{} inj", node.injuries.len()));
+        }
+    });
+}
+
+fn render_node_injuries(ui: &mut egui::Ui, node: &BodyNode) {
+    for injury in &node.injuries {
+        let kind = injury_label(injury.injury_type);
+        let healed_pct = (injury.healed_amount * 100.0).min(100.0);
+        ui.horizontal(|ui| {
+            ui.label(format!(
+                "{} — {} (sev {:.1})",
+                node.name(),
+                kind,
+                injury.severity
+            ));
+            ui.add(
+                egui::ProgressBar::new(injury.healed_amount.clamp(0.0, 1.0))
+                    .desired_width(140.0)
+                    .text(format!("healed {:.0}%", healed_pct)),
+            );
+        });
+    }
+}
+
+/// Where the agent sits on the starvation/dehydration cascade. Derived
+/// from body node conditions and metabolism state — mirrors the gates
+/// used in `apply_cascade`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DeprivationStage {
+    WellFed,
+    Hungry,
+    MuscleWasting,
+    OrganFailure,
+}
+
+impl DeprivationStage {
+    fn label(self) -> &'static str {
+        match self {
+            Self::WellFed => "well-fed",
+            Self::Hungry => "hungry / thirsty",
+            Self::MuscleWasting => "muscle wasting",
+            Self::OrganFailure => "organ failure",
+        }
+    }
+
+    fn color(self) -> Color32 {
+        match self {
+            Self::WellFed => Color32::from_rgb(100, 200, 100),
+            Self::Hungry => Color32::from_rgb(220, 180, 80),
+            Self::MuscleWasting => Color32::from_rgb(230, 130, 50),
+            Self::OrganFailure => Color32::RED,
+        }
+    }
+}
+
+fn deprivation_stage(body: &Body, needs: &PhysicalNeeds) -> DeprivationStage {
+    use crate::agent::biology::body::BodyNodeKind;
+
+    let organ_damaged = [
+        BodyNodeKind::Gut,
+        BodyNodeKind::Liver,
+        BodyNodeKind::Heart,
+        BodyNodeKind::LeftLung,
+        BodyNodeKind::RightLung,
+        BodyNodeKind::Brain,
+    ]
+    .iter()
+    .any(|k| body.node(*k).is_some_and(|n| n.condition() < 0.95));
+    if organ_damaged {
+        return DeprivationStage::OrganFailure;
+    }
+
+    let limbs_wasting = body.parts().any(|p| !p.vital && p.condition() < 0.95);
+    if limbs_wasting {
+        return DeprivationStage::MuscleWasting;
+    }
+
+    let hungry = needs.metabolism.is_weak_from_hunger()
+        || needs.metabolism.is_starving()
+        || needs.hydration <= 20.0;
+    if hungry {
+        return DeprivationStage::Hungry;
+    }
+
+    DeprivationStage::WellFed
 }
 
 fn injury_label(kind: InjuryType) -> &'static str {
@@ -1922,23 +2067,6 @@ fn injury_label(kind: InjuryType) -> &'static str {
         InjuryType::Slash => "Slash",
         InjuryType::Crush => "Crush",
     }
-}
-
-fn render_body_part_row(ui: &mut egui::Ui, part: &BodyNode) {
-    ui.label(part.name());
-    let hp_pct = (part.current_hp / part.max_hp).clamp(0.0, 1.0);
-    ui.add(
-        egui::ProgressBar::new(hp_pct)
-            .desired_width(140.0)
-            .fill(severity_color(hp_pct, 0.4, 0.7))
-            .text(format!("{:.0}/{:.0}", part.current_hp, part.max_hp)),
-    );
-    if part.injuries.is_empty() {
-        ui.label("OK");
-    } else {
-        ui.colored_label(Color32::RED, format!("{} inj", part.injuries.len()));
-    }
-    ui.end_row();
 }
 
 fn capability_bar(ui: &mut egui::Ui, label: &str, value: f32) {
