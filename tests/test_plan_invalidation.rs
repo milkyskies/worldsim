@@ -79,6 +79,8 @@ fn plan_invalidation_clears_stale_chosen_actions_immediately() {
             commitment: 10.0,
             subjective_cost: 0.0,
             source: PlanSource::Brain(BrainType::Rational),
+            driving_urgency: worldsim::agent::nervous_system::urgency::UrgencySource::Hunger,
+            created_at_urgency: 1.0,
             created_at: 0,
             last_touched: 0,
             current_step: 0,

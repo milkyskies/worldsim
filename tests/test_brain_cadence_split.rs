@@ -75,22 +75,22 @@ fn brain_state_winner_agrees_with_active_actions_every_tick() {
 }
 
 /// `regressive_plan` — the expensive GOAP search — must stay silent
-/// once a live plan covers the current CNS goal. Exercise the natural
+/// for a given urgency once a live plan covers it. Exercise the natural
 /// flow: a hungry agent with pre-seeded knowledge of an apple tree
-/// forms one plan, then keeps executing it without the planner firing
-/// again until the plan completes or is invalidated.
+/// forms one hunger plan, then keeps executing it without re-planning
+/// for hunger until that plan completes or is invalidated.
 ///
-/// `plans_generated_total` counts every call into `regressive_plan`.
-/// After the first plan is generated, it must not grow across an
-/// entire cooldown window while the walk-step is still in flight.
+/// Checks per-urgency: the agent may still plan for *other* active
+/// drives (social, stamina) in the same window — that's the
+/// marketplace design. Only the hunger plan count must stay stable.
 #[test]
 fn regressive_planner_skipped_when_live_plan_covers_goal() {
+    use worldsim::agent::nervous_system::urgency::UrgencySource;
+
     let mut world = TestWorld::with_seed(42);
 
     // Spawn an apple tree far from the agent's start position so the
-    // Walk step stays in flight for the entire observation window —
-    // the plan stays Executing, `needs_replan_for` stays false, and
-    // the planner should stay silent.
+    // Walk step stays in flight for the entire observation window.
     let tree = world.spawn_apple_tree(Vec2::new(600.0, 600.0), 10);
 
     let agent = world.spawn_agent(AgentConfig {
@@ -105,36 +105,39 @@ fn regressive_planner_skipped_when_live_plan_covers_goal() {
         ..Default::default()
     });
 
-    // Let CNS formulate the hunger goal and the planner form its first
-    // plan. One cooldown window (~60 ticks) is enough for the planner
-    // to fire.
     world.tick(70);
 
-    let baseline = world.get::<PlanMemory>(agent).plans_generated_total;
-    assert!(
-        baseline >= 1,
-        "agent should have generated at least one plan after a cooldown window \
-         (plans_generated_total={baseline})",
-    );
-    let has_live_plan = world.get::<PlanMemory>(agent).plans.iter().any(|p| {
+    let has_hunger_plan = world.get::<PlanMemory>(agent).plans.iter().any(|p| {
         matches!(p.source, PlanSource::Brain(BrainType::Rational))
             && !p.steps.is_empty()
             && p.state == PlanState::Executing
+            && p.driving_urgency == UrgencySource::Hunger
     });
     assert!(
-        has_live_plan,
-        "agent should hold a live Rational-sourced Executing plan after first cooldown"
+        has_hunger_plan,
+        "agent should hold a live Rational-sourced Executing hunger plan after first cooldown"
     );
 
-    // Tick another full cooldown. With the Walk step still in flight
-    // the plan covers the goal the whole time — `needs_replan_for`
-    // stays false and `regressive_plan` must not be invoked.
+    // Record the last-plan-attempt tick for Hunger. Tick another full
+    // cooldown. The hunger plan is still in flight so the planner must
+    // not re-fire for Hunger — `last_plan_attempt[Hunger]` should
+    // stay the same.
+    let baseline = world
+        .get::<PlanMemory>(agent)
+        .last_plan_attempt
+        .get(&UrgencySource::Hunger)
+        .copied();
+
     world.tick(60);
 
-    let after = world.get::<PlanMemory>(agent).plans_generated_total;
+    let after = world
+        .get::<PlanMemory>(agent)
+        .last_plan_attempt
+        .get(&UrgencySource::Hunger)
+        .copied();
     assert_eq!(
         after, baseline,
-        "regressive_plan must stay silent while a live plan covers the current goal \
-         (baseline={baseline}, after={after})",
+        "regressive_plan must stay silent for Hunger while a live hunger plan is in flight \
+         (baseline={baseline:?}, after={after:?})",
     );
 }

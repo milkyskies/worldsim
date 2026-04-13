@@ -30,6 +30,11 @@ pub enum UrgencySource {
     /// Reads `PhysicalNeeds::wakefulness` (high = rested, inverted to
     /// urgency in the generation loop).
     Sleepiness,
+    /// A promise made to another agent. Emitted by `generate_urgency`
+    /// for each `PlanSource::VerbalCommitment` in the agent's
+    /// `PlanMemory`. Value scales with conscientiousness per the
+    /// original VERBAL_COMMITMENT_PRIORITY_* constants.
+    Commitment,
 }
 
 impl UrgencySource {
@@ -58,6 +63,7 @@ impl UrgencySource {
             Self::Fun => 0.0,
             Self::Curiosity => 0.0,
             Self::Territoriality => 0.0,
+            Self::Commitment => 0.0,
         }
     }
 
@@ -77,6 +83,7 @@ impl UrgencySource {
             Self::Fun => false,
             Self::Curiosity => false,
             Self::Territoriality => false,
+            Self::Commitment => false,
         }
     }
 }
@@ -115,6 +122,7 @@ pub fn generate_urgency(
             Option<&Body>,
             &crate::agent::psyche::personality::Personality,
             &crate::agent::actions::ActiveActions,
+            Option<&crate::agent::brains::plan_memory::PlanMemory>,
         ),
         With<crate::agent::Agent>,
     >,
@@ -129,6 +137,7 @@ pub fn generate_urgency(
         body,
         personality,
         active_actions,
+        plan_memory,
     ) in query.iter_mut()
     {
         // Staggered: heavy thinking runs every N ticks, offset by entity ID
@@ -173,6 +182,10 @@ pub fn generate_urgency(
                 // below handles the Sleepiness-specific inversion just
                 // like Stamina, so return the raw satisfaction value here.
                 UrgencySource::Sleepiness => physical.wakefulness,
+                // Commitment urgency is emitted directly below the drive
+                // loop, not through the source-value map, because its
+                // magnitude comes from PlanMemory not body/drive state.
+                UrgencySource::Commitment => 0.0,
             }
         };
 
@@ -252,6 +265,29 @@ pub fn generate_urgency(
             score = score.max(0.0);
             if score > drive_config.min_threshold {
                 cns.urgencies.push(Urgency::new(drive_config.source, score));
+            }
+        }
+
+        // --- COMMITMENT URGENCY ---
+        //
+        // Emit one `UrgencySource::Commitment` urgency for the highest-
+        // commitment verbal-commitment plan held in memory. Priority
+        // scales with conscientiousness using the same formula the old
+        // `formulate_goals` path used for committed-goal promotion.
+        if let Some(memory) = plan_memory {
+            use crate::agent::brains::plan_memory::PlanSource;
+            let strongest = memory
+                .plans
+                .iter()
+                .filter(|p| matches!(p.source, PlanSource::VerbalCommitment { .. }))
+                .map(|p| p.commitment)
+                .fold(f32::NEG_INFINITY, f32::max);
+            if strongest.is_finite() {
+                let priority = crate::agent::nervous_system::cns::VERBAL_COMMITMENT_PRIORITY_BASE
+                    + personality.traits.conscientiousness
+                        * crate::agent::nervous_system::cns::VERBAL_COMMITMENT_PRIORITY_BONUS;
+                cns.urgencies
+                    .push(Urgency::new(UrgencySource::Commitment, priority));
             }
         }
 

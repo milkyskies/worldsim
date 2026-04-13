@@ -38,16 +38,13 @@ impl Plugin for NervousSystemPlugin {
                         .after(activity_effects::tick_metabolism),
                     // Territoriality reads MindGraph, which is written by
                     // write_perceptions_to_mind. Without this explicit edge Bevy
-                    // may schedule the goals chain before perception, producing
+                    // may schedule the urgency chain before perception, producing
                     // stale urgency values that cause agents to pick Wander
                     // instead of InitiateConversation on the first decision tick.
-                    // Goal formulation inherits the ordering transitively via the
-                    // territoriality → urgency → formulate_goals chain.
                     territoriality::update_territoriality
                         .after(activity_effects::apply_activity_effects)
                         .after(crate::agent::mind::perception::write_perceptions_to_mind),
                     urgency::generate_urgency.after(territoriality::update_territoriality),
-                    cns::formulate_goals.after(urgency::generate_urgency),
                 )
                     .run_if(not_paused), // ALL nervous system pauses together
             );

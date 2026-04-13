@@ -97,6 +97,7 @@ pub fn calculate_brain_powers(
 fn deduplicate_by_intent(
     proposals: Vec<BrainProposal>,
     powers: &BrainPowers,
+    registry: &crate::agent::actions::ActionRegistry,
 ) -> Vec<BrainProposal> {
     let mut by_intent: HashMap<Intent, BrainProposal> = HashMap::new();
     let mut passthrough: Vec<BrainProposal> = Vec::new();
@@ -106,9 +107,9 @@ fn deduplicate_by_intent(
             passthrough.push(prop);
             continue;
         }
-        let score = score_proposal(&prop, powers);
+        let score = score_proposal(&prop, powers, registry);
         match by_intent.get(&prop.intent) {
-            Some(existing) if score_proposal(existing, powers) >= score => {}
+            Some(existing) if score_proposal(existing, powers, registry) >= score => {}
             _ => {
                 by_intent.insert(prop.intent, prop);
             }
@@ -163,11 +164,11 @@ pub fn arbitrate_parallel(
     use crate::agent::actions::channel::ChannelLoad;
 
     let collected: Vec<BrainProposal> = proposals.iter().flatten().cloned().collect();
-    let deduped = deduplicate_by_intent(collected, powers);
+    let deduped = deduplicate_by_intent(collected, powers, registry);
 
     let mut scored: Vec<(f32, BrainProposal)> = deduped
         .into_iter()
-        .map(|p| (score_proposal(&p, powers), p))
+        .map(|p| (score_proposal(&p, powers, registry), p))
         .filter(|(s, _)| *s > 0.0)
         .collect();
     scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
@@ -198,12 +199,12 @@ pub fn arbitrate_parallel(
 
         let kind = action_def.kind();
 
-        // #223: Two ActionKind::Movement actions cannot coexist (the agent has
+        // #223: Two movement-class actions cannot coexist (the agent has
         // exactly one transform; two simultaneous moves toward different
-        // targets fight over it). Skip any further Movement proposals once
-        // one has already been admitted this tick. The highest-scoring
-        // Movement wins because the loop iterates in score order.
-        if matches!(kind, crate::agent::actions::ActionKind::Movement) && movement_admitted {
+        // targets fight over it). Skip any further movement-like
+        // proposals once one has already been admitted this tick. The
+        // highest-scoring wins because the loop iterates in score order.
+        if kind.is_movement_like() && movement_admitted {
             rejected.push(proposal);
             continue;
         }
@@ -228,7 +229,7 @@ pub fn arbitrate_parallel(
         }
 
         load.add(requirements);
-        if matches!(kind, crate::agent::actions::ActionKind::Movement) {
+        if kind.is_movement_like() {
             movement_admitted = true;
         }
         if incoming_posture.is_some() && pinned_posture.is_none() {
@@ -240,9 +241,32 @@ pub fn arbitrate_parallel(
     ArbitrationResult { admitted, rejected }
 }
 
-fn score_proposal(proposal: &BrainProposal, powers: &BrainPowers) -> f32 {
-    proposal.urgency * proposal.brain.power(powers)
+/// Arbitration score. Ambient actions (idle background behaviours) get
+/// their score halved so they naturally lose ties to non-ambient
+/// proposals — an agent should default to anything meaningful over
+/// wandering, as long as the meaningful thing has any urgency at all.
+fn score_proposal(
+    proposal: &BrainProposal,
+    powers: &BrainPowers,
+    registry: &crate::agent::actions::ActionRegistry,
+) -> f32 {
+    let base = proposal.urgency * proposal.brain.power(powers);
+    let is_ambient = registry
+        .get(proposal.action.action_type)
+        .map(|d| d.kind().is_ambient())
+        .unwrap_or(false);
+    if is_ambient {
+        base * AMBIENT_SCORE_FACTOR
+    } else {
+        base
+    }
 }
+
+/// Multiplier applied to ambient-action arbitration scores. Keeps ambient
+/// behaviour safely below any non-ambient proposal with equivalent raw
+/// score, while still letting ambient actions win when literally nothing
+/// else is proposed.
+const AMBIENT_SCORE_FACTOR: f32 = 0.5;
 
 #[cfg(test)]
 mod tests {
@@ -311,7 +335,7 @@ mod tests {
             Intent::SatisfyHunger,
         );
 
-        let deduped = deduplicate_by_intent(vec![walk, explore], &powers);
+        let deduped = deduplicate_by_intent(vec![walk, explore], &powers, &ActionRegistry::new());
 
         assert_eq!(deduped.len(), 1, "same-intent proposals must collapse to 1");
         assert_eq!(deduped[0].action.action_type, ActionType::Walk);
@@ -333,7 +357,7 @@ mod tests {
             Intent::SatisfySafety,
         );
 
-        let deduped = deduplicate_by_intent(vec![walk, flee], &powers);
+        let deduped = deduplicate_by_intent(vec![walk, flee], &powers, &ActionRegistry::new());
 
         assert_eq!(deduped.len(), 2);
         let kinds: Vec<_> = deduped.iter().map(|p| p.action.action_type).collect();
@@ -363,7 +387,11 @@ mod tests {
             Intent::SatisfyHunger,
         );
 
-        let deduped = deduplicate_by_intent(vec![survival, emotional, rational], &powers);
+        let deduped = deduplicate_by_intent(
+            vec![survival, emotional, rational],
+            &powers,
+            &ActionRegistry::new(),
+        );
 
         assert_eq!(deduped.len(), 1);
         assert_eq!(deduped[0].action.action_type, ActionType::Walk);
@@ -378,7 +406,7 @@ mod tests {
         let wander = make_proposal(BrainType::Rational, ActionType::Wander, 5.0, Intent::None);
         let idle = make_proposal(BrainType::Survival, ActionType::Idle, 3.0, Intent::None);
 
-        let deduped = deduplicate_by_intent(vec![wander, idle], &powers);
+        let deduped = deduplicate_by_intent(vec![wander, idle], &powers, &ActionRegistry::new());
 
         assert_eq!(
             deduped.len(),

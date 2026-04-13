@@ -764,18 +764,6 @@ fn agent_viewer_ui_for_agent(world: &mut World, entity: Entity, ui: &mut egui::U
                     }
                 }
 
-                // Goal
-                if let Some(goal) = &cns.current_goal {
-                    ui.horizontal(|ui| {
-                        ui.strong("Current Goal:");
-                        for pattern in &goal.conditions {
-                            ui.label(format_pattern(pattern));
-                        }
-                    });
-                    ui.label(format!("Priority: {:.2}", goal.priority));
-                } else {
-                    ui.label("No active goal.");
-                }
                 ui.separator();
             }
 
@@ -1121,53 +1109,6 @@ fn agent_viewer_ui_for_agent(world: &mut World, entity: Entity, ui: &mut egui::U
             }
         }
     });
-}
-
-fn format_pattern(p: &crate::agent::brains::thinking::TriplePattern) -> String {
-    let s = p
-        .subject
-        .as_ref()
-        .map(format_node)
-        .unwrap_or("*".to_string());
-    let pred = p
-        .predicate
-        .map(|pr| format!("{:?}", pr))
-        .unwrap_or("*".to_string());
-    let o = p
-        .object
-        .as_ref()
-        .map(format_value)
-        .unwrap_or("*".to_string());
-
-    format!("{} {} {}", s, pred, o)
-}
-
-fn format_node(n: &crate::agent::mind::knowledge::Node) -> String {
-    use crate::agent::mind::knowledge::Node;
-    match n {
-        Node::Self_ => "Self".to_string(),
-        Node::Entity(e) => format!("Entity({:?})", e),
-        Node::Concept(c) => format!("{:?}", c),
-        Node::Tile((x, y)) => format!("Tile({},{})", x, y),
-        Node::Action(a) => format!("Action({:?})", a),
-        _ => format!("{:?}", n),
-    }
-}
-
-fn format_value(v: &crate::agent::mind::knowledge::Value) -> String {
-    match v {
-        crate::agent::mind::knowledge::Value::Concept(c) => format!("{c:?}"),
-        crate::agent::mind::knowledge::Value::Entity(e) => format!("Entity({:?})", e.index()),
-        crate::agent::mind::knowledge::Value::Tile(t) => format!("Tile({},{})", t.0, t.1),
-        crate::agent::mind::knowledge::Value::Float(f) => format!("{f:.2}"),
-        crate::agent::mind::knowledge::Value::Int(i) => format!("{i}"),
-        crate::agent::mind::knowledge::Value::Boolean(b) => format!("{b}"),
-        crate::agent::mind::knowledge::Value::Item(c, qty) => format!("{c:?}({qty})"),
-        crate::agent::mind::knowledge::Value::Emotion(e, i) => format!("{e:?}({i:.2})"),
-        crate::agent::mind::knowledge::Value::Action(a) => format!("{a:?}"),
-        crate::agent::mind::knowledge::Value::Attitude(a) => format!("{a:?}"),
-        crate::agent::mind::knowledge::Value::Text(t) => format!("\"{t}\""),
-    }
 }
 
 /// Render the Social UI showing relationships and conversations

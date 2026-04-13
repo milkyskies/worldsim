@@ -516,6 +516,8 @@ fn upsert_verbal_commitment(memory: &mut PlanMemory, concept: Concept, listener:
             promised_to: listener,
             agreement_tick: now,
         },
+        driving_urgency: crate::agent::nervous_system::urgency::UrgencySource::Commitment,
+        created_at_urgency: 0.5,
         created_at: now,
         last_touched: now,
         current_step: 0,

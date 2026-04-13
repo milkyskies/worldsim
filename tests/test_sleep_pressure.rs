@@ -74,18 +74,37 @@ fn wakefulness_decays_faster_at_night() {
         .build();
     let night_agent = agents_night["night"];
 
-    // Force light levels: day = 1.0 (full sun), night = 0.3 (full dark).
-    world_day
-        .app_mut()
-        .world_mut()
-        .resource_mut::<LightLevel>()
-        .0 = 1.0;
-    world_night
-        .app_mut()
-        .world_mut()
-        .resource_mut::<LightLevel>()
-        .0 = 0.3;
+    // Force the game clock to day vs night by seeding the tick counter.
+    // `deterministic_tick` derives GameTime from TickCount every tick,
+    // so setting LightLevel directly would be immediately overwritten
+    // by `update_light_level`. Instead: advance each world to a tick
+    // whose game-time hour is inside the target light-level window
+    // (day = noon, night = midnight). TICKS_PER_HOUR = 3600.
+    use worldsim::core::{GameTime, TickCount};
+    // Noon — default spawn time is 12:00, so no adjustment needed for day.
+    // Night — midnight is 12 game-hours after noon.
+    {
+        let mut tc = world_night
+            .app_mut()
+            .world_mut()
+            .resource_mut::<TickCount>();
+        tc.current += GameTime::TICKS_PER_HOUR * 12;
+    }
+    // Run one tick to apply the time change to GameTime / LightLevel.
+    world_day.tick(1);
+    world_night.tick(1);
 
+    // Verify lights actually landed where we want them before starting
+    // the measurement window.
+    let day_light = world_day.app().world().resource::<LightLevel>().0;
+    let night_light = world_night.app().world().resource::<LightLevel>().0;
+    assert!(
+        day_light > night_light,
+        "day light should be higher than night light (day={day_light}, night={night_light})"
+    );
+
+    // Note: each tick advances GameTime slightly; over 3000 ticks that's
+    // 50 game-seconds, well inside the day or night window.
     world_day.tick(3000);
     world_night.tick(3000);
 

@@ -38,13 +38,12 @@ impl Plugin for BrainPlugin {
                     // Note: start_actions is now in AgentPlugin to run after brain decides
                 )
                     .chain() // planning runs before arbitration so fresh plan steps surface same-tick
-                    // Brains read CentralNervousSystem (goals, urgency) written by
-                    // formulate_goals — without this Bevy's multi-threaded scheduler
-                    // may run the brain before goals are updated for this tick,
-                    // causing stale state to drive incorrect action proposals. The
-                    // perception → brain ordering is implied transitively because
-                    // formulate_goals already runs after write_perceptions_to_mind.
-                    .after(crate::agent::nervous_system::cns::formulate_goals)
+                    // Brains read CentralNervousSystem urgencies written by
+                    // generate_urgency — without this Bevy's multi-threaded
+                    // scheduler may run the brain before urgencies are updated
+                    // for this tick, causing stale state to drive incorrect
+                    // action proposals.
+                    .after(crate::agent::nervous_system::urgency::generate_urgency)
                     .run_if(not_paused), // ALL brain systems pause together
             )
             .add_systems(
