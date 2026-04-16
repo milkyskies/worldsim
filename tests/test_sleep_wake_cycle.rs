@@ -59,26 +59,22 @@ fn tick_until_wake(world: &mut TestWorld, sleeper: bevy::prelude::Entity, max_ti
 }
 
 #[test]
-#[ignore = "flaky regression — rested-wake deadlock resurfaced, tracked in #382"]
 fn exhausted_agent_sleeps_and_then_wakes_once_rested() {
     // Regression for #352. Phase 1: low stamina drives the agent into Sleep.
-    // Phase 2: stamina recovers during sleep and they must leave it. Before
-    // the #352 fix this second phase looped forever because WakeUp could
-    // never preempt uninterruptible Sleep.
+    // Phase 2: wakefulness AND stamina both recover, triggering WakeUp.
     //
-    // As of the #350 nutrient-loop work this test fails deterministically:
-    // stamina fully recovers to aerobic=100 but the agent never exits Sleep.
-    // #357 fixed the stimulus-wake path (hunger/pain/fear) but didn't touch
-    // this rested-wake path. Tracking the fix in #382.
+    // The rested-wake condition requires BOTH wakefulness >= 0.95 AND
+    // aerobic_fraction >= 0.9. Wakefulness recovers at SLEEP_RESTORE_RATE
+    // (0.00167/rate-sec): from 0.1 to 0.95 takes ~509 rate-seconds =
+    // ~30500 ticks. Allow generous headroom.
     let (mut world, sleeper) = tired_sleeper();
 
-    // Sleep restores aerobic at +20/s, WAKE_STAMINA_THRESHOLD = 90, so ~5
-    // seconds of sim time at minimum plus the WakeUp transition.
-    let woke = tick_until_wake(&mut world, sleeper, 5_000);
+    let woke = tick_until_wake(&mut world, sleeper, 40_000);
     let aerobic = world.get::<PhysicalNeeds>(sleeper).stamina.aerobic;
     assert!(
         woke,
-        "agent should leave Sleep after stamina recovers; final aerobic = {aerobic:.1}",
+        "agent should leave Sleep after wakefulness and stamina recover; \
+         aerobic = {aerobic:.1}",
     );
 }
 
