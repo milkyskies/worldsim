@@ -24,13 +24,13 @@ impl TickCount {
         }
     }
 
-    /// Convert to a per-tick time delta for rate-based effects.
+    /// Per-tick time delta for rate-based effects.
     ///
-    /// Based on 60 Hz base execution: `dt = ticks_per_second / 3600.0`.
-    /// A speed multiplier of 1 (60 tps) yields `dt ≈ 0.01667` seconds per tick.
-    /// Use this in any system that scales per-second rates to per-tick amounts.
+    /// Fixed at 1/60 game-second per tick. Speed control is handled by
+    /// running more FixedUpdate cycles per wall-clock second (via
+    /// `Time<Fixed>::set_timestep_hz`), not by scaling dt.
     pub fn dt(&self) -> f32 {
-        self.ticks_per_second / 3600.0
+        1.0 / 60.0
     }
 
     /// Check if this entity should run on this tick (for staggered updates)
