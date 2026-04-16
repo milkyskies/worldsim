@@ -8,6 +8,7 @@
 use super::thinking::{ActionTemplate, Goal, TriplePattern};
 use crate::agent::actions::ActionType;
 use crate::agent::actions::motor::ActionPrimitive;
+use crate::agent::biology::body::Body;
 use crate::agent::body::effort::{self, compute_action_cost};
 use crate::agent::body::needs::{Consciousness, PhysicalNeeds};
 use crate::agent::body::species::SpeciesProfile;
@@ -62,6 +63,9 @@ pub struct PlanCostContext {
     pub current_tick: u64,
     /// Agent body mass in kg. Scales effort-model energy cost.
     pub body_mass: f32,
+    /// Respiratory efficiency in [0, 1]. Gates recovery-channel restoration
+    /// in the effort model. Default 1.0 for neutral/planning contexts.
+    pub lung_condition: f32,
     /// Species base speed (tiles/tick multiplier). Affects walk duration estimates.
     pub species_base_speed: f32,
     /// Current glucose level. Used by feasibility check.
@@ -91,6 +95,7 @@ impl PlanCostContext {
             neuroticism: 0.0,
             current_tick: 0,
             body_mass: effort::DEFAULT_BODY_MASS,
+            lung_condition: 1.0,
             species_base_speed: 1.0,
             glucose: crate::agent::body::metabolism::GLUCOSE_MAX,
             reserves: crate::agent::body::metabolism::RESERVES_MAX,
@@ -105,6 +110,7 @@ impl PlanCostContext {
         consciousness: &Consciousness,
         personality: &Personality,
         species: Option<&SpeciesProfile>,
+        body: Option<&Body>,
         current_tick: u64,
     ) -> Self {
         Self {
@@ -115,6 +121,7 @@ impl PlanCostContext {
             body_mass: species
                 .map(|s| s.mass_kg)
                 .unwrap_or(effort::DEFAULT_BODY_MASS),
+            lung_condition: body.map(Body::lung_condition).unwrap_or(1.0),
             species_base_speed: species.map(|s| s.base_speed).unwrap_or(1.0),
             glucose: physical.metabolism.glucose,
             reserves: physical.metabolism.reserves,
@@ -266,7 +273,7 @@ fn effort_cost_timed(action: &ActionTemplate, ctx: &PlanCostContext) -> f32 {
     let primitive = action.behavior.primitive;
     let intensity = action.behavior.intensity.resolve();
     let profile = primitive.effort_profile().scaled(intensity);
-    let cost = compute_action_cost(&profile, ctx.body_mass);
+    let cost = compute_action_cost(&profile, ctx.body_mass, ctx.lung_condition);
 
     let duration_ticks = action
         .estimated_duration_ticks
@@ -281,7 +288,7 @@ fn effort_cost_timed(action: &ActionTemplate, ctx: &PlanCostContext) -> f32 {
 /// Estimate the energy cost for a walk of `dist_tiles` tiles.
 fn effort_cost_walk(dist_tiles: f32, intensity: f32, ctx: &PlanCostContext) -> f32 {
     let profile = ActionPrimitive::Locomote.effort_profile().scaled(intensity);
-    let cost = compute_action_cost(&profile, ctx.body_mass);
+    let cost = compute_action_cost(&profile, ctx.body_mass, ctx.lung_condition);
 
     let distance_pixels = dist_tiles * TILE_SIZE;
     let speed_per_tick = crate::constants::movement::BASE_SPEED_PER_TICK
@@ -429,7 +436,7 @@ fn estimate_step_drains(
     let primitive = action.behavior.primitive;
     let intensity = action.behavior.intensity.resolve();
     let profile = primitive.effort_profile().scaled(intensity);
-    let cost = compute_action_cost(&profile, ctx.body_mass);
+    let cost = compute_action_cost(&profile, ctx.body_mass, ctx.lung_condition);
 
     let duration_secs = if action.action_type == ActionType::Walk {
         // Walk: estimate from distance

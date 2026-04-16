@@ -1966,7 +1966,7 @@ impl TestWorld {
 
     /// Print a causal breakdown for one metric on this agent: every
     /// contributor's signed per-second rate, followed by the net rate.
-    /// Supported metrics: "glucose", "stamina", "hydration", "mood".
+    /// Supported metrics: "glucose", "stamina", "mood", "stomach".
     pub fn print_why(&self, agent: Entity, metric: &str) {
         let world = self.app.world();
         let tick = world.resource::<TickCount>().current;
@@ -1988,13 +1988,6 @@ impl TestWorld {
                 "stamina",
                 " /sec",
                 ContributionKind::Stamina,
-            ),
-            "hydration" => dump_contributions_headless(
-                world,
-                agent,
-                "hydration",
-                " /sec",
-                ContributionKind::Hydration,
             ),
             "stomach" | "satiety" => dump_contributions_headless(
                 world,

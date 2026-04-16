@@ -155,10 +155,20 @@ pub struct ActionCost {
 /// `body_mass` is the agent's mass in kg. Locomotion cost scales linearly
 /// with mass relative to [`DEFAULT_BODY_MASS`].
 ///
+/// `lung_condition` is the agent's respiratory efficiency in [0, 1]. Fully
+/// intact lungs pass the recovery channel through unchanged; destroyed
+/// lungs zero out recovery. Lung condition only gates the recovery path —
+/// weak lungs don't make effort cheaper, just restoration slower.
+///
 /// This function does NOT import or know about action types. It takes pure
-/// physics: a profile and a body mass. That keeps #420's migration (moving
-/// profiles from actions to motor primitives) a simple relocation.
-pub fn compute_action_cost(profile: &EffortProfile, body_mass: f32) -> ActionCost {
+/// physics: a profile, a body mass, and a lung condition. That keeps #420's
+/// migration (moving profiles from actions to motor primitives) a simple
+/// relocation.
+pub fn compute_action_cost(
+    profile: &EffortProfile,
+    body_mass: f32,
+    lung_condition: f32,
+) -> ActionCost {
     let mut cost = ActionCost::default();
     let mass_factor = body_mass / DEFAULT_BODY_MASS;
 
@@ -210,12 +220,16 @@ pub fn compute_action_cost(profile: &EffortProfile, body_mass: f32) -> ActionCos
 
     // --- Recovery ---
     // Recovery is the negative-cost channel: it restores stamina pools and
-    // costs a small amount of energy (anabolism isn't free).
+    // costs a small amount of energy (anabolism isn't free). Lung condition
+    // gates restoration rate — damaged lungs deliver less oxygen so aerobic
+    // and anaerobic pools refill more slowly. Energy cost is independent of
+    // lung condition (the body still pays for anabolism even with weak lungs).
     if profile.recovery > 0.0 {
         let r = profile.recovery;
+        let lung_factor = lung_condition.clamp(0.0, 1.0);
         cost.energy += RECOVERY_ENERGY_COST * r;
-        cost.aerobic_drain -= RECOVERY_AEROBIC_RATE * r;
-        cost.anaerobic_drain -= RECOVERY_ANAEROBIC_RATE * r;
+        cost.aerobic_drain -= RECOVERY_AEROBIC_RATE * r * lung_factor;
+        cost.anaerobic_drain -= RECOVERY_ANAEROBIC_RATE * r * lung_factor;
     }
 
     cost
@@ -268,10 +282,11 @@ mod tests {
     use super::*;
 
     const HUMAN_MASS: f32 = 70.0;
+    const HEALTHY_LUNGS: f32 = 1.0;
 
     #[test]
     fn effort_profile_zero_produces_bmr_only_cost() {
-        let cost = compute_action_cost(&EffortProfile::ZERO, HUMAN_MASS);
+        let cost = compute_action_cost(&EffortProfile::ZERO, HUMAN_MASS, HEALTHY_LUNGS);
         assert_eq!(
             cost.energy, 0.0,
             "empty profile should have zero action cost"
@@ -287,8 +302,8 @@ mod tests {
             locomotion: 0.5,
             ..Default::default()
         };
-        let light = compute_action_cost(&profile, 35.0);
-        let heavy = compute_action_cost(&profile, 70.0);
+        let light = compute_action_cost(&profile, 35.0, HEALTHY_LUNGS);
+        let heavy = compute_action_cost(&profile, 70.0, HEALTHY_LUNGS);
         let ratio = heavy.energy / light.energy;
         assert!(
             (ratio - 2.0).abs() < 0.1,
@@ -306,8 +321,8 @@ mod tests {
             locomotion: 0.25,
             ..Default::default()
         };
-        let walk_cost = compute_action_cost(&walk, HUMAN_MASS);
-        let stroll_cost = compute_action_cost(&stroll, HUMAN_MASS);
+        let walk_cost = compute_action_cost(&walk, HUMAN_MASS, HEALTHY_LUNGS);
+        let stroll_cost = compute_action_cost(&stroll, HUMAN_MASS, HEALTHY_LUNGS);
         assert!(
             walk_cost.energy > 2.0 * stroll_cost.energy,
             "walk at 0.5 should cost more than 2x stroll at 0.25: walk={}, stroll={}",
@@ -322,7 +337,7 @@ mod tests {
             manipulation: 0.6,
             ..Default::default()
         };
-        let cost = compute_action_cost(&manip_only, HUMAN_MASS);
+        let cost = compute_action_cost(&manip_only, HUMAN_MASS, HEALTHY_LUNGS);
         assert!(
             cost.energy > 0.0,
             "manipulation-only profile should have energy cost"
@@ -339,7 +354,7 @@ mod tests {
             recovery: 1.0,
             ..Default::default()
         };
-        let cost = compute_action_cost(&recovery, HUMAN_MASS);
+        let cost = compute_action_cost(&recovery, HUMAN_MASS, HEALTHY_LUNGS);
         assert!(
             cost.aerobic_drain < 0.0,
             "recovery should produce negative aerobic drain (= restoration), got {}",
@@ -385,16 +400,14 @@ mod tests {
             cognition: 0.3,
             ..Default::default()
         };
-        let wander_cost = compute_action_cost(&wander, HUMAN_MASS);
-        let explore_cost = compute_action_cost(&explore, HUMAN_MASS);
-        // Same locomotion component
+        let wander_cost = compute_action_cost(&wander, HUMAN_MASS, HEALTHY_LUNGS);
+        let explore_cost = compute_action_cost(&explore, HUMAN_MASS, HEALTHY_LUNGS);
         let wander_loco_energy = LOCOMOTION_ENERGY_RATE * (0.5_f32 * 0.5_f32.sqrt());
         let explore_loco_energy = LOCOMOTION_ENERGY_RATE * (0.5_f32 * 0.5_f32.sqrt());
         assert!(
             (wander_loco_energy - explore_loco_energy).abs() < 0.001,
             "locomotion energy should be identical at equal intensity"
         );
-        // Total differs because explore has cognition
         assert!(
             explore_cost.energy > wander_cost.energy,
             "explore should cost more due to cognition channel"
@@ -411,8 +424,8 @@ mod tests {
             manipulation: 0.6,
             ..Default::default()
         };
-        let wander_cost = compute_action_cost(&wander, HUMAN_MASS);
-        let harvest_cost = compute_action_cost(&harvest, HUMAN_MASS);
+        let wander_cost = compute_action_cost(&wander, HUMAN_MASS, HEALTHY_LUNGS);
+        let harvest_cost = compute_action_cost(&harvest, HUMAN_MASS, HEALTHY_LUNGS);
         assert!(
             harvest_cost.energy > wander_cost.energy,
             "harvest should cost more due to manipulation channel: harvest={}, wander={}",
@@ -427,7 +440,7 @@ mod tests {
             recovery: 1.0,
             ..Default::default()
         };
-        let cost = compute_action_cost(&sleep, HUMAN_MASS);
+        let cost = compute_action_cost(&sleep, HUMAN_MASS, HEALTHY_LUNGS);
         assert!(
             cost.aerobic_drain < -10.0,
             "sleep should restore aerobic significantly, got {}",
@@ -455,8 +468,8 @@ mod tests {
 
         let graze = GrazeAction;
         let primitive = graze.motor_primitive();
-        let profile = primitive.effort_profile().scaled(0.25); // Graze = Ambient intensity
-        let cost = compute_action_cost(&profile, HUMAN_MASS);
+        let profile = primitive.effort_profile().scaled(0.25);
+        let cost = compute_action_cost(&profile, HUMAN_MASS, HEALTHY_LUNGS);
 
         assert!(
             cost.energy > 0.0,
@@ -466,6 +479,92 @@ mod tests {
         assert!(
             graze.runtime_effects().stomach_carbs_per_sec > 0.0,
             "graze ingestion side effect must be in RuntimeEffects, not the effort model"
+        );
+    }
+
+    // ── Lung-gated recovery ─────────────────────────────────────────────────
+
+    #[test]
+    fn healthy_lungs_pass_recovery_through_unchanged() {
+        let recovery = EffortProfile {
+            recovery: 1.0,
+            ..Default::default()
+        };
+        let cost = compute_action_cost(&recovery, HUMAN_MASS, 1.0);
+        assert!(
+            (cost.aerobic_drain - (-RECOVERY_AEROBIC_RATE)).abs() < 1e-6,
+            "healthy lungs must not alter aerobic recovery, got {}",
+            cost.aerobic_drain,
+        );
+        assert!(
+            (cost.anaerobic_drain - (-RECOVERY_ANAEROBIC_RATE)).abs() < 1e-6,
+            "healthy lungs must not alter anaerobic recovery, got {}",
+            cost.anaerobic_drain,
+        );
+    }
+
+    #[test]
+    fn destroyed_lungs_zero_out_recovery() {
+        let recovery = EffortProfile {
+            recovery: 1.0,
+            ..Default::default()
+        };
+        let cost = compute_action_cost(&recovery, HUMAN_MASS, 0.0);
+        assert_eq!(
+            cost.aerobic_drain, 0.0,
+            "dead lungs must halt aerobic recovery"
+        );
+        assert_eq!(
+            cost.anaerobic_drain, 0.0,
+            "dead lungs must halt anaerobic recovery"
+        );
+    }
+
+    #[test]
+    fn half_damaged_lungs_halve_recovery() {
+        let recovery = EffortProfile {
+            recovery: 1.0,
+            ..Default::default()
+        };
+        let cost = compute_action_cost(&recovery, HUMAN_MASS, 0.5);
+        assert!(
+            (cost.aerobic_drain - (-RECOVERY_AEROBIC_RATE * 0.5)).abs() < 1e-6,
+            "expected half aerobic recovery, got {}",
+            cost.aerobic_drain,
+        );
+    }
+
+    #[test]
+    fn drain_is_independent_of_lung_condition() {
+        let effort = EffortProfile {
+            locomotion: 1.0,
+            ..Default::default()
+        };
+        let healthy = compute_action_cost(&effort, HUMAN_MASS, 1.0);
+        let dying = compute_action_cost(&effort, HUMAN_MASS, 0.0);
+        assert!(
+            (healthy.aerobic_drain - dying.aerobic_drain).abs() < 1e-6,
+            "drain must not differ by lung condition, healthy={} dying={}",
+            healthy.aerobic_drain,
+            dying.aerobic_drain,
+        );
+        assert!(
+            (healthy.energy - dying.energy).abs() < 1e-6,
+            "energy cost must be independent of lung condition",
+        );
+    }
+
+    #[test]
+    fn recovery_energy_cost_unchanged_by_lung_condition() {
+        let recovery = EffortProfile {
+            recovery: 1.0,
+            ..Default::default()
+        };
+        let healthy = compute_action_cost(&recovery, HUMAN_MASS, 1.0);
+        let dying = compute_action_cost(&recovery, HUMAN_MASS, 0.0);
+        assert!(
+            (healthy.energy - dying.energy).abs() < 1e-6,
+            "recovery's anabolism energy cost must be independent of lung condition",
         );
     }
 }

@@ -263,23 +263,24 @@ pub fn durability_system(mut commands: Commands, mut query: Query<(Entity, &mut 
 
 /// Applies a shelter quality bonus to sleeping agents within range of a [`ShelterProvider`].
 ///
-/// Sleeping provides a base `stamina_change` from the activity config. This system
-/// adds an additional stamina recovery bonus scaled by the shelter's quality multiplier.
+/// The effort model already restores aerobic stamina while Sleep is active.
+/// This system adds an additional recovery bonus scaled by the shelter's
+/// quality multiplier when the sleeping agent is near one.
 pub fn shelter_system(
     shelter_providers: Query<(&Transform, &ShelterProvider)>,
     mut agents: Query<
         (
             &Transform,
             &mut crate::agent::body::needs::PhysicalNeeds,
-            &crate::agent::activity::CurrentActivity,
+            &crate::agent::actions::ActiveActions,
         ),
         With<crate::agent::Agent>,
     >,
 ) {
-    use crate::agent::activity::CurrentActivity;
+    use crate::agent::actions::ActionType;
 
-    for (agent_transform, mut needs, activity) in agents.iter_mut() {
-        if *activity != CurrentActivity::Sleeping {
+    for (agent_transform, mut needs, active) in agents.iter_mut() {
+        if !active.contains(ActionType::Sleep) {
             continue;
         }
         let agent_pos = agent_transform.translation.truncate();

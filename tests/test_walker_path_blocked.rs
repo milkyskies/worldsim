@@ -135,7 +135,7 @@ fn planner_skips_tiles_marked_unreachable() {
     let physical = world.get::<PhysicalNeeds>(hero).clone();
     let consciousness = world.get::<Consciousness>(hero).clone();
     let personality = world.get::<Personality>(hero).clone();
-    let ctx = PlanCostContext::from_agent(&physical, &consciousness, &personality, None, 100);
+    let ctx = PlanCostContext::from_agent(&physical, &consciousness, &personality, None, None, 100);
 
     // Probe via the public planner entry point. A goal to "be at the
     // blocked tile" must return an empty plan (already-satisfied is

@@ -105,9 +105,8 @@ fn exhausted_agent_downgrades_to_walk() {
     assert_eq!(effective_intensity(0.3, &s), 0.3);
 }
 
-/// A Wander action that ticks for several seconds drains aerobic (the
-/// intensity-based drain path fires in `tick_actions`, not via the
-/// activity_effects legacy rate).
+/// A Wander action that ticks for several seconds drains aerobic through
+/// the effort model's intensity-scaled locomotion channel.
 #[test]
 fn wandering_drains_aerobic_through_intensity_path() {
     let mut world = TestWorld::with_seed(0);

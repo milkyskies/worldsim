@@ -183,14 +183,18 @@ pub struct LegCompleteContext<'a> {
 
 /// Per-tick side effects applied while an action is running.
 ///
-/// Physical costs are derived from the effort model. Psychological effects
-/// are derived from ActionPrimitive + Intent. This struct holds only the
-/// structural ingestion side effect that can't be derived from either.
+/// Physical costs are derived from the effort model. Psychological drive
+/// effects (alertness/stimulation/companionship) are derived from
+/// ActionPrimitive + Intent. This struct holds structural side effects
+/// that can't be derived from either.
 #[derive(Debug, Clone, Default)]
 pub struct RuntimeEffects {
     /// Carbs added to the stomach per second. Used by continuous-feed actions
     /// like Graze where the animal is ingesting plant matter over time.
     pub stomach_carbs_per_sec: f32,
+    /// Joy emotion added per second. Comfort actions (Sleep, Eat) emit a
+    /// small joy burst that feeds the emotional brain's mood scalar.
+    pub joy_per_sec: f32,
 }
 
 // ============================================================================

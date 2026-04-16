@@ -229,9 +229,6 @@ pub mod brains {
         /// How much openness reduces plan generation drain. Curious agents
         /// enjoy thinking so they tire less from it.
         pub const OPENNESS_PLANNING_RELIEF: f32 = 0.6;
-        /// How much conscientiousness reduces physical stamina drain. Lazy
-        /// agents feel labor harder; disciplined agents grind through.
-        pub const CONSCIENTIOUSNESS_STAMINA_RELIEF: f32 = 0.4;
         /// Alertness drained from the speaker per conversation turn.
         /// Talking is mildly taxing — you're composing language and tracking
         /// the partner's state.
