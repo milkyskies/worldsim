@@ -57,22 +57,10 @@ pub fn every_n_ticks(n: u64) -> impl Fn(Res<TickCount>) -> bool {
     move |tick: Res<TickCount>| tick.current.is_multiple_of(n.max(1))
 }
 
-/// System that increments tick based on delta time
-pub fn tick_system(
-    time: Res<Time>,
-    mut tick: ResMut<TickCount>,
-    mut game_time: ResMut<super::GameTime>,
-) {
+pub fn tick_system(mut tick: ResMut<TickCount>, mut game_time: ResMut<super::GameTime>) {
     if tick.paused {
         return;
     }
-
-    tick.accumulated += time.delta_secs();
-    let tick_duration = 1.0 / tick.ticks_per_second;
-
-    while tick.accumulated >= tick_duration {
-        tick.accumulated -= tick_duration;
-        tick.current += 1;
-        game_time.update_from_tick(tick.current);
-    }
+    tick.current += 1;
+    game_time.update_from_tick(tick.current);
 }

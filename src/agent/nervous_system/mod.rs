@@ -22,27 +22,17 @@ impl Plugin for NervousSystemPlugin {
             .init_resource::<crate::agent::brains::planner::PlannerConfig>()
             .init_resource::<crate::agent::mind::memory::MemoryDecayConfig>()
             .add_systems(
-                Update,
+                FixedUpdate,
                 (
-                    // BMR drain + stomach digestion + glucose/reserves
-                    // overflow runs every tick for every agent with
-                    // PhysicalNeeds. Per-action drains live in
-                    // `execution::apply_action_effects`, which runs
-                    // after this system.
                     metabolism::tick_metabolism,
                     crate::agent::body::wakefulness::tick_wakefulness
                         .after(metabolism::tick_metabolism),
-                    // Territoriality reads MindGraph, which is written by
-                    // write_perceptions_to_mind. Without this explicit edge Bevy
-                    // may schedule the urgency chain before perception, producing
-                    // stale urgency values that cause agents to pick Wander
-                    // instead of InitiateConversation on the first decision tick.
                     territoriality::update_territoriality
                         .after(metabolism::tick_metabolism)
                         .after(crate::agent::mind::perception::write_perceptions_to_mind),
                     urgency::generate_urgency.after(territoriality::update_territoriality),
                 )
-                    .run_if(not_paused), // ALL nervous system pauses together
+                    .run_if(not_paused),
             );
     }
 }

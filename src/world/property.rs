@@ -325,7 +325,7 @@ impl Plugin for OntologyDerivationPlugin {
             .register_type::<BuiltBy>()
             .register_type::<HarvestableComponent>()
             .add_systems(
-                Update,
+                FixedUpdate,
                 (
                     derive_ontology_light_source,
                     derive_ontology_heat_source,

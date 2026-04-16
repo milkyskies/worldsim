@@ -5,6 +5,7 @@
 //! Upstream: testing::config (AgentConfig), testing::spawn (logic-only spawners)
 //! Downstream: integration tests (scenario, brain, knowledge, planner, perception)
 
+use bevy::app::FixedMain;
 use bevy::math::IVec2;
 use bevy::prelude::*;
 
@@ -591,6 +592,7 @@ impl TestWorld {
         // - MapPlugin (WorldMap, plus tile sprite spawning)
         // - EnvironmentPlugin (LightLevel, plus ClearColor manipulation)
         // - CorePlugin (TickCount/GameLog/GameTime, plus keyboard time controls)
+        app.insert_resource(Time::<Fixed>::from_hz(60.0));
         app.insert_resource(setup_ontology());
         app.insert_resource(map);
         app.insert_resource(LightLevel(1.0));
@@ -602,27 +604,15 @@ impl TestWorld {
         app.insert_resource(crate::core::SimRng::from_seed(seed));
         app.add_plugins(SpatialIndexPlugin);
 
-        // SimEvent history — collected automatically each tick.
         app.init_resource::<SimEventLog>();
         app.add_systems(Last, collect_sim_events_into_log);
 
-        // Replace tick_system with a deterministic per-update tick advancer so
-        // each `app.update()` advances exactly one logical tick regardless of
-        // wall-clock delta. Running in PreUpdate guarantees the tick is
-        // committed before any Update systems (e.g. decay_relationships) read it,
-        // which prevents ordering-dependent flakes.
-        app.add_systems(PreUpdate, deterministic_tick);
+        app.add_systems(FixedFirst, deterministic_tick);
 
-        // Adds biology, brains, nervous_system, mind systems, action registry,
-        // conversation manager, relationship config, etc.
         app.add_plugins(AgentPlugin);
 
-        // Resource regeneration (berry bushes, apple trees, etc). SpawnerPlugin
-        // is excluded because it also runs startup spawning, but we still need
-        // the Update system that refills depleted resources over time.
-        app.add_systems(Update, crate::world::apple_tree::regenerate_resources);
+        app.add_systems(FixedUpdate, crate::world::apple_tree::regenerate_resources);
 
-        // Ontology derivation + world entity property systems (fuel, durability, shelter).
         app.add_plugins(crate::world::property::OntologyDerivationPlugin);
 
         Self { app, seed }
@@ -920,10 +910,14 @@ impl TestWorld {
 
     // ─── Simulation ────────────────────────────────────────────────────────
 
-    /// Advances the simulation by `n` ticks. Each tick is one full Bevy `update()`
-    /// pass with all logic systems running.
+    /// Advances the simulation by `n` ticks. Each tick runs `FixedMain`
+    /// directly (bypassing Bevy's time-accumulation logic) then runs a
+    /// normal `app.update()` for frame-rate schedules (transforms, event
+    /// collection). Wall-clock delta between updates is near-zero, so the
+    /// `RunFixedMainLoop` inside `app.update()` never fires a second time.
     pub fn tick(&mut self, n: u64) {
         for _ in 0..n {
+            self.app.world_mut().run_schedule(FixedMain);
             self.app.update();
         }
     }
