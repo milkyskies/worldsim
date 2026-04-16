@@ -6,10 +6,10 @@ use bevy::prelude::*;
 pub struct TickCount {
     /// Current tick number (0, 1, 2, ...)
     pub current: u64,
-    /// Ticks per second (configurable rate)
+    /// Current speed in ticks per wall-clock second. Read by `time_controls`
+    /// and the UI speed buttons; written to `Time<Fixed>::set_timestep_hz`
+    /// to control how many FixedUpdate cycles Bevy runs per frame.
     pub ticks_per_second: f32,
-    /// Accumulated time since last tick
-    accumulated: f32,
     /// Whether simulation is paused
     pub paused: bool,
 }
@@ -19,7 +19,6 @@ impl TickCount {
         Self {
             current: 0,
             ticks_per_second,
-            accumulated: 0.0,
             paused: false,
         }
     }
