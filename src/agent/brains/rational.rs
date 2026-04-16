@@ -827,7 +827,7 @@ mod tests {
     use super::*;
     use crate::agent::actions::ActionRegistry;
     use crate::agent::brains::plan_memory::PlanId;
-    use crate::agent::brains::thinking::Goal;
+    use crate::agent::brains::thinking::{Goal, SearchFilter};
     use crate::agent::mind::knowledge::{Concept, Node as MindNode, Value};
     use crate::agent::nervous_system::cns::CentralNervousSystem;
     use crate::agent::nervous_system::urgency::{Urgency, UrgencySource};
