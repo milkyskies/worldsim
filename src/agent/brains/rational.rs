@@ -16,7 +16,7 @@ use crate::agent::brains::plan_memory::{
 use crate::agent::brains::proposal::{BrainProposal, BrainType, Intent};
 use crate::agent::brains::target_enumeration::enumerate_targets;
 use crate::agent::brains::thinking::{
-    ActionTemplate, Goal, SearchFilter, TriplePattern, derive_search_concept,
+    ActionTemplate, Goal, TriplePattern, derive_search_concept,
 };
 use crate::agent::mind::knowledge::{MindGraph, Predicate, Value};
 use crate::agent::mind::perception::VisibleObjects;
