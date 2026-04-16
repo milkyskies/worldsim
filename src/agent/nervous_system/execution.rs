@@ -19,7 +19,7 @@ use crate::agent::body::species::SpeciesProfile;
 use crate::agent::brains::proposal::BrainState;
 use crate::agent::events::{ActionOutcome, ActionOutcomeEvent, NeedSatisfaction};
 use crate::agent::item_slots::ItemSlots;
-use crate::agent::mind::knowledge::{MindGraph, Node, Predicate, Value};
+use crate::agent::mind::knowledge::MindGraph;
 use crate::agent::movement::{
     ARRIVAL_THRESHOLD, MoveResult, calculate_speed, effective_intensity,
     intensity_speed_multiplier, move_toward,
@@ -27,7 +27,7 @@ use crate::agent::movement::{
 use crate::core::SimRng;
 use crate::core::tick::TickCount;
 use crate::ui::hud::GameLog;
-use crate::world::map::{CHUNK_SIZE, TILE_SIZE, WorldMap};
+use crate::world::map::{TILE_SIZE, WorldMap};
 use bevy::prelude::*;
 use rand::Rng;
 
@@ -222,12 +222,32 @@ pub fn start_actions(
                     new_state.with_locomotion_intensity(action_template.locomotion_intensity);
             }
 
+            if let Some(filter) = action_template.search_filter {
+                new_state = new_state.with_search_filter(filter);
+            }
+
             if action_def.kind().is_movement_like() {
                 let pos = transform.translation.truncate();
                 let rng = sim_rng.inner_mut();
                 let new_target = match wanted_action {
                     ActionType::Explore => {
-                        find_explore_target(pos, mind, &world_map, tick.current, rng)
+                        crate::agent::actions::action::explore::pick_explore_target(
+                            pos,
+                            mind,
+                            &world_map,
+                            tick.current,
+                            rng,
+                        )
+                    }
+                    ActionType::LookFor => {
+                        crate::agent::actions::action::look_for::pick_look_for_target(
+                            pos,
+                            mind,
+                            &world_map,
+                            tick.current,
+                            action_template.search_filter,
+                            rng,
+                        )
                     }
                     ActionType::Wander => {
                         pick_random_walkable_target(pos, &world_map, 10.0..30.0, rng)
@@ -425,6 +445,7 @@ pub fn tick_actions(
                                 target_position: Some(target_position),
                                 current_tick,
                                 rng,
+                                search_filter: action_state.search_filter,
                             };
                             let mut leg_ctx = leg_ctx;
                             match action_def.on_leg_complete(&mut leg_ctx) {
@@ -518,6 +539,7 @@ pub fn tick_actions(
                                             target_position: Some(target_position),
                                             current_tick,
                                             rng,
+                                            search_filter: action_state.search_filter,
                                         };
                                         let mut leg_ctx = leg_ctx;
                                         match action_def.on_leg_complete(&mut leg_ctx) {
@@ -1204,49 +1226,6 @@ fn preempt_to_make_room(
 // ============================================================================
 // Target Finding Helpers
 // ============================================================================
-
-fn find_explore_target(
-    current_pos: Vec2,
-    mind: &MindGraph,
-    world_map: &WorldMap,
-    current_tick: u64,
-    rng: &mut impl Rng,
-) -> Option<Vec2> {
-    let mut best_target: Option<Vec2> = None;
-    let mut best_score = f32::MAX;
-    let (map_w, map_h) = world_map.pixel_bounds();
-
-    for _ in 0..10 {
-        let test_pos = Vec2::new(rng.random_range(0.0..map_w), rng.random_range(0.0..map_h));
-
-        if world_map.is_walkable(test_pos) {
-            let chunk_x = (test_pos.x / (CHUNK_SIZE as f32 * TILE_SIZE)).floor() as i32;
-            let chunk_y = (test_pos.y / (CHUNK_SIZE as f32 * TILE_SIZE)).floor() as i32;
-
-            let mut score = 0.0;
-            let triples = mind.query(
-                Some(&Node::Chunk((chunk_x, chunk_y))),
-                Some(Predicate::Explored),
-                None,
-            );
-
-            if let Some(triple) = triples.first()
-                && let Value::Boolean(true) = triple.object
-            {
-                let age = (current_tick as i32 - triple.meta.timestamp as i32).max(0) as f32;
-                score = 1000.0 / (age + 1.0);
-            }
-
-            score += current_pos.distance(test_pos) / 5000.0;
-
-            if score < best_score {
-                best_score = score;
-                best_target = Some(test_pos);
-            }
-        }
-    }
-    best_target
-}
 
 fn pick_random_walkable_target(
     pos: Vec2,

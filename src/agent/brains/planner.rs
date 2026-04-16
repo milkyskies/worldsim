@@ -1323,6 +1323,7 @@ fn build_walk_template(world_pos: Vec2, tile: (i32, i32)) -> ActionTemplate {
         base_cost: 0.0,
         locomotion_intensity,
         estimated_duration_ticks: None,
+        search_filter: None,
     }
 }
 
@@ -1446,6 +1447,7 @@ mod tests {
             base_cost: 2.0,
             locomotion_intensity: 0.0,
             estimated_duration_ticks: None,
+            search_filter: None,
         }
     }
 
@@ -1683,6 +1685,7 @@ mod tests {
             base_cost: 2.0,
             locomotion_intensity: 0.0,
             estimated_duration_ticks: None,
+            search_filter: None,
         }
     }
 
@@ -1853,6 +1856,7 @@ mod tests {
                 base_cost: 2.0,
                 locomotion_intensity: 0.0,
                 estimated_duration_ticks: None,
+                search_filter: None,
             },
             rest_template(&registry),
         ];
@@ -1930,6 +1934,7 @@ mod tests {
             base_cost: 1.0,
             locomotion_intensity: 0.0,
             estimated_duration_ticks: None,
+            search_filter: None,
         };
         let harvest_stone = ActionTemplate {
             name: "HarvestStone".to_string(),
@@ -1950,6 +1955,7 @@ mod tests {
             base_cost: 2.0,
             locomotion_intensity: 0.0,
             estimated_duration_ticks: None,
+            search_filter: None,
         };
 
         let hunger_goal = Goal {
@@ -2286,6 +2292,7 @@ mod tests {
             base_cost: 10.0,
             locomotion_intensity,
             estimated_duration_ticks: None,
+            search_filter: None,
         }
     }
 
