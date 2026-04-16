@@ -182,7 +182,9 @@ fn record_interaction_event(
     mind: &mut crate::agent::mind::knowledge::MindGraph,
     game_log: &mut crate::core::GameLog,
 ) {
-    use crate::agent::mind::knowledge::{Concept, Metadata, Node, Predicate, Triple, Value};
+    use crate::agent::mind::knowledge::{
+        Concept, Metadata, Node, Predicate, Quantity, Triple, Value,
+    };
 
     let mut concepts = vec![];
     match action {
@@ -249,7 +251,7 @@ fn record_interaction_event(
     mind.assert(Triple::with_meta(
         Node::Event(event_id),
         Predicate::Timestamp,
-        Value::Int(item.timestamp as i32),
+        Value::Quantity(Quantity::Exact(item.timestamp as f32)),
         meta.clone(),
     ));
     mind.assert(Triple::with_meta(
@@ -388,7 +390,11 @@ fn record_knowledge_shared(
 /// Intrinsic, Cultural, and Procedural memories never decay.
 pub fn decay_stale_knowledge(
     mut agents: Query<
-        (Entity, &mut crate::agent::mind::knowledge::MindGraph),
+        (
+            Entity,
+            &mut crate::agent::mind::knowledge::MindGraph,
+            &crate::agent::psyche::personality::Personality,
+        ),
         With<crate::agent::Alive>,
     >,
     tick: Res<crate::core::TickCount>,
@@ -397,7 +403,7 @@ pub fn decay_stale_knowledge(
 ) {
     let current_time = tick.current;
 
-    for (entity, mut mind) in agents.iter_mut() {
+    for (entity, mut mind, personality) in agents.iter_mut() {
         if !(entity.index_u32() as u64 + current_time).is_multiple_of(decay_config.decay_interval) {
             continue;
         }
@@ -411,6 +417,9 @@ pub fn decay_stale_knowledge(
         let ln_episodic = decay_config.episodic_decay.ln();
         let ln_semantic = decay_config.semantic_decay.ln();
 
+        // Conscientious agents resist memory decay — they hold on to details longer.
+        let resist_mult = 1.0 + personality.traits.conscientiousness;
+
         let decayed_count = mind.decay_pass(|triple| {
             let ln_base = match triple.meta.memory_type {
                 MemoryType::Perception => ln_perception,
@@ -421,20 +430,22 @@ pub fn decay_stale_knowledge(
 
             // Passive decay: exp(ln_base / (strength * salience_resist))
             // High strength and salience slow the effective rate.
+            // Conscientiousness adds an extra resistance multiplier on top.
             let salience_resist =
-                1.0 + triple.meta.salience * decay_config.salience_decay_resistance;
+                (1.0 + triple.meta.salience * decay_config.salience_decay_resistance) * resist_mult;
             let effective_rate =
                 (ln_base / (triple.meta.strength.max(1.0) * salience_resist)).exp();
             triple.meta.strength *= effective_rate;
 
             // Interference: more same-predicate triples → faster loss for weak memories.
+            // Vulnerability is a reciprocal sigmoid: strength=0 → vuln=1.0, strength=∞ → vuln=0.
             if let Some(&pressure) = pred_pressure.get(&triple.predicate) {
                 let vulnerability = 1.0 / (1.0 + triple.meta.strength * 2.0);
                 triple.meta.strength -= pressure * vulnerability;
             }
 
             triple.meta.strength = triple.meta.strength.max(0.0);
-            triple.meta.strength >= decay_config.forget_threshold
+            step_precision_or_drop(triple, &decay_config)
         });
 
         // Episodic capacity cap: cull weakest events when over limit
@@ -458,6 +469,37 @@ pub fn decay_stale_knowledge(
             }
         }
     }
+}
+
+/// Final step in the decay pass. If a triple's strength is still above the
+/// forget threshold it stays as-is. Below the threshold, a numeric belief
+/// steps one rung down the precision ladder (Exact → Around → OoM → Qualitative)
+/// and gets a fresh strength allotment; when the ladder is exhausted, or when
+/// the object isn't a `Quantity`, the triple is dropped.
+///
+/// This is how the Quantity ladder produces believable forgetting: an agent
+/// doesn't just lose a fact, they lose *precision* first, then lose the fact.
+fn step_precision_or_drop(
+    triple: &mut crate::agent::mind::knowledge::Triple,
+    config: &MemoryDecayConfig,
+) -> bool {
+    use crate::agent::mind::knowledge::Value;
+
+    if triple.meta.strength >= config.forget_threshold {
+        return true;
+    }
+
+    // Triple is at the forget line — try to fuzzify instead of dropping.
+    if let Value::Quantity(q) = &triple.object
+        && let Some(fuzzy) = q.fuzzify()
+    {
+        triple.object = Value::Quantity(fuzzy);
+        triple.meta.strength = config.forget_threshold * config.strength_rebound_multiplier;
+        return true;
+    }
+
+    // Not a quantity (or end of ladder) — drop it.
+    false
 }
 
 /// Remove the weakest episodic events when the total event count exceeds capacity.
@@ -511,6 +553,10 @@ pub struct MemoryDecayConfig {
     /// Denominator for interference pressure: higher → less interference.
     pub interference_divisor: f32,
     pub forget_threshold: f32,
+    /// After fuzzifying one rung down, strength rebounds to `forget_threshold *
+    /// strength_rebound_multiplier`. High enough that the belief survives another
+    /// decay window before stepping down again; low enough that it doesn't last forever.
+    pub strength_rebound_multiplier: f32,
     pub episodic_capacity: usize,
     pub decay_interval: u64,
 }
@@ -524,6 +570,7 @@ impl Default for MemoryDecayConfig {
             salience_decay_resistance: 2.0,
             interference_divisor: 30.0,
             forget_threshold: 0.05,
+            strength_rebound_multiplier: 4.0,
             episodic_capacity: 200,
             decay_interval: 60,
         }
@@ -610,7 +657,10 @@ mod tests {
     }
 
     /// Run the same decay formula used by `decay_stale_knowledge`, minus ECS wiring.
-    fn run_decay_pass(mind: &mut MindGraph, config: &MemoryDecayConfig) -> usize {
+    ///
+    /// `resist_mult` mirrors the personality conscientiousness factor: pass `1.0` for
+    /// a neutral agent, `1.0 + conscientiousness` to simulate a specific personality.
+    fn run_decay_pass(mind: &mut MindGraph, config: &MemoryDecayConfig, resist_mult: f32) -> usize {
         let pred_pressure = config.precompute_interference(&mind.predicate_count_map());
         let ln_perception = config.perception_decay.ln();
         let ln_episodic = config.episodic_decay.ln();
@@ -623,7 +673,8 @@ mod tests {
                 MemoryType::Semantic => ln_semantic,
                 _ => return true,
             };
-            let resist = 1.0 + triple.meta.salience * config.salience_decay_resistance;
+            let resist =
+                (1.0 + triple.meta.salience * config.salience_decay_resistance) * resist_mult;
             let rate = (ln_base / (triple.meta.strength.max(1.0) * resist)).exp();
             triple.meta.strength *= rate;
 
@@ -632,7 +683,7 @@ mod tests {
                 triple.meta.strength -= pressure * vulnerability;
             }
             triple.meta.strength = triple.meta.strength.max(0.0);
-            triple.meta.strength >= config.forget_threshold
+            step_precision_or_drop(triple, config)
         })
     }
 
@@ -642,7 +693,7 @@ mod tests {
         let mut mind = MindGraph::default();
         mind.add(perception_triple(1, (5, 5), 1.0));
 
-        run_decay_pass(&mut mind, &config);
+        run_decay_pass(&mut mind, &config, 1.0);
 
         let s = mind.iter().next().unwrap().meta.strength;
         assert!(
@@ -657,7 +708,7 @@ mod tests {
         let mut mind = MindGraph::default();
         mind.add(perception_triple(1, (5, 5), 5.0));
 
-        run_decay_pass(&mut mind, &config);
+        run_decay_pass(&mut mind, &config, 1.0);
 
         let s = mind.iter().next().unwrap().meta.strength;
         assert!(s > 4.9, "high-strength triple should barely decay, got {s}");
@@ -673,13 +724,107 @@ mod tests {
             Value::Concept(Concept::Food),
         ));
 
-        let removed = run_decay_pass(&mut mind, &config);
+        let removed = run_decay_pass(&mut mind, &config, 1.0);
 
         assert_eq!(removed, 0);
         assert!(
             (mind.iter().next().unwrap().meta.strength - 1.0).abs() < f32::EPSILON,
             "intrinsic strength must not change"
         );
+    }
+
+    #[test]
+    fn aged_quantity_belief_steps_down_precision_ladder_not_deletion() {
+        use crate::agent::mind::knowledge::{Magnitude, Quantity};
+
+        let config = MemoryDecayConfig::default();
+        let mut mind = MindGraph::default();
+
+        // Perception-memory-type Quantity belief at bare-minimum strength.
+        // Next decay pass will push it below the forget threshold.
+        let mut meta = Metadata::perception(0);
+        meta.strength = config.forget_threshold;
+        mind.add(Triple::with_meta(
+            Node::Self_,
+            Predicate::Hunger,
+            Value::Quantity(Quantity::Exact(50.0)),
+            meta,
+        ));
+
+        // Rung 1: Exact -> Around
+        run_decay_pass(&mut mind, &config, 1.0);
+        let observed = mind.iter().next().expect("triple must survive fuzzify");
+        assert!(
+            matches!(observed.object, Value::Quantity(Quantity::Around(v)) if (v - 50.0).abs() < 0.001),
+            "expected Around(50) after first stepdown, got {:?}",
+            observed.object
+        );
+        // Pin strength back down for the next stepdown.
+        mind.decay_pass(|t| {
+            t.meta.strength = config.forget_threshold;
+            true
+        });
+
+        // Rung 2: Around -> OrderOfMagnitude
+        run_decay_pass(&mut mind, &config, 1.0);
+        let observed = mind.iter().next().expect("triple must survive fuzzify");
+        assert!(
+            matches!(
+                observed.object,
+                Value::Quantity(Quantity::OrderOfMagnitude(_))
+            ),
+            "expected OrderOfMagnitude after second stepdown, got {:?}",
+            observed.object
+        );
+        mind.decay_pass(|t| {
+            t.meta.strength = config.forget_threshold;
+            true
+        });
+
+        // Rung 3: OrderOfMagnitude -> Qualitative
+        run_decay_pass(&mut mind, &config, 1.0);
+        let observed = mind.iter().next().expect("triple must survive fuzzify");
+        assert!(
+            matches!(
+                observed.object,
+                Value::Quantity(Quantity::Qualitative(Magnitude::Moderate))
+            ),
+            "expected Qualitative(Moderate) after third stepdown, got {:?}",
+            observed.object
+        );
+        mind.decay_pass(|t| {
+            t.meta.strength = config.forget_threshold;
+            true
+        });
+
+        // Rung 4: Qualitative -> forgotten
+        let removed = run_decay_pass(&mut mind, &config, 1.0);
+        assert_eq!(removed, 1, "final rung should drop the triple");
+        assert!(
+            mind.iter().next().is_none(),
+            "triple should be forgotten at the last rung"
+        );
+    }
+
+    #[test]
+    fn non_quantity_triple_still_deletes_on_forget_threshold() {
+        // Non-numeric beliefs (Concept, Entity, Boolean) have nothing to
+        // fuzzify. They must still be tombstoned when their strength drops.
+        let config = MemoryDecayConfig::default();
+        let mut mind = MindGraph::default();
+        let mut meta = Metadata::perception(0);
+        meta.strength = config.forget_threshold;
+        mind.add(Triple::with_meta(
+            Node::Entity(bevy::prelude::Entity::from_bits(42)),
+            Predicate::HasTrait,
+            Value::Concept(Concept::Dangerous),
+            meta,
+        ));
+
+        let removed = run_decay_pass(&mut mind, &config, 1.0);
+
+        assert_eq!(removed, 1);
+        assert!(mind.iter().next().is_none());
     }
 
     #[test]
@@ -698,7 +843,7 @@ mod tests {
             meta,
         ));
 
-        let removed = run_decay_pass(&mut mind, &config);
+        let removed = run_decay_pass(&mut mind, &config, 1.0);
 
         assert_eq!(removed, 0);
         assert!(
@@ -720,8 +865,8 @@ mod tests {
             mind_sparse.add(perception_triple(i, (i as i32, 0), 1.0));
         }
 
-        run_decay_pass(&mut mind_crowded, &config);
-        run_decay_pass(&mut mind_sparse, &config);
+        run_decay_pass(&mut mind_crowded, &config, 1.0);
+        run_decay_pass(&mut mind_sparse, &config, 1.0);
 
         let crowded_strength = mind_crowded.iter().next().unwrap().meta.strength;
         let sparse_strength = mind_sparse.iter().next().unwrap().meta.strength;
@@ -772,12 +917,72 @@ mod tests {
         mind.add(perception_triple(1, (5, 5), 1.0));
 
         for _ in 0..200 {
-            run_decay_pass(&mut mind, &config);
+            run_decay_pass(&mut mind, &config, 1.0);
         }
 
         assert!(
             mind.is_empty(),
             "unreinforced perception should be forgotten after enough passes"
+        );
+    }
+
+    #[test]
+    fn conscientious_agent_holds_precision_longer_than_sloppy_one() {
+        use crate::agent::mind::knowledge::Quantity;
+
+        let config = MemoryDecayConfig::default();
+
+        let mut conscientious_mind = MindGraph::default();
+        let mut sloppy_mind = MindGraph::default();
+
+        // Starting strength 0.5 — above forget_threshold (0.05) but low enough
+        // that the conscientiousness gap is visible within ~70 passes.
+        //
+        // Math (salience=0 so salience_resist = resist_mult, strength < 1.0):
+        //   effective_rate = 0.95 ^ (1 / resist_mult) per pass
+        //   sloppy (resist_mult=1.1):       0.9544/pass → below threshold after ~49 passes
+        //   conscientious (resist_mult=1.9): 0.9733/pass → still above threshold at pass 70
+        let starting_strength = 0.5;
+        let make_triple = |strength: f32| {
+            let mut meta = Metadata::perception(0);
+            meta.strength = strength;
+            Triple::with_meta(
+                Node::Self_,
+                Predicate::Hunger,
+                Value::Quantity(Quantity::Exact(75.0)),
+                meta,
+            )
+        };
+
+        conscientious_mind.add(make_triple(starting_strength));
+        sloppy_mind.add(make_triple(starting_strength));
+
+        let conscientious_mult = 1.0 + 0.9_f32;
+        let sloppy_mult = 1.0 + 0.1_f32;
+
+        for _ in 0..70 {
+            run_decay_pass(&mut conscientious_mind, &config, conscientious_mult);
+            run_decay_pass(&mut sloppy_mind, &config, sloppy_mult);
+        }
+
+        let conscientious_triple = conscientious_mind.iter().next();
+        let sloppy_triple = sloppy_mind.iter().next();
+
+        // Conscientious agent: still holding Exact precision.
+        assert!(
+            conscientious_triple
+                .map(|t| matches!(t.object, Value::Quantity(Quantity::Exact(_))))
+                .unwrap_or(false),
+            "conscientious agent should still hold Exact precision after 70 passes, got: {:?}",
+            conscientious_triple.map(|t| &t.object)
+        );
+
+        // Sloppy agent: has fuzzified at least one rung (no longer Exact, or forgotten).
+        assert!(
+            !sloppy_triple
+                .map(|t| matches!(t.object, Value::Quantity(Quantity::Exact(_))))
+                .unwrap_or(false),
+            "sloppy agent should have fuzzified Exact precision after 70 passes"
         );
     }
 }

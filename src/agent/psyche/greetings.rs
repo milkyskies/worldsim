@@ -18,7 +18,7 @@ use crate::agent::actions::ActionType;
 use crate::agent::body::needs::PsychologicalDrives;
 use crate::agent::events::{GameEvent, SimEvent};
 use crate::agent::mind::conversation::InConversation;
-use crate::agent::mind::knowledge::{MindGraph, Node, Predicate, Value};
+use crate::agent::mind::knowledge::{MindGraph, Node, Predicate};
 use crate::agent::mind::perception::VisibleObjects;
 use crate::agent::psyche::emotions::EmotionalState;
 use crate::core::tick::TickCount;
@@ -104,9 +104,12 @@ pub fn social_acknowledgments(
                 continue;
             }
 
-            let affection = match mind.get(&Node::Entity(other), Predicate::Affection) {
-                Some(Value::Float(f)) => *f,
-                _ => continue,
+            let Some(affection) = mind
+                .get(&Node::Entity(other), Predicate::Affection)
+                .and_then(|v| v.as_quantity())
+                .map(|q| q.point_estimate())
+            else {
+                continue;
             };
 
             if affection < FAMILIARITY_THRESHOLD {

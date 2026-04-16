@@ -13,7 +13,8 @@ use crate::agent::body::effort::{self, compute_action_cost};
 use crate::agent::body::needs::{Consciousness, PhysicalNeeds};
 use crate::agent::body::species::SpeciesProfile;
 use crate::agent::mind::knowledge::{
-    Concept, MindGraph, Node as MindNode, Ontology, Predicate, Triple, Value,
+    Concept, FuzzyOrdering, MindGraph, Node as MindNode, Ontology, Predicate, Quantity, Triple,
+    Value,
 };
 use crate::agent::movement::intensity_speed_multiplier;
 use crate::agent::psyche::personality::Personality;
@@ -674,9 +675,16 @@ fn compare_nodes(a: &MindNode, b: &MindNode) -> Ordering {
 
 fn compare_values(a: &Value, b: &Value) -> Ordering {
     match (a, b) {
-        (Value::Int(v1), Value::Int(v2)) => v1.cmp(v2),
+        (Value::Quantity(q1), Value::Quantity(q2)) => match q1.compare(q2) {
+            FuzzyOrdering::Less => Ordering::Less,
+            FuzzyOrdering::Greater => Ordering::Greater,
+            FuzzyOrdering::Equal => Ordering::Equal,
+            // Overlap: fall back to point estimate for deterministic state
+            // ordering. The planner needs a total order even when two fuzzy
+            // beliefs are indistinguishable from an agent's perspective.
+            FuzzyOrdering::Unknown => q1.point_estimate().total_cmp(&q2.point_estimate()),
+        },
         (Value::Boolean(v1), Value::Boolean(v2)) => v1.cmp(v2),
-        (Value::Float(v1), Value::Float(v2)) => v1.total_cmp(v2),
         (Value::Concept(c1), Value::Concept(c2)) => (*c1 as usize).cmp(&(*c2 as usize)),
         (Value::Entity(e1), Value::Entity(e2)) => e1.index().cmp(&e2.index()),
         (Value::Tile((x1, y1)), Value::Tile((x2, y2))) => x1.cmp(x2).then(y1.cmp(y2)),
@@ -685,12 +693,21 @@ fn compare_values(a: &Value, b: &Value) -> Ordering {
     }
 }
 
+fn hash_quantity<H: std::hash::Hasher>(q: &Quantity, state: &mut H) {
+    std::mem::discriminant(q).hash(state);
+    match q {
+        Quantity::Exact(f) | Quantity::Around(f) => f.to_bits().hash(state),
+        Quantity::OrderOfMagnitude(m) | Quantity::Qualitative(m) => {
+            (*m as usize).hash(state);
+        }
+    }
+}
+
 fn hash_value<H: std::hash::Hasher>(v: &Value, state: &mut H) {
     std::mem::discriminant(v).hash(state);
     match v {
-        Value::Int(i) => i.hash(state),
+        Value::Quantity(q) => hash_quantity(q, state),
         Value::Boolean(b) => b.hash(state),
-        Value::Float(f) => f.to_bits().hash(state),
         Value::Concept(c) => c.hash(state),
         Value::Entity(e) => e.hash(state),
         Value::Tile(t) => t.hash(state),
@@ -1238,7 +1255,7 @@ fn energy_full_pattern() -> TriplePattern {
     TriplePattern::new(
         Some(MindNode::Self_),
         Some(Predicate::Stamina),
-        Some(Value::Int(100)),
+        Some(Value::Quantity(Quantity::Exact(100.0))),
     )
 }
 
@@ -1261,8 +1278,9 @@ fn build_walk_goals(
     }
 
     let current_stamina = match mind.get(&MindNode::Self_, Predicate::Stamina) {
-        Some(Value::Int(e)) => *e as f32,
-        Some(Value::Float(e)) => *e,
+        // Pessimistic: for fuzzy beliefs take the lower bound so the planner
+        // errs toward inserting Rest instead of risking an exhausted walk.
+        Some(Value::Quantity(q)) => q.lower_bound(),
         _ => 100.0, // Unknown stamina — assume full, let it proceed
     };
 
@@ -1401,7 +1419,7 @@ mod tests {
     use crate::agent::actions::ActionType;
     use crate::agent::actions::registry::ActionRegistry;
     use crate::agent::mind::knowledge::{
-        Concept, Metadata, Node as MindNode, Predicate, Triple, Value, setup_ontology,
+        Concept, Metadata, Node as MindNode, Predicate, Quantity, Triple, Value, setup_ontology,
     };
     use bevy::prelude::Entity;
 
@@ -1682,7 +1700,7 @@ mod tests {
         mind.add(Triple::new(
             MindNode::Self_,
             Predicate::Stamina,
-            Value::Int(stamina),
+            Value::Quantity(Quantity::Exact(stamina as f32)),
         ));
         mind.add(Triple::new(
             MindNode::Entity(food),
@@ -1804,7 +1822,7 @@ mod tests {
         mind.add(Triple::new(
             MindNode::Self_,
             Predicate::Stamina,
-            Value::Int(20),
+            Value::Quantity(Quantity::Exact(20.0)),
         ));
         mind.add(Triple::new(
             MindNode::Entity(stone),
@@ -1886,7 +1904,7 @@ mod tests {
         mind.add(Triple::new(
             MindNode::Self_,
             Predicate::Stamina,
-            Value::Int(80),
+            Value::Quantity(Quantity::Exact(80.0)),
         ));
         mind.add(Triple::new(
             MindNode::Entity(stone_node),
@@ -1910,7 +1928,7 @@ mod tests {
             effects: vec![Triple::new(
                 MindNode::Self_,
                 Predicate::Hunger,
-                Value::Int(0),
+                Value::Quantity(Quantity::Exact(0.0)),
             )],
             consumes: vec![],
             base_cost: 1.0,
@@ -1944,7 +1962,7 @@ mod tests {
             conditions: vec![TriplePattern::new(
                 Some(MindNode::Self_),
                 Some(Predicate::Hunger),
-                Some(Value::Int(0)),
+                Some(Value::Quantity(Quantity::Exact(0.0))),
             )],
             priority: 1.0,
         };
@@ -2067,7 +2085,7 @@ mod tests {
         mind.add(Triple::new(
             MindNode::Self_,
             Predicate::Stamina,
-            Value::Int(100),
+            Value::Quantity(Quantity::Exact(100.0)),
         ));
         mind.add(Triple::new(
             MindNode::Entity(other),
@@ -2533,7 +2551,7 @@ mod tests {
         mind.add(Triple::new(
             MindNode::Self_,
             Predicate::Stamina,
-            Value::Int(100),
+            Value::Quantity(Quantity::Exact(100.0)),
         ));
         stock_entity_at_tile(&mut mind, near, Concept::Apple, near_tile);
         stock_entity_at_tile(&mut mind, far, Concept::Apple, far_tile);

@@ -21,7 +21,7 @@ use crate::agent::actions::motor::{
 };
 use crate::agent::actions::registry::{Action, ActionKind};
 use crate::agent::body::needs::PhysicalNeeds;
-use crate::agent::mind::knowledge::{Node, Predicate, Triple, Value};
+use crate::agent::mind::knowledge::{Node, Predicate, Quantity, Triple, Value};
 
 pub struct RestAction;
 
@@ -55,7 +55,7 @@ impl Action for RestAction {
         vec![Triple::new(
             Node::Self_,
             Predicate::Stamina,
-            Value::Int(100),
+            Value::Quantity(Quantity::Exact(100.0)),
         )]
     }
 

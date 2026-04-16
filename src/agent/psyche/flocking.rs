@@ -41,7 +41,7 @@ use crate::agent::body::needs::PsychologicalDrives;
 use crate::agent::body::species::Species;
 use crate::agent::body::species::SpeciesProfile;
 use crate::agent::inventory::EntityType;
-use crate::agent::mind::knowledge::{MindGraph, Node, Predicate, Value};
+use crate::agent::mind::knowledge::{MindGraph, Node, Predicate};
 use crate::agent::mind::perception::VisibleObjects;
 use crate::agent::psyche::personality::Personality;
 use crate::core::tick::TickCount;
@@ -170,10 +170,9 @@ pub fn decay_social_from_proximity(
 }
 
 fn query_affection(mind: &MindGraph, other: Entity) -> Option<f32> {
-    match mind.get(&Node::Entity(other), Predicate::Affection)? {
-        Value::Float(f) => Some(*f),
-        _ => None,
-    }
+    mind.get(&Node::Entity(other), Predicate::Affection)?
+        .as_quantity()
+        .map(|q| q.point_estimate())
 }
 
 #[cfg(test)]

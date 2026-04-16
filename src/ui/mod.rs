@@ -1045,8 +1045,8 @@ fn agent_viewer_ui_for_agent(world: &mut World, entity: Entity, ui: &mut egui::U
                                         }
                                     } // simpl
                                     Predicate::Timestamp => {
-                                        if let Value::Int(ts) = t.object {
-                                            timestamp = ts as u64;
+                                        if let Value::Quantity(q) = t.object {
+                                            timestamp = q.point_estimate() as u64;
                                         }
                                     }
                                     _ => {}
@@ -1177,10 +1177,8 @@ fn render_social_ui(world: &mut World, ui: &mut egui::Ui, selected_entities: &[E
                                         None,
                                     )
                                     .first()
-                                    .and_then(|t| match &t.object {
-                                        Value::Float(v) => Some(*v),
-                                        _ => None,
-                                    })
+                                    .and_then(|t| t.object.as_quantity())
+                                    .map(|q| q.point_estimate())
                                     .unwrap_or(0.0);
 
                                 // Get affection level
@@ -1191,10 +1189,8 @@ fn render_social_ui(world: &mut World, ui: &mut egui::Ui, selected_entities: &[E
                                         None,
                                     )
                                     .first()
-                                    .and_then(|t| match &t.object {
-                                        Value::Float(v) => Some(*v),
-                                        _ => None,
-                                    })
+                                    .and_then(|t| t.object.as_quantity())
+                                    .map(|q| q.point_estimate())
                                     .unwrap_or(0.0);
 
                                 ui.label(&other_name);
@@ -1385,11 +1381,8 @@ fn render_social_ui(world: &mut World, ui: &mut egui::Ui, selected_entities: &[E
             let social_drive = mind
                 .query(Some(&Node::Self_), Some(Predicate::SocialDrive), None)
                 .first()
-                .and_then(|t| match &t.object {
-                    Value::Float(v) => Some(*v),
-                    Value::Int(v) => Some(*v as f32),
-                    _ => None,
-                })
+                .and_then(|t| t.object.as_quantity())
+                .map(|q| q.point_estimate())
                 .unwrap_or(0.0);
 
             ui.horizontal(|ui| {

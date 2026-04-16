@@ -25,7 +25,7 @@ use crate::agent::actions::registry::{
     Action, ActionContext, ActionKind, RuntimeEffects, TargetSource,
 };
 use crate::agent::events::FailureReason;
-use crate::agent::mind::knowledge::{Concept, Node, Predicate, Triple, Value};
+use crate::agent::mind::knowledge::{Concept, Node, Predicate, Quantity, Triple, Value};
 use crate::constants::actions::graze::STOMACH_CARBS_PER_SEC;
 use crate::world::map::TileType;
 
@@ -62,7 +62,11 @@ impl Action for GrazeAction {
     }
 
     fn plan_effects(&self) -> Vec<Triple> {
-        vec![Triple::new(Node::Self_, Predicate::Hunger, Value::Int(0))]
+        vec![Triple::new(
+            Node::Self_,
+            Predicate::Hunger,
+            Value::Quantity(Quantity::Exact(0.0)),
+        )]
     }
 
     fn body_channels(&self) -> &'static [ChannelUsage] {

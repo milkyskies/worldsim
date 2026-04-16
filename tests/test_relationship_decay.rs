@@ -10,7 +10,9 @@
 //! so they don't need to tick through 86,400 ticks per game day.
 
 use bevy::prelude::*;
-use worldsim::agent::mind::knowledge::{Metadata, MindGraph, Node, Predicate, Triple, Value};
+use worldsim::agent::mind::knowledge::{
+    Metadata, MindGraph, Node, Predicate, Quantity, Triple, Value,
+};
 use worldsim::agent::psyche::relationships::RelationshipConfig;
 use worldsim::testing::{AgentConfig, TestWorld};
 
@@ -23,7 +25,7 @@ fn set_trust(world: &mut TestWorld, agent: Entity, other: Entity, trust: f32, ti
         .assert(Triple::with_meta(
             Node::Entity(other),
             Predicate::Trust,
-            Value::Float(trust),
+            Value::Quantity(Quantity::Exact(trust)),
             Metadata::semantic(timestamp),
         ));
 }
@@ -34,13 +36,7 @@ fn get_trust(world: &TestWorld, agent: Entity, other: Entity) -> Option<f32> {
         .world()
         .get::<MindGraph>(agent)
         .and_then(|mind| mind.get(&Node::Entity(other), Predicate::Trust))
-        .and_then(|v| {
-            if let Value::Float(f) = v {
-                Some(*f)
-            } else {
-                None
-            }
-        })
+        .and_then(|v| v.as_quantity().map(|q| q.point_estimate()))
 }
 
 /// Override decay config so the test can tick a handful of ticks instead

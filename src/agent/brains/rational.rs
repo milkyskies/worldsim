@@ -16,7 +16,7 @@ use crate::agent::brains::plan_memory::{
 use crate::agent::brains::proposal::{BrainProposal, BrainType, Intent};
 use crate::agent::brains::target_enumeration::enumerate_targets;
 use crate::agent::brains::thinking::{ActionTemplate, Goal, TriplePattern, derive_search_concept};
-use crate::agent::mind::knowledge::{MindGraph, Predicate, Value};
+use crate::agent::mind::knowledge::{MindGraph, Predicate, Quantity, Value};
 use crate::agent::mind::perception::VisibleObjects;
 use crate::agent::nervous_system::urgency::UrgencySource;
 use crate::constants::brains::rational::{
@@ -106,22 +106,24 @@ pub fn goal_for_urgency(
     plan_memory: &PlanMemory,
     mind: &MindGraph,
 ) -> Option<Goal> {
+    let zero = Value::Quantity(Quantity::Exact(0.0));
+    let full = Value::Quantity(Quantity::Exact(100.0));
     let conditions = match source {
         UrgencySource::Hunger => {
-            vec![TriplePattern::self_has(Predicate::Hunger, Value::Int(0))]
+            vec![TriplePattern::self_has(Predicate::Hunger, zero.clone())]
         }
         UrgencySource::Stamina => {
-            vec![TriplePattern::self_has(Predicate::Stamina, Value::Int(100))]
+            vec![TriplePattern::self_has(Predicate::Stamina, full)]
         }
         UrgencySource::Social => vec![TriplePattern::self_has(
             Predicate::SocialDrive,
-            Value::Int(0),
+            zero.clone(),
         )],
         UrgencySource::Pain => {
-            vec![TriplePattern::self_has(Predicate::Pain, Value::Int(0))]
+            vec![TriplePattern::self_has(Predicate::Pain, zero.clone())]
         }
         UrgencySource::Thirst => {
-            vec![TriplePattern::self_has(Predicate::Thirst, Value::Int(0))]
+            vec![TriplePattern::self_has(Predicate::Thirst, zero)]
         }
         UrgencySource::Commitment => {
             // Use the conditions from the highest-commitment verbal

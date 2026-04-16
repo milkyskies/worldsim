@@ -1,5 +1,5 @@
 use crate::agent::mind::knowledge::{
-    Concept, MemoryType, Metadata, Node, Predicate, Source, Triple, Value,
+    Concept, MemoryType, Metadata, Node, Predicate, Quantity, Source, Triple, Value,
 };
 use bevy::prelude::*;
 
@@ -76,7 +76,9 @@ pub fn create_cultural_knowledge(culture: Culture) -> Vec<Triple> {
     add(
         c(Campfire),
         BuildTime,
-        Value::Int(crate::constants::actions::build::CAMPFIRE_DURATION_TICKS as i32),
+        Value::Quantity(Quantity::Exact(
+            crate::constants::actions::build::CAMPFIRE_DURATION_TICKS as f32,
+        )),
     );
 
     // Lean-to shelter: Wood(5) + LargeLeaves(2) → provides Safety
@@ -92,7 +94,9 @@ pub fn create_cultural_knowledge(culture: Culture) -> Vec<Triple> {
     add(
         c(LeanTo),
         BuildTime,
-        Value::Int(crate::constants::actions::build::LEAN_TO_DURATION_TICKS as i32),
+        Value::Quantity(Quantity::Exact(
+            crate::constants::actions::build::LEAN_TO_DURATION_TICKS as f32,
+        )),
     );
 
     // ─── Specific Cultural Knowledge ───
@@ -106,7 +110,11 @@ pub fn create_cultural_knowledge(culture: Culture) -> Vec<Triple> {
         Culture::Farmer => {
             add(c(AppleTree), Produces, Value::Item(Apple, 1));
             add(c(Apple), IsA, v(Food));
-            add(c(AppleTree), RegenerationRate, Value::Float(10.0));
+            add(
+                c(AppleTree),
+                RegenerationRate,
+                Value::Quantity(Quantity::Exact(10.0)),
+            );
         }
         Culture::Hunter => {
             // Hunters know deer are huntable prey that yield meat.

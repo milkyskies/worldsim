@@ -7,7 +7,7 @@
 
 use crate::agent::actions::ActionType;
 use crate::agent::actions::motor::Behavior;
-use crate::agent::mind::knowledge::{Concept, MindGraph, Node, Predicate, Triple, Value};
+use crate::agent::mind::knowledge::{Concept, MindGraph, Node, Predicate, Quantity, Triple, Value};
 use bevy::prelude::*;
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -91,7 +91,8 @@ impl TriplePattern {
 
     /// Check if self is awake (high alertness)
     pub fn self_awake() -> Self {
-        Self::self_has(Predicate::Stamina, Value::Int(1)) // Placeholder - actual check is more complex
+        // Placeholder - actual check is more complex.
+        Self::self_has(Predicate::Stamina, Value::Quantity(Quantity::Exact(1.0)))
     }
 }
 
@@ -331,7 +332,10 @@ mod derive_search_concept_tests {
         registry.register(action::EatAction);
 
         let goal = Goal {
-            conditions: vec![TriplePattern::self_has(Predicate::Hunger, Value::Int(0))],
+            conditions: vec![TriplePattern::self_has(
+                Predicate::Hunger,
+                Value::Quantity(Quantity::Exact(0.0)),
+            )],
             priority: 1.0,
         };
 
@@ -350,7 +354,10 @@ mod derive_search_concept_tests {
         registry.register(action::RestAction);
 
         let goal = Goal {
-            conditions: vec![TriplePattern::self_has(Predicate::Stamina, Value::Int(100))],
+            conditions: vec![TriplePattern::self_has(
+                Predicate::Stamina,
+                Value::Quantity(Quantity::Exact(100.0)),
+            )],
             priority: 1.0,
         };
 
@@ -369,7 +376,10 @@ mod derive_search_concept_tests {
         registry.register(action::WanderAction);
 
         let goal = Goal {
-            conditions: vec![TriplePattern::self_has(Predicate::Hunger, Value::Int(0))],
+            conditions: vec![TriplePattern::self_has(
+                Predicate::Hunger,
+                Value::Quantity(Quantity::Exact(0.0)),
+            )],
             priority: 1.0,
         };
 

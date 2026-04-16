@@ -16,7 +16,7 @@ use crate::agent::actions::registry::{
     Action, ActionContext, ActionKind, CompletionContext, TargetSource,
 };
 use crate::agent::events::FailureReason;
-use crate::agent::mind::knowledge::{Concept, Node, Predicate, Triple, Value};
+use crate::agent::mind::knowledge::{Concept, Node, Predicate, Quantity, Triple, Value};
 use crate::constants::actions::drink::{DURATION_TICKS, STAMINA_GAIN, THIRST_REDUCTION};
 pub struct DrinkAction;
 
@@ -86,7 +86,11 @@ impl Action for DrinkAction {
     }
 
     fn plan_effects(&self) -> Vec<Triple> {
-        vec![Triple::new(Node::Self_, Predicate::Thirst, Value::Int(0))]
+        vec![Triple::new(
+            Node::Self_,
+            Predicate::Thirst,
+            Value::Quantity(Quantity::Exact(0.0)),
+        )]
     }
 
     fn can_start(&self, ctx: &ActionContext) -> Result<(), FailureReason> {
