@@ -175,6 +175,7 @@ pub struct LegCompleteContext<'a> {
     pub target_position: Option<bevy::prelude::Vec2>,
     pub current_tick: u64,
     pub rng: &'a mut dyn rand::RngCore,
+    pub search_filter: Option<crate::agent::brains::thinking::SearchFilter>,
 }
 
 // ============================================================================
@@ -506,6 +507,7 @@ pub trait Action: Send + Sync + 'static {
                 }
                 _ => None,
             },
+            search_filter: None,
         }
     }
 
@@ -559,6 +561,7 @@ pub trait Action: Send + Sync + 'static {
                 }
                 _ => None,
             },
+            search_filter: None,
         }
     }
 }
@@ -599,6 +602,11 @@ pub struct ActionState {
     /// but the desired intensity stored here stays put so the intent stays
     /// clear (e.g. an exhausted Flee is still trying to Flee at 1.0).
     pub locomotion_intensity: f32,
+    /// Search filter for `LookFor`-style actions. Copied from
+    /// `ActionTemplate::search_filter` at dispatch time and read by
+    /// `on_leg_complete` via `LegCompleteContext`. `None` for every
+    /// non-search action.
+    pub search_filter: Option<crate::agent::brains::thinking::SearchFilter>,
 }
 
 impl ActionState {
@@ -616,6 +624,7 @@ impl ActionState {
             // is zero. Callers that have a template set the resolved
             // value via with_locomotion_intensity().
             locomotion_intensity: 0.0,
+            search_filter: None,
         }
     }
 
@@ -636,6 +645,14 @@ impl ActionState {
 
     pub fn with_locomotion_intensity(mut self, intensity: f32) -> Self {
         self.locomotion_intensity = intensity.clamp(0.0, 1.0);
+        self
+    }
+
+    pub fn with_search_filter(
+        mut self,
+        filter: crate::agent::brains::thinking::SearchFilter,
+    ) -> Self {
+        self.search_filter = Some(filter);
         self
     }
 }
@@ -784,7 +801,8 @@ impl ActiveActions {
 use super::action::{
     BuildAction, ConstructAction, ConverseAction, DepositAction, DrinkAction, EatAction,
     ExploreAction, FleeAction, GrazeAction, HarvestAction, IdleAction, InitiateConversationAction,
-    ObserveAction, RestAction, SleepAction, TakeAction, WakeUpAction, WalkAction, WanderAction,
+    LookForAction, ObserveAction, RestAction, SleepAction, TakeAction, WakeUpAction, WalkAction,
+    WanderAction,
 };
 
 #[derive(Resource, Default)]
@@ -805,6 +823,7 @@ impl ActionRegistry {
         registry.register(WalkAction);
         registry.register(FleeAction);
         registry.register(ExploreAction);
+        registry.register(LookForAction);
         registry.register(AttackAction);
         registry.register(BiteAction);
         registry.register(HarvestAction);
