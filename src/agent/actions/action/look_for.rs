@@ -117,7 +117,7 @@ pub fn pick_look_for_target(
 
     let picked = sample_walkable_scored(current_pos, world_map, 16, rng, |_pos, chunk| {
         let mut score = staleness_penalty(mind, chunk, current_tick);
-        if hint_chunks.iter().any(|c| *c == chunk) {
+        if hint_chunks.contains(&chunk) {
             score -= 2000.0;
         }
         score
