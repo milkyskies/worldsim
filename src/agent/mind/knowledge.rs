@@ -375,6 +375,12 @@ impl Magnitude {
     }
 }
 
+/// Fractional tolerance for `Quantity::Around`: ±25% of the anchor value.
+/// Eyeballed estimates are meaningfully imprecise — proportional error follows
+/// Weber's Law and keeps small counts ([2.25, 3.75]) and large ones ([75, 125])
+/// both reasonably fuzzy without collapsing comparison to `Unknown` everywhere.
+const AROUND_TOLERANCE: f32 = 0.25;
+
 /// A precision-aware numeric belief. The anchor collapses down the ladder as
 /// memory decays: `Exact -> Around -> OrderOfMagnitude -> Qualitative`. Past
 /// the last rung the triple is forgotten. Agents read via `at_least`, `compare`,
@@ -384,7 +390,7 @@ impl Magnitude {
 pub enum Quantity {
     /// Self-sensed or freshly counted. The agent has a ground-truth number.
     Exact(f32),
-    /// Eyeballed / remembered anchor — "about 60". Implicit tolerance of ±10%.
+    /// Eyeballed / remembered anchor — "about 60". Tolerance of ±25%.
     Around(f32),
     /// Anchor collapsed to a power-of-ten bucket — "dozens", "hundreds".
     OrderOfMagnitude(Magnitude),
@@ -393,21 +399,18 @@ pub enum Quantity {
 }
 
 impl Quantity {
-    /// Pessimistic lower bound on the underlying value. For magnitudes this is
-    /// the bucket floor; for `Around` it's 10% below the anchor.
     pub fn lower_bound(&self) -> f32 {
         match self {
             Quantity::Exact(v) => *v,
-            Quantity::Around(v) => v * 0.9,
+            Quantity::Around(v) => v * (1.0 - AROUND_TOLERANCE),
             Quantity::OrderOfMagnitude(m) | Quantity::Qualitative(m) => m.range().0,
         }
     }
 
-    /// Optimistic upper bound.
     pub fn upper_bound(&self) -> f32 {
         match self {
             Quantity::Exact(v) => *v,
-            Quantity::Around(v) => v * 1.1,
+            Quantity::Around(v) => v * (1.0 + AROUND_TOLERANCE),
             Quantity::OrderOfMagnitude(m) | Quantity::Qualitative(m) => m.range().1,
         }
     }
@@ -2194,10 +2197,10 @@ mod tests {
     }
 
     #[test]
-    fn around_quantity_has_ten_percent_tolerance() {
+    fn around_quantity_has_twenty_five_percent_tolerance() {
         let q = Quantity::Around(100.0);
-        assert!((q.lower_bound() - 90.0).abs() < 0.001);
-        assert!((q.upper_bound() - 110.0).abs() < 0.001);
+        assert!((q.lower_bound() - 75.0).abs() < 0.001);
+        assert!((q.upper_bound() - 125.0).abs() < 0.001);
     }
 
     #[test]
@@ -2230,8 +2233,8 @@ mod tests {
         // Touching boundary — upper of Moderate == lower of High, so Less
         assert_eq!(a.compare(&b), FuzzyOrdering::Less);
 
-        let c = Quantity::Around(50.0); // [45, 55]
-        let d = Quantity::Around(52.0); // [46.8, 57.2]
+        let c = Quantity::Around(50.0); // [37.5, 62.5]
+        let d = Quantity::Around(52.0); // [39.0, 65.0]
         assert_eq!(c.compare(&d), FuzzyOrdering::Unknown);
 
         let e = Quantity::Exact(10.0);

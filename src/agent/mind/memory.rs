@@ -438,6 +438,7 @@ pub fn decay_stale_knowledge(
             triple.meta.strength *= effective_rate;
 
             // Interference: more same-predicate triples → faster loss for weak memories.
+            // Vulnerability is a reciprocal sigmoid: strength=0 → vuln=1.0, strength=∞ → vuln=0.
             if let Some(&pressure) = pred_pressure.get(&triple.predicate) {
                 let vulnerability = 1.0 / (1.0 + triple.meta.strength * 2.0);
                 triple.meta.strength -= pressure * vulnerability;
@@ -493,10 +494,7 @@ fn step_precision_or_drop(
         && let Some(fuzzy) = q.fuzzify()
     {
         triple.object = Value::Quantity(fuzzy);
-        // Rebound to 4× threshold so the now-fuzzier belief gets another
-        // decay window before stepping down again. Without this, the triple
-        // would fuzzify every pass and collapse straight to forgotten.
-        triple.meta.strength = config.forget_threshold * 4.0;
+        triple.meta.strength = config.forget_threshold * config.strength_rebound_multiplier;
         return true;
     }
 
@@ -555,6 +553,10 @@ pub struct MemoryDecayConfig {
     /// Denominator for interference pressure: higher → less interference.
     pub interference_divisor: f32,
     pub forget_threshold: f32,
+    /// After fuzzifying one rung down, strength rebounds to `forget_threshold *
+    /// strength_rebound_multiplier`. High enough that the belief survives another
+    /// decay window before stepping down again; low enough that it doesn't last forever.
+    pub strength_rebound_multiplier: f32,
     pub episodic_capacity: usize,
     pub decay_interval: u64,
 }
@@ -568,6 +570,7 @@ impl Default for MemoryDecayConfig {
             salience_decay_resistance: 2.0,
             interference_divisor: 30.0,
             forget_threshold: 0.05,
+            strength_rebound_multiplier: 4.0,
             episodic_capacity: 200,
             decay_interval: 60,
         }
