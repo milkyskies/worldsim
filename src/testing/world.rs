@@ -912,15 +912,17 @@ impl TestWorld {
 
     // ─── Simulation ────────────────────────────────────────────────────────
 
-    /// Advances the simulation by `n` ticks. Each tick runs `FixedMain`
-    /// directly (bypassing Bevy's time-accumulation logic) then runs a
-    /// normal `app.update()` for frame-rate schedules (transforms, event
-    /// collection). Wall-clock delta between updates is near-zero, so the
-    /// `RunFixedMainLoop` inside `app.update()` never fires a second time.
+    /// Advances the simulation by `n` ticks. Runs `FixedMain` directly
+    /// (bypassing Bevy's time-accumulation `RunFixedMainLoop`) then the
+    /// frame-rate schedules (`PostUpdate` for transform propagation,
+    /// `Last` for event collection). Does NOT call `app.update()` —
+    /// that would trigger `RunFixedMainLoop` which leaks extra ticks
+    /// from wall-clock accumulation.
     pub fn tick(&mut self, n: u64) {
         for _ in 0..n {
             self.app.world_mut().run_schedule(FixedMain);
-            self.app.update();
+            self.app.world_mut().run_schedule(PostUpdate);
+            self.app.world_mut().run_schedule(Last);
         }
     }
 
