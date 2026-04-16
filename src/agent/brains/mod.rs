@@ -31,23 +31,17 @@ impl Plugin for BrainPlugin {
             .init_resource::<trace::TraceConfig>()
             .init_resource::<trace::DecisionTraceBuffer>()
             .add_systems(
-                Update,
+                FixedUpdate,
                 (
                     rational::update_rational_planning,
                     brain_system::arbitrate_every_tick,
-                    // Note: start_actions is now in AgentPlugin to run after brain decides
                 )
-                    .chain() // planning runs before arbitration so fresh plan steps surface same-tick
-                    // Brains read CentralNervousSystem urgencies written by
-                    // generate_urgency — without this Bevy's multi-threaded
-                    // scheduler may run the brain before urgencies are updated
-                    // for this tick, causing stale state to drive incorrect
-                    // action proposals.
+                    .chain()
                     .after(crate::agent::nervous_system::urgency::generate_urgency)
-                    .run_if(not_paused), // ALL brain systems pause together
+                    .run_if(not_paused),
             )
             .add_systems(
-                Update,
+                FixedUpdate,
                 history::update_brain_history
                     .after(crate::agent::nervous_system::execution::apply_action_effects)
                     .run_if(not_paused),

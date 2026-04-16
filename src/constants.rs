@@ -126,6 +126,14 @@ pub mod actions {
         pub const STAMINA_PER_TILE_TIRED: f32 = 0.2;
     }
 
+    pub mod rest {
+        /// Aerobic fraction at which Rest self-completes. Matches the
+        /// `WAKE_STAMINA_FRACTION` (0.9) spirit but slightly higher
+        /// because Rest is lighter recovery — the agent should sit until
+        /// nearly topped off before getting back up.
+        pub const COMPLETE_AEROBIC_FRACTION: f32 = 0.95;
+    }
+
     pub mod graze {
         /// Drifting range (pixels) for a single graze session before the
         /// movement completes and the brain proposes another drift.
@@ -157,20 +165,23 @@ pub mod brains {
         /// this level, Sleep is prepended so the survival brain doesn't interrupt the trip.
         pub const EXHAUSTION_TRIGGER: f32 = 15.0;
         /// Wakefulness level at which a sleeping agent wakes up naturally.
-        /// Set just below 1.0 so the agent wakes well-rested but doesn't
-        /// need to hit the absolute ceiling.
-        pub const WAKE_WAKEFULNESS_THRESHOLD: f32 = 0.9;
+        /// Raised from 0.9 to 0.95 so a full night's sleep completes a
+        /// proper 6–8 game hour cycle from wake ≈ 0.15 → 0.95 instead of
+        /// waking half-rested every ~2 game hours.
+        pub const WAKE_WAKEFULNESS_THRESHOLD: f32 = 0.95;
     }
 
     pub mod wakefulness {
         /// Base adenosine-like decay rate per rate-second while awake.
-        /// Tuned so wakefulness goes from 1.0 to ~0.3 in ~16 game hours
-        /// of daytime wakefulness (960 rate-seconds).
-        pub const ADENOSINE_RATE: f32 = 0.000729;
+        /// Tuned so wakefulness goes from 1.0 to ~0.15 across ~16 game
+        /// hours of awake time (960 rate-seconds at 60 tps), letting
+        /// circadian boost nudge the crossover to land in the late-night
+        /// window (22:00–02:00) on a noon-start day.
+        pub const ADENOSINE_RATE: f32 = 0.00089;
         /// Sleep restore rate per rate-second while Sleep action is active.
-        /// Tuned so a full sleep cycle (0.0 -> 1.0) takes ~6 game hours
-        /// (360 rate-seconds), roughly 1/4 of a day.
-        pub const SLEEP_RESTORE_RATE: f32 = 0.00278;
+        /// Tuned so a full sleep bout from ~0.15 → 0.95 takes ~8 game hours
+        /// (480 rate-seconds), matching real-life human sleep duration.
+        pub const SLEEP_RESTORE_RATE: f32 = 0.00167;
         /// How much the circadian cycle amplifies wakefulness decay at night.
         /// At full darkness (light = 0.3): effective multiplier = 1.0 + 1.0 * 0.7 = 1.7x.
         /// At full daylight (light = 1.0): multiplier = 1.0 (no change).
@@ -182,6 +193,13 @@ pub mod brains {
         /// How much each 0.1 wakefulness deficit passively drags alertness.
         /// At wakefulness 0.5, alertness is capped at ~0.85. At 0.2, capped at ~0.6.
         pub const ALERTNESS_DRAG_PER_DEFICIT: f32 = 0.3;
+        /// Daylight dampening factor for the Sleepiness urgency score.
+        /// At full day (light=1.0) the Sleepiness score is multiplied by
+        /// `1 - SLEEPINESS_DAYLIGHT_DAMPEN * 1.0 = 0.5`; at full night
+        /// (light=0.3) the score is unchanged. Prevents agents from
+        /// napping every two game hours regardless of the sun — sleep
+        /// has to concentrate at night.
+        pub const SLEEPINESS_DAYLIGHT_DAMPEN: f32 = 0.5;
     }
 
     /// Emotional brain urgency scores and emotion intensity thresholds

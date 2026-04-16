@@ -5,6 +5,7 @@
 //! Upstream: testing::config (AgentConfig), testing::spawn (logic-only spawners)
 //! Downstream: integration tests (scenario, brain, knowledge, planner, perception)
 
+use bevy::app::FixedMain;
 use bevy::math::IVec2;
 use bevy::prelude::*;
 
@@ -591,6 +592,7 @@ impl TestWorld {
         // - MapPlugin (WorldMap, plus tile sprite spawning)
         // - EnvironmentPlugin (LightLevel, plus ClearColor manipulation)
         // - CorePlugin (TickCount/GameLog/GameTime, plus keyboard time controls)
+        app.insert_resource(Time::<Fixed>::from_hz(60.0));
         app.insert_resource(setup_ontology());
         app.insert_resource(map);
         app.insert_resource(LightLevel(1.0));
@@ -602,27 +604,15 @@ impl TestWorld {
         app.insert_resource(crate::core::SimRng::from_seed(seed));
         app.add_plugins(SpatialIndexPlugin);
 
-        // SimEvent history — collected automatically each tick.
         app.init_resource::<SimEventLog>();
         app.add_systems(Last, collect_sim_events_into_log);
 
-        // Replace tick_system with a deterministic per-update tick advancer so
-        // each `app.update()` advances exactly one logical tick regardless of
-        // wall-clock delta. Running in PreUpdate guarantees the tick is
-        // committed before any Update systems (e.g. decay_relationships) read it,
-        // which prevents ordering-dependent flakes.
-        app.add_systems(PreUpdate, deterministic_tick);
+        app.add_systems(FixedFirst, deterministic_tick);
 
-        // Adds biology, brains, nervous_system, mind systems, action registry,
-        // conversation manager, relationship config, etc.
         app.add_plugins(AgentPlugin);
 
-        // Resource regeneration (berry bushes, apple trees, etc). SpawnerPlugin
-        // is excluded because it also runs startup spawning, but we still need
-        // the Update system that refills depleted resources over time.
-        app.add_systems(Update, crate::world::apple_tree::regenerate_resources);
+        app.add_systems(FixedUpdate, crate::world::apple_tree::regenerate_resources);
 
-        // Ontology derivation + world entity property systems (fuel, durability, shelter).
         app.add_plugins(crate::world::property::OntologyDerivationPlugin);
 
         Self { app, seed }
@@ -846,16 +836,45 @@ impl TestWorld {
     /// no-visuals) spawners. Counterpart to [`crate::world::spawner::apply_layout`]
     /// which uses the full visual spawners.
     ///
-    /// Spawns all entities from a layout using the test-compatible (logic-only,
-    /// no-visuals) spawners. Human personalities are left at the neutral default
-    /// (0.5 on all traits); genome-derived variation only applies after a tick
-    /// once `develop_phenotype_system` runs.
+    /// Humans get a randomized genome (via `random_genome`) and a culture
+    /// assignment that mirrors the windowed game: first-group humans roll
+    /// Nomad/Farmer, second-group humans roll Gatherer. Cultural triples are
+    /// pre-loaded into the MindGraph at spawn so a headless run matches the
+    /// debug-build human's starting knowledge exactly.
     pub fn apply_spawn_layout(&mut self, layout: &SpawnLayout) {
+        use crate::agent::body::genetics::founder::random_genome;
+        use crate::agent::body::species::Species;
+        use crate::agent::culture::{Culture, create_cultural_knowledge};
+        use rand::Rng;
+
+        let first_group_cultures = [Culture::Nomad, Culture::Farmer];
+        let second_group_cultures = [Culture::Gatherer];
+
         for &pos in &layout.human_positions {
-            self.spawn_agent(AgentConfig::at(pos));
+            let mut rng_guard = self.app.world_mut().resource_mut::<crate::core::SimRng>();
+            let rng = rng_guard.inner_mut();
+            let culture = first_group_cultures[rng.random_range(0..first_group_cultures.len())];
+            let genome = random_genome(rng, Species::Human);
+            drop(rng_guard);
+            let knowledge = create_cultural_knowledge(culture);
+            self.spawn_agent(AgentConfig {
+                genome,
+                knowledge,
+                ..AgentConfig::at(pos)
+            });
         }
         for &pos in &layout.second_human_positions {
-            self.spawn_agent(AgentConfig::at(pos));
+            let mut rng_guard = self.app.world_mut().resource_mut::<crate::core::SimRng>();
+            let rng = rng_guard.inner_mut();
+            let culture = second_group_cultures[rng.random_range(0..second_group_cultures.len())];
+            let genome = random_genome(rng, Species::Human);
+            drop(rng_guard);
+            let knowledge = create_cultural_knowledge(culture);
+            self.spawn_agent(AgentConfig {
+                genome,
+                knowledge,
+                ..AgentConfig::at(pos)
+            });
         }
         for herd in &layout.deer_herds {
             let members: Vec<Entity> = herd.iter().map(|&pos| self.spawn_deer(pos)).collect();
@@ -893,11 +912,17 @@ impl TestWorld {
 
     // ─── Simulation ────────────────────────────────────────────────────────
 
-    /// Advances the simulation by `n` ticks. Each tick is one full Bevy `update()`
-    /// pass with all logic systems running.
+    /// Advances the simulation by `n` ticks. Runs `FixedMain` directly
+    /// (bypassing Bevy's time-accumulation `RunFixedMainLoop`) then the
+    /// frame-rate schedules (`PostUpdate` for transform propagation,
+    /// `Last` for event collection). Does NOT call `app.update()` —
+    /// that would trigger `RunFixedMainLoop` which leaks extra ticks
+    /// from wall-clock accumulation.
     pub fn tick(&mut self, n: u64) {
         for _ in 0..n {
-            self.app.update();
+            self.app.world_mut().run_schedule(FixedMain);
+            self.app.world_mut().run_schedule(PostUpdate);
+            self.app.world_mut().run_schedule(Last);
         }
     }
 

@@ -19,7 +19,7 @@ impl Plugin for BiologyPlugin {
             .register_type::<body::InjuryType>()
             .init_resource::<body::TagChannelMapping>()
             .add_systems(
-                Update,
+                FixedUpdate,
                 (
                     setup_biology,
                     (
@@ -28,8 +28,6 @@ impl Plugin for BiologyPlugin {
                         body::process_healing,
                     )
                         .chain(),
-                    // Combat resolution runs after action execution so it
-                    // can read this frame's ActionCompleted messages.
                     combat::resolve_combat_hits
                         .after(crate::agent::nervous_system::execution::tick_actions),
                     combat::bleed_system,

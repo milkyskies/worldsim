@@ -10,6 +10,7 @@ use bevy::math::Vec2;
 use worldsim::agent::actions::{ActionType, ActiveActions};
 use worldsim::agent::biology::body::{Body, Injury, InjuryType};
 use worldsim::agent::body::needs::PhysicalNeeds;
+use worldsim::agent::events::SimEvent;
 use worldsim::agent::nervous_system::cns::CentralNervousSystem;
 use worldsim::agent::nervous_system::urgency::UrgencySource;
 use worldsim::testing::TestWorld;
@@ -58,26 +59,22 @@ fn tick_until_wake(world: &mut TestWorld, sleeper: bevy::prelude::Entity, max_ti
 }
 
 #[test]
-#[ignore = "flaky regression — rested-wake deadlock resurfaced, tracked in #382"]
 fn exhausted_agent_sleeps_and_then_wakes_once_rested() {
     // Regression for #352. Phase 1: low stamina drives the agent into Sleep.
-    // Phase 2: stamina recovers during sleep and they must leave it. Before
-    // the #352 fix this second phase looped forever because WakeUp could
-    // never preempt uninterruptible Sleep.
+    // Phase 2: wakefulness AND stamina both recover, triggering WakeUp.
     //
-    // As of the #350 nutrient-loop work this test fails deterministically:
-    // stamina fully recovers to aerobic=100 but the agent never exits Sleep.
-    // #357 fixed the stimulus-wake path (hunger/pain/fear) but didn't touch
-    // this rested-wake path. Tracking the fix in #382.
+    // The rested-wake condition requires BOTH wakefulness >= 0.95 AND
+    // aerobic_fraction >= 0.9. Wakefulness recovers at SLEEP_RESTORE_RATE
+    // (0.00167/rate-sec): from 0.1 to 0.95 takes ~509 rate-seconds =
+    // ~30500 ticks. Allow generous headroom.
     let (mut world, sleeper) = tired_sleeper();
 
-    // Sleep restores aerobic at +20/s, WAKE_STAMINA_THRESHOLD = 90, so ~5
-    // seconds of sim time at minimum plus the WakeUp transition.
-    let woke = tick_until_wake(&mut world, sleeper, 5_000);
+    let woke = tick_until_wake(&mut world, sleeper, 40_000);
     let aerobic = world.get::<PhysicalNeeds>(sleeper).stamina.aerobic;
     assert!(
         woke,
-        "agent should leave Sleep after stamina recovers; final aerobic = {aerobic:.1}",
+        "agent should leave Sleep after wakefulness and stamina recover; \
+         aerobic = {aerobic:.1}",
     );
 }
 
@@ -222,4 +219,187 @@ fn pain_wakes_sleeping_agent() {
         world.get::<Body>(sleeper).total_pain(),
         world.current_action(sleeper),
     );
+}
+
+/// Diurnal sleep cycle: a rested human spawned at noon should sleep exactly
+/// once per game day, at night (bout starts in 20:00–02:00, ends in 04:00–
+/// 10:00), and each bout should last 5.5–9 game hours. This is the behavioural
+/// spec in #496 comment: "real humans sleeping at night for 6–8 hours".
+#[test]
+fn rested_human_sleeps_once_per_night_for_six_to_eight_hours() {
+    use worldsim::core::GameTime;
+
+    const TICKS_PER_HOUR: u64 = 3600;
+    const TICKS_PER_DAY: u64 = TICKS_PER_HOUR * 24;
+
+    // Spawn a single human on a flat walkable map with abundant food and
+    // no predators. Default stamina (100) and wakefulness (1.0) so the
+    // agent starts rested — we want to observe the natural decay cycle.
+    let (mut world, agents) = TestWorld::scenario(42)
+        .map_size(64, 64)
+        .noise_biomes(false)
+        .agent("alice")
+        .pos(Vec2::new(128.0, 128.0))
+        .done()
+        .berry_bushes(8, Vec2::new(128.0, 128.0))
+        .apple_trees(4, Vec2::new(128.0, 128.0))
+        .build();
+    let alice = agents["alice"];
+
+    // Two full game days.
+    world.tick(2 * TICKS_PER_DAY);
+
+    // Collect Sleep start/end pairs for alice.
+    let events: Vec<_> = world
+        .sim_events()
+        .all()
+        .iter()
+        .filter_map(|e| match e {
+            SimEvent::ActionStarted {
+                agent,
+                tick,
+                action: ActionType::Sleep,
+                ..
+            } if *agent == alice => Some(("start", *tick)),
+            SimEvent::ActionPreempted {
+                agent,
+                tick,
+                preempted_action: ActionType::Sleep,
+            } if *agent == alice => Some(("end", *tick)),
+            SimEvent::ActionCompleted {
+                agent,
+                tick,
+                action: ActionType::Sleep,
+                ..
+            } if *agent == alice => Some(("end", *tick)),
+            _ => None,
+        })
+        .collect();
+
+    // Pair starts with ends.
+    let mut bouts: Vec<(u64, u64)> = Vec::new();
+    let mut open_start: Option<u64> = None;
+    for (kind, tick) in &events {
+        match (*kind, open_start) {
+            ("start", None) => open_start = Some(*tick),
+            ("end", Some(start)) => {
+                bouts.push((start, *tick));
+                open_start = None;
+            }
+            ("start", Some(prev_start)) => panic!(
+                "double Sleep start without end: {prev_start} then {tick}; \
+                 full events = {events:?}"
+            ),
+            ("end", None) => panic!(
+                "Sleep end with no matching start at tick {tick}; \
+                 full events = {events:?}"
+            ),
+            _ => unreachable!(),
+        }
+    }
+
+    assert!(
+        (2..=3).contains(&bouts.len()),
+        "expected ~2 sleep bouts in 2 game days (one per night, maybe one \
+         half-bout at the end), got {} bouts: {bouts:?}\nall events: {events:?}",
+        bouts.len(),
+    );
+
+    for (i, (start, end)) in bouts.iter().enumerate() {
+        let duration_ticks = end - start;
+        let duration_hours = duration_ticks as f32 / TICKS_PER_HOUR as f32;
+        let start_hour = ((*start + GameTime::INITIAL_TICK_OFFSET) / TICKS_PER_HOUR) % 24;
+        let end_hour = ((*end + GameTime::INITIAL_TICK_OFFSET) / TICKS_PER_HOUR) % 24;
+
+        // Start hour in the 18:00–03:00 window (evening to early morning).
+        // Allows for early-bird and night-owl chronotypes across the
+        // random genome seeds, while still firmly "night".
+        assert!(
+            matches!(start_hour, 18..=23 | 0..=3),
+            "sleep bout {i}: expected start at night hour 18–03, got {start_hour:02}:00 (tick {start})",
+        );
+
+        // End hour in 02:00–12:00 window.
+        assert!(
+            matches!(end_hour, 2..=12),
+            "sleep bout {i}: expected end in morning hour 02–12, got {end_hour:02}:00 (tick {end})",
+        );
+
+        assert!(
+            (5.5..=9.0).contains(&duration_hours),
+            "sleep bout {i}: expected 6–8 game hours duration (tolerance 5.5–9), \
+             got {duration_hours:.1} hours ({duration_ticks} ticks)",
+        );
+    }
+}
+
+/// Regression for the silent-Sleep-drop bug: in the observed #496 event log,
+/// two `ActionStarted Sleep` events fired for the same agent within a few
+/// hundred ticks of each other with no intervening `ActionPreempted`,
+/// `ActionCompleted`, or `ActionFailed` for Sleep. That means Sleep left
+/// `ActiveActions` invisibly, the brain re-proposed it, and it got admitted
+/// again — which is what the flapping timeline in the 4-day trace showed.
+///
+/// This test fails if any two consecutive `ActionStarted Sleep` events for
+/// the sleeper aren't separated by a terminating Sleep event.
+#[test]
+fn sleep_start_always_has_matching_terminator() {
+    let (mut world, sleeper) = tired_sleeper();
+
+    // Tick long enough for several sleep-wake cycles to happen. One full
+    // sleep cycle is roughly 7000 ticks; run 15k to cover the flap window
+    // the 4-day trace captured.
+    world.tick(15_000);
+
+    let events: Vec<_> = world
+        .sim_events()
+        .all()
+        .iter()
+        .filter_map(|e| match e {
+            SimEvent::ActionStarted {
+                agent,
+                tick,
+                action: ActionType::Sleep,
+                ..
+            } if *agent == sleeper => Some(("Started", *tick)),
+            SimEvent::ActionPreempted {
+                agent,
+                tick,
+                preempted_action: ActionType::Sleep,
+            } if *agent == sleeper => Some(("Preempted", *tick)),
+            SimEvent::ActionCompleted {
+                agent,
+                tick,
+                action: ActionType::Sleep,
+                ..
+            } if *agent == sleeper => Some(("Completed", *tick)),
+            SimEvent::ActionFailed {
+                agent,
+                tick,
+                action: ActionType::Sleep,
+                ..
+            } if *agent == sleeper => Some(("Failed", *tick)),
+            _ => None,
+        })
+        .collect();
+
+    // Walk the event list. Every "Started" must be either the first Sleep
+    // event, or immediately preceded by a terminator (Preempted/Completed/
+    // Failed). Two consecutive "Started"s indicate a silent drop.
+    let mut prev: Option<(&str, u64)> = None;
+    for (kind, tick) in &events {
+        if *kind == "Started"
+            && let Some((prev_kind, prev_tick)) = prev
+            && prev_kind == "Started"
+        {
+            panic!(
+                "silent Sleep drop: two ActionStarted Sleep events in a row \
+                 without an intervening terminator (Preempted/Completed/Failed). \
+                 previous start at tick {prev_tick}, next start at tick {tick}. \
+                 full event list: {:?}",
+                events
+            );
+        }
+        prev = Some((*kind, *tick));
+    }
 }

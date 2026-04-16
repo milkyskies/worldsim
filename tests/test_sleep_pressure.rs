@@ -272,11 +272,10 @@ fn drowsy_agent_sleeps_and_wakes_after_recovery() {
     );
 
     // Phase 2: wakefulness recovers and agent wakes.
-    // SLEEP_RESTORE_RATE is 0.00278/rate-sec. From 0.05 to 0.9 threshold
-    // takes ~305 rate-seconds = ~305 game minutes = ~18300 ticks.
-    // Allow generous headroom.
+    // SLEEP_RESTORE_RATE is 0.00167/rate-sec. From 0.05 to 0.95 threshold
+    // takes ~539 rate-seconds = ~32340 ticks. Allow generous headroom.
     let mut woke = false;
-    for _ in 0..25000 {
+    for _ in 0..40000 {
         world.tick(1);
         if !world
             .get::<ActiveActions>(sleeper)

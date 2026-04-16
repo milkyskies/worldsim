@@ -222,7 +222,7 @@ impl Default for NervousSystemConfig {
                     base_constant: 0.0,
                     curve: ResponseCurve::Sigmoid {
                         k: 10.0,
-                        midpoint: 0.6,
+                        midpoint: 0.35,
                     },
                     sensitivity: PersonalityMod {
                         trait_type: PersonalityTrait::Neuroticism,
@@ -356,13 +356,20 @@ impl Default for NervousSystemConfig {
                 // gets sleepy. Uses a sigmoid so urgency ramps up sharply
                 // once wakefulness drops past the midpoint, matching the
                 // subjective "sleep wall" experience.
+                //
+                // Midpoint 0.85: the urgency layer sees `normalized_input
+                // = 1 - wakefulness`, so this makes the sigmoid light up
+                // when `wake ≈ 0.15`. Combined with the daytime score
+                // dampening in `urgency::generate_urgency`, this anchors
+                // sleep proposals to the late-night window and produces
+                // realistic 6–8 game hour sleep bouts.
                 DriveConfig {
                     name: "Sleepiness".to_string(),
                     source: UrgencySource::Sleepiness,
                     base_constant: 0.0,
                     curve: ResponseCurve::Sigmoid {
                         k: 10.0,
-                        midpoint: 0.5,
+                        midpoint: 0.85,
                     },
                     sensitivity: PersonalityMod {
                         trait_type: PersonalityTrait::Neuroticism,

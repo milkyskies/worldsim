@@ -153,7 +153,7 @@ pub struct LiquidPlugin;
 impl Plugin for LiquidPlugin {
     fn build(&self, app: &mut App) {
         app.register_type::<Liquid>()
-            .add_systems(Update, decay_liquids);
+            .add_systems(FixedUpdate, decay_liquids);
     }
 }
 

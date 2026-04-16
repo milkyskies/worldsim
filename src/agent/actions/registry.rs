@@ -378,6 +378,18 @@ pub trait Action: Send + Sync + 'static {
         true
     }
 
+    /// Per-tick completion predicate for indefinite (`duration_ticks == u32::MAX`)
+    /// timed actions. Checked every tick in `tick_actions`; returning `true`
+    /// ends the action through the normal completion path (on_complete + events).
+    ///
+    /// Only called for `ActionKind::Timed { duration_ticks: u32::MAX }`.
+    /// Finite-duration actions complete via the countdown; movement actions
+    /// complete via arrival. Override this in actions that need a body-state
+    /// gate — e.g. Rest completing when aerobic recovers.
+    fn should_complete(&self, _physical: &crate::agent::body::needs::PhysicalNeeds) -> bool {
+        false
+    }
+
     /// Per-tick side effects: alertness, ingestion, social, curiosity.
     ///
     /// Physical costs (stamina, energy) are derived from the action's

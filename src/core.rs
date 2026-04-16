@@ -28,18 +28,16 @@ pub struct CorePlugin;
 
 impl Plugin for CorePlugin {
     fn build(&self, app: &mut App) {
-        app.register_type::<TickCount>()
+        app.insert_resource(Time::<Fixed>::from_hz(60.0))
+            .register_type::<TickCount>()
             .register_type::<GameTime>()
             .register_type::<GameLog>()
             .insert_resource(TickCount::new(60.0)) // 60 ticks per second
             .insert_resource(GameLog::new(100))
             .init_resource::<GameTime>()
             .init_resource::<SimRng>()
-            // tick_system runs unconditionally — it early-returns when paused,
-            // and Bevy internals may depend on it advancing. time_controls
-            // handles its own sim_interactive check inline so menu screens
-            // don't hijack Space/+/-.
-            .add_systems(Update, (time_controls, tick::tick_system).chain());
+            .add_systems(FixedUpdate, tick::tick_system)
+            .add_systems(Update, time_controls);
     }
 }
 
@@ -47,17 +45,15 @@ impl Plugin for CorePlugin {
 fn time_controls(
     keyboard: Res<ButtonInput<KeyCode>>,
     mut tick: ResMut<TickCount>,
+    mut fixed_time: ResMut<Time<Fixed>>,
     mut game_log: ResMut<GameLog>,
     state: Res<State<crate::menu::AppState>>,
     pause_menu: Res<crate::menu::PauseMenuOpen>,
 ) {
-    // Ignore time keys when not actively playing — menu and pause overlay
-    // shouldn't let the player toggle/tweak the sim clock.
     if *state.get() != crate::menu::AppState::InSim || pause_menu.0 {
         return;
     }
 
-    // Space toggles pause
     if keyboard.just_pressed(KeyCode::Space) {
         tick.paused = !tick.paused;
         game_log.event(&format!(
@@ -66,26 +62,31 @@ fn time_controls(
         ));
     }
 
-    // Speed controls (1x, 2x, 3x, 5x, 10x)
     let speeds = [60.0, 120.0, 180.0, 300.0, 600.0]; // ticks per second
     let current_speed_index = speeds
         .iter()
         .position(|&s| (s - tick.ticks_per_second).abs() < 1.0)
         .unwrap_or(0);
 
-    // + or = to speed up
+    let mut speed_changed = false;
+
     if (keyboard.just_pressed(KeyCode::Equal) || keyboard.just_pressed(KeyCode::NumpadAdd))
         && current_speed_index < speeds.len() - 1
     {
         tick.ticks_per_second = speeds[current_speed_index + 1];
+        speed_changed = true;
         game_log.event(&format!("Speed: {}x", tick.ticks_per_second / 60.0));
     }
 
-    // - to slow down
     if (keyboard.just_pressed(KeyCode::Minus) || keyboard.just_pressed(KeyCode::NumpadSubtract))
         && current_speed_index > 0
     {
         tick.ticks_per_second = speeds[current_speed_index - 1];
+        speed_changed = true;
         game_log.event(&format!("Speed: {}x", tick.ticks_per_second / 60.0));
+    }
+
+    if speed_changed {
+        fixed_time.set_timestep_hz(tick.ticks_per_second as f64);
     }
 }

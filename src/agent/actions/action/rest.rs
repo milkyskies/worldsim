@@ -20,6 +20,7 @@ use crate::agent::actions::motor::{
     ActionPrimitive, Behavior, IntensityPolicy, Intent, TargetSelector,
 };
 use crate::agent::actions::registry::{Action, ActionKind};
+use crate::agent::body::needs::PhysicalNeeds;
 use crate::agent::mind::knowledge::{Node, Predicate, Quantity, Triple, Value};
 
 pub struct RestAction;
@@ -67,6 +68,11 @@ impl Action for RestAction {
         // through `posture()`. Focus, Awareness, and Vocalization stay free so a
         // resting agent can still watch the world or hold a conversation.
         ChannelSlices::NONE
+    }
+
+    fn should_complete(&self, physical: &PhysicalNeeds) -> bool {
+        physical.stamina.aerobic_fraction()
+            >= crate::constants::actions::rest::COMPLETE_AEROBIC_FRACTION
     }
 
     fn posture(&self) -> Option<Posture> {

@@ -132,11 +132,15 @@ fn controls_panel_system(world: &mut World) {
                     } else {
                         btn
                     };
-                    if ui.add(btn).clicked()
-                        && let Some(mut tick_res) =
+                    if ui.add(btn).clicked() {
+                        if let Some(mut tick_res) =
                             world.get_resource_mut::<crate::core::TickCount>()
-                    {
-                        tick_res.ticks_per_second = rate;
+                        {
+                            tick_res.ticks_per_second = rate;
+                        }
+                        if let Some(mut fixed_time) = world.get_resource_mut::<Time<Fixed>>() {
+                            fixed_time.set_timestep_hz(rate as f64);
+                        }
                     }
                 }
             });
@@ -568,11 +572,17 @@ impl<'a> egui_dock::TabViewer for UiViewer<'a> {
                         } else {
                             btn
                         };
-                        if ui.add(btn).clicked()
-                            && let Some(mut tick_res) =
+                        if ui.add(btn).clicked() {
+                            if let Some(mut tick_res) =
                                 self.world.get_resource_mut::<crate::core::TickCount>()
-                        {
-                            tick_res.ticks_per_second = rate;
+                            {
+                                tick_res.ticks_per_second = rate;
+                            }
+                            if let Some(mut fixed_time) =
+                                self.world.get_resource_mut::<Time<Fixed>>()
+                            {
+                                fixed_time.set_timestep_hz(rate as f64);
+                            }
                         }
                     }
                 });

@@ -107,12 +107,8 @@ impl Plugin for CommunicationPlugin {
             .register_type::<InConversation>()
             .add_message::<ConversationAbandoned>()
             .add_systems(
-                Update,
+                FixedUpdate,
                 (
-                    // process_initiate_conversation must run after start_actions so that
-                    // InitiateConversation is already in ActiveActions before proximity is
-                    // checked. Without this ordering, start_actions may not have inserted
-                    // the action yet, causing the conversation to never register.
                     process_initiate_conversation
                         .after(crate::agent::nervous_system::execution::start_actions),
                     select_turn_intent.after(process_initiate_conversation),

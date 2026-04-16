@@ -97,10 +97,10 @@ impl Plugin for SpawnerPlugin {
                         .run_if(in_game_mode),
                 ),
             )
+            .add_systems(FixedUpdate, regenerate_resources)
             .add_systems(
                 Update,
                 (
-                    regenerate_resources,
                     sync_apple_visuals,
                     sync_berry_visuals,
                     sync_stone_visuals,
