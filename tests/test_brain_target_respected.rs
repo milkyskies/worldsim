@@ -24,6 +24,7 @@ fn make_walk_template(target: Vec2) -> ActionTemplate {
         behavior: Default::default(),
         locomotion_intensity: 0.0,
         estimated_duration_ticks: None,
+        search_filter: None,
     }
 }
 

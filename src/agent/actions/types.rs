@@ -39,7 +39,14 @@ pub enum ActionType {
     // Movement / Positioning
     Walk,    // "Travel"
     Wander,  // Random short-distance movement
-    Explore, // Directed long-distance exploration to find resources
+    Explore, // Open-ended curiosity wandering toward stale chunks
+    /// Goal-directed search for a specific concept when the agent has a
+    /// drive but no known instance (e.g. hungry with no known food).
+    /// Biases target selection toward chunks with MindGraph hints for
+    /// the search concept. Rational brain proposes this as a fallback
+    /// when `derive_search_concept` says the driving urgency's satisfier
+    /// has an `isa_filter` / `trait_filter` precondition.
+    LookFor,
     #[default]
     Idle,
     /// Sit and recover. Milder than Sleep — some stamina gain without
@@ -103,6 +110,7 @@ impl ActionType {
             ActionType::Walk => "Walking to",
             ActionType::Wander => "Wandering",
             ActionType::Explore => "Exploring",
+            ActionType::LookFor => "Looking for",
             ActionType::Idle => "Idle",
             ActionType::Rest => "Resting",
             ActionType::Observe => "Watching",
