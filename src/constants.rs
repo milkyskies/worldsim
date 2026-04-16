@@ -126,6 +126,14 @@ pub mod actions {
         pub const STAMINA_PER_TILE_TIRED: f32 = 0.2;
     }
 
+    pub mod rest {
+        /// Aerobic fraction at which Rest self-completes. Matches the
+        /// `WAKE_STAMINA_FRACTION` (0.9) spirit but slightly higher
+        /// because Rest is lighter recovery — the agent should sit until
+        /// nearly topped off before getting back up.
+        pub const COMPLETE_AEROBIC_FRACTION: f32 = 0.95;
+    }
+
     pub mod graze {
         /// Drifting range (pixels) for a single graze session before the
         /// movement completes and the brain proposes another drift.

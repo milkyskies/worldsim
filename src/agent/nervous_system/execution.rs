@@ -410,8 +410,10 @@ pub fn tick_actions(
                 ActionKind::Instant => true,
                 ActionKind::Timed { duration_ticks } => {
                     if duration_ticks == u32::MAX || action_state.ticks_remaining == u32::MAX {
-                        // Indefinite (Sleep, Idle) - never autocompletes here.
-                        false
+                        // Indefinite (Sleep, Idle, Rest) — check the action's
+                        // body-state completion predicate. Rest completes when
+                        // aerobic recovers; Sleep/Idle return false (default).
+                        action_def.should_complete(&physical)
                     } else {
                         // Deterministic fractional progress: each tick contributes
                         // `degradation` units, and `ticks_remaining` decrements
