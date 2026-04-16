@@ -304,7 +304,7 @@ pub fn update_shared_experience_tom(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::agent::mind::knowledge::{Concept, Node, Predicate, Value};
+    use crate::agent::mind::knowledge::{Concept, Node, Predicate, Quantity, Value};
     use bevy::prelude::Entity;
 
     fn test_entity(id: u32) -> Entity {
@@ -391,7 +391,7 @@ mod tests {
                 alice,
                 Node::Tile((i as i32, 0)),
                 Predicate::Explored,
-                Value::Int(1),
+                Value::Quantity(Quantity::Exact(1.0)),
                 0.5,
                 i as u64,
             );
@@ -403,7 +403,7 @@ mod tests {
             alice,
             Node::Tile((999, 999)),
             Predicate::Explored,
-            Value::Int(1),
+            Value::Quantity(Quantity::Exact(1.0)),
             0.5,
             999,
         );
@@ -414,7 +414,7 @@ mod tests {
             alice,
             &Node::Tile((0, 0)),
             Predicate::Explored,
-            &Value::Int(1),
+            &Value::Quantity(Quantity::Exact(1.0)),
         );
         assert!((confidence - 0.0).abs() < f32::EPSILON);
     }

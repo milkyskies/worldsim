@@ -11,7 +11,7 @@ use crate::agent::actions::registry::{
 use crate::agent::body::metabolism::{FoodMacros, food_macros};
 use crate::agent::brains::thinking::TriplePattern;
 use crate::agent::events::FailureReason;
-use crate::agent::mind::knowledge::{Concept, Node, Predicate, Triple, Value};
+use crate::agent::mind::knowledge::{Concept, Node, Predicate, Quantity, Triple, Value};
 use crate::constants::actions::eat::{DURATION_TICKS, STAMINA_GAIN};
 
 /// Fallback macros for edible items that don't yet have an entry in the
@@ -71,7 +71,11 @@ impl Action for EatAction {
 
     // Planning: After eating, hunger is satisfied
     fn plan_effects(&self) -> Vec<Triple> {
-        vec![Triple::new(Node::Self_, Predicate::Hunger, Value::Int(0))]
+        vec![Triple::new(
+            Node::Self_,
+            Predicate::Hunger,
+            Value::Quantity(Quantity::Exact(0.0)),
+        )]
     }
 
     // Execution: Actually check if we have edible food (not just any item)

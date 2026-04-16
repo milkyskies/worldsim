@@ -12,7 +12,9 @@ use bevy::math::Vec2;
 use bevy::prelude::*;
 
 use crate::agent::body::genetics::genome::Genome;
-use crate::agent::mind::knowledge::{Metadata, MindGraph, Node, Predicate, Triple, Value};
+use crate::agent::mind::knowledge::{
+    Metadata, MindGraph, Node, Predicate, Quantity, Triple, Value,
+};
 use crate::agent::mind::recognition::initialize_relationship;
 use crate::testing::config::AgentConfig;
 use crate::testing::world::{TestWorld, make_walkable_map};
@@ -619,19 +621,19 @@ fn apply_relationship(world: &mut TestWorld, a: Entity, b: Entity, spec: &Relati
     mind.assert(Triple::with_meta(
         target.clone(),
         Predicate::Trust,
-        Value::Float(spec.trust),
+        Value::Quantity(Quantity::Exact(spec.trust)),
         meta.clone(),
     ));
     mind.assert(Triple::with_meta(
         target.clone(),
         Predicate::Affection,
-        Value::Float(spec.affection),
+        Value::Quantity(Quantity::Exact(spec.affection)),
         meta.clone(),
     ));
     mind.assert(Triple::with_meta(
         target,
         Predicate::Respect,
-        Value::Float(spec.respect),
+        Value::Quantity(Quantity::Exact(spec.respect)),
         meta,
     ));
 }

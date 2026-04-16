@@ -154,7 +154,7 @@ fn novelty_score(triple: &Triple, speaker_tom: Option<&TheoryOfMind>, listener: 
 mod tests {
     use super::*;
     use crate::agent::mind::knowledge::{
-        Concept, Metadata, MindGraph, Node, Predicate, Triple, Value,
+        Concept, Metadata, MindGraph, Node, Predicate, Quantity, Triple, Value,
     };
     use crate::agent::mind::theory_of_mind::TheoryOfMind;
 
@@ -205,7 +205,7 @@ mod tests {
         speaker.assert(episodic(
             Node::Self_,
             Predicate::Stamina,
-            Value::Int(20),
+            Value::Quantity(Quantity::Exact(20.0)),
             100,
             0.5,
         ));
@@ -332,7 +332,7 @@ mod tests {
         speaker.assert(episodic(
             Node::Self_,
             Predicate::Stamina,
-            Value::Int(20),
+            Value::Quantity(Quantity::Exact(20.0)),
             500,
             0.3,
         ));

@@ -7,7 +7,8 @@
 
 use crate::agent::Agent;
 use crate::agent::mind::knowledge::{
-    CardinalDirection, Concept, Metadata, MindGraph, Node, Predicate, Sense, Triple, Value,
+    CardinalDirection, Concept, Metadata, MindGraph, Node, Predicate, Quantity, Sense, Triple,
+    Value,
 };
 use crate::core::GameLog;
 use crate::core::tick::TickCount;
@@ -126,30 +127,32 @@ pub fn update_body_perception(
             Metadata::semantic(current_time),
         ));
 
-        // Rule 3: Stats
+        // Rule 3: Stats — self-sensing is Exact. The agent's body tells the
+        // mind the ground-truth value. Observed beliefs about other agents go
+        // through the social perception writer at Qualitative precision.
+        let exact = |v: f32| Value::Quantity(Quantity::Exact(v));
         mind.perceive_self(
             Predicate::Hunger,
-            Value::Int((physical.hunger_urgency() * 100.0) as i32),
+            exact(physical.hunger_urgency() * 100.0),
             current_time,
         );
-        // Predicate::Thirst still stores "how thirsty" (0 = hydrated,
-        // 100 = parched) so downstream goal predicates like
-        // `(Self, Thirst, 0)` keep reading correctly. Translate from
-        // the satisfaction field via `100 - hydration`.
+        // Thirst stores "how thirsty" (0 = hydrated, 100 = parched) so
+        // downstream goal predicates like `(Self, Thirst, 0)` keep reading
+        // correctly. Translate from the satisfaction field via `100 - hydration`.
         mind.perceive_self(
             Predicate::Thirst,
-            Value::Int((100.0 - physical.hydration) as i32),
+            exact(100.0 - physical.hydration),
             current_time,
         );
         mind.perceive_self(
             Predicate::Stamina,
-            Value::Int(physical.stamina.aerobic as i32),
+            exact(physical.stamina.aerobic),
             current_time,
         );
 
         let total_pain = body.map(|b| b.total_pain()).unwrap_or(0.0);
         if total_pain > 0.0 {
-            mind.perceive_self(Predicate::Pain, Value::Int(total_pain as i32), current_time);
+            mind.perceive_self(Predicate::Pain, exact(total_pain), current_time);
         }
 
         // Rule 4: Consciousness

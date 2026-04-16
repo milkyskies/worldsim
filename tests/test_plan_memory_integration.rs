@@ -11,7 +11,7 @@ use worldsim::agent::brains::plan_memory::{
 };
 use worldsim::agent::brains::proposal::BrainType;
 use worldsim::agent::brains::thinking::{Goal, TriplePattern};
-use worldsim::agent::mind::knowledge::{Concept, Node as MindNode, Predicate, Value};
+use worldsim::agent::mind::knowledge::{Concept, Node as MindNode, Predicate, Quantity, Value};
 use worldsim::testing::{AgentConfig, TestWorld, personality};
 
 fn hunger_goal(priority: f32, concept: Concept) -> Goal {
@@ -302,7 +302,7 @@ fn multiple_executing_plans_admit_in_parallel() {
             conditions: vec![TriplePattern::new(
                 Some(MindNode::Self_),
                 Some(Predicate::SocialDrive),
-                Some(Value::Int(0)),
+                Some(Value::Quantity(Quantity::Exact(0.0))),
             )],
             priority: 0.5,
         },
@@ -414,7 +414,7 @@ fn arbitration_admits_walk_and_converse_in_parallel() {
             conditions: vec![TriplePattern::new(
                 Some(MindNode::Self_),
                 Some(Predicate::SocialDrive),
-                Some(Value::Int(0)),
+                Some(Value::Quantity(Quantity::Exact(0.0))),
             )],
             priority: 0.6,
         },

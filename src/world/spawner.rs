@@ -268,7 +268,9 @@ pub fn apply_layout(
 fn setup_wolf_pack_bonds(
     mut wolf_query: Query<(Entity, &mut crate::agent::mind::knowledge::MindGraph), With<Wolf>>,
 ) {
-    use crate::agent::mind::knowledge::{Concept, Metadata, Node, Predicate, Triple, Value};
+    use crate::agent::mind::knowledge::{
+        Concept, Metadata, Node, Predicate, Quantity, Triple, Value,
+    };
 
     let wolves: Vec<Entity> = wolf_query.iter().map(|(e, _)| e).collect();
     if wolves.len() < 2 {
@@ -288,13 +290,13 @@ fn setup_wolf_pack_bonds(
             mind.assert(Triple::with_meta(
                 Node::Entity(packmate),
                 Predicate::Trust,
-                Value::Float(0.9),
+                Value::Quantity(Quantity::Exact(0.9)),
                 meta.clone(),
             ));
             mind.assert(Triple::with_meta(
                 Node::Entity(packmate),
                 Predicate::Affection,
-                Value::Float(0.8),
+                Value::Quantity(Quantity::Exact(0.8)),
                 meta.clone(),
             ));
         }

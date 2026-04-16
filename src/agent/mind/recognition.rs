@@ -10,7 +10,9 @@
 use std::collections::VecDeque;
 
 use crate::agent::Agent;
-use crate::agent::mind::knowledge::{Concept, Metadata, MindGraph, Node, Predicate, Triple, Value};
+use crate::agent::mind::knowledge::{
+    Concept, Metadata, MindGraph, Node, Predicate, Quantity, Triple, Value,
+};
 use crate::agent::mind::perception::VisibleObjects;
 use crate::agent::psyche::relationships::{InteractionRecord, RelationshipHistory};
 use crate::core::tick::TickCount;
@@ -203,7 +205,7 @@ pub fn initialize_relationship_with_affection(
     mind.assert(Triple::with_meta(
         Node::Entity(entity),
         Predicate::Affection,
-        Value::Float(baseline_affection.clamp(0.0, 1.0)),
+        Value::Quantity(Quantity::Exact(baseline_affection.clamp(0.0, 1.0))),
         Metadata::semantic(timestamp),
     ));
 }
@@ -237,31 +239,32 @@ pub fn initialize_relationship(mind: &mut MindGraph, entity: Entity, name: &str,
     ));
 
     // Initialize neutral relationship dimensions
+    let neutral = Value::Quantity(Quantity::Exact(0.5));
     mind.assert(Triple::with_meta(
         target.clone(),
         Predicate::Trust,
-        Value::Float(0.5),
+        neutral.clone(),
         Metadata::semantic(timestamp),
     ));
 
     mind.assert(Triple::with_meta(
         target.clone(),
         Predicate::Affection,
-        Value::Float(0.5),
+        neutral.clone(),
         Metadata::semantic(timestamp),
     ));
 
     mind.assert(Triple::with_meta(
         target.clone(),
         Predicate::Respect,
-        Value::Float(0.5),
+        neutral,
         Metadata::semantic(timestamp),
     ));
 
     mind.assert(Triple::with_meta(
         target.clone(),
         Predicate::PowerBalance,
-        Value::Float(0.0), // Equal power
+        Value::Quantity(Quantity::Exact(0.0)), // Equal power
         Metadata::semantic(timestamp),
     ));
 }
