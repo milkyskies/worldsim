@@ -175,8 +175,6 @@ pub struct LegCompleteContext<'a> {
     pub target_position: Option<bevy::prelude::Vec2>,
     pub current_tick: u64,
     pub rng: &'a mut dyn rand::RngCore,
-    /// Mirrors `ActionState::search_filter`. Non-search actions leave
-    /// this `None`.
     pub search_filter: Option<crate::agent::brains::thinking::SearchFilter>,
 }
 

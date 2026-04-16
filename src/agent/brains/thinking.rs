@@ -7,7 +7,7 @@
 
 use crate::agent::actions::ActionType;
 use crate::agent::actions::motor::Behavior;
-use crate::agent::mind::knowledge::{Concept, Node, Predicate, Triple, Value};
+use crate::agent::mind::knowledge::{Concept, MindGraph, Node, Predicate, Triple, Value};
 use bevy::prelude::*;
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -155,6 +155,28 @@ impl SearchFilter {
 
     pub fn is_empty(&self) -> bool {
         self.isa.is_none() && self.trait_.is_none()
+    }
+
+    /// Returns true when `concept` satisfies all criteria in this filter.
+    pub fn matches(&self, concept: Concept, mind: &MindGraph) -> bool {
+        if let Some(c) = self.isa
+            && !mind.is_a(&Node::Concept(concept), c)
+        {
+            return false;
+        }
+        if let Some(t) = self.trait_ {
+            let has_trait = !mind
+                .query(
+                    Some(&Node::Concept(concept)),
+                    Some(Predicate::HasTrait),
+                    Some(&Value::Concept(t)),
+                )
+                .is_empty();
+            if !has_trait {
+                return false;
+            }
+        }
+        true
     }
 
     /// Human-readable short label for logs and reasoning strings.

@@ -17,6 +17,7 @@ pub mod initiate_conversation;
 pub mod look_for;
 pub mod observe;
 pub mod rest;
+pub mod search_utils;
 pub mod sleep;
 pub mod take;
 pub mod wake_up;

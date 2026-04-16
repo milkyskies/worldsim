@@ -1,16 +1,8 @@
 //! LookFor action - goal-directed search for a specific concept.
-//!
-//! Reads: MindGraph (Produces hints, Explored timestamps, visible entities),
-//! WorldMap, LegCompleteContext (search_filter)
-//! Writes: LegResult (next target or complete)
-//! Upstream: brains::rational (fallback proposal when an urgency has a
-//! concept-filtered satisfier but no known instance), nervous_system::execution (dispatch)
-//! Downstream: nervous_system::execution (runs the action, calls on_leg_complete)
 
 use crate::agent::actions::ActionType;
-use crate::agent::actions::action::explore::{
-    pick_explore_target, sample_walkable_scored, staleness_penalty,
-};
+use crate::agent::actions::action::explore::pick_explore_target;
+use crate::agent::actions::action::search_utils::{sample_walkable_scored, staleness_penalty};
 use crate::agent::actions::channel::{Channel, ChannelUsage, Posture};
 use crate::agent::actions::motor::{
     ActionPrimitive, Behavior, IntensityPolicy, Intent, TargetSelector,
@@ -96,8 +88,8 @@ impl Action for LookForAction {
 ///     `1000 / (age + 1)` penalty `pick_explore_target` uses.
 ///   * **Distance** — small tiebreaker (added by `sample_walkable_scored`).
 ///
-/// Falls through to `pick_explore_target` when no filter is set or no
-/// hint-matching chunk can be found, so the action never stalls.
+/// Falls through to `pick_explore_target` when no filter is set, so the
+/// action never stalls.
 pub fn pick_look_for_target(
     current_pos: Vec2,
     mind: &MindGraph,
@@ -109,9 +101,10 @@ pub fn pick_look_for_target(
     let Some(filter) = filter else {
         return pick_explore_target(current_pos, mind, world_map, current_tick, rng);
     };
-    if filter.is_empty() {
-        return pick_explore_target(current_pos, mind, world_map, current_tick, rng);
-    }
+    debug_assert!(
+        !filter.is_empty(),
+        "LookFor dispatched with an empty SearchFilter — derive_search_concept should never return an empty filter"
+    );
 
     let hint_chunks = collect_hint_chunks(mind, &filter);
 
@@ -137,7 +130,7 @@ fn collect_hint_chunks(mind: &MindGraph, filter: &SearchFilter) -> Vec<IVec2> {
     let mut source_concepts: Vec<Concept> = Vec::new();
     for triple in mind.query(None, Some(Predicate::Produces), None) {
         if let (Node::Concept(source), Value::Item(produced, _)) = (&triple.subject, &triple.object)
-            && item_matches_filter(mind, *produced, filter)
+            && filter.matches(*produced, mind)
         {
             source_concepts.push(*source);
         }
@@ -155,10 +148,6 @@ fn collect_hint_chunks(mind: &MindGraph, filter: &SearchFilter) -> Vec<IVec2> {
             continue;
         };
         let entity_node = Node::Entity(*entity);
-        // `is_a` walks the ontology once per call; with K source
-        // concepts that's K walks per entity. The `any` short-circuits
-        // on the first match, so worst case dominates only when no
-        // concept matches.
         let is_source = source_concepts.iter().any(|c| mind.is_a(&entity_node, *c));
         if is_source {
             chunks.push(IVec2::new(
@@ -171,32 +160,11 @@ fn collect_hint_chunks(mind: &MindGraph, filter: &SearchFilter) -> Vec<IVec2> {
     chunks
 }
 
-fn item_matches_filter(mind: &MindGraph, item: Concept, filter: &SearchFilter) -> bool {
-    if let Some(c) = filter.isa
-        && !mind.is_a(&Node::Concept(item), c)
-    {
-        return false;
-    }
-    if let Some(t) = filter.trait_ {
-        let has_trait = !mind
-            .query(
-                Some(&Node::Concept(item)),
-                Some(Predicate::HasTrait),
-                Some(&Value::Concept(t)),
-            )
-            .is_empty();
-        if !has_trait {
-            return false;
-        }
-    }
-    true
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::agent::mind::knowledge::{Metadata, Ontology, Triple};
-    use crate::world::map::TileType;
+    use crate::agent::mind::knowledge::{Metadata, Ontology, Triple, setup_ontology};
+    use crate::world::map::WorldMap;
     use crate::world::spatial_index::world_pos_to_chunk;
     use bevy::prelude::Entity;
     use rand::SeedableRng;
@@ -212,16 +180,11 @@ mod tests {
                     .or_insert_with(|| crate::world::map::Chunk::new(cx, cy));
             }
         }
-        for x in 0..size {
-            for y in 0..size {
-                map.set_tile(x, y, TileType::Grass);
-            }
-        }
         map
     }
 
     fn make_ontology() -> Ontology {
-        crate::agent::mind::knowledge::setup_ontology()
+        setup_ontology()
     }
 
     fn mind_with_berry_bush_in_chunk(chunk_x: i32, chunk_y: i32) -> (MindGraph, Entity) {
