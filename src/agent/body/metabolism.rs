@@ -79,10 +79,9 @@ pub const RESERVE_MOBILIZE_RATE: f32 = 0.8;
 pub const BMR_GLUCOSE_DRAIN_PER_SEC: f32 = 0.1;
 
 /// Basal hydration drain per second while alive. At this rate, hydration
-/// drops ~50 units over one game-day (86400 ticks × 1/60 s = 1440 s),
-/// matching the Drink action's `THIRST_REDUCTION` of 50 — agents need to
-/// drink roughly once per game-day.
-pub const BMR_HYDRATION_DRAIN_PER_SEC: f32 = 0.035;
+/// drops ~50 units in ~6 game-hours (360 s), crossing the thirst sigmoid
+/// midpoint and prompting agents to seek water several times per day.
+pub const BMR_HYDRATION_DRAIN_PER_SEC: f32 = 0.14;
 
 /// Hunger urgency blend weights (must sum to 1.0).
 /// Stomach-heavy: ghrelin makes you hungry when your stomach empties,
