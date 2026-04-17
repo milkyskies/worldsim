@@ -844,7 +844,7 @@ impl TestWorld {
     pub fn apply_spawn_layout(&mut self, layout: &SpawnLayout) {
         use crate::agent::body::genetics::founder::random_genome;
         use crate::agent::body::species::Species;
-        use crate::agent::culture::{Culture, create_cultural_knowledge};
+        use crate::agent::culture::Culture;
         use rand::Rng;
 
         let first_group_cultures = [Culture::Nomad, Culture::Farmer];
@@ -856,10 +856,9 @@ impl TestWorld {
             let culture = first_group_cultures[rng.random_range(0..first_group_cultures.len())];
             let genome = random_genome(rng, Species::Human);
             drop(rng_guard);
-            let knowledge = create_cultural_knowledge(culture);
             self.spawn_agent(AgentConfig {
                 genome,
-                knowledge,
+                culture,
                 ..AgentConfig::at(pos)
             });
         }
@@ -869,10 +868,9 @@ impl TestWorld {
             let culture = second_group_cultures[rng.random_range(0..second_group_cultures.len())];
             let genome = random_genome(rng, Species::Human);
             drop(rng_guard);
-            let knowledge = create_cultural_knowledge(culture);
             self.spawn_agent(AgentConfig {
                 genome,
-                knowledge,
+                culture,
                 ..AgentConfig::at(pos)
             });
         }

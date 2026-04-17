@@ -20,7 +20,7 @@ use crate::agent::body::species::SpeciesProfile;
 use crate::agent::brains::plan_memory::PlanMemory;
 use crate::agent::brains::proposal::BrainState;
 use crate::agent::brains::rational::RationalBrain;
-use crate::agent::culture::{Culture, create_cultural_knowledge};
+use crate::agent::culture::create_cultural_knowledge;
 use crate::agent::inventory::EntityType;
 use crate::agent::item_slots::ItemSlots;
 use crate::agent::mind::knowledge::{Concept, MindGraph, Ontology};
@@ -56,19 +56,8 @@ pub(super) fn spawn_test_person(
         .clone()
         .unwrap_or_else(|| world.resource_mut::<NameCounters>().next_human());
 
-    // If the caller supplied explicit cultural knowledge via `config.knowledge`
-    // (e.g. `apply_spawn_layout` passing `create_cultural_knowledge(Gatherer)`),
-    // use that as the cultural baseline instead of layering the default-Nomad
-    // triples on top — otherwise a "Gatherer" test human ends up knowing both
-    // Nomad and Gatherer facts, which diverges from the windowed spawn path.
-    let (cultural_knowledge, extra_knowledge) = if config.knowledge.is_empty() {
-        (
-            Arc::new(create_cultural_knowledge(Culture::default())),
-            Vec::new(),
-        )
-    } else {
-        (Arc::new(config.knowledge.clone()), Vec::new())
-    };
+    let cultural_knowledge = Arc::new(create_cultural_knowledge(config.culture));
+    let extra_knowledge = config.knowledge;
 
     let social_drive_override = config.social_drive;
 
