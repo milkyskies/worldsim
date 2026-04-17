@@ -7,6 +7,7 @@
 
 use crate::agent::actions::ActionType;
 use crate::agent::actions::motor::Behavior;
+use crate::agent::actions::registry::TargetSource;
 use crate::agent::mind::knowledge::{Concept, MindGraph, Node, Predicate, Quantity, Triple, Value};
 use bevy::prelude::*;
 
@@ -288,6 +289,19 @@ pub fn derive_search_concept(
                 });
             }
         }
+        // Fallback: derive directly from target_source. TileWithTrait and
+        // EntityWithTrait already express "I need something matching this
+        // concept" — no static precondition entry required. This gives any
+        // such action free LookFor support without per-action boilerplate.
+        match action.target_source() {
+            TargetSource::TileWithTrait(concept) | TargetSource::EntityWithTrait(concept) => {
+                return Some(SearchFilter {
+                    isa: None,
+                    trait_: Some(concept),
+                });
+            }
+            _ => {}
+        }
     }
     None
 }
@@ -365,6 +379,33 @@ mod derive_search_concept_tests {
         assert!(
             result.is_none(),
             "drives whose satisfier has no isa_filter must not trigger LookFor; got {result:?}"
+        );
+    }
+
+    #[test]
+    fn derive_search_concept_falls_back_to_target_source_for_tile_with_trait() {
+        // Drink has no static preconditions with a concept filter — it uses
+        // TargetSource::TileWithTrait(Drinkable). A thirst goal must still
+        // resolve to a Drinkable search so agents look for water when thirsty.
+        let mut registry = ActionRegistry::default();
+        registry.register(action::DrinkAction);
+
+        let goal = Goal {
+            conditions: vec![TriplePattern::self_has(
+                Predicate::Thirst,
+                Value::Quantity(Quantity::Exact(0.0)),
+            )],
+            priority: 1.0,
+        };
+
+        let result = derive_search_concept(&goal, &registry);
+        assert_eq!(
+            result,
+            Some(SearchFilter {
+                isa: None,
+                trait_: Some(Concept::Drinkable),
+            }),
+            "thirst goal must resolve to Drinkable search via target_source fallback"
         );
     }
 
