@@ -342,6 +342,28 @@ pub fn generate_urgency(
 }
 
 /// Applies momentum bonus to the currently-active drives and consciousness gating to all others.
+
+#[cfg(test)]
+mod tests {
+    /// Low hydration must produce a high raw thirst input; full hydration must
+    /// produce zero. This pins the inversion polarity: hydration is stored as
+    /// satisfaction (high = good) and urgency generation inverts it.
+    #[test]
+    fn low_hydration_gives_high_thirst_input() {
+        let thirst_input = |hydration: f32| 1.0 - (hydration / 100.0).clamp(0.0, 1.0);
+
+        assert!(
+            thirst_input(10.0) > 0.85,
+            "hydration 10 → thirst input {:.2}, expected > 0.85",
+            thirst_input(10.0)
+        );
+        assert_eq!(
+            thirst_input(100.0),
+            0.0,
+            "fully hydrated agent must have zero thirst input"
+        );
+    }
+}
 fn apply_momentum_and_gating(
     urgencies: &mut [Urgency],
     current_sources: &std::collections::HashSet<UrgencySource>,

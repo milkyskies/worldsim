@@ -10,7 +10,7 @@
 use crate::agent::Alive;
 use crate::agent::biology::body::Body;
 use crate::agent::body::genetics::phenotype::Phenotype;
-use crate::agent::body::metabolism::BMR_GLUCOSE_DRAIN_PER_SEC;
+use crate::agent::body::metabolism::{BMR_GLUCOSE_DRAIN_PER_SEC, BMR_HYDRATION_DRAIN_PER_SEC};
 use crate::agent::body::needs::{Consciousness, PhysicalNeeds};
 use crate::core::TickCount;
 use bevy::prelude::*;
@@ -50,6 +50,9 @@ pub fn tick_metabolism(
             0.0,
             organ_mods,
         );
+
+        physical.hydration =
+            (physical.hydration - BMR_HYDRATION_DRAIN_PER_SEC * dt).clamp(0.0, 100.0);
 
         // Slow passive anaerobic refill so a Flee sprint doesn't leave
         // the pool stuck at 0 forever. The rate is low enough that the
