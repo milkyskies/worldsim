@@ -12,9 +12,9 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
-  # Override the absolute target-dir in .cargo/config.toml (that path
-  # only exists on the author's machine).
-  CARGO_TARGET_DIR: target
+  # Fast linker for CI. .cargo/config.toml is gitignored (contains
+  # per-machine absolute target-dir), so linker flags live here instead.
+  RUSTFLAGS: "-D warnings -C link-arg=-fuse-ld=mold"
 
 jobs:
   rust:
@@ -58,10 +58,6 @@ jobs:
       # gets compiled twice.
       - name: test
         run: cargo nextest run --cargo-profile ci
-        env:
-          RUSTFLAGS: "-D warnings"
 
       - name: clippy
         run: cargo clippy --profile ci --all-targets -- -D warnings
-        env:
-          RUSTFLAGS: "-D warnings"
