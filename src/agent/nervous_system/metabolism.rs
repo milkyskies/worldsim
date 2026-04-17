@@ -51,8 +51,7 @@ pub fn tick_metabolism(
             organ_mods,
         );
 
-        physical.hydration =
-            (physical.hydration - BMR_HYDRATION_DRAIN_PER_SEC * dt).clamp(0.0, 100.0);
+        physical.hydration = (physical.hydration - BMR_HYDRATION_DRAIN_PER_SEC * dt).max(0.0);
 
         // Slow passive anaerobic refill so a Flee sprint doesn't leave
         // the pool stuck at 0 forever. The rate is low enough that the
