@@ -202,7 +202,7 @@ impl Default for NervousSystemConfig {
                     base_constant: 0.0,
                     curve: ResponseCurve::Sigmoid {
                         k: 10.0,
-                        midpoint: 0.6,
+                        midpoint: 0.35,
                     },
                     sensitivity: PersonalityMod {
                         trait_type: PersonalityTrait::Neuroticism,
