@@ -136,22 +136,67 @@ pub struct ActionTemplate {
 
 /// Concept/trait filter for goal-directed search actions.
 ///
+/// Where a `SearchFilter` expects to find its target. Determines the
+/// biasing strategy `pick_look_for_target` uses when deciding where to
+/// wander. Extensible — add a new variant (e.g. `Social { relation_kind }`)
+/// when a new kind of search appears.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Reflect)]
+pub enum SearchDomain {
+    /// Agent needs an item reachable via harvestable world producers
+    /// (berry bush → berry, apple tree → apple). LookFor biases toward
+    /// chunks containing known producers of items matching the filter.
+    #[default]
+    Inventory,
+    /// Agent needs a tile carrying a given trait (water, fire, shelter).
+    /// No producer indirection — LookFor wanders unexplored chunks until
+    /// perception asserts a matching `Tile HasTrait` triple.
+    WorldTile,
+    /// Agent needs an entity whose concept/trait matches (prey, Person,
+    /// enemy). Like `WorldTile` but for moving things — LookFor wanders
+    /// until perception spots a match.
+    WorldEntity,
+}
+
 /// Mirrors `TriplePattern::isa_filter` / `trait_filter` in a compact form
 /// that can be stored on `ActionTemplate`/`ActionState` without dragging
 /// the whole pattern shape onto the runtime state. `LookForAction`
 /// consumes one of these via its `LegCompleteContext` to pick targets
-/// biased toward chunks with matching `Produces` hints.
+/// biased according to `domain`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Reflect)]
 pub struct SearchFilter {
     pub isa: Option<Concept>,
     pub trait_: Option<Concept>,
+    pub domain: SearchDomain,
 }
 
 impl SearchFilter {
+    /// Inventory-domain filter for "any item whose concept IsA `isa`."
+    /// Used by Eat and similar inventory-routed actions.
     pub fn concept(isa: Concept) -> Self {
         Self {
             isa: Some(isa),
             trait_: None,
+            domain: SearchDomain::Inventory,
+        }
+    }
+
+    /// World-tile filter for "any tile carrying `trait_`." Used by Drink
+    /// and any future tile-trait action.
+    pub fn tile_trait(trait_: Concept) -> Self {
+        Self {
+            isa: None,
+            trait_: Some(trait_),
+            domain: SearchDomain::WorldTile,
+        }
+    }
+
+    /// World-entity filter for "any entity whose concept matches `trait_`."
+    /// Used by Attack/Bite and any future entity-trait action.
+    pub fn entity_trait(trait_: Concept) -> Self {
+        Self {
+            isa: None,
+            trait_: Some(trait_),
+            domain: SearchDomain::WorldEntity,
         }
     }
 
@@ -281,24 +326,27 @@ pub fn derive_search_concept(
         if !satisfies_goal {
             continue;
         }
+        // Static preconditions (self_contains_food, etc.) describe an
+        // inventory need — the agent's path to satisfaction is "carry this
+        // item," which is produced by world harvestables.
         for pre in action.preconditions() {
             if pre.isa_filter.is_some() || pre.trait_filter.is_some() {
                 return Some(SearchFilter {
                     isa: pre.isa_filter,
                     trait_: pre.trait_filter,
+                    domain: SearchDomain::Inventory,
                 });
             }
         }
-        // Fallback: derive directly from target_source. TileWithTrait and
-        // EntityWithTrait already express "I need something matching this
-        // concept" — no static precondition entry required. This gives any
-        // such action free LookFor support without per-action boilerplate.
+        // `target_source` declares a world-side need directly — tile-with-trait
+        // or entity-with-trait. Each maps to its own search domain so
+        // `pick_look_for_target` can pick the right biasing strategy.
         match action.target_source() {
-            TargetSource::TileWithTrait(concept) | TargetSource::EntityWithTrait(concept) => {
-                return Some(SearchFilter {
-                    isa: None,
-                    trait_: Some(concept),
-                });
+            TargetSource::TileWithTrait(concept) => {
+                return Some(SearchFilter::tile_trait(concept));
+            }
+            TargetSource::EntityWithTrait(concept) => {
+                return Some(SearchFilter::entity_trait(concept));
             }
             _ => {}
         }
@@ -401,11 +449,8 @@ mod derive_search_concept_tests {
         let result = derive_search_concept(&goal, &registry);
         assert_eq!(
             result,
-            Some(SearchFilter {
-                isa: None,
-                trait_: Some(Concept::Drinkable),
-            }),
-            "thirst goal must resolve to Drinkable search via target_source fallback"
+            Some(SearchFilter::tile_trait(Concept::Drinkable)),
+            "thirst goal must resolve to Drinkable WorldTile search"
         );
     }
 
