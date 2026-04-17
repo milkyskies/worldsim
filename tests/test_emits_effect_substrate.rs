@@ -11,9 +11,10 @@ use worldsim::agent::psyche::emotions::{Emotion, EmotionType, EmotionalState};
 use worldsim::core::tick::TickCount;
 use worldsim::world::emits_effect::{EffectKind, EmitsEffect, emits_effect_system};
 
-/// With 3600 tps, `dt = 3600.0 / 3600.0 = 1.0` per tick.
-/// Effect math becomes direct: `StressPerSec(-10.0)` → `-10.0` per tick.
+/// `TickCount::dt()` is fixed at 1/60 game-second per tick, so numeric
+/// assertions advance 60 ticks to realize 1 second of `*PerSec` effect.
 const TICKS_PER_SECOND: f32 = 3600.0;
+const TICKS_PER_GAME_SECOND: u32 = 60;
 
 fn test_app() -> App {
     let mut app = App::new();
@@ -25,6 +26,12 @@ fn test_app() -> App {
 fn advance_tick(app: &mut App) {
     app.world_mut().resource_mut::<TickCount>().current += 1;
     app.update();
+}
+
+fn advance_one_game_second(app: &mut App) {
+    for _ in 0..TICKS_PER_GAME_SECOND {
+        advance_tick(app);
+    }
 }
 
 fn spawn_agent(app: &mut App, pos: Vec2, stress: f32, aerobic: f32) -> Entity {
@@ -148,9 +155,9 @@ fn negative_stress_value_reduces_stress() {
     let agent = spawn_agent(&mut app, Vec2::ZERO, 50.0, 50.0);
     spawn_emitter(&mut app, Vec2::ZERO, 5.0, EffectKind::StressPerSec(-10.0));
 
-    advance_tick(&mut app);
+    advance_one_game_second(&mut app);
 
-    // dt = 1.0, so stress change = -10.0 * 1.0 = -10.0 → expected 40.0.
+    // 1 game-second of -10 stress/sec → expected 40.0.
     let stress = app
         .world()
         .get::<EmotionalState>(agent)
@@ -199,9 +206,9 @@ fn multiple_emitters_stack_linearly() {
         EffectKind::StressPerSec(-10.0),
     );
 
-    advance_tick(&mut app);
+    advance_one_game_second(&mut app);
 
-    // dt = 1.0 → each emitter: -10.0 * 1.0 = -10. Total = -20. Expected stress = 30.
+    // 1 game-second × 2 emitters × -10 stress/sec = -20. Expected stress = 30.
     let stress = app
         .world()
         .get::<EmotionalState>(agent)
