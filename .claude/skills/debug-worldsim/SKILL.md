@@ -528,21 +528,34 @@ action_buckets AS (
 action_str AS (
   SELECT bucket, string_agg(action || '×' || n, ', ' ORDER BY n DESC) AS actions
   FROM action_buckets GROUP BY bucket
+),
+labelled AS (
+  SELECT f.*, a.actions,
+    -- Sim wall-clock starts at 12:00 (see GameTime::START_HOUR in src/core/time.rs).
+    -- Add 12*60 game-minutes so window labels match what the game-time HUD shows
+    -- and what TestWorld's GameTime resource reports.
+    (f.bucket * 20 + 12 * 60)       AS start_min,
+    ((f.bucket + 1) * 20 + 12 * 60) AS end_min
+  FROM field_buckets f LEFT JOIN action_str a USING (bucket)
 )
 SELECT
-  f.bucket + 1 AS win,
-  printf('%02d:%02d-%02d:%02d',
-    (f.bucket * 20) // 60, (f.bucket * 20) % 60,
-    ((f.bucket + 1) * 20) // 60, ((f.bucket + 1) * 20) % 60) AS game_time,
-  ROUND(f.h_e, 3) AS hunger,    ROUND(f.h_e  - f.h_s,  3) AS d_hunger,
-  ROUND(f.hy_e, 1) AS hydration, ROUND(f.hy_e - f.hy_s, 2) AS d_hydration,
-  ROUND(f.w_e, 3) AS wakeful,   ROUND(f.w_e  - f.w_s,  3) AS d_wakeful,
-  COALESCE(a.actions, '-') AS actions
-FROM field_buckets f LEFT JOIN action_str a USING (bucket)
-ORDER BY f.bucket;
+  bucket + 1 AS win,
+  printf('D%d %02d:%02d-D%d %02d:%02d',
+    start_min // 1440 + 1, (start_min % 1440) // 60, start_min % 60,
+    end_min   // 1440 + 1, (end_min   % 1440) // 60, end_min   % 60) AS game_time,
+  ROUND(h_e, 3)          AS hunger,
+  ROUND(h_e  - h_s,  3)  AS d_hunger,
+  ROUND(hy_e, 1)         AS hydration,
+  ROUND(hy_e - hy_s, 2)  AS d_hydration,
+  ROUND(w_e, 3)          AS wakeful,
+  ROUND(w_e  - w_s,  3)  AS d_wakeful,
+  COALESCE(actions, '-') AS actions
+FROM labelled
+ORDER BY bucket;
 ```
 
 Notes:
+- **Sim wall-clock starts at 12:00 (noon).** `GameTime::START_HOUR = 12` in `src/core/time.rs` adds an `INITIAL_TICK_OFFSET` of 43200 ticks to every displayed time. Both `--headless` and `TestWorld` share the same `GameTime` resource, so a 24-hour run goes from `D1 12:00` to `D2 12:00`, not `00:00-24:00`. The SQL above reproduces that labelling; if you ever want raw "ticks-from-start" windows, drop the `+ 12 * 60` offset.
 - Use `//` for integer division (the `/` operator returns DOUBLE and casting truncates-then-rounds on some paths).
 - Bucket size `1200` = 20 game-min. For 10-min windows use `600`, for 1-game-hour use `3600`.
 - `--log-filter agent:Alice` keeps the event-log file tiny when you only care about one agent. Matches case-insensitively against the name *or* the `agent_id` (stable entity debug string).
