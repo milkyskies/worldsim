@@ -113,65 +113,51 @@ fn perf_overlay_system(
                     ui.end_row();
                 });
 
+            // One render path: every parent is a CollapsingHeader. Leaves
+            // (no sub-buckets) just show an empty body when expanded — egui
+            // handles chevron alignment for us, so there's no magic spacing
+            // to keep in sync.
             for row in &snapshot.buckets {
                 let color = if row.pct_of_tick >= HOT_PCT_THRESHOLD {
                     Color32::from_rgb(230, 90, 90)
                 } else {
                     Color32::GRAY
                 };
-                let children: Vec<&crate::core::SubBucketStats> = snapshot
-                    .sub_buckets
-                    .iter()
-                    .filter(|s| s.parent == row.name)
-                    .collect();
 
-                if children.is_empty() {
-                    // Leaf bucket — no sub-rows, render a plain line matching
-                    // the collapsing-header alignment so the two styles read
-                    // as one table.
-                    ui.horizontal(|ui| {
-                        ui.add_space(18.0); // align under the chevron
-                        ui.colored_label(
-                            color,
-                            egui::RichText::new(format!(
-                                "{:<14} {:>8.1} µs  {:>8.1} max  {:>5.1}%",
-                                row.name, row.avg_us, row.max_us, row.pct_of_tick
-                            ))
-                            .monospace(),
-                        );
-                    });
-                } else {
-                    egui::CollapsingHeader::new(
-                        egui::RichText::new(format!(
-                            "{:<14} {:>8.1} µs  {:>8.1} max  {:>5.1}%",
-                            row.name, row.avg_us, row.max_us, row.pct_of_tick
-                        ))
-                        .monospace()
-                        .color(color),
-                    )
-                    .id_salt(format!("perf_parent_{}", row.name))
-                    .default_open(false)
-                    .show(ui, |ui| {
-                        egui::Grid::new(format!("perf_children_{}", row.name))
-                            .num_columns(4)
-                            .spacing([12.0, 2.0])
-                            .striped(true)
-                            .show(ui, |ui| {
-                                for child in children {
-                                    let child_color = if child.pct_of_tick >= HOT_PCT_THRESHOLD {
-                                        Color32::from_rgb(230, 90, 90)
-                                    } else {
-                                        Color32::DARK_GRAY
-                                    };
-                                    ui.colored_label(child_color, format!("  └ {}", child.name));
-                                    ui.monospace(format!("{:>8.1}", child.avg_us));
-                                    ui.monospace(format!("{:>8.1}", child.max_us));
-                                    ui.monospace(format!("{:>6.1}%", child.pct_of_tick));
-                                    ui.end_row();
-                                }
-                            });
-                    });
-                }
+                egui::CollapsingHeader::new(
+                    egui::RichText::new(format!(
+                        "{:<14} {:>8.1} µs  {:>8.1} max  {:>5.1}%",
+                        row.name, row.avg_us, row.max_us, row.pct_of_tick
+                    ))
+                    .monospace()
+                    .color(color),
+                )
+                .id_salt(format!("perf_parent_{}", row.name))
+                .default_open(false)
+                .show(ui, |ui| {
+                    egui::Grid::new(format!("perf_children_{}", row.name))
+                        .num_columns(4)
+                        .spacing([12.0, 2.0])
+                        .striped(true)
+                        .show(ui, |ui| {
+                            for child in snapshot
+                                .sub_buckets
+                                .iter()
+                                .filter(|s| s.parent.label() == row.name)
+                            {
+                                let child_color = if child.pct_of_tick >= HOT_PCT_THRESHOLD {
+                                    Color32::from_rgb(230, 90, 90)
+                                } else {
+                                    Color32::DARK_GRAY
+                                };
+                                ui.colored_label(child_color, format!("  └ {}", child.name));
+                                ui.monospace(format!("{:>8.1}", child.avg_us));
+                                ui.monospace(format!("{:>8.1}", child.max_us));
+                                ui.monospace(format!("{:>6.1}%", child.pct_of_tick));
+                                ui.end_row();
+                            }
+                        });
+                });
             }
 
             ui.add_space(4.0);

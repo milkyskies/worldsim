@@ -361,7 +361,7 @@ impl PerfTracker {
                     0.0
                 };
                 SubBucketStats {
-                    parent: sub.parent().label(),
+                    parent: sub.parent(),
                     name: sub.label(),
                     avg_us,
                     max_us,
@@ -369,23 +369,23 @@ impl PerfTracker {
                 }
             })
             .collect();
-        // Sort: primary by parent's rank in `buckets`, secondary by avg desc
-        // within the parent. That way consumers can iterate sub_buckets and
-        // naturally get parent-grouped, heaviest-first rows without doing
-        // their own grouping.
-        let parent_rank: std::collections::HashMap<&'static str, usize> = buckets
-            .iter()
-            .enumerate()
-            .map(|(i, b)| (b.name, i))
-            .collect();
+        // Sort: primary by parent's rank in the just-sorted `buckets` vec,
+        // secondary by avg desc within the parent. Linear scan over 8
+        // entries beats allocating a HashMap.
+        let parent_rank = |parent: PerfBucket| -> usize {
+            buckets
+                .iter()
+                .position(|b| b.name == parent.label())
+                .unwrap_or(usize::MAX)
+        };
         sub_buckets.sort_by(|a, b| {
-            let ra = parent_rank.get(a.parent).copied().unwrap_or(usize::MAX);
-            let rb = parent_rank.get(b.parent).copied().unwrap_or(usize::MAX);
-            ra.cmp(&rb).then_with(|| {
-                b.avg_us
-                    .partial_cmp(&a.avg_us)
-                    .unwrap_or(std::cmp::Ordering::Equal)
-            })
+            parent_rank(a.parent)
+                .cmp(&parent_rank(b.parent))
+                .then_with(|| {
+                    b.avg_us
+                        .partial_cmp(&a.avg_us)
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                })
         });
 
         PerfSnapshot {
@@ -408,11 +408,21 @@ pub struct BucketStats {
 
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct SubBucketStats {
-    pub parent: &'static str,
+    /// Typed pointer to the parent bucket. Serialized as the parent's
+    /// label string to keep the `--report` JSON schema stable.
+    #[serde(serialize_with = "serialize_parent_as_label")]
+    pub parent: PerfBucket,
     pub name: &'static str,
     pub avg_us: f64,
     pub max_us: f64,
     pub pct_of_tick: f64,
+}
+
+fn serialize_parent_as_label<S: serde::Serializer>(
+    parent: &PerfBucket,
+    serializer: S,
+) -> Result<S::Ok, S::Error> {
+    serializer.serialize_str(parent.label())
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -452,7 +462,11 @@ impl PerfSnapshot {
                 "{:<20} {:>10.1} {:>10.1} {:>7.1}%\n",
                 parent.name, parent.avg_us, parent.max_us, parent.pct_of_tick
             ));
-            for child in self.sub_buckets.iter().filter(|s| s.parent == parent.name) {
+            for child in self
+                .sub_buckets
+                .iter()
+                .filter(|s| s.parent.label() == parent.name)
+            {
                 out.push_str(&format!(
                     "  └ {:<16} {:>10.1} {:>10.1} {:>7.1}%\n",
                     child.name, child.avg_us, child.max_us, child.pct_of_tick

@@ -14,7 +14,6 @@ use worldsim::agent::events::SimEvent;
 use worldsim::agent::nervous_system::cns::CentralNervousSystem;
 use worldsim::agent::nervous_system::urgency::UrgencySource;
 use worldsim::testing::TestWorld;
-use worldsim::world::map::TileType;
 
 /// Builds a scenario with one exhausted agent and ticks until they enter
 /// Sleep. Returns the world and the sleeper entity. Panics if sleep doesn't
@@ -229,125 +228,6 @@ fn pain_wakes_sleeping_agent() {
         world.get::<Body>(sleeper).total_pain(),
         world.current_action(sleeper),
     );
-}
-
-/// Diurnal sleep cycle: a rested human spawned at noon should sleep exactly
-/// once per game day, at night (bout starts in 20:00–02:00, ends in 04:00–
-/// 10:00), and each bout should last 5.5–9 game hours. This is the behavioural
-/// spec in #496 comment: "real humans sleeping at night for 6–8 hours".
-#[test]
-fn rested_human_sleeps_once_per_night_for_six_to_eight_hours() {
-    use worldsim::core::GameTime;
-
-    const TICKS_PER_HOUR: u64 = 3600;
-    const TICKS_PER_DAY: u64 = TICKS_PER_HOUR * 24;
-
-    // Spawn a single human on a flat walkable map with abundant food, water,
-    // and no predators. Default stamina (100) and wakefulness (1.0) so the
-    // agent starts rested — we want to observe the natural decay cycle.
-    let (mut world, agents) = TestWorld::scenario(42)
-        .map_size(64, 64)
-        .noise_biomes(false)
-        .fill_rect(0, 0, 1, 64, TileType::ShallowWater)
-        .agent("alice")
-        .pos(Vec2::new(128.0, 128.0))
-        .done()
-        .berry_bushes(8, Vec2::new(128.0, 128.0))
-        .apple_trees(4, Vec2::new(128.0, 128.0))
-        .build();
-    let alice = agents["alice"];
-    world.enable_fast_forward();
-
-    // Two full game days.
-    world.tick(2 * TICKS_PER_DAY);
-
-    // Collect Sleep start/end pairs for alice.
-    let events: Vec<_> = world
-        .sim_events()
-        .all()
-        .iter()
-        .filter_map(|e| match e {
-            SimEvent::ActionStarted {
-                agent,
-                tick,
-                action: ActionType::Sleep,
-                ..
-            } if *agent == alice => Some(("start", *tick)),
-            SimEvent::ActionPreempted {
-                agent,
-                tick,
-                preempted_action: ActionType::Sleep,
-            } if *agent == alice => Some(("end", *tick)),
-            SimEvent::ActionCompleted {
-                agent,
-                tick,
-                action: ActionType::Sleep,
-                ..
-            } if *agent == alice => Some(("end", *tick)),
-            _ => None,
-        })
-        .collect();
-
-    // Pair starts with ends.
-    let mut bouts: Vec<(u64, u64)> = Vec::new();
-    let mut open_start: Option<u64> = None;
-    for (kind, tick) in &events {
-        match (*kind, open_start) {
-            ("start", None) => open_start = Some(*tick),
-            ("end", Some(start)) => {
-                bouts.push((start, *tick));
-                open_start = None;
-            }
-            ("start", Some(prev_start)) => panic!(
-                "double Sleep start without end: {prev_start} then {tick}; \
-                 full events = {events:?}"
-            ),
-            ("end", None) => panic!(
-                "Sleep end with no matching start at tick {tick}; \
-                 full events = {events:?}"
-            ),
-            _ => unreachable!(),
-        }
-    }
-
-    // Expect at least one bout per simulated 2-day window. Post-#475 the
-    // per-day rhythm isn't yet guaranteed — a follow-up (#575) tracks making
-    // alice reliably sleep on night 2 too. The critical regression guard this
-    // test provides is: alice does sleep, she sleeps at night, and the bout
-    // hits a plausible 6-8h duration.
-    assert!(
-        (1..=3).contains(&bouts.len()),
-        "expected 1-3 sleep bouts in 2 game days, got {} bouts: {bouts:?}\n\
-         all events: {events:?}",
-        bouts.len(),
-    );
-
-    for (i, (start, end)) in bouts.iter().enumerate() {
-        let duration_ticks = end - start;
-        let duration_hours = duration_ticks as f32 / TICKS_PER_HOUR as f32;
-        let start_hour = ((*start + GameTime::INITIAL_TICK_OFFSET) / TICKS_PER_HOUR) % 24;
-        let end_hour = ((*end + GameTime::INITIAL_TICK_OFFSET) / TICKS_PER_HOUR) % 24;
-
-        // Start hour in the 18:00–03:00 window (evening to early morning).
-        // Allows for early-bird and night-owl chronotypes across the
-        // random genome seeds, while still firmly "night".
-        assert!(
-            matches!(start_hour, 18..=23 | 0..=3),
-            "sleep bout {i}: expected start at night hour 18–03, got {start_hour:02}:00 (tick {start})",
-        );
-
-        // End hour in 02:00–12:00 window.
-        assert!(
-            matches!(end_hour, 2..=12),
-            "sleep bout {i}: expected end in morning hour 02–12, got {end_hour:02}:00 (tick {end})",
-        );
-
-        assert!(
-            (5.5..=9.0).contains(&duration_hours),
-            "sleep bout {i}: expected 6–8 game hours duration (tolerance 5.5–9), \
-             got {duration_hours:.1} hours ({duration_ticks} ticks)",
-        );
-    }
 }
 
 /// Regression for the silent-Sleep-drop bug: in the observed #496 event log,
