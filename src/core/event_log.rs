@@ -256,6 +256,7 @@ fn event_meta<'a>(
         SimEvent::WarmthPerceived { agent, tick, .. } => {
             one("WarmthPerceived", *tick, *agent, true)
         }
+        SimEvent::WarmthChanged { agent, tick, .. } => one("WarmthChanged", *tick, *agent, true),
         SimEvent::SoundPerceived { agent, tick, .. } => one("SoundPerceived", *tick, *agent, true),
         SimEvent::TheoryOfMindUpdated {
             agent, about, tick, ..
@@ -583,6 +584,21 @@ fn event_to_json(
                 "agent_id": entity_id_str(*agent),
                 "source": resolve(*source),
                 "source_id": entity_id_str(*source),
+            })
+        }
+        SimEvent::WarmthChanged {
+            agent,
+            old_value,
+            new_value,
+            ..
+        } => {
+            serde_json::json!({
+                "tick": tick,
+                "type": event_type,
+                "agent": resolve(*agent),
+                "agent_id": entity_id_str(*agent),
+                "old_value": old_value,
+                "new_value": new_value,
             })
         }
         SimEvent::SoundPerceived {

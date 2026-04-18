@@ -27,6 +27,7 @@ impl Plugin for NervousSystemPlugin {
                     metabolism::tick_metabolism,
                     crate::agent::body::wakefulness::tick_wakefulness
                         .after(metabolism::tick_metabolism),
+                    crate::agent::body::warmth::tick_warmth.after(metabolism::tick_metabolism),
                 )
                     .in_set(crate::core::PerfBucket::Biology)
                     .run_if(not_paused),

@@ -31,6 +31,9 @@ pub struct AgentConfig {
     pub stamina: f32,
     /// Wakefulness (0.0 = must sleep, 1.0 = fully rested).
     pub wakefulness: f32,
+    /// Thermal comfort (0.0 = hypothermic, 1.0 = warm). Default is 1.0
+    /// so tests that don't exercise the warmth drive ignore it entirely.
+    pub warmth: f32,
     /// Optional override for baseline companionship satisfaction
     /// (0.0 = desperately lonely, 1.0 = content). `None` keeps the
     /// genome-derived value. `Some(v)` inserts a `SocialDriveOverride`
@@ -62,6 +65,7 @@ impl Default for AgentConfig {
             hydration: 1.0,
             stamina: 100.0,
             wakefulness: 1.0,
+            warmth: 1.0,
             social_drive: None,
             genome: Genome::default(),
             culture: Culture::default(),

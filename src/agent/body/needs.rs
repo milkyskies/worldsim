@@ -176,6 +176,12 @@ pub struct PhysicalNeeds {
     /// Independent of stamina — a desk worker gets sleepy without
     /// running a marathon. Default is `Need::full()`.
     pub wakefulness: Need,
+    /// Thermal comfort as a `Need` in `0..1` (1.0 = comfortable, 0.0 =
+    /// hypothermic). Drains slowly at baseline and faster when exposed
+    /// (no heat source nearby and no shelter); tops up when within a
+    /// `HeatSource` radius or inside a `ShelterProvider`. Drives
+    /// `UrgencySource::Warmth`.
+    pub warmth: Need,
 }
 
 impl PhysicalNeeds {
@@ -197,6 +203,7 @@ impl PhysicalNeeds {
             hydration: Need::new(0.55),
             stamina: Stamina::default(),
             wakefulness: Need::full(),
+            warmth: Need::full(),
         }
     }
 }

@@ -35,6 +35,11 @@ pub enum UrgencySource {
     /// `PlanMemory`. Value scales with conscientiousness per the
     /// original VERBAL_COMMITMENT_PRIORITY_* constants.
     Commitment,
+    /// Thermal comfort deficit from `PhysicalNeeds::warmth`. Rises as the
+    /// agent cools — above 0.6 warmth the urgency is near zero, below 0.3
+    /// it rivals Hunger, below 0.1 it is life-threatening. Satisfied by
+    /// the WarmUp action (which requires proximity to a HeatSource).
+    Warmth,
 }
 
 impl UrgencySource {
@@ -56,6 +61,7 @@ impl UrgencySource {
             Self::Hunger => 100.0,
             Self::Thirst => 100.0,
             Self::Pain => 100.0,
+            Self::Warmth => 90.0,
             Self::Stamina => 80.0,
             Self::Sleepiness => 80.0,
             Self::Fear => 50.0,
@@ -76,6 +82,7 @@ impl UrgencySource {
             Self::Hunger => true,
             Self::Thirst => true,
             Self::Pain => true,
+            Self::Warmth => true,
             Self::Stamina => false,
             Self::Sleepiness => false,
             Self::Fear => false,
@@ -185,6 +192,10 @@ pub fn generate_urgency(
                 // below handles the Sleepiness-specific inversion just
                 // like Stamina, so return the raw satisfaction value here.
                 UrgencySource::Sleepiness => physical.wakefulness.value,
+                // Warmth is satisfaction (high = comfortable); the loop
+                // below inverts it like Stamina/Sleepiness so cold (low
+                // value) maps to high urgency.
+                UrgencySource::Warmth => physical.warmth.value,
                 // Commitment urgency is emitted directly below the drive
                 // loop, not through the source-value map, because its
                 // magnitude comes from PlanMemory not body/drive state.
@@ -211,6 +222,7 @@ pub fn generate_urgency(
                 // Satisfaction-polarity fields: high value = low urgency.
                 UrgencySource::Stamina => 1.0 - base_input,
                 UrgencySource::Sleepiness => 1.0 - base_input,
+                UrgencySource::Warmth => 1.0 - base_input,
                 _ => base_input,
             };
 
@@ -320,6 +332,7 @@ pub fn generate_urgency(
                 crate::agent::actions::ActionType::Eat => Some(UrgencySource::Hunger),
                 crate::agent::actions::ActionType::Drink => Some(UrgencySource::Thirst),
                 crate::agent::actions::ActionType::Sleep => Some(UrgencySource::Sleepiness),
+                crate::agent::actions::ActionType::WarmUp => Some(UrgencySource::Warmth),
                 crate::agent::actions::ActionType::Wander => Some(UrgencySource::Curiosity),
                 crate::agent::actions::ActionType::Explore => Some(UrgencySource::Curiosity),
                 crate::agent::actions::ActionType::Observe => Some(UrgencySource::Curiosity),

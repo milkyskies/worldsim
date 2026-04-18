@@ -846,7 +846,7 @@ use super::action::{
     BuildAction, ConstructAction, ConverseAction, DepositAction, DrinkAction, EatAction,
     ExploreAction, FleeAction, GrazeAction, HarvestAction, IdleAction, InitiateConversationAction,
     LookForAction, ObserveAction, RestAction, SleepAction, TakeAction, WakeUpAction, WalkAction,
-    WanderAction,
+    WanderAction, WarmUpAction,
 };
 
 #[derive(Resource, Default)]
@@ -881,6 +881,7 @@ impl ActionRegistry {
         // the sim stays alive instead of freezing on "no proposal".
         registry.register(RestAction);
         registry.register(ObserveAction);
+        registry.register(WarmUpAction);
         // Conversation actions — owned by the CommunicationPlugin.
         registry.register(InitiateConversationAction);
         registry.register(ConverseAction);

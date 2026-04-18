@@ -659,8 +659,8 @@ fn most_committed_plan_drives_conversation_content_seed() {
         goal: Goal {
             conditions: vec![TriplePattern::new(
                 Some(MindNode::Self_),
-                Some(Predicate::Contains),
-                Some(Value::Item(Concept::Campfire, 1)),
+                Some(Predicate::Near),
+                Some(Value::Concept(Concept::Campfire)),
             )],
             priority: 0.5,
         },

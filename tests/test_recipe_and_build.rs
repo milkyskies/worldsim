@@ -140,12 +140,14 @@ fn goap_plans_harvest_then_build() {
 
     let available = vec![build_template, harvest_template];
 
-    // Goal: self contains Campfire (conceptual — what Build's effect produces)
+    // Goal: self is near a Campfire (what Build's effect produces after
+    // spawning a site at the agent's tile). This is the honest planner
+    // predicate — no `Contains` fiction for built artifacts.
     let goal = Goal {
         conditions: vec![TriplePattern::new(
             Some(MindNode::Self_),
-            Some(Predicate::Contains),
-            Some(Value::Item(Concept::Campfire, 1)),
+            Some(Predicate::Near),
+            Some(Value::Concept(Concept::Campfire)),
         )],
         priority: 50.0,
     };

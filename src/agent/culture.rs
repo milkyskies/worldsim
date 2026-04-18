@@ -70,7 +70,7 @@ pub fn create_cultural_knowledge(culture: Culture) -> Vec<Triple> {
             crate::constants::actions::build::CAMPFIRE_WOOD_REQUIRED,
         ),
     );
-    add(c(Campfire), Provides, v(Warmth));
+    add(c(Campfire), Provides, v(Concept::Warmth));
     add(c(Campfire), Provides, v(Safety));
     add(c(Campfire), Provides, v(Light));
     add(

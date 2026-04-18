@@ -131,6 +131,17 @@ pub mod actions {
         pub const STAMINA_PER_TILE_TIRED: f32 = 0.2;
     }
 
+    pub mod warm_up {
+        /// Ticks per WarmUp cycle. One cycle restores a small increment of
+        /// warmth — a chain of WarmUp cycles runs until the satiation gate
+        /// (warmth >= 0.95) blocks further starts.
+        pub const DURATION_TICKS: u32 = 30;
+        /// Warmth satisfaction (0..1) restored per completed WarmUp cycle.
+        pub const WARMTH_RECOVERY: f32 = 0.25;
+        /// Small stamina gain from sitting warm — rest-like by-product.
+        pub const STAMINA_GAIN: f32 = 5.0;
+    }
+
     pub mod rest {
         /// Aerobic fraction at which Rest self-completes. Matches the
         /// `WAKE_STAMINA_FRACTION` (0.9) spirit but slightly higher
@@ -174,6 +185,37 @@ pub mod brains {
         /// proper 6–8 game hour cycle from wake ≈ 0.15 → 0.95 instead of
         /// waking half-rested every ~2 game hours.
         pub const WAKE_WAKEFULNESS_THRESHOLD: f32 = 0.95;
+    }
+
+    /// Warmth drive: thermal comfort drain and recovery.
+    pub mod warmth {
+        /// Baseline satisfaction drain per rate-second in neutral conditions
+        /// (no exposure, not near heat). Slow trickle — an unattended agent
+        /// noticeably cools over ~15 game minutes.
+        pub const BASELINE_DRAIN_PER_SEC: f32 = 0.00055;
+        /// Extra satisfaction drain per rate-second when the agent is exposed
+        /// (not within a HeatSource radius and not inside a ShelterProvider).
+        /// Additive on top of the baseline. Tuned so an exposed agent drops
+        /// into the urgent band (warmth < 0.3) in roughly 5 game minutes.
+        pub const EXPOSURE_DRAIN_PER_SEC: f32 = 0.0028;
+        /// Satisfaction gain per rate-second when within a lit HeatSource
+        /// radius. A full recovery from hypothermic (0.0) to comfortable
+        /// (1.0) takes ~3 game minutes of continuous exposure.
+        pub const HEAT_RECOVERY_PER_SEC: f32 = 0.0055;
+        /// Satisfaction gain per rate-second when inside a ShelterProvider
+        /// (but no heat source). Smaller than HEAT_RECOVERY — shelter
+        /// insulates but doesn't actively warm.
+        pub const SHELTER_RECOVERY_PER_SEC: f32 = 0.0012;
+        /// Warmth above this value produces near-zero urgency.
+        pub const COMFORT_THRESHOLD: f32 = 0.6;
+        /// Warmth at or below this value produces urgency rivalling Hunger.
+        pub const URGENT_THRESHOLD: f32 = 0.3;
+        /// Warmth at or below this value produces life-threatening urgency.
+        pub const CRITICAL_THRESHOLD: f32 = 0.1;
+        /// Minimum urgency value below which the Warmth drive is suppressed —
+        /// matches the `min_threshold` convention used by other drives so a
+        /// barely-cool agent doesn't clutter the urgency list.
+        pub const MIN_URGENCY_THRESHOLD: f32 = 0.05;
     }
 
     pub mod wakefulness {

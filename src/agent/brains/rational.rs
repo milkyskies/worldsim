@@ -113,7 +113,7 @@ pub fn goal_for_urgency(
             vec![TriplePattern::self_has(Predicate::Hunger, zero.clone())]
         }
         UrgencySource::Stamina => {
-            vec![TriplePattern::self_has(Predicate::Stamina, full)]
+            vec![TriplePattern::self_has(Predicate::Stamina, full.clone())]
         }
         UrgencySource::Social => vec![TriplePattern::self_has(
             Predicate::SocialDrive,
@@ -124,6 +124,9 @@ pub fn goal_for_urgency(
         }
         UrgencySource::Thirst => {
             vec![TriplePattern::self_has(Predicate::Thirst, zero)]
+        }
+        UrgencySource::Warmth => {
+            vec![TriplePattern::self_has(Predicate::Warmth, full)]
         }
         UrgencySource::Commitment => {
             // Use the conditions from the highest-commitment verbal

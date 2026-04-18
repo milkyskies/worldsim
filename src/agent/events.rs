@@ -322,6 +322,18 @@ pub enum SimEvent {
         source: Entity,
     },
 
+    /// An agent's thermal comfort crossed a named threshold (comfort /
+    /// urgent / critical). Emitted by the warmth drain/recovery system so
+    /// decision traces and tooling can see the warmth-drive pipeline fire.
+    WarmthChanged {
+        agent: Entity,
+        tick: u64,
+        /// Warmth satisfaction before the change (0..1, high = comfortable).
+        old_value: f32,
+        /// Warmth satisfaction after the change (0..1).
+        new_value: f32,
+    },
+
     /// An agent heard a sound (hearing sense).
     SoundPerceived {
         agent: Entity,

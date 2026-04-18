@@ -222,6 +222,13 @@ pub enum Predicate {
     // ─── Spatial ───
     LocatedAt, // (Tree42, LocatedAt, Tile(5,3))
     Contains,  // (Tree42, Contains, Apple(3))
+    /// `(Self, Near, Concept(X))` — self is at the same tile as some known
+    /// entity of concept `X`. Pure planner-level abstraction: never stored
+    /// in the mindgraph; resolved at plan time by checking whether a known
+    /// entity of the target concept sits on self's tile. Consumed as an
+    /// action precondition (e.g. WarmUp needs `Near, Campfire`) and produced
+    /// as an action effect (e.g. Build spawns a campfire at self's tile).
+    Near,
 
     // ─── Action Semantics ───
     Affords,   // (AppleTree, Affords, Harvest)
@@ -244,6 +251,7 @@ pub enum Predicate {
     Wakefulness, // (Self, Wakefulness, Int) - 0 = must sleep, 100 = rested
     Pain,        // (Self, Pain, Int)
     SocialDrive, // (Self, SocialDrive, Int) - 0 = satisfied, 100 = lonely
+    Warmth,      // (Self, Warmth, Quantity) - 0 = hypothermic, 100 = comfortable
 
     // ─── Episodic Memory ───
     Actor,       // (Event42, Actor, Bob)
@@ -297,6 +305,7 @@ impl Predicate {
                 | Predicate::Hunger
                 | Predicate::Thirst
                 | Predicate::Stamina
+                | Predicate::Warmth
                 | Predicate::RegenerationRate
                 | Predicate::LastObserved
                 | Predicate::Actor

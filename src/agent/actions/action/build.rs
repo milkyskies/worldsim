@@ -61,13 +61,17 @@ impl Action for BuildAction {
         )]
     }
 
-    /// Planning: effect is a conceptual "agent has built a campfire".
-    /// The planner uses this to chain goals (want campfire → plan build).
+    /// Planning: Build spawns a construction site at the agent's current
+    /// position, so immediately after Build runs self is adjacent to a new
+    /// campfire-in-progress. Declaring `(Self_, Near, Campfire)` lets the
+    /// planner chain warmth-seeking goals cleanly — `want Near Campfire →
+    /// Build → Harvest + Pickup` — without the `Contains` fiction that an
+    /// agent could pocket a campfire.
     fn plan_effects(&self) -> Vec<Triple> {
         vec![Triple::new(
             Node::Self_,
-            Predicate::Contains,
-            Value::Item(Concept::Campfire, 1),
+            Predicate::Near,
+            Value::Concept(Concept::Campfire),
         )]
     }
 

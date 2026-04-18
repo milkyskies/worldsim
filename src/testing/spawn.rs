@@ -74,6 +74,7 @@ pub(super) fn spawn_test_person(
                     ..Default::default()
                 },
                 wakefulness: crate::agent::body::need::Need::new(config.wakefulness),
+                warmth: crate::agent::body::need::Need::new(config.warmth),
             },
             cultural_knowledge,
             extra_knowledge,

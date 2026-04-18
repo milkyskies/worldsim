@@ -154,6 +154,7 @@ pub enum NeedKind {
     Thirst,
     Sleep,
     Stamina,
+    Warmth,
 
     // Psychological drives
     Social,
@@ -186,6 +187,7 @@ impl NeedKind {
             NeedKind::Thirst => Some(ActionType::Drink),
             NeedKind::Sleep => Some(ActionType::Sleep),
             NeedKind::Stamina => Some(ActionType::Rest),
+            NeedKind::Warmth => Some(ActionType::WarmUp),
             NeedKind::Social => Some(ActionType::InitiateConversation),
             NeedKind::Fun | NeedKind::Curiosity => Some(ActionType::Explore),
             NeedKind::Territory
@@ -213,6 +215,7 @@ impl NeedKind {
             NeedKind::Thirst => 0.95,
             NeedKind::Sleep => 0.95,
             NeedKind::Stamina => 0.95,
+            NeedKind::Warmth => 0.95,
             NeedKind::Social | NeedKind::Fun | NeedKind::Curiosity => 0.9,
             NeedKind::Territory
             | NeedKind::Pain

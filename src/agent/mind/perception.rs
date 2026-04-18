@@ -766,6 +766,7 @@ mod threat_tests {
             hydration: crate::agent::body::need::Need::full(),
             stamina: Stamina::default(),
             wakefulness: crate::agent::body::need::Need::full(),
+            warmth: crate::agent::body::need::Need::full(),
         }
     }
 
