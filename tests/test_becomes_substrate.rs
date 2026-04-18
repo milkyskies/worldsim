@@ -19,7 +19,7 @@ use worldsim::world::construction_site::{
 /// Tests step it manually with `app.update()`.
 fn becomes_test_app(starting_tick: u64) -> App {
     let mut app = App::new();
-    let mut tick = TickCount::new(1.0);
+    let mut tick = TickCount::default();
     tick.current = starting_tick;
     app.insert_resource(tick);
     app.add_systems(Update, becomes_system);

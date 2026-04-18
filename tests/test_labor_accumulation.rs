@@ -22,7 +22,7 @@ use worldsim::core::tick::TickCount;
 
 fn labor_test_app() -> App {
     let mut app = App::new();
-    let mut tick = TickCount::new(1.0);
+    let mut tick = TickCount::default();
     tick.current = 0;
     app.insert_resource(tick);
     app.add_message::<SimEvent>();
