@@ -109,6 +109,15 @@ pub enum FailureReason {
     MissingItem(Concept),
     /// Agent has no edible food
     NoEdibleFood,
+    /// The need this action would satisfy is already close enough to full.
+    /// Emitted by the unified satiation gate in `Action::satiation` — e.g.
+    /// Eat blocks at stomach ≥ 80%, Drink at hydration ≥ 95%, Sleep at
+    /// wakefulness ≥ 95%. Carries the current fullness fraction (0..1)
+    /// so UI / diagnostics can surface why the action refused.
+    AlreadySatiated {
+        kind: crate::agent::body::need::NeedKind,
+        fullness: f32,
+    },
     /// Agent is too far from target
     TooFar,
     /// Interrupted by something else

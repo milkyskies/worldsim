@@ -5,7 +5,7 @@ use crate::agent::actions::channel::{Channel, ChannelUsage, Posture};
 use crate::agent::actions::motor::{
     ActionPrimitive, Behavior, IntensityPolicy, Intent, TargetSelector,
 };
-use crate::agent::actions::registry::{Action, ActionKind, RuntimeEffects};
+use crate::agent::actions::registry::{Action, ActionContext, ActionKind, RuntimeEffects};
 use crate::agent::mind::knowledge::{Node, Predicate, Quantity, Triple, Value};
 
 pub struct SleepAction;
@@ -67,6 +67,19 @@ impl Action for SleepAction {
             joy_per_sec: 2.0,
             ..Default::default()
         }
+    }
+
+    /// Block Sleep when wakefulness is already ≥ 95%. Stops fully-rested
+    /// agents from napping on demand just because the brain proposes it.
+    fn satiation(
+        &self,
+        ctx: &ActionContext,
+    ) -> Option<(crate::agent::body::need::NeedKind, f32)> {
+        let physical = ctx.physical?;
+        Some((
+            crate::agent::body::need::NeedKind::Sleep,
+            physical.wakefulness.value,
+        ))
     }
 
     // Sleep uses the default `interruptible = true`. WakeUp has to preempt

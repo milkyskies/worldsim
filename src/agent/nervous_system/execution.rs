@@ -62,6 +62,7 @@ pub fn start_actions(
         Option<&PhysicalNeeds>,
         Option<&Consciousness>,
         Option<&PlanMemory>,
+        Option<&crate::agent::body::needs::PsychologicalDrives>,
     )>,
     entity_transforms: Query<&GlobalTransform>,
     mut outcome_events: MessageWriter<ActionOutcomeEvent>,
@@ -81,6 +82,7 @@ pub fn start_actions(
         physical,
         consciousness,
         plan_memory,
+        drives,
     ) in agents.iter_mut()
     {
         // Snapshot capacities once per agent so the channel methods don't
@@ -124,9 +126,26 @@ pub fn start_actions(
                 target_entity: action_template.target_entity,
                 target_position: action_template.target_position,
                 agent_position: transform.translation.truncate(),
+                physical,
+                drives,
             };
 
-            if let Err(reason) = action_def.can_start(&ctx) {
+            // Unified satiation gate: ask the action whether the need it
+            // targets is already close enough to full. Prevents the
+            // chain-fire loop where Eat/Drink/Sleep keep re-starting
+            // every time their duration elapses.
+            let satiation_failure = action_def.satiation(&ctx).and_then(|(kind, fullness)| {
+                if fullness >= kind.satiation_threshold() {
+                    Some(crate::agent::events::FailureReason::AlreadySatiated { kind, fullness })
+                } else {
+                    None
+                }
+            });
+            let can_start_result = match satiation_failure {
+                Some(reason) => Err(reason),
+                None => action_def.can_start(&ctx),
+            };
+            if let Err(reason) = can_start_result {
                 game_log.log_debug(format!(
                     "{} cannot start {:?}: {:?}",
                     name.as_str(),

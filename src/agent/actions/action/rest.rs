@@ -19,7 +19,7 @@ use crate::agent::actions::channel::{ChannelSlices, ChannelUsage, Posture};
 use crate::agent::actions::motor::{
     ActionPrimitive, Behavior, IntensityPolicy, Intent, TargetSelector,
 };
-use crate::agent::actions::registry::{Action, ActionKind};
+use crate::agent::actions::registry::{Action, ActionContext, ActionKind};
 use crate::agent::body::needs::PhysicalNeeds;
 use crate::agent::mind::knowledge::{Node, Predicate, Quantity, Triple, Value};
 
@@ -84,5 +84,19 @@ impl Action for RestAction {
 
     fn start_log(&self) -> Option<&'static str> {
         Some("sitting to rest")
+    }
+
+    /// Block Rest when aerobic stamina is already at the completion fraction.
+    /// Mirrors should_complete: a Rest that would instantly complete shouldn't
+    /// start in the first place.
+    fn satiation(
+        &self,
+        ctx: &ActionContext,
+    ) -> Option<(crate::agent::body::need::NeedKind, f32)> {
+        let physical = ctx.physical?;
+        Some((
+            crate::agent::body::need::NeedKind::Stamina,
+            physical.stamina.aerobic_fraction(),
+        ))
     }
 }

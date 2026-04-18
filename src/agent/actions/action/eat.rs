@@ -91,6 +91,22 @@ impl Action for EatAction {
         }
     }
 
+    /// Block new Eat starts once the stomach is ~80% full. Without this
+    /// gate Eat re-fires every ~20 ticks as long as the agent has food,
+    /// because hunger-urgency is a blend that never drops to zero while
+    /// digestion is in flight. A "meal" emerges as a chain of Eats that
+    /// ends naturally when stomach_fraction crosses the threshold.
+    fn satiation(
+        &self,
+        ctx: &ActionContext,
+    ) -> Option<(crate::agent::body::need::NeedKind, f32)> {
+        let physical = ctx.physical?;
+        Some((
+            crate::agent::body::need::NeedKind::Hunger,
+            physical.metabolism.stomach_fraction(),
+        ))
+    }
+
     // Execution: What happens when we finish eating
     fn on_complete(&self, ctx: &mut CompletionContext) {
         // Pick the first food item (IsA Food) from inventory.
