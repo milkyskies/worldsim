@@ -25,11 +25,14 @@ impl TickCount {
 
     /// Per-tick time delta for rate-based effects.
     ///
-    /// Fixed at 1/60 game-second per tick. Speed control is handled by
-    /// running more FixedUpdate cycles per wall-clock second (via
-    /// `Time<Fixed>::set_timestep_hz`), not by scaling dt.
+    /// Derived from `ticks_per_second` against a 3600-tick/game-hour baseline:
+    /// at the default 60 tps, `dt = 60/3600 = 1/60` (same as the hardcoded
+    /// value the FixedUpdate migration used). Tests that want each tick to
+    /// represent one full game-second of physics set `ticks_per_second = 3600`
+    /// which yields `dt = 1.0` — matching `GameTime`'s "1 tick = 1 game-second"
+    /// convention so a single tick realizes a full `*PerSec` effect.
     pub fn dt(&self) -> f32 {
-        1.0 / 60.0
+        self.ticks_per_second / 3600.0
     }
 
     /// Check if this entity should run on this tick (for staggered updates)
