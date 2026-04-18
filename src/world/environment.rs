@@ -13,12 +13,16 @@ impl Plugin for EnvironmentPlugin {
             .register_type::<CampfireGlowSprite>()
             .init_resource::<LightLevel>()
             .init_resource::<ColorTint>()
+            // Game-logic: derive LightLevel/ColorTint from GameTime. Runs in
+            // FixedUpdate so headless tests (which skip Update) see light shift
+            // between day and night, and so urgency generation reads a stable
+            // LightLevel each tick.
+            .add_systems(FixedUpdate, update_light_level)
+            // Visual-only: write sprite/clear-color from LightLevel/ColorTint.
             .add_systems(
                 Update,
                 (
-                    update_light_level,
                     apply_visual_lighting,
-                    // sprite and glow write disjoint queries — run in parallel
                     (apply_sprite_lighting, apply_campfire_glow_lighting),
                 )
                     .chain(),

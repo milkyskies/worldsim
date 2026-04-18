@@ -597,7 +597,7 @@ impl TestWorld {
         app.insert_resource(map);
         app.insert_resource(LightLevel(1.0));
         app.init_resource::<crate::world::environment::ColorTint>();
-        app.add_systems(Update, crate::world::environment::update_light_level);
+        app.add_systems(FixedUpdate, crate::world::environment::update_light_level);
         app.insert_resource(TickCount::new(60.0));
         app.insert_resource(GameLog::new(100));
         app.init_resource::<GameTime>();
