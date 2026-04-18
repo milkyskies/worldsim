@@ -11,13 +11,11 @@ use worldsim::agent::psyche::emotions::{Emotion, EmotionType, EmotionalState};
 use worldsim::core::tick::TickCount;
 use worldsim::world::emits_effect::{EffectKind, EmitsEffect, emits_effect_system};
 
-/// With 3600 tps, `dt = 3600.0 / 3600.0 = 1.0` per tick.
-/// Effect math becomes direct: `StressPerSec(-10.0)` → `-10.0` per tick.
-const TICKS_PER_SECOND: f32 = 3600.0;
-
 fn test_app() -> App {
     let mut app = App::new();
-    app.insert_resource(TickCount::new(TICKS_PER_SECOND));
+    // gspc=60 → dt = 60/60 = 1.0 per tick, so effect math is direct:
+    // StressPerSec(-10.0) → -10.0 per tick.
+    app.insert_resource(TickCount::default().with_game_seconds_per_cycle(60));
     app.add_systems(Update, emits_effect_system);
     app
 }
@@ -250,7 +248,7 @@ fn effect_runs_in_deterministic_tick_order() {
     // identical results — no hidden Time-based variance.
     let run = |start_tick: u64| -> f32 {
         let mut app = App::new();
-        let mut tick = TickCount::new(TICKS_PER_SECOND);
+        let mut tick = TickCount::default().with_game_seconds_per_cycle(60);
         tick.current = start_tick;
         app.insert_resource(tick);
         app.add_systems(Update, emits_effect_system);
