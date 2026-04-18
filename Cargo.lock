@@ -6673,6 +6673,7 @@ dependencies = [
  "clap",
  "criterion",
  "egui_dock",
+ "log",
  "noise",
  "parquet",
  "paste",

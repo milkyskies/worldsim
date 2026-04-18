@@ -1,6 +1,5 @@
 #!/bin/bash
 #MISE description="Run worldsim (Bevy dev build)"
-#MISE usage="dev [worktree-num]"
 set -euo pipefail
 
 # Resolve the main repo so we can find sibling worktrees regardless of cwd.

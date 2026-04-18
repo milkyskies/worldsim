@@ -52,11 +52,12 @@ pub fn emotional_brain_propose(
         best = Some(proposal);
     }
 
-    // Social seeking — conversation path (humans). Still gated on
+    // Social seeking — conversation path (humans only). Still gated on
     // in_conversation because you shouldn't initiate a second
     // conversation while already in one (channel costs alone can't
     // prevent this since InitiateConversation has zero Focus cost).
     if in_conversation.is_none()
+        && self_concept == Some(Concept::Person)
         && let Some(d) = drives
         && let Some(proposal) = seek_social_initiation(
             d.companionship.deficit(),

@@ -88,7 +88,7 @@ fn camera_zoom(
     }
 }
 
-// Right-Click Drag Panning
+// Middle-Click Drag Panning
 fn camera_drag(
     mut events: MessageReader<MouseMotion>,
     buttons: Res<ButtonInput<MouseButton>>,

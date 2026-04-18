@@ -11,23 +11,23 @@ edition = "2024"
 # This drops bevy_pbr, bevy_gltf, bevy_audio, bevy_ui, scene, picking, and the
 # rest of the 3D stack, which significantly trims compile time.
 bevy = { version = "0.18", default-features = false, features = [
-    "default_app",
-    "default_platform",
-    "2d_bevy_render",
-    "dynamic_linking",
+  "default_app",
+  "default_platform",
+  "2d_bevy_render",
+  "dynamic_linking",
 ] }
 # Disable inspector defaults so we don't pull bevy_pbr (and the rest of
 # the 3D stack) in just to render an inspector tab for types we never use.
 # We still get reflection-based inspection of our own components.
 bevy-inspector-egui = { version = "0.36.0", default-features = false, features = [
-    "documentation",
-    "egui_clipboard",
+  "documentation",
+  "egui_clipboard",
 ] }
 bevy_egui = { version = "0.39.1", default-features = false, features = [
-    "render",
-    "manage_clipboard",
-    "open_url",
-    "default_fonts",
+  "render",
+  "manage_clipboard",
+  "open_url",
+  "default_fonts",
 ] }
 bevy_rand = "0.13.0"
 chrono = "0.4.42"
@@ -42,6 +42,10 @@ serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"
 smallvec = "1.13"
 tracing = "0.1.44"
+log = { version = "*", features = [
+  "max_level_debug",
+  "release_max_level_warn",
+] }
 
 # Enable a small amount of optimization in the dev profile.
 [profile.dev]
