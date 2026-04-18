@@ -65,7 +65,7 @@ pub fn arbitrate_every_tick(
             With<super::rational::RationalBrain>,
         ),
     >,
-    _world_map: Res<WorldMap>,
+    world_map: Res<WorldMap>,
     action_registry: Res<crate::agent::actions::ActionRegistry>,
     _affordances: Query<(
         &GlobalTransform,
@@ -84,7 +84,7 @@ pub fn arbitrate_every_tick(
         (mut plan_memory, cns),
         (physical, mut consciousness, drives),
         (emotions, body, personality, inventory),
-        (_transform, visible, mind, active_actions, in_conversation, self_entity_type),
+        (transform, visible, mind, active_actions, in_conversation, self_entity_type),
     ) in query.iter_mut()
     {
         // Cognitive tick cost: every arbitration burns a sliver of alertness.
@@ -105,6 +105,8 @@ pub fn arbitrate_every_tick(
             physical,
             cns,
             most_feared_entity: find_most_feared_visible_entity(visible, mind),
+            pos: transform.translation.truncate(),
+            world_map: &world_map,
         };
 
         let survival_proposals = survival_brain_propose(
@@ -270,7 +272,7 @@ pub fn arbitrate_every_tick(
 
         // Per-tick state hash for non-determinism debugging.
         let hash =
-            compute_agent_state_hash(entity, _transform.translation.truncate(), cns, &plan_memory);
+            compute_agent_state_hash(entity, transform.translation.truncate(), cns, &plan_memory);
         sim_events.write(crate::agent::events::SimEvent::AgentStateHash {
             agent: entity,
             tick: tick.current,

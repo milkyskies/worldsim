@@ -21,7 +21,7 @@ use crate::constants::actions::drink::{DURATION_TICKS, STAMINA_GAIN, THIRST_REDU
 pub struct DrinkAction;
 
 /// Check if any tile adjacent to the given position is a water source.
-fn is_adjacent_to_water(
+pub fn is_adjacent_to_water(
     agent_pos: bevy::math::Vec2,
     world_map: &crate::world::map::WorldMap,
 ) -> bool {
