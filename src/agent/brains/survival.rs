@@ -76,8 +76,9 @@ pub fn survival_brain_propose(
 fn is_action_viable(
     action: &dyn crate::agent::actions::registry::Action,
     physical: &PhysicalNeeds,
+    inventory: &ItemSlots,
 ) -> bool {
-    match action.satiation(Some(physical)) {
+    match action.satiation(Some(physical), Some(inventory)) {
         Some((kind, fullness)) => fullness < kind.satiation_threshold(),
         None => true,
     }
@@ -106,7 +107,7 @@ fn propose_for_source(
         UrgencySource::Hunger => {
             if inventory.has_edible(ontology)
                 && let Some(action) = action_registry.get(ActionType::Eat)
-                && is_action_viable(action, context.physical)
+                && is_action_viable(action, context.physical, inventory)
             {
                 return Some(BrainProposal {
                     brain: BrainType::Survival,
@@ -120,7 +121,7 @@ fn propose_for_source(
         UrgencySource::Thirst => {
             if is_adjacent_to_water(context.pos, context.world_map)
                 && let Some(action) = action_registry.get(ActionType::Drink)
-                && is_action_viable(action, context.physical)
+                && is_action_viable(action, context.physical, inventory)
             {
                 return Some(BrainProposal {
                     brain: BrainType::Survival,
@@ -133,7 +134,7 @@ fn propose_for_source(
         }
         UrgencySource::Stamina => {
             if let Some(action) = action_registry.get(ActionType::Rest)
-                && is_action_viable(action, context.physical)
+                && is_action_viable(action, context.physical, inventory)
             {
                 return Some(BrainProposal {
                     brain: BrainType::Survival,
@@ -168,7 +169,7 @@ fn propose_for_source(
         }
         UrgencySource::Sleepiness => {
             if let Some(action) = action_registry.get(ActionType::Sleep)
-                && is_action_viable(action, context.physical)
+                && is_action_viable(action, context.physical, inventory)
             {
                 return Some(BrainProposal {
                     brain: BrainType::Survival,

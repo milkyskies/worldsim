@@ -45,7 +45,7 @@ fn eat_satiation_reports_stomach_fraction_as_hunger() {
 
     let eat = EatAction;
     let (kind, fullness) = eat
-        .satiation(ctx.physical)
+        .satiation(ctx.physical, Some(ctx.inventory))
         .expect("Eat should expose satiation");
     assert_eq!(kind, NeedKind::Hunger);
     // well-fed metabolism starts at stomach 100/100 = 1.0
@@ -61,7 +61,7 @@ fn drink_refuses_when_hydration_full() {
     let ctx = ctx_with_needs(&inv, &mind, &map, &physical);
 
     let drink = DrinkAction;
-    let (kind, fullness) = drink.satiation(ctx.physical).unwrap();
+    let (kind, fullness) = drink.satiation(ctx.physical, Some(ctx.inventory)).unwrap();
     assert_eq!(kind, NeedKind::Thirst);
     // Should trip the threshold (0.95).
     assert!(fullness >= kind.satiation_threshold());
@@ -79,7 +79,7 @@ fn drink_allows_when_thirsty() {
     let ctx = ctx_with_needs(&inv, &mind, &map, &physical);
 
     let drink = DrinkAction;
-    let (_kind, fullness) = drink.satiation(ctx.physical).unwrap();
+    let (_kind, fullness) = drink.satiation(ctx.physical, Some(ctx.inventory)).unwrap();
     assert!(fullness < NeedKind::Thirst.satiation_threshold());
 }
 
@@ -92,7 +92,7 @@ fn sleep_refuses_when_already_rested() {
     let ctx = ctx_with_needs(&inv, &mind, &map, &physical);
 
     let sleep = SleepAction;
-    let (kind, fullness) = sleep.satiation(ctx.physical).unwrap();
+    let (kind, fullness) = sleep.satiation(ctx.physical, Some(ctx.inventory)).unwrap();
     assert_eq!(kind, NeedKind::Sleep);
     assert!(fullness >= kind.satiation_threshold());
 }
@@ -109,7 +109,7 @@ fn rest_refuses_when_aerobic_full() {
     let ctx = ctx_with_needs(&inv, &mind, &map, &physical);
 
     let rest = RestAction;
-    let (kind, fullness) = rest.satiation(ctx.physical).unwrap();
+    let (kind, fullness) = rest.satiation(ctx.physical, Some(ctx.inventory)).unwrap();
     assert_eq!(kind, NeedKind::Stamina);
     assert!(fullness >= kind.satiation_threshold());
 }
@@ -124,4 +124,76 @@ fn already_satiated_failure_reason_round_trips() {
     assert_eq!(reason, cloned);
     // The satiation threshold for Hunger should block at 0.9.
     assert!(0.9 >= NeedKind::Hunger.satiation_threshold());
+}
+
+fn physical_with_stomach(mass: f32) -> PhysicalNeeds {
+    PhysicalNeeds {
+        metabolism: Metabolism {
+            stomach_carbs: mass,
+            stomach_fat: 0.0,
+            glucose: 10.0,
+            reserves: 10.0,
+        },
+        ..Default::default()
+    }
+}
+
+#[test]
+fn eat_dead_zone_berry_in_seventy_mass_stomach_blocks() {
+    use worldsim::agent::mind::knowledge::Concept;
+
+    let physical = physical_with_stomach(70.0);
+    let mut inv = ItemSlots::agent_carry();
+    inv.add(Concept::Berry, 1);
+    let mind = MindGraph::new(setup_ontology());
+    let map = WorldMap::new(WORLD_WIDTH, WORLD_HEIGHT);
+    let ctx = ctx_with_needs(&inv, &mind, &map, &physical);
+
+    let eat = EatAction;
+    let (kind, fullness) = eat.satiation(ctx.physical, Some(ctx.inventory)).unwrap();
+    assert_eq!(kind, NeedKind::Hunger);
+    assert!(
+        fullness >= kind.satiation_threshold(),
+        "berry (40 mass) into 30 headroom must trip satiation; got fullness={fullness}"
+    );
+}
+
+#[test]
+fn eat_allows_berry_when_stomach_has_room() {
+    use worldsim::agent::mind::knowledge::Concept;
+
+    // Headroom 50, berry mass 40 — fits.
+    let physical = physical_with_stomach(50.0);
+    let mut inv = ItemSlots::agent_carry();
+    inv.add(Concept::Berry, 1);
+    let mind = MindGraph::new(setup_ontology());
+    let map = WorldMap::new(WORLD_WIDTH, WORLD_HEIGHT);
+    let ctx = ctx_with_needs(&inv, &mind, &map, &physical);
+
+    let eat = EatAction;
+    let (_kind, fullness) = eat.satiation(ctx.physical, Some(ctx.inventory)).unwrap();
+    assert!(
+        fullness < NeedKind::Hunger.satiation_threshold(),
+        "50 stomach + 40 berry fits; must not trip satiation; got fullness={fullness}"
+    );
+}
+
+#[test]
+fn eat_allows_apple_when_smaller_than_berry_fits() {
+    use worldsim::agent::mind::knowledge::Concept;
+
+    // Apple mass 31 fits easily in 50 headroom.
+    let physical = physical_with_stomach(50.0);
+    let mut inv = ItemSlots::agent_carry();
+    inv.add(Concept::Apple, 1);
+    let mind = MindGraph::new(setup_ontology());
+    let map = WorldMap::new(WORLD_WIDTH, WORLD_HEIGHT);
+    let ctx = ctx_with_needs(&inv, &mind, &map, &physical);
+
+    let eat = EatAction;
+    let (_kind, fullness) = eat.satiation(ctx.physical, Some(ctx.inventory)).unwrap();
+    assert!(
+        fullness < NeedKind::Hunger.satiation_threshold(),
+        "50 stomach + 31 apple fits; must not trip satiation; got fullness={fullness}"
+    );
 }

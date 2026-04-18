@@ -11,6 +11,7 @@ use crate::agent::actions::registry::{
 use crate::agent::body::metabolism::{FoodMacros, food_macros};
 use crate::agent::brains::thinking::TriplePattern;
 use crate::agent::events::FailureReason;
+use crate::agent::item_slots::ItemSlots;
 use crate::agent::mind::knowledge::{Concept, Node, Predicate, Quantity, Triple, Value};
 use crate::constants::actions::eat::{DURATION_TICKS, STAMINA_GAIN};
 
@@ -91,18 +92,27 @@ impl Action for EatAction {
         }
     }
 
-    /// Block new Eat starts once the stomach is ~80% full. Without this
-    /// gate Eat re-fires every ~20 ticks as long as the agent has food,
-    /// because hunger-urgency is a blend that never drops to zero while
-    /// digestion is in flight. A "meal" emerges as a chain of Eats that
-    /// ends naturally when stomach_fraction crosses the threshold.
+    /// Block new Eat starts when the stomach is above the satiation
+    /// threshold OR the next food item in inventory wouldn't fit in
+    /// current headroom. The bite-aware arm prevents chain-firing Eat
+    /// completions that `Metabolism::eat` would silently reject: the
+    /// action finishes, grants stamina, logs "ate food", but the berry
+    /// stays in inventory because it can't physically go in.
     fn satiation(
         &self,
         physical: Option<&crate::agent::body::needs::PhysicalNeeds>,
+        inventory: Option<&ItemSlots>,
     ) -> Option<(crate::agent::body::need::NeedKind, f32)> {
+        let metabolism = &physical?.metabolism;
+        if let Some(inv) = inventory
+            && let Some(macros) = inv.all_items().find_map(|t| food_macros(t.concept))
+            && !metabolism.would_fit(macros)
+        {
+            return Some((crate::agent::body::need::NeedKind::Hunger, 1.0));
+        }
         Some((
             crate::agent::body::need::NeedKind::Hunger,
-            physical?.metabolism.stomach_fraction(),
+            metabolism.stomach_fraction(),
         ))
     }
 

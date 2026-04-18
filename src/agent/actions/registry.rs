@@ -389,16 +389,16 @@ pub trait Action: Send + Sync + 'static {
     /// wins arbitration every tick and the agent does nothing useful
     /// until digestion catches up).
     ///
-    /// Takes `Option<&PhysicalNeeds>` rather than the full `ActionContext`
-    /// because satiation is a pure read against physiology — no mind
-    /// graph, world map, or target context is needed — and the brain
-    /// proposer doesn't have an `ActionContext` to pass.
+    /// `inventory` lets bite-aware gates (Eat) report full when the next
+    /// food item wouldn't fit in current headroom; actions that don't
+    /// care about inventory ignore it.
     ///
     /// Actions without a single target need (Walk, Harvest, Attack, Flee)
     /// return `None` and skip the gate.
     fn satiation(
         &self,
         _physical: Option<&crate::agent::body::needs::PhysicalNeeds>,
+        _inventory: Option<&ItemSlots>,
     ) -> Option<(crate::agent::body::need::NeedKind, f32)> {
         None
     }

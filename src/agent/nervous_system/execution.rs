@@ -133,19 +133,18 @@ pub fn start_actions(
             // catch any future proposer (rational, emotional, tests) that
             // forgets to call the viability filter, which would otherwise
             // revive the chain-fire Eat/Drink/Sleep loop that #495 fixed.
-            let satiation_failure =
-                action_def
-                    .satiation(ctx.physical)
-                    .and_then(|(kind, fullness)| {
-                        if fullness >= kind.satiation_threshold() {
-                            Some(crate::agent::events::FailureReason::AlreadySatiated {
-                                kind,
-                                fullness,
-                            })
-                        } else {
-                            None
-                        }
-                    });
+            let satiation_failure = action_def
+                .satiation(ctx.physical, Some(ctx.inventory))
+                .and_then(|(kind, fullness)| {
+                    if fullness >= kind.satiation_threshold() {
+                        Some(crate::agent::events::FailureReason::AlreadySatiated {
+                            kind,
+                            fullness,
+                        })
+                    } else {
+                        None
+                    }
+                });
             let can_start_result = match satiation_failure {
                 Some(reason) => Err(reason),
                 None => action_def.can_start(&ctx),
