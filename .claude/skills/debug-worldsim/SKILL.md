@@ -27,10 +27,10 @@ Read these files for current API and flag definitions — don't trust documented
 
 ## Debug output location
 
-**All debug artefacts go under `/tmp/worldsim/debug/<run-name>/`.** Keep every sim log, field-logger file, trace, and generated SQL script under that root so the filesystem stays tidy and `rm -rf /tmp/worldsim/debug` always cleans up everything. Don't scatter files at `/tmp/*.jsonl`.
+**All debug artefacts go under `debug/<run-name>/` inside the project root.** Keep every sim log, field-logger file, trace, and generated SQL script under that root so the filesystem stays tidy and `rm -rf debug` always cleans up everything. The `debug/` directory is gitignored. Don't scatter files at the project root.
 
 ```bash
-mkdir -p /tmp/worldsim/debug/<run-name>   # always do this first
+mkdir -p debug/<run-name>   # always do this first
 ```
 
 ## Default workflow: Parquet + DuckDB
@@ -43,16 +43,16 @@ For anything past a few thousand ticks, the fast path is **Parquet → DuckDB**:
 
 ```bash
 # Capture a full run into a directory
-mkdir -p /tmp/worldsim/debug/run42
+mkdir -p debug/run42
 cargo run --release -- --headless --game-defaults --ticks 5000 --seed 42 \
-  --log /tmp/worldsim/debug/run42/events.parquet
+  --log debug/run42/events.parquet
 
 # Generate the DuckDB setup script and launch a REPL with views attached
-cargo run --release -- --debug /tmp/worldsim/debug/run42 > /tmp/worldsim/debug/run42/setup.sql
-duckdb -init /tmp/worldsim/debug/run42/setup.sql
+cargo run --release -- --debug debug/run42 > debug/run42/setup.sql
+duckdb -init debug/run42/setup.sql
 
 # Or one-shot it
-duckdb -c "$(cargo run --release -q -- --debug /tmp/worldsim/debug/run42) SELECT type, COUNT(*) FROM events GROUP BY type ORDER BY 2 DESC;"
+duckdb -c "$(cargo run --release -q -- --debug debug/run42) SELECT type, COUNT(*) FROM events GROUP BY type ORDER BY 2 DESC;"
 ```
 
 Prefer JSONL (`--log events.jsonl` or `--log -`) only when the run is small, you want to grep/jq directly, or you need to stream to stdout.
@@ -221,33 +221,33 @@ Captures one JSONL line per tick per agent, where each line carries a selected s
 ```bash
 # Full vitals for Alice, every tick, to a file
 cargo run --release -- --headless --game-defaults --seed 42 --ticks 86400 \
-  --log-agent alice --log-preset vitals --log-file /tmp/worldsim/debug/alice/fields.jsonl
+  --log-agent alice --log-preset vitals --log-file debug/alice/fields.jsonl
 
 # Add actions and channels
 cargo run --release -- --headless --game-defaults --seed 42 --ticks 86400 \
   --log-agent alice --log-preset vitals \
-  --log-field actions --log-field channels --log-file /tmp/worldsim/debug/alice/fields.jsonl
+  --log-field actions --log-field channels --log-file debug/alice/fields.jsonl
 
 # Only when something changed (much smaller output)
 cargo run --release -- --headless --game-defaults --seed 42 --ticks 86400 \
   --log-agent alice --log-preset vitals \
   --log-on-change actions --log-on-change needs.glucose \
-  --log-file /tmp/worldsim/debug/alice/fields.jsonl
+  --log-file debug/alice/fields.jsonl
 
 # Heartbeat every 5 sim-seconds PLUS all action transitions in between
 cargo run --release -- --headless --game-defaults --seed 42 --ticks 86400 \
   --log-agent alice --log-preset vitals \
   --log-every 300 --log-on-change actions \
-  --log-file /tmp/worldsim/debug/alice/fields.jsonl
+  --log-file debug/alice/fields.jsonl
 
 # Whole species, exported as CSV for a spreadsheet
 cargo run --release -- --headless --game-defaults --seed 42 --ticks 10000 \
   --log-agent species:Deer --log-preset vitals \
-  --log-as csv --log-file /tmp/worldsim/debug/deer/fields.csv
+  --log-as csv --log-file debug/deer/fields.csv
 
 # Inline the contributor breakdown for a metabolism metric using the `:why` modifier
 cargo run --release -- --headless --game-defaults --seed 42 --ticks 30000 \
-  --log-agent alice --log-field needs.glucose:why --log-file /tmp/worldsim/debug/alice-glucose/fields.jsonl
+  --log-agent alice --log-field needs.glucose:why --log-file debug/alice-glucose/fields.jsonl
 
 # Delta-since-last-emission with the `:delta` modifier
 cargo run --release -- --headless --game-defaults --seed 42 --ticks 30000 \
@@ -306,7 +306,7 @@ Use `--log-list-fields --log-preset full` to dump the canonical path list.
 cargo run --release -- --headless --game-defaults --seed 42 --ticks 86400 \
   --log-agent alice --log-preset vitals \
   --log-on-change actions --log-debounce 60 \
-  --log-file /tmp/worldsim/debug/alice/fields.jsonl
+  --log-file debug/alice/fields.jsonl
 ```
 
 **Output**: `--log-file <path>` (default stderr, `-` for stdout). `--log-as csv` post-processes the buffered JSONL into a flat CSV with dotted-path columns for spreadsheet work.
@@ -315,13 +315,13 @@ cargo run --release -- --headless --game-defaults --seed 42 --ticks 86400 \
 
 ```bash
 # Alice's glucose curve
-cat /tmp/worldsim/debug/alice/fields.jsonl | jq -r '"\(.tick)\t\(.needs.glucose)"'
+cat debug/alice/fields.jsonl | jq -r '"\(.tick)\t\(.needs.glucose)"'
 
 # Every tick where she changed action
-cat /tmp/worldsim/debug/alice/fields.jsonl | jq 'select(.actions[0].type != .actions[1].type)'
+cat debug/alice/fields.jsonl | jq 'select(.actions[0].type != .actions[1].type)'
 
 # Find the first tick where hunger crossed 0.5
-cat /tmp/worldsim/debug/alice/fields.jsonl | jq 'select(.needs.hunger > 0.5) | .tick' | head -1
+cat debug/alice/fields.jsonl | jq 'select(.needs.hunger > 0.5) | .tick' | head -1
 ```
 
 ### 5. TestWorld inspection methods — when debugging from inside a test
@@ -370,13 +370,13 @@ The one-shot DuckDB query the Parquet log was designed for:
 
 ```bash
 # Run and capture
-mkdir -p /tmp/worldsim/debug/run
+mkdir -p debug/run
 cargo run --release -- --headless --game-defaults --ticks N --seed S \
-  --log /tmp/worldsim/debug/run/events.parquet
+  --log debug/run/events.parquet
 
 # Query
-cargo run --release -q -- --debug /tmp/run > /tmp/worldsim/debug/run/setup.sql
-duckdb -init /tmp/worldsim/debug/run/setup.sql
+cargo run --release -q -- --debug debug/run > debug/run/setup.sql
+duckdb -init debug/run/setup.sql
 ```
 
 Inside DuckDB:
@@ -403,7 +403,7 @@ For anything the events don't cover, fall back to `--trace agent:alice` and `--d
 
 ### "Why did agents end up in this weird state at the end?"
 
-1. Capture the full event log: `--log /tmp/worldsim/debug/run/events.parquet`
+1. Capture the full event log: `--log debug/run/events.parquet`
 2. In DuckDB, find the unusual events:
    ```sql
    SELECT * FROM events WHERE type = 'Death' ORDER BY tick;
@@ -438,9 +438,9 @@ cargo run --release -- --headless --ticks N --seed S --query "alice Bob"
 ### "When did Alice lose trust in Bob?"
 
 ```bash
-cargo run --release -- --headless --ticks N --seed S --log /tmp/worldsim/debug/run/events.parquet
-cargo run --release -q -- --debug /tmp/run > /tmp/worldsim/debug/run/setup.sql
-duckdb -init /tmp/worldsim/debug/run/setup.sql -c "
+cargo run --release -- --headless --ticks N --seed S --log debug/run/events.parquet
+cargo run --release -q -- --debug debug/run > debug/run/setup.sql
+duckdb -init debug/run/setup.sql -c "
   SELECT tick, payload FROM events
   WHERE type = 'RelationshipChanged' AND agent = 'alice'
     AND json_extract_string(payload, '\$.other') = 'bob'
@@ -480,10 +480,10 @@ SELECT subject, predicate, object FROM ranked WHERE rn = 1 AND op = 'Add';
 ```bash
 cargo run --release -- --headless --game-defaults --seed 42 --ticks 86400 \
   --log-agent alice --log-field needs.glucose --log-field needs.glucose:why \
-  --log-file /tmp/worldsim/debug/alice-glucose/fields.jsonl
+  --log-file debug/alice-glucose/fields.jsonl
 
 # Plot it:
-cat /tmp/worldsim/debug/alice-glucose/fields.jsonl | jq -r '"\(.tick)\t\(.needs.glucose)"' > /tmp/worldsim/debug/alice-glucose/fields.tsv
+cat debug/alice-glucose/fields.jsonl | jq -r '"\(.tick)\t\(.needs.glucose)"' > debug/alice-glucose/fields.tsv
 ```
 
 ### "Give me a per-window dashboard of one agent's day" (hunger/thirst/wakefulness + actions)
@@ -493,12 +493,12 @@ The move-forward debugging view when you want to eyeball behaviour across a full
 Tune the bucket size (`1200` ticks = 20 game-min) to whatever resolution you want.
 
 ```bash
-mkdir -p /tmp/worldsim/debug/day_sim
+mkdir -p debug/day_sim
 cargo run --release -- --headless --game-defaults --seed 42 --ticks 86400 \
-  --log /tmp/worldsim/debug/day_sim/events.parquet --log-filter agent:Alice \
+  --log debug/day_sim/events.parquet --log-filter agent:Alice \
   --log-agent alice \
   --log-field needs.hunger --log-field needs.hydration --log-field needs.wakefulness \
-  --log-file /tmp/worldsim/debug/day_sim/fields.jsonl
+  --log-file debug/day_sim/fields.jsonl
 ```
 
 Pick the fields that match what you're investigating. `needs.hunger` is a derived sigmoid — if the question is "why is she hungry" log the raw pools instead (`--log-preset vitals` grabs stomach + glucose + reserves + aerobic + hunger + wakefulness + health in one flag).
@@ -509,11 +509,11 @@ CREATE OR REPLACE VIEW fields AS SELECT CAST(tick AS BIGINT) AS tick,
   CAST(needs.hunger AS DOUBLE) AS hunger,
   CAST(needs.hydration AS DOUBLE) AS hydration,
   CAST(needs.wakefulness AS DOUBLE) AS wakefulness
-FROM read_json_auto('/tmp/worldsim/debug/day_sim/fields.jsonl');
+FROM read_json_auto('debug/day_sim/fields.jsonl');
 
 CREATE OR REPLACE VIEW events AS
 SELECT tick, event_type, agent, payload
-FROM read_parquet('/tmp/worldsim/debug/day_sim/events.parquet');
+FROM read_parquet('debug/day_sim/events.parquet');
 
 WITH field_buckets AS (
   SELECT CAST(FLOOR((tick - 1.0) / 1200.0) AS INTEGER) AS bucket,
@@ -534,11 +534,11 @@ action_str AS (
 ),
 labelled AS (
   SELECT f.*, a.actions,
-    -- Sim wall-clock starts at GameTime::START_HOUR (currently 8 — see
+    -- Sim wall-clock starts at GameTime::START_HOUR (currently 6 — see
     -- src/core/time.rs). Mirror that offset in minutes so window labels
     -- match the game-time HUD and TestWorld's GameTime resource.
-    (f.bucket * 20 + 8 * 60)       AS start_min,
-    ((f.bucket + 1) * 20 + 8 * 60) AS end_min
+    (f.bucket * 20 + 6 * 60)       AS start_min,
+    ((f.bucket + 1) * 20 + 6 * 60) AS end_min
   FROM field_buckets f LEFT JOIN action_str a USING (bucket)
 )
 SELECT
@@ -558,7 +558,7 @@ ORDER BY bucket;
 ```
 
 Notes:
-- **Sim wall-clock starts at `GameTime::START_HOUR`** (8 at time of writing — check `src/core/time.rs` for the current value). The constant feeds an `INITIAL_TICK_OFFSET` that both `--headless` and `TestWorld` apply uniformly, so a 24-hour run goes from `D1 08:00` to `D2 08:00`, not `00:00-24:00`. The SQL above mirrors that offset in minutes — update the `+ 8 * 60` terms if you change `START_HOUR`, or drop them entirely for raw ticks-from-start labelling.
+- **Sim wall-clock starts at `GameTime::START_HOUR`** (6 at time of writing — check `src/core/time.rs` for the current value). The constant feeds an `INITIAL_TICK_OFFSET` that both `--headless` and `TestWorld` apply uniformly, so a 24-hour run goes from `D1 06:00` to `D2 06:00`, not `00:00-24:00`. The SQL above mirrors that offset in minutes — update the `+ 6 * 60` terms if you change `START_HOUR`, or drop them entirely for raw ticks-from-start labelling.
 - Use `//` for integer division (the `/` operator returns DOUBLE and casting truncates-then-rounds on some paths).
 - Bucket size `1200` = 20 game-min. For 10-min windows use `600`, for 1-game-hour use `3600`.
 - `--log-filter agent:Alice` keeps the event-log file tiny when you only care about one agent. Matches case-insensitively against the name *or* the `agent_id` (stable entity debug string).
