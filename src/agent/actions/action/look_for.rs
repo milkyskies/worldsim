@@ -8,7 +8,7 @@ use crate::agent::actions::motor::{
     ActionPrimitive, Behavior, IntensityPolicy, Intent, TargetSelector,
 };
 use crate::agent::actions::registry::{Action, ActionKind, LegCompleteContext, LegResult};
-use crate::agent::brains::thinking::SearchFilter;
+use crate::agent::brains::thinking::{SearchDomain, SearchFilter};
 use crate::agent::mind::knowledge::{Concept, MindGraph, Node, Predicate, Value};
 use crate::world::map::{CHUNK_SIZE, WorldMap};
 use bevy::math::IVec2;
@@ -106,7 +106,15 @@ pub fn pick_look_for_target(
         "LookFor dispatched with an empty SearchFilter — derive_search_concept should never return an empty filter"
     );
 
-    let hint_chunks = collect_hint_chunks(mind, &filter);
+    // Domain picks the biasing strategy. Inventory search biases toward
+    // chunks with known producers (berry bush → berry); world-tile and
+    // world-entity search have no producer indirection — if the agent
+    // already knew a match, the planner would build a real plan instead
+    // of LookFor — so pure staleness wins.
+    let hint_chunks = match filter.domain {
+        SearchDomain::Inventory => collect_producer_hint_chunks(mind, &filter),
+        SearchDomain::WorldTile | SearchDomain::WorldEntity => Vec::new(),
+    };
 
     let picked = sample_walkable_scored(current_pos, world_map, 16, rng, |_pos, chunk| {
         let mut score = staleness_penalty(mind, chunk, current_tick);
@@ -119,12 +127,14 @@ pub fn pick_look_for_target(
     picked.or_else(|| pick_explore_target(current_pos, mind, world_map, current_tick, rng))
 }
 
-/// Chunks that likely contain something matching the filter.
+/// Chunks that likely contain a producer of something matching the filter.
 ///
 /// Walks the MindGraph for `Entity LocatedAt Tile` triples whose
 /// subject concept is known to `Produces` an `Item` that passes the
-/// filter. Returns the `(chunk_x, chunk_y)` of each match.
-fn collect_hint_chunks(mind: &MindGraph, filter: &SearchFilter) -> Vec<IVec2> {
+/// filter. Returns the `(chunk_x, chunk_y)` of each match. Only relevant
+/// for `SearchDomain::Inventory` — tile/entity domains wander by pure
+/// staleness since any known match would already be a planner target.
+fn collect_producer_hint_chunks(mind: &MindGraph, filter: &SearchFilter) -> Vec<IVec2> {
     let mut chunks = Vec::new();
 
     let mut source_concepts: Vec<Concept> = Vec::new();
@@ -240,6 +250,42 @@ mod tests {
         assert!(
             hits_in_hint_chunk >= 30,
             "hint chunk should win >= 75% of the time; got {hits_in_hint_chunk}/40"
+        );
+    }
+
+    /// WorldTile domain must NOT apply `Produces` biasing — water tiles don't
+    /// have producers. The picker should fall through to pure staleness
+    /// regardless of what producers the MindGraph knows about.
+    #[test]
+    fn world_tile_domain_ignores_producer_hints() {
+        let map = walkable_map();
+        // Plant a known berry bush in chunk (2, 2). An Inventory search
+        // for Food would strongly cluster targets in that chunk; a WorldTile
+        // search must not — the bush is irrelevant to a Drinkable query.
+        let (mind, _bush) = mind_with_berry_bush_in_chunk(2, 2);
+
+        let mut hits_in_bush_chunk = 0;
+        for seed in 0..40u64 {
+            let mut rng = StdRng::seed_from_u64(seed);
+            let target = pick_look_for_target(
+                Vec2::new(10.0, 10.0),
+                &mind,
+                &map,
+                0,
+                Some(SearchFilter::tile_trait(Concept::Drinkable)),
+                &mut rng,
+            )
+            .expect("picker should always find a walkable target");
+
+            if world_pos_to_chunk(target) == IVec2::new(2, 2) {
+                hits_in_bush_chunk += 1;
+            }
+        }
+
+        assert!(
+            hits_in_bush_chunk <= 15,
+            "WorldTile search must not cluster on producer chunks; \
+             got {hits_in_bush_chunk}/40 in the bush chunk"
         );
     }
 
