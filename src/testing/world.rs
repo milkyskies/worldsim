@@ -680,7 +680,7 @@ impl TestWorld {
         app.insert_resource(map);
         app.insert_resource(LightLevel(1.0));
         app.init_resource::<crate::world::environment::ColorTint>();
-        app.add_systems(Update, crate::world::environment::update_light_level);
+        app.add_systems(FixedUpdate, crate::world::environment::update_light_level);
         app.insert_resource(TickCount::new(60.0));
         app.insert_resource(GameLog::new(100));
         app.init_resource::<GameTime>();
@@ -927,35 +927,38 @@ impl TestWorld {
     pub fn apply_spawn_layout(&mut self, layout: &SpawnLayout) {
         use crate::agent::body::genetics::founder::random_genome;
         use crate::agent::body::species::Species;
-        use crate::agent::culture::{Culture, create_cultural_knowledge};
+        use crate::agent::culture::Culture;
         use rand::Rng;
 
         let first_group_cultures = [Culture::Nomad, Culture::Farmer];
         let second_group_cultures = [Culture::Gatherer];
 
         for &pos in &layout.human_positions {
-            let mut rng_guard = self.app.world_mut().resource_mut::<crate::core::SimRng>();
-            let rng = rng_guard.inner_mut();
-            let culture = first_group_cultures[rng.random_range(0..first_group_cultures.len())];
-            let genome = random_genome(rng, Species::Human);
-            drop(rng_guard);
-            let knowledge = create_cultural_knowledge(culture);
+            let (culture, genome) = {
+                let mut rng_guard = self.app.world_mut().resource_mut::<crate::core::SimRng>();
+                let rng = rng_guard.inner_mut();
+                let culture = first_group_cultures[rng.random_range(0..first_group_cultures.len())];
+                let genome = random_genome(rng, Species::Human);
+                (culture, genome)
+            };
             self.spawn_agent(AgentConfig {
                 genome,
-                knowledge,
+                culture,
                 ..AgentConfig::at(pos)
             });
         }
         for &pos in &layout.second_human_positions {
-            let mut rng_guard = self.app.world_mut().resource_mut::<crate::core::SimRng>();
-            let rng = rng_guard.inner_mut();
-            let culture = second_group_cultures[rng.random_range(0..second_group_cultures.len())];
-            let genome = random_genome(rng, Species::Human);
-            drop(rng_guard);
-            let knowledge = create_cultural_knowledge(culture);
+            let (culture, genome) = {
+                let mut rng_guard = self.app.world_mut().resource_mut::<crate::core::SimRng>();
+                let rng = rng_guard.inner_mut();
+                let culture =
+                    second_group_cultures[rng.random_range(0..second_group_cultures.len())];
+                let genome = random_genome(rng, Species::Human);
+                (culture, genome)
+            };
             self.spawn_agent(AgentConfig {
                 genome,
-                knowledge,
+                culture,
                 ..AgentConfig::at(pos)
             });
         }
@@ -995,18 +998,50 @@ impl TestWorld {
 
     // ─── Simulation ────────────────────────────────────────────────────────
 
-    /// Advances the simulation by `n` ticks. Runs `FixedMain` directly
+    /// Advances the simulation by `n` game-seconds. Runs `FixedMain` directly
     /// (bypassing Bevy's time-accumulation `RunFixedMainLoop`) then the
     /// frame-rate schedules (`PostUpdate` for transform propagation,
     /// `Last` for event collection). Does NOT call `app.update()` —
     /// that would trigger `RunFixedMainLoop` which leaks extra ticks
     /// from wall-clock accumulation.
+    ///
+    /// Each FixedMain cycle advances physics by `game_seconds_per_cycle`
+    /// game-seconds (see [`TickCount`]). By default that's 1, so `tick(n)`
+    /// runs `n` cycles — the same as pre-compression tests. Tests that spend
+    /// most of their budget waiting on physics timers can call
+    /// [`Self::enable_fast_forward`] to run fewer but coarser cycles.
     pub fn tick(&mut self, n: u64) {
-        for _ in 0..n {
+        let gspc = self
+            .app
+            .world()
+            .resource::<TickCount>()
+            .game_seconds_per_cycle
+            .max(1);
+        let cycles = n.div_ceil(gspc);
+        for _ in 0..cycles {
             self.app.world_mut().run_schedule(FixedMain);
             self.app.world_mut().run_schedule(PostUpdate);
             self.app.world_mut().run_schedule(Last);
         }
+    }
+
+    /// Opts this TestWorld into fast-forward mode: each FixedMain cycle
+    /// advances physics by 60 game-seconds instead of 1, cutting wall-clock
+    /// time ~60× for tests dominated by long physics timers (hunger drain,
+    /// wakefulness decay, multi-game-day sleep cycles).
+    ///
+    /// Do NOT use for decision-bound tests (planner behavior, action
+    /// execution, conversation turn sequencing). Those need per-cycle brain
+    /// cadence that fast-forward flattens out — the test would have 60× fewer
+    /// brain-tick opportunities than the budget suggests.
+    ///
+    /// Must be called before any `tick()` — the Time<Fixed> and scheduling
+    /// resources assume a consistent `game_seconds_per_cycle` across the run.
+    pub fn enable_fast_forward(&mut self) {
+        self.app
+            .world_mut()
+            .resource_mut::<TickCount>()
+            .game_seconds_per_cycle = 60;
     }
 
     /// Returns the current tick count.
@@ -1460,14 +1495,14 @@ impl TestWorld {
             }
             if !started.is_empty() {
                 let mut entries: Vec<(String, usize)> = started.into_iter().collect();
-                entries.sort_by(|a, b| b.1.cmp(&a.1));
+                entries.sort_by_key(|(_, count)| std::cmp::Reverse(*count));
                 let summary: Vec<String> =
                     entries.iter().map(|(k, v)| format!("{k}×{v}")).collect();
                 eprintln!("  Recent({} ticks): [{}]", WINDOW, summary.join(", "));
             }
             if !failed.is_empty() {
                 let mut entries: Vec<(String, usize)> = failed.into_iter().collect();
-                entries.sort_by(|a, b| b.1.cmp(&a.1));
+                entries.sort_by_key(|(_, count)| std::cmp::Reverse(*count));
                 let summary: Vec<String> =
                     entries.iter().map(|(k, v)| format!("{k}×{v}")).collect();
                 eprintln!("  Failed({} ticks): [{}]", WINDOW, summary.join(", "));
@@ -1603,7 +1638,7 @@ impl TestWorld {
             }
             if !blocked.is_empty() {
                 let mut entries: Vec<((i32, i32), usize)> = blocked.into_iter().collect();
-                entries.sort_by(|a, b| b.1.cmp(&a.1));
+                entries.sort_by_key(|(_, count)| std::cmp::Reverse(*count));
                 let summary: Vec<String> = entries
                     .iter()
                     .take(6)
@@ -2236,13 +2271,15 @@ pub(super) fn make_walkable_map(width: u32, height: u32) -> WorldMap {
     map
 }
 
-/// Replaces `core::tick::tick_system` for tests: increments TickCount.current by
-/// exactly one per update, regardless of real-time delta. Also drives GameTime.
+/// Replaces `core::tick::tick_system` for tests: advances TickCount.current by
+/// `game_seconds_per_cycle` game-seconds per FixedMain cycle, regardless of
+/// real-time delta. Also drives GameTime.
 fn deterministic_tick(mut tick: ResMut<TickCount>, mut game_time: ResMut<GameTime>) {
     if tick.paused {
         return;
     }
-    tick.current += 1;
+    let step = tick.game_seconds_per_cycle;
+    tick.current += step;
     game_time.update_from_tick(tick.current);
 }
 

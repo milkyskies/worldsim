@@ -174,9 +174,11 @@ impl Plugin for AgentPlugin {
             )
             .init_resource::<psyche::relationships::RelationshipConfig>()
             // Genetics: develop phenotype from genome once at spawn, before any
-            // brain or personality system reads the derived traits.
+            // brain or personality system reads the derived traits. Lives in
+            // FixedPreUpdate so it runs inside FixedMain with the rest of the
+            // game logic — TestWorld::tick() skips Update/PreUpdate entirely.
             .add_systems(
-                PreUpdate,
+                FixedPreUpdate,
                 (
                     body::genetics::phenotype::develop_phenotype_system,
                     body::genetics::phenotype::apply_stamina_genetics_system,

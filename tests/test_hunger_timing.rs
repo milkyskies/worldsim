@@ -25,6 +25,7 @@ fn agent_eats_before_stomach_empties() {
         .berry_bushes(6, Vec2::new(50.0, 50.0))
         .build();
     let alice = agents["alice"];
+    world.enable_fast_forward();
 
     let initial_stomach = world
         .get::<PhysicalNeeds>(alice)

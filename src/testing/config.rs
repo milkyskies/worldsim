@@ -7,6 +7,7 @@
 
 use crate::agent::body::genetics::genome::Genome;
 use crate::agent::body::metabolism::Metabolism;
+use crate::agent::culture::Culture;
 use crate::agent::mind::knowledge::Triple;
 use bevy::math::Vec2;
 
@@ -41,7 +42,14 @@ pub struct AgentConfig {
     /// Tests that want specific trait values use
     /// `Genome::from_phenotype(&Phenotype { ... })`.
     pub genome: Genome,
-    /// Pre-loaded knowledge triples added to the agent's MindGraph at spawn.
+    /// Cultural baseline knowledge loaded into the MindGraph with
+    /// `Source::Cultural` metadata. Defaults to `Culture::Nomad`, matching
+    /// the windowed game's default spawn.
+    pub culture: Culture,
+    /// Extra knowledge triples added to the MindGraph on top of the cultural
+    /// baseline (e.g. an episodic wolf-danger memory a test pre-seeds). These
+    /// carry whatever metadata the caller put on them — `Source::Experienced`,
+    /// `Source::Reported`, etc.
     pub knowledge: Vec<Triple>,
 }
 
@@ -56,6 +64,7 @@ impl Default for AgentConfig {
             wakefulness: 1.0,
             social_drive: None,
             genome: Genome::default(),
+            culture: Culture::default(),
             knowledge: Vec::new(),
         }
     }

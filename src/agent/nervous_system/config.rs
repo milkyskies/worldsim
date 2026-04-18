@@ -212,8 +212,12 @@ impl Default for NervousSystemConfig {
                     modifiers: vec![],
                     min_threshold: 0.01,
                     bypasses_gating: false,
-                    // Severe dehydration eventually disturbs sleep.
-                    sleep_wake_threshold: Some(0.85),
+                    // Severe dehydration eventually disturbs sleep — but only
+                    // when hydration has dropped below ~5/100. At 0.85 the
+                    // sleeper gets roused at still-moderate thirst (hydration
+                    // ~15), which kills the 6-8h sleep bout well before it
+                    // meets the rested-wake `wakefulness >= 0.95` condition.
+                    sleep_wake_threshold: Some(0.95),
                 },
                 // HUNGER
                 DriveConfig {

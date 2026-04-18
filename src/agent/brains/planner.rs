@@ -891,7 +891,7 @@ pub fn regressive_plan(
         if iterations > MAX_ITERATIONS {
             let mut top_patterns: Vec<&(TriplePattern, usize)> =
                 goal_pattern_counts.values().collect();
-            top_patterns.sort_by(|a, b| b.1.cmp(&a.1));
+            top_patterns.sort_by_key(|p| std::cmp::Reverse(p.1));
             top_patterns.truncate(3);
             let top_readable: Vec<&TriplePattern> =
                 top_patterns.into_iter().map(|(p, _)| p).collect();

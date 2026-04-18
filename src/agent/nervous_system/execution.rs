@@ -429,10 +429,17 @@ pub fn tick_actions(
                         // aerobic recovers; Sleep/Idle return false (default).
                         action_def.should_complete(&physical)
                     } else {
-                        // Deterministic fractional progress: each tick contributes
-                        // `degradation` units, and `ticks_remaining` decrements
-                        // every time the accumulator crosses 1.0. Replay-safe.
-                        action_state.progress_accumulator += degradation;
+                        // Deterministic fractional progress in game-seconds: each
+                        // cycle contributes `degradation * gspc` units (gspc = how
+                        // many game-seconds pass per cycle), and `ticks_remaining`
+                        // decrements every time the accumulator crosses 1.0.
+                        // Replay-safe. At gspc=1 (windowed default) this matches
+                        // the pre-fast-forward pace; at gspc=60 (test fast-mode)
+                        // an action with `duration_ticks = 10` completes in ~0.17
+                        // cycles instead of 10, so action durations stay fixed in
+                        // game-time rather than scaling with the cycle rate.
+                        action_state.progress_accumulator +=
+                            degradation * tick.game_seconds_per_cycle as f32;
                         while action_state.progress_accumulator >= 1.0
                             && action_state.ticks_remaining > 0
                         {

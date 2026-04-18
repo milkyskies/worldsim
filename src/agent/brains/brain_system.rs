@@ -218,25 +218,37 @@ pub fn arbitrate_every_tick(
                 })
                 .collect();
 
-            // Log every admitted action so multi-channel decisions are visible.
-            for proposal in &admitted {
-                let brain_name = match proposal.brain {
-                    super::proposal::BrainType::Survival => "SURVIVAL",
-                    super::proposal::BrainType::Emotional => "EMOTIONAL",
-                    super::proposal::BrainType::Rational => "RATIONAL",
-                };
+            // Fingerprint of this tick's admitted (brain, action) set. Log
+            // only when it differs from the previous tick — otherwise the
+            // per-tick "Still tired..." line floods the log while an agent
+            // continues the same Sleep/Rest/Converse for thousands of ticks.
+            let current_fingerprint: Vec<(super::proposal::BrainType, String)> = admitted
+                .iter()
+                .map(|p| (p.brain, p.action.name.clone()))
+                .collect();
+            let changed = brain_state.last_logged.as_ref() != Some(&current_fingerprint);
+            if changed {
+                for proposal in &admitted {
+                    let brain_name = match proposal.brain {
+                        super::proposal::BrainType::Survival => "SURVIVAL",
+                        super::proposal::BrainType::Emotional => "EMOTIONAL",
+                        super::proposal::BrainType::Rational => "RATIONAL",
+                    };
 
-                game_log.brain(
-                    name.as_str(),
-                    brain_name,
-                    &proposal.action.name,
-                    &proposal.reasoning,
-                    Some(entity),
-                );
+                    game_log.brain(
+                        name.as_str(),
+                        brain_name,
+                        &proposal.action.name,
+                        &proposal.reasoning,
+                        Some(entity),
+                    );
+                }
+                brain_state.last_logged = Some(current_fingerprint);
             }
         } else {
             brain_state.winner = None;
             brain_state.chosen_actions.clear();
+            brain_state.last_logged = None;
         }
 
         let urgencies_snapshot: Vec<crate::agent::nervous_system::urgency::Urgency> =

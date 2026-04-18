@@ -12,6 +12,7 @@ use bevy::math::Vec2;
 use worldsim::agent::actions::{ActionType, ActiveActions};
 use worldsim::testing::TestWorld;
 use worldsim::world::environment::LightLevel;
+use worldsim::world::map::TileType;
 
 // ── Decay ────────────────────────────────────────────────────────────────
 
@@ -240,10 +241,12 @@ fn stamina_and_wakefulness_are_independent() {
 #[test]
 fn drowsy_agent_sleeps_and_wakes_after_recovery() {
     // An agent with low wakefulness enters Sleep, recovers, and wakes up.
-    // This is the core sleep/wake cycle test.
+    // This is the core sleep/wake cycle test. Water strip at x=0 so the agent
+    // doesn't die of thirst across the ~30k-tick recovery window.
     let (mut world, agents) = TestWorld::scenario(42)
         .map_size(32, 32)
         .noise_biomes(false)
+        .fill_rect(0, 0, 1, 32, TileType::ShallowWater)
         .agent("sleeper")
         .pos(Vec2::new(50.0, 50.0))
         .wakefulness(0.05)
@@ -251,11 +254,12 @@ fn drowsy_agent_sleeps_and_wakes_after_recovery() {
         .done()
         .build();
     let sleeper = agents["sleeper"];
+    world.enable_fast_forward();
 
     // Phase 1: enter Sleep.
     let mut entered = false;
-    for _ in 0..600 {
-        world.tick(1);
+    for _ in 0..10 {
+        world.tick(60);
         if world
             .get::<ActiveActions>(sleeper)
             .contains(ActionType::Sleep)
@@ -275,8 +279,8 @@ fn drowsy_agent_sleeps_and_wakes_after_recovery() {
     // SLEEP_RESTORE_RATE is 0.00167/rate-sec. From 0.05 to 0.95 threshold
     // takes ~539 rate-seconds = ~32340 ticks. Allow generous headroom.
     let mut woke = false;
-    for _ in 0..40000 {
-        world.tick(1);
+    for _ in 0..700 {
+        world.tick(60);
         if !world
             .get::<ActiveActions>(sleeper)
             .contains(ActionType::Sleep)
@@ -309,28 +313,32 @@ fn agent_sleeps_at_night_and_wakes_during_day() {
     // during sleep and the agent wakes before the next noon.
     //
     // Game timing: tick 0 = 12:00 noon. Night starts ~20:00 (tick 28800).
-    // One full day = 86400 ticks. We simulate 1.5 days.
+    // One full day = 86400 ticks. We simulate 1.5 days. Water strip at x=0
+    // and berry bushes so alice has both food and drink across the run.
     let (mut world, agents) = TestWorld::scenario(42)
         .map_size(32, 32)
         .noise_biomes(false)
+        .fill_rect(0, 0, 1, 32, TileType::ShallowWater)
         .agent("alice")
         .pos(Vec2::new(50.0, 50.0))
         .wakefulness(1.0)
         .done()
+        .berry_bushes(6, Vec2::new(50.0, 50.0))
         .build();
     let alice = agents["alice"];
+    world.enable_fast_forward();
 
     // Phase 1: tick through the afternoon and evening until Sleep starts.
     // Should happen somewhere around nightfall (tick ~28800-40000).
     let mut slept_at = None;
-    for tick in 0..60000 {
-        world.tick(1);
+    for _ in 0..1000 {
+        world.tick(60);
         if slept_at.is_none()
             && world
                 .get::<ActiveActions>(alice)
                 .contains(ActionType::Sleep)
         {
-            slept_at = Some(tick);
+            slept_at = Some(world.current_tick());
         }
     }
     assert!(
@@ -349,8 +357,8 @@ fn agent_sleeps_at_night_and_wakes_during_day() {
 
     // Phase 2: continue ticking — agent should wake up during the morning.
     let mut woke = false;
-    for _ in 0..40000 {
-        world.tick(1);
+    for _ in 0..700 {
+        world.tick(60);
         if !world
             .get::<ActiveActions>(alice)
             .contains(ActionType::Sleep)
