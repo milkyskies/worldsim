@@ -395,10 +395,7 @@ pub trait Action: Send + Sync + 'static {
     ///
     /// Actions without a single target need (Walk, Harvest, Attack, Flee)
     /// return `None` and skip the gate.
-    fn satiation(
-        &self,
-        _ctx: &ActionContext,
-    ) -> Option<(crate::agent::body::need::NeedKind, f32)> {
+    fn satiation(&self, _ctx: &ActionContext) -> Option<(crate::agent::body::need::NeedKind, f32)> {
         None
     }
 

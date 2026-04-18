@@ -740,7 +740,15 @@ fn render_overview(ui: &mut egui::Ui, world: &World, entity: Entity) {
         let body_ref = world.get::<crate::agent::biology::body::Body>(entity);
         let body_health = body_ref.map_or(1.0, |b| b.overall_health());
         vital_row(ui, "Health", body_health * 100.0, 100.0, 0.3, 0.7);
-        vital_row_fraction_explained(ui, "Hydration", needs.hydration.value, 0.3, 0.7, None, " /sec");
+        vital_row_fraction_explained(
+            ui,
+            "Hydration",
+            needs.hydration.value,
+            0.3,
+            0.7,
+            None,
+            " /sec",
+        );
         urgency_line(ui, "Thirst urgency", urgency_for(UrgencySource::Thirst));
         vital_row_explained(
             ui,
@@ -753,7 +761,15 @@ fn render_overview(ui: &mut egui::Ui, world: &World, entity: Entity) {
             " /sec",
         );
         urgency_line(ui, "Fatigue urgency", urgency_for(UrgencySource::Stamina));
-        vital_row_fraction_explained(ui, "Wakefulness", needs.wakefulness.value, 0.3, 0.7, None, "");
+        vital_row_fraction_explained(
+            ui,
+            "Wakefulness",
+            needs.wakefulness.value,
+            0.3,
+            0.7,
+            None,
+            "",
+        );
         urgency_line(
             ui,
             "Sleepiness urgency",
@@ -1067,7 +1083,15 @@ fn render_needs(ui: &mut egui::Ui, world: &World, entity: Entity) {
         "Fatigue urgency",
         urgency_for_f32(world, entity, UrgencySource::Stamina),
     );
-    vital_row_fraction_explained(ui, "Wakefulness", needs.wakefulness.value, 0.3, 0.7, None, "");
+    vital_row_fraction_explained(
+        ui,
+        "Wakefulness",
+        needs.wakefulness.value,
+        0.3,
+        0.7,
+        None,
+        "",
+    );
     urgency_line(
         ui,
         "Sleepiness urgency",
@@ -1127,7 +1151,15 @@ fn render_drives(ui: &mut egui::Ui, world: &World, entity: Entity) {
     urgency_line(ui, "Social urgency", urgency_for(UrgencySource::Social));
     vital_row_fraction_explained(ui, "Enjoyment", drives.enjoyment.value, 0.3, 0.6, None, "");
     urgency_line(ui, "Fun urgency", urgency_for(UrgencySource::Fun));
-    vital_row_fraction_explained(ui, "Stimulation", drives.stimulation.value, 0.3, 0.6, None, "");
+    vital_row_fraction_explained(
+        ui,
+        "Stimulation",
+        drives.stimulation.value,
+        0.3,
+        0.6,
+        None,
+        "",
+    );
     urgency_line(
         ui,
         "Curiosity urgency",

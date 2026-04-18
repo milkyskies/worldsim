@@ -35,8 +35,10 @@ fn ctx_with_needs<'a>(
 
 #[test]
 fn eat_satiation_reports_stomach_fraction_as_hunger() {
-    let mut physical = PhysicalNeeds::default();
-    physical.metabolism = Metabolism::well_fed();
+    let physical = PhysicalNeeds {
+        metabolism: Metabolism::well_fed(),
+        ..Default::default()
+    };
     let inv = ItemSlots::agent_carry();
     let mind = MindGraph::new(setup_ontology());
     let map = WorldMap::new(WORLD_WIDTH, WORLD_HEIGHT);
@@ -66,8 +68,10 @@ fn drink_refuses_when_hydration_full() {
 
 #[test]
 fn drink_allows_when_thirsty() {
-    let mut physical = PhysicalNeeds::default();
-    physical.hydration = Need::new(0.3);
+    let physical = PhysicalNeeds {
+        hydration: Need::new(0.3),
+        ..Default::default()
+    };
     let inv = ItemSlots::agent_carry();
     let mind = MindGraph::new(setup_ontology());
     let map = WorldMap::new(WORLD_WIDTH, WORLD_HEIGHT);
@@ -94,8 +98,10 @@ fn sleep_refuses_when_already_rested() {
 
 #[test]
 fn rest_refuses_when_aerobic_full() {
-    let mut physical = PhysicalNeeds::default();
-    physical.stamina = Stamina::default(); // aerobic_fraction == 1.0
+    let physical = PhysicalNeeds {
+        stamina: Stamina::default(), // aerobic_fraction == 1.0
+        ..Default::default()
+    };
     let inv = ItemSlots::agent_carry();
     let mind = MindGraph::new(setup_ontology());
     let map = WorldMap::new(WORLD_WIDTH, WORLD_HEIGHT);

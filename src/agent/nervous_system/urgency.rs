@@ -176,7 +176,9 @@ pub fn generate_urgency(
                 UrgencySource::Social => drives.map(|d| d.companionship.deficit()).unwrap_or(0.0),
                 UrgencySource::Fun => drives.map(|d| d.enjoyment.deficit()).unwrap_or(0.0),
                 UrgencySource::Curiosity => drives.map(|d| d.stimulation.deficit()).unwrap_or(0.0),
-                UrgencySource::Territoriality => drives.map(|d| d.dominion.deficit()).unwrap_or(0.0),
+                UrgencySource::Territoriality => {
+                    drives.map(|d| d.dominion.deficit()).unwrap_or(0.0)
+                }
                 UrgencySource::Fear => emotions
                     .get_emotion_intensity(crate::agent::psyche::emotions::EmotionType::Fear),
                 // Wakefulness is satisfaction (high = rested); the loop

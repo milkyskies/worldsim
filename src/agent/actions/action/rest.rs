@@ -89,10 +89,7 @@ impl Action for RestAction {
     /// Block Rest when aerobic stamina is already at the completion fraction.
     /// Mirrors should_complete: a Rest that would instantly complete shouldn't
     /// start in the first place.
-    fn satiation(
-        &self,
-        ctx: &ActionContext,
-    ) -> Option<(crate::agent::body::need::NeedKind, f32)> {
+    fn satiation(&self, ctx: &ActionContext) -> Option<(crate::agent::body::need::NeedKind, f32)> {
         let physical = ctx.physical?;
         Some((
             crate::agent::body::need::NeedKind::Stamina,

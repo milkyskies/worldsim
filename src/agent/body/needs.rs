@@ -158,7 +158,7 @@ impl Stamina {
 
 /// Physical needs - THE source of truth for survival needs
 /// All agents have this
-#[derive(Component, Reflect, Debug, Clone)]
+#[derive(Component, Reflect, Debug, Clone, Default)]
 #[reflect(Component)]
 pub struct PhysicalNeeds {
     /// Nutrient / energy loop: stomach (carbs+fat) -> glucose -> reserves.
@@ -166,26 +166,16 @@ pub struct PhysicalNeeds {
     pub metabolism: Metabolism,
     /// Hydration as a `Need` in `0..1` (high = hydrated). Drains at
     /// `BMR_HYDRATION_DRAIN_PER_SEC` via `tick_metabolism`, tops up when
-    /// the agent drinks. Urgency::Thirst reads the deficit.
+    /// the agent drinks. Urgency::Thirst reads the deficit. Default is
+    /// `Need::full()` via `Need::default`.
     pub hydration: Need,
     pub stamina: Stamina,
     /// Homeostatic sleep pressure (adenosine analogue) as a `Need` in
     /// `0..1`. 1.0 = fully rested, 0.0 = must sleep. Decays while awake,
     /// accelerates at night (circadian), restores during Sleep.
     /// Independent of stamina — a desk worker gets sleepy without
-    /// running a marathon.
+    /// running a marathon. Default is `Need::full()`.
     pub wakefulness: Need,
-}
-
-impl Default for PhysicalNeeds {
-    fn default() -> Self {
-        Self {
-            metabolism: Metabolism::default(),
-            hydration: Need::full(),
-            stamina: Stamina::default(),
-            wakefulness: Need::full(),
-        }
-    }
 }
 
 impl PhysicalNeeds {

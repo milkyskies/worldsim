@@ -104,10 +104,7 @@ impl Action for DrinkAction {
     /// Block Drink when hydration is already ≥ 95%. Without this the
     /// rational brain can chain-fire Drink every duration cycle while
     /// the agent stands next to water.
-    fn satiation(
-        &self,
-        ctx: &ActionContext,
-    ) -> Option<(crate::agent::body::need::NeedKind, f32)> {
+    fn satiation(&self, ctx: &ActionContext) -> Option<(crate::agent::body::need::NeedKind, f32)> {
         let physical = ctx.physical?;
         Some((
             crate::agent::body::need::NeedKind::Thirst,

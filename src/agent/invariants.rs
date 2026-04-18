@@ -106,7 +106,13 @@ fn check_components(world: &mut World) {
             assert_in_range(entity, "alertness", c.alertness, 0.0, 1.0);
         }
         if let Some(d) = drives {
-            assert_in_range(entity, "drive.companionship", d.companionship.value, 0.0, 1.0);
+            assert_in_range(
+                entity,
+                "drive.companionship",
+                d.companionship.value,
+                0.0,
+                1.0,
+            );
             assert_in_range(entity, "drive.enjoyment", d.enjoyment.value, 0.0, 1.0);
             assert_in_range(entity, "drive.stimulation", d.stimulation.value, 0.0, 1.0);
             assert_in_range(entity, "drive.esteem", d.esteem.value, 0.0, 1.0);

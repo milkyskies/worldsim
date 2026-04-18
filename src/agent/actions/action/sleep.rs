@@ -71,10 +71,7 @@ impl Action for SleepAction {
 
     /// Block Sleep when wakefulness is already ≥ 95%. Stops fully-rested
     /// agents from napping on demand just because the brain proposes it.
-    fn satiation(
-        &self,
-        ctx: &ActionContext,
-    ) -> Option<(crate::agent::body::need::NeedKind, f32)> {
+    fn satiation(&self, ctx: &ActionContext) -> Option<(crate::agent::body::need::NeedKind, f32)> {
         let physical = ctx.physical?;
         Some((
             crate::agent::body::need::NeedKind::Sleep,

@@ -96,10 +96,7 @@ impl Action for EatAction {
     /// because hunger-urgency is a blend that never drops to zero while
     /// digestion is in flight. A "meal" emerges as a chain of Eats that
     /// ends naturally when stomach_fraction crosses the threshold.
-    fn satiation(
-        &self,
-        ctx: &ActionContext,
-    ) -> Option<(crate::agent::body::need::NeedKind, f32)> {
+    fn satiation(&self, ctx: &ActionContext) -> Option<(crate::agent::body::need::NeedKind, f32)> {
         let physical = ctx.physical?;
         Some((
             crate::agent::body::need::NeedKind::Hunger,
