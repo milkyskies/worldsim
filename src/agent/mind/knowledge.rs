@@ -317,6 +317,14 @@ impl Predicate {
                 | Predicate::Heading
         )
     }
+
+    /// Structural facts about what an entity *is*, as opposed to stateful
+    /// beliefs about what it's currently doing or has. One entity's identity
+    /// doesn't compete with another's, so these are not subject to
+    /// interference-based forgetting.
+    pub fn is_identity(&self) -> bool {
+        matches!(self, Predicate::IsA)
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

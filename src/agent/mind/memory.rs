@@ -439,6 +439,7 @@ pub fn decay_stale_knowledge(
 
             // Interference: more same-predicate triples → faster loss for weak memories.
             // Vulnerability is a reciprocal sigmoid: strength=0 → vuln=1.0, strength=∞ → vuln=0.
+            // Identity predicates are absent from the pressure map by construction.
             if let Some(&pressure) = pred_pressure.get(&triple.predicate) {
                 let vulnerability = 1.0 / (1.0 + triple.meta.strength * 2.0);
                 triple.meta.strength -= pressure * vulnerability;
@@ -588,14 +589,15 @@ impl MemoryDecayConfig {
     }
 
     /// Precompute interference pressure per predicate from a count snapshot.
-    /// Only includes predicates with count > 1 (no interference from a lone triple).
+    /// Skips lone triples (no competition) and identity predicates (never
+    /// subject to interference).
     pub fn precompute_interference(
         &self,
         pred_counts: &std::collections::HashMap<crate::agent::mind::knowledge::Predicate, usize>,
     ) -> std::collections::HashMap<crate::agent::mind::knowledge::Predicate, f32> {
         pred_counts
             .iter()
-            .filter(|(_, count)| **count > 1)
+            .filter(|(pred, count)| **count > 1 && !pred.is_identity())
             .map(|(&pred, &count)| {
                 let pressure = (count as f32 / self.interference_divisor).ln_1p() * 0.01;
                 (pred, pressure)
@@ -874,6 +876,77 @@ mod tests {
         assert!(
             crowded_strength < sparse_strength,
             "crowded predicate should decay faster: crowded={crowded_strength} vs sparse={sparse_strength}"
+        );
+    }
+
+    #[test]
+    fn isa_belief_survives_decay_while_contains_belief_about_same_entity_exists() {
+        // Identity beliefs must not decay faster than other semantic beliefs
+        // about the same entity, even when many other IsA triples exist.
+        use bevy::prelude::Entity;
+
+        let config = MemoryDecayConfig::default();
+        let mut mind = MindGraph::default();
+
+        // Crowd the IsA predicate: 59 other entities each with an IsA triple.
+        // Without the identity exemption this drives interference high enough
+        // to meaningfully outpace the semantic base decay on weak triples.
+        for i in 2..=60 {
+            let mut meta = Metadata::semantic(0);
+            meta.strength = 1.0;
+            mind.add(Triple::with_meta(
+                Node::Entity(Entity::from_bits(i)),
+                Predicate::IsA,
+                Value::Concept(Concept::StoneNode),
+                meta,
+            ));
+        }
+
+        // Target entity: one IsA and one Contains at identical starting
+        // strength, both semantic. With the fix they should decay in lockstep.
+        let target = Entity::from_bits(1);
+        let start_strength = 0.5;
+
+        let mut isa_meta = Metadata::semantic(0);
+        isa_meta.strength = start_strength;
+        mind.add(Triple::with_meta(
+            Node::Entity(target),
+            Predicate::IsA,
+            Value::Concept(Concept::StoneNode),
+            isa_meta,
+        ));
+
+        let mut contains_meta = Metadata::semantic(0);
+        contains_meta.strength = start_strength;
+        mind.add(Triple::with_meta(
+            Node::Entity(target),
+            Predicate::Contains,
+            Value::Item(Concept::Stone, 5),
+            contains_meta,
+        ));
+
+        for _ in 0..50 {
+            run_decay_pass(&mut mind, &config, 1.0);
+        }
+
+        let isa_strength = mind
+            .query(Some(&Node::Entity(target)), Some(Predicate::IsA), None)
+            .first()
+            .expect("target IsA triple should survive")
+            .meta
+            .strength;
+
+        let contains_strength = mind
+            .query(Some(&Node::Entity(target)), Some(Predicate::Contains), None)
+            .first()
+            .expect("target Contains triple should survive")
+            .meta
+            .strength;
+
+        assert!(
+            isa_strength >= contains_strength,
+            "IsA should not decay faster than Contains about the same entity: \
+             IsA={isa_strength}, Contains={contains_strength}"
         );
     }
 
