@@ -21,6 +21,7 @@ use crate::agent::actions::motor::{
 use crate::agent::actions::registry::{
     Action, ActionContext, ActionKind, CompletionContext, TargetSource,
 };
+use crate::agent::brains::thinking::TriplePattern;
 use crate::agent::events::FailureReason;
 use crate::agent::mind::knowledge::{Concept, Node, Predicate, Quantity, Triple, Value};
 use crate::constants::actions::warm_up::{DURATION_TICKS, STAMINA_GAIN, WARMTH_RECOVERY};
@@ -65,8 +66,26 @@ impl Action for WarmUpAction {
         Some(Posture::Stationary)
     }
 
+    /// WarmUp has no concrete target at plan time — its concept-level
+    /// `(Self, Near, Campfire)` precondition resolves into a specific
+    /// heat source via the planner's concept-near walk generator (if an
+    /// entity is known) or via Build's `(Self, Near, Campfire)` effect
+    /// (if the agent has to produce one). Runtime picks the specific
+    /// source via the `can_start` proximity check.
     fn target_source(&self) -> TargetSource {
-        TargetSource::EntityWithTrait(Concept::HeatEmitting)
+        TargetSource::None
+    }
+
+    /// Planning: require proximity to a campfire at the concept level.
+    /// The concept-near generator grounds this into a walk-to-known-entity
+    /// when one exists; Build's effect satisfies it directly when no
+    /// heat source is known yet. Either way the planner closes the chain.
+    fn preconditions(&self) -> Vec<TriplePattern> {
+        vec![TriplePattern::new(
+            Some(Node::Self_),
+            Some(Predicate::Near),
+            Some(Value::Concept(Concept::Campfire)),
+        )]
     }
 
     /// Planning: a completed WarmUp cycle tops warmth up to full. The
@@ -95,13 +114,17 @@ impl Action for WarmUpAction {
         ))
     }
 
-    /// Runtime check: target must still exist (an expired campfire's
-    /// HeatSource has been removed but the mindgraph belief can linger).
+    /// Runtime check: the agent must actually be within some lit
+    /// HeatSource's radius. Planner closed the `Near, Campfire`
+    /// precondition conceptually; execution narrows it to the concrete
+    /// entity by proximity check. Fails with `TargetGone` if no heat
+    /// source overlaps (fire went out, someone else took it).
     fn can_start(&self, ctx: &ActionContext) -> Result<(), FailureReason> {
-        if ctx.target_entity.is_none() {
-            return Err(FailureReason::TargetGone);
+        if is_near_any_heat_source(ctx) {
+            Ok(())
+        } else {
+            Err(FailureReason::TargetGone)
         }
-        Ok(())
     }
 
     fn on_complete(&self, ctx: &mut CompletionContext) {
@@ -118,6 +141,28 @@ impl Action for WarmUpAction {
     }
 }
 
+/// Runtime proximity check: does the agent's mindgraph place any known
+/// heat-emitting entity on the same tile as self? Mirrors the
+/// `(Self, Near, Campfire)` planner relation — keeps runtime and planner
+/// semantics aligned.
+fn is_near_any_heat_source(ctx: &ActionContext) -> bool {
+    let Some(Value::Tile(self_tile)) = ctx.mind.get(&Node::Self_, Predicate::LocatedAt).cloned()
+    else {
+        return false;
+    };
+    ctx.mind
+        .query(
+            None,
+            Some(Predicate::LocatedAt),
+            Some(&Value::Tile(self_tile)),
+        )
+        .iter()
+        .any(|t| {
+            matches!(t.subject, Node::Entity(_))
+                && ctx.mind.has_trait(&t.subject, Concept::HeatEmitting)
+        })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -126,18 +171,24 @@ mod tests {
     use crate::testing::TestWorld;
 
     #[test]
-    fn warm_up_declares_near_campfire_via_target_source() {
-        // WarmUp satisfies warmth via proximity to a HeatSource. The
-        // target-source declaration is what drives the planner to
-        // enumerate heat-emitting entities as candidates — the Walk
-        // chain to each target falls out of the tile-walk generator.
+    fn warm_up_declares_near_campfire_precondition() {
+        // WarmUp has no concrete target at plan time — the concept-level
+        // `(Self, Near, Campfire)` precondition is what drives the chain.
+        // The concept-near walk generator grounds it into a walk when an
+        // entity is known, and Build's `(Self, Near, Campfire)` effect
+        // closes it when no heat source is known yet.
         let action = WarmUpAction;
-        match action.target_source() {
-            crate::agent::actions::registry::TargetSource::EntityWithTrait(c) => {
-                assert_eq!(c, Concept::HeatEmitting);
-            }
-            other => panic!("expected EntityWithTrait(HeatEmitting), got {:?}", other),
-        }
+        assert!(matches!(
+            action.target_source(),
+            crate::agent::actions::registry::TargetSource::None
+        ));
+        let preconditions = action.preconditions();
+        assert_eq!(preconditions.len(), 1);
+        assert_eq!(preconditions[0].predicate, Some(Predicate::Near));
+        assert_eq!(
+            preconditions[0].object,
+            Some(Value::Concept(Concept::Campfire))
+        );
     }
 
     #[test]

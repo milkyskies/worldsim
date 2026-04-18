@@ -160,3 +160,174 @@ fn warmth_need_clamps_at_zero() {
     n.drain(0.5);
     assert_eq!(n.value, 0.0);
 }
+
+// ─── Planner: warmth goal closes the full build chain ───────────────────────
+
+/// Regression test for the #409 pattern-establishing chain. A cold agent
+/// with wood in inventory and NO known campfire must still close the
+/// planner's warmth goal by chaining WarmUp → (Self, Near, Campfire) →
+/// Build. Without Build being reachable from the warmth goal, an isolated
+/// cold agent that knows the recipe would wander looking for an existing
+/// fire forever instead of making one.
+#[test]
+fn cold_agent_with_wood_plans_build_for_warmth_goal() {
+    use bevy::prelude::Entity;
+    use worldsim::agent::actions::{ActionRegistry, ActionType, TargetCandidate};
+    use worldsim::agent::brains::planner::{PlanCostContext, regressive_plan};
+    use worldsim::agent::brains::thinking::TriplePattern;
+    use worldsim::agent::mind::knowledge::{Quantity, Triple, setup_ontology};
+
+    let ontology = setup_ontology();
+    let mut mind = MindGraph::new(ontology);
+
+    // Agent knows the recipe (Cultural knowledge seeds this at spawn).
+    mind.assert(Triple::new(
+        Node::Concept(Concept::Campfire),
+        Predicate::Requires,
+        Value::Item(Concept::Wood, 3),
+    ));
+
+    // Agent's current tile.
+    mind.assert(Triple::new(
+        Node::Self_,
+        Predicate::LocatedAt,
+        Value::Tile((0, 0)),
+    ));
+
+    // Agent is carrying wood. Note: the planner matches Value::Item
+    // exactly (quantity included), and Build's precondition is
+    // `Item(Wood, 1)` — one unit of wood per planner step, regardless
+    // of CAMPFIRE_WOOD_REQUIRED. Setting Item(Wood, 1) matches the
+    // planner's worldview; real agents carry Item(Wood, 3) post-harvest
+    // but that's a mindgraph representation detail handled elsewhere.
+    mind.assert(Triple::new(
+        Node::Self_,
+        Predicate::Contains,
+        Value::Item(Concept::Wood, 1),
+    ));
+
+    let registry = ActionRegistry::new();
+    let build_template = registry
+        .get(ActionType::Build)
+        .unwrap()
+        .to_template_for_target(&TargetCandidate::None, &mind);
+    let warm_up_template = registry
+        .get(ActionType::WarmUp)
+        .unwrap()
+        .to_template_for_target(&TargetCandidate::None, &mind);
+    let available = vec![build_template, warm_up_template];
+
+    // Warmth body-state goal — exactly what goal_for_urgency produces for
+    // UrgencySource::Warmth.
+    let goal = Goal {
+        conditions: vec![TriplePattern::self_has(
+            Predicate::Warmth,
+            Value::Quantity(Quantity::Exact(100.0)),
+        )],
+        priority: 80.0,
+    };
+
+    let (plan, stats) = regressive_plan(&mind, &goal, &available, &PlanCostContext::neutral());
+    let plan = plan.expect(&format!(
+        "Planner must close warmth goal via WarmUp + Build chain; unmet: {:?}",
+        stats.best_unmet_goals
+    ));
+
+    assert!(
+        plan.iter().any(|a| a.action_type == ActionType::Build),
+        "Plan must include Build — a cold agent with wood but no known \
+         campfire should proactively build one to satisfy Warmth.\n\
+         Plan: {:?}",
+        plan.iter().map(|a| a.action_type).collect::<Vec<_>>()
+    );
+    assert!(
+        plan.iter().any(|a| a.action_type == ActionType::WarmUp),
+        "Plan must include WarmUp — Build alone only produces Near-Campfire; \
+         it's WarmUp that closes the warmth body-state goal."
+    );
+
+    // Execution order: Build must come before WarmUp (you can't warm up
+    // at a campfire that doesn't exist yet).
+    let build_idx = plan
+        .iter()
+        .position(|a| a.action_type == ActionType::Build)
+        .unwrap();
+    let warm_up_idx = plan
+        .iter()
+        .position(|a| a.action_type == ActionType::WarmUp)
+        .unwrap();
+    assert!(
+        build_idx < warm_up_idx,
+        "Build must execute before WarmUp (build_idx={build_idx}, warm_up_idx={warm_up_idx})",
+    );
+
+    // Suppress unused warning if Entity gets imported only for future use.
+    let _ = Entity::from_bits(1);
+}
+
+/// Complement to the above: when a campfire IS already known and on the
+/// agent's tile, the planner does NOT plan a Build — it goes straight to
+/// WarmUp. Proves the concept-near generator grounds the Near precondition
+/// via the existing entity rather than always wanting to produce one.
+#[test]
+fn agent_on_known_campfire_plans_warm_up_without_build() {
+    use bevy::prelude::Entity;
+    use worldsim::agent::actions::{ActionRegistry, ActionType, TargetCandidate};
+    use worldsim::agent::brains::planner::{PlanCostContext, regressive_plan};
+    use worldsim::agent::brains::thinking::TriplePattern;
+    use worldsim::agent::mind::knowledge::{Quantity, Triple, setup_ontology};
+
+    let ontology = setup_ontology();
+    let mut mind = MindGraph::new(ontology);
+
+    // Agent is sitting on a known campfire entity.
+    let campfire = Entity::from_bits(42);
+    mind.assert(Triple::new(
+        Node::Self_,
+        Predicate::LocatedAt,
+        Value::Tile((0, 0)),
+    ));
+    mind.assert(Triple::new(
+        Node::Entity(campfire),
+        Predicate::IsA,
+        Value::Concept(Concept::Campfire),
+    ));
+    mind.assert(Triple::new(
+        Node::Entity(campfire),
+        Predicate::LocatedAt,
+        Value::Tile((0, 0)),
+    ));
+
+    let registry = ActionRegistry::new();
+    let build_template = registry
+        .get(ActionType::Build)
+        .unwrap()
+        .to_template_for_target(&TargetCandidate::None, &mind);
+    let warm_up_template = registry
+        .get(ActionType::WarmUp)
+        .unwrap()
+        .to_template_for_target(&TargetCandidate::None, &mind);
+    let available = vec![build_template, warm_up_template];
+
+    let goal = Goal {
+        conditions: vec![TriplePattern::self_has(
+            Predicate::Warmth,
+            Value::Quantity(Quantity::Exact(100.0)),
+        )],
+        priority: 80.0,
+    };
+
+    let (plan, _) = regressive_plan(&mind, &goal, &available, &PlanCostContext::neutral());
+    let plan = plan.expect("Planner must close warmth goal when already at a campfire");
+
+    assert!(
+        plan.iter().any(|a| a.action_type == ActionType::WarmUp),
+        "Plan must include WarmUp when sitting on a known campfire"
+    );
+    assert!(
+        !plan.iter().any(|a| a.action_type == ActionType::Build),
+        "Plan must NOT include Build — a campfire already exists at the agent's tile.\n\
+         Plan: {:?}",
+        plan.iter().map(|a| a.action_type).collect::<Vec<_>>()
+    );
+}
