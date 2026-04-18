@@ -726,9 +726,9 @@ pub fn select_turn_intent(
             }
         }
         if let Ok(mut d) = drives.get_mut(speaker)
-            && d.companionship < 1.0
+            && d.companionship.value < 1.0
         {
-            d.companionship = (d.companionship + SOCIAL_DRIVE_PER_TURN).clamp(0.0, 1.0);
+            d.companionship.top_up(SOCIAL_DRIVE_PER_TURN);
         }
 
         // Direct question → flag the primary listener so the weighted

@@ -106,13 +106,13 @@ fn check_components(world: &mut World) {
             assert_in_range(entity, "alertness", c.alertness, 0.0, 1.0);
         }
         if let Some(d) = drives {
-            assert_in_range(entity, "drive.companionship", d.companionship, 0.0, 1.0);
-            assert_in_range(entity, "drive.enjoyment", d.enjoyment, 0.0, 1.0);
-            assert_in_range(entity, "drive.stimulation", d.stimulation, 0.0, 1.0);
-            assert_in_range(entity, "drive.esteem", d.esteem, 0.0, 1.0);
-            assert_in_range(entity, "drive.safety", d.safety, 0.0, 1.0);
-            assert_in_range(entity, "drive.autonomy", d.autonomy, 0.0, 1.0);
-            assert_in_range(entity, "drive.dominion", d.dominion, 0.0, 1.0);
+            assert_in_range(entity, "drive.companionship", d.companionship.value, 0.0, 1.0);
+            assert_in_range(entity, "drive.enjoyment", d.enjoyment.value, 0.0, 1.0);
+            assert_in_range(entity, "drive.stimulation", d.stimulation.value, 0.0, 1.0);
+            assert_in_range(entity, "drive.esteem", d.esteem.value, 0.0, 1.0);
+            assert_in_range(entity, "drive.safety", d.safety.value, 0.0, 1.0);
+            assert_in_range(entity, "drive.autonomy", d.autonomy.value, 0.0, 1.0);
+            assert_in_range(entity, "drive.dominion", d.dominion.value, 0.0, 1.0);
         }
         if let Some(state) = emotions {
             assert_in_range(entity, "mood", state.current_mood, -1.0, 1.0);

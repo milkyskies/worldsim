@@ -133,7 +133,7 @@ pub fn social_acknowledgments(
 
     for (actor, target, bump) in greetings {
         if let Ok((_, _, _, mut drives, _, _)) = agents.get_mut(actor) {
-            drives.companionship = (drives.companionship + bump).min(1.0);
+            drives.companionship.top_up(bump);
         }
 
         game_events.write(GameEvent::SocialInteraction {

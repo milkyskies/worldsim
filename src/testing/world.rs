@@ -1657,12 +1657,12 @@ impl TestWorld {
         if let Some(drives) = world.get::<PsychologicalDrives>(agent) {
             eprintln!(
                 "  Drives:    social={:.2}  fun={:.2}  curiosity={:.2}  status={:.2}  security={:.2}  autonomy={:.2}",
-                1.0 - drives.companionship,
-                1.0 - drives.enjoyment,
-                1.0 - drives.stimulation,
-                1.0 - drives.esteem,
-                1.0 - drives.safety,
-                1.0 - drives.autonomy
+                drives.companionship.deficit(),
+                drives.enjoyment.deficit(),
+                drives.stimulation.deficit(),
+                drives.esteem.deficit(),
+                drives.safety.deficit(),
+                drives.autonomy.deficit()
             );
         }
 
@@ -2888,9 +2888,9 @@ mod tests {
 
         let drives = world.get::<PsychologicalDrives>(deer);
         assert!(
-            drives.companionship < 0.4,
+            drives.companionship.value < 0.4,
             "extrovert genome should yield low baseline companionship (waking up lonely), got {}",
-            drives.companionship
+            drives.companionship.value
         );
     }
 

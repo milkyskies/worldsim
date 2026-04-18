@@ -235,23 +235,23 @@ pub struct SocialDriveOverride(pub f32);
 #[reflect(Component)]
 pub struct PsychologicalDrives {
     /// Social satisfaction. 1.0 = recently connected, 0.0 = desperately lonely.
-    pub companionship: f32,
+    pub companionship: Need,
     /// Playful enjoyment. 1.0 = content, 0.0 = bored.
-    pub enjoyment: f32,
+    pub enjoyment: Need,
     /// Mental stimulation. 1.0 = engaged, 0.0 = starved for novelty.
-    pub stimulation: f32,
+    pub stimulation: Need,
     /// Social standing. 1.0 = respected, 0.0 = disrespected / low-status.
-    pub esteem: f32,
+    pub esteem: Need,
     /// Felt safety. 1.0 = secure, 0.0 = threatened.
-    pub safety: f32,
+    pub safety: Need,
     /// Sense of freedom. 1.0 = self-directed, 0.0 = constrained.
-    pub autonomy: f32,
+    pub autonomy: Need,
     /// Territorial control. 1.0 = uncontested (no intruders),
     /// 0.0 = actively defending against an intruder. Updated each tick
     /// by the territoriality system based on perceived intruders.
     /// Species baseline from `SpeciesProfile::territoriality_baseline`
     /// determines the floor when threats are present.
-    pub dominion: f32,
+    pub dominion: Need,
 }
 
 impl Default for PsychologicalDrives {
@@ -259,13 +259,13 @@ impl Default for PsychologicalDrives {
         // Mid-satisfaction by default; territorial control full (no
         // threats perceived yet).
         Self {
-            companionship: 0.5,
-            enjoyment: 0.5,
-            stimulation: 0.5,
-            esteem: 0.5,
-            safety: 0.5,
-            autonomy: 0.5,
-            dominion: 1.0,
+            companionship: Need::new(0.5),
+            enjoyment: Need::new(0.5),
+            stimulation: Need::new(0.5),
+            esteem: Need::new(0.5),
+            safety: Need::new(0.5),
+            autonomy: Need::new(0.5),
+            dominion: Need::full(),
         }
     }
 }
@@ -282,20 +282,20 @@ impl PsychologicalDrives {
         Self {
             // Extraverts start unsatisfied (low companionship) so they
             // reach toward socializing sooner.
-            companionship: 1.0 - traits.extraversion,
+            companionship: Need::new(1.0 - traits.extraversion),
             // Open personalities start understimulated, driving exploration.
-            stimulation: 1.0 - traits.openness,
+            stimulation: Need::new(1.0 - traits.openness),
             // Neurotic agents feel less safe at baseline.
-            safety: 1.0 - traits.neuroticism,
+            safety: Need::new(1.0 - traits.neuroticism),
             // Conscientious agents start with lower esteem (more to prove).
-            esteem: 1.0 - traits.conscientiousness,
+            esteem: Need::new(1.0 - traits.conscientiousness),
             // Disagreeable agents start with low autonomy satisfaction
             // (feel constrained more easily).
-            autonomy: traits.agreeableness,
-            enjoyment: 0.5,
+            autonomy: Need::new(traits.agreeableness),
+            enjoyment: Need::new(0.5),
             // Starts uncontested; territoriality system lowers this when
             // intruders appear.
-            dominion: 1.0,
+            dominion: Need::full(),
         }
     }
 }
@@ -313,9 +313,9 @@ mod tests {
         };
         let drives = PsychologicalDrives::from_personality(&traits);
         assert!(
-            drives.companionship < 0.2,
+            drives.companionship.value < 0.2,
             "extraverts wake up socially unsatisfied (got {})",
-            drives.companionship
+            drives.companionship.value
         );
     }
 
@@ -327,9 +327,9 @@ mod tests {
         };
         let drives = PsychologicalDrives::from_personality(&traits);
         assert!(
-            drives.companionship > 0.8,
+            drives.companionship.value > 0.8,
             "introverts wake up content (got {})",
-            drives.companionship
+            drives.companionship.value
         );
     }
 
@@ -341,9 +341,9 @@ mod tests {
         };
         let drives = PsychologicalDrives::from_personality(&traits);
         assert!(
-            drives.stimulation < 0.2,
+            drives.stimulation.value < 0.2,
             "open agents wake up understimulated (got {})",
-            drives.stimulation
+            drives.stimulation.value
         );
     }
 
@@ -355,9 +355,9 @@ mod tests {
         };
         let drives = PsychologicalDrives::from_personality(&traits);
         assert!(
-            drives.safety < 0.2,
+            drives.safety.value < 0.2,
             "neurotic agent feels less safe at baseline (got {})",
-            drives.safety
+            drives.safety.value
         );
     }
 
@@ -369,9 +369,9 @@ mod tests {
         };
         let drives = PsychologicalDrives::from_personality(&traits);
         assert!(
-            drives.autonomy > 0.8,
+            drives.autonomy.value > 0.8,
             "agreeable agent feels high autonomy satisfaction (got {})",
-            drives.autonomy
+            drives.autonomy.value
         );
     }
 
@@ -649,13 +649,13 @@ impl StateDisplay for PsychologicalDrives {
     }
     fn get_values(&self) -> Vec<(&'static str, f32, Scale)> {
         vec![
-            ("Companionship", self.companionship, Scale::Normalized),
-            ("Enjoyment", self.enjoyment, Scale::Normalized),
-            ("Stimulation", self.stimulation, Scale::Normalized),
-            ("Esteem", self.esteem, Scale::Normalized),
-            ("Safety", self.safety, Scale::Normalized),
-            ("Autonomy", self.autonomy, Scale::Normalized),
-            ("Dominion", self.dominion, Scale::Normalized),
+            ("Companionship", self.companionship.value, Scale::Normalized),
+            ("Enjoyment", self.enjoyment.value, Scale::Normalized),
+            ("Stimulation", self.stimulation.value, Scale::Normalized),
+            ("Esteem", self.esteem.value, Scale::Normalized),
+            ("Safety", self.safety.value, Scale::Normalized),
+            ("Autonomy", self.autonomy.value, Scale::Normalized),
+            ("Dominion", self.dominion.value, Scale::Normalized),
         ]
     }
 }

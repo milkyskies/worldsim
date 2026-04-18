@@ -1022,13 +1022,20 @@ pub fn apply_action_effects(
 
             if let Some(drives) = drives.as_deref_mut() {
                 if psych.companionship != 0.0 {
-                    drives.companionship = (drives.companionship
-                        + psych.companionship * dt * degradation)
-                        .clamp(0.0, 1.0);
+                    let delta = psych.companionship * dt * degradation;
+                    if delta >= 0.0 {
+                        drives.companionship.top_up(delta);
+                    } else {
+                        drives.companionship.drain(-delta);
+                    }
                 }
                 if psych.stimulation != 0.0 {
-                    drives.stimulation =
-                        (drives.stimulation + psych.stimulation * dt * degradation).clamp(0.0, 1.0);
+                    let delta = psych.stimulation * dt * degradation;
+                    if delta >= 0.0 {
+                        drives.stimulation.top_up(delta);
+                    } else {
+                        drives.stimulation.drain(-delta);
+                    }
                 }
             }
         }

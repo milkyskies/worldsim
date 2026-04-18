@@ -1118,25 +1118,25 @@ fn render_drives(ui: &mut egui::Ui, world: &World, entity: Entity) {
     vital_row_fraction_explained(
         ui,
         "Companionship",
-        drives.companionship,
+        drives.companionship.value,
         0.3,
         0.6,
         None,
         "",
     );
     urgency_line(ui, "Social urgency", urgency_for(UrgencySource::Social));
-    vital_row_fraction_explained(ui, "Enjoyment", drives.enjoyment, 0.3, 0.6, None, "");
+    vital_row_fraction_explained(ui, "Enjoyment", drives.enjoyment.value, 0.3, 0.6, None, "");
     urgency_line(ui, "Fun urgency", urgency_for(UrgencySource::Fun));
-    vital_row_fraction_explained(ui, "Stimulation", drives.stimulation, 0.3, 0.6, None, "");
+    vital_row_fraction_explained(ui, "Stimulation", drives.stimulation.value, 0.3, 0.6, None, "");
     urgency_line(
         ui,
         "Curiosity urgency",
         urgency_for(UrgencySource::Curiosity),
     );
-    vital_row_fraction_explained(ui, "Esteem", drives.esteem, 0.3, 0.6, None, "");
-    vital_row_fraction_explained(ui, "Safety", drives.safety, 0.3, 0.6, None, "");
-    vital_row_fraction_explained(ui, "Autonomy", drives.autonomy, 0.3, 0.6, None, "");
-    vital_row_fraction_explained(ui, "Dominion", drives.dominion, 0.3, 0.6, None, "");
+    vital_row_fraction_explained(ui, "Esteem", drives.esteem.value, 0.3, 0.6, None, "");
+    vital_row_fraction_explained(ui, "Safety", drives.safety.value, 0.3, 0.6, None, "");
+    vital_row_fraction_explained(ui, "Autonomy", drives.autonomy.value, 0.3, 0.6, None, "");
+    vital_row_fraction_explained(ui, "Dominion", drives.dominion.value, 0.3, 0.6, None, "");
     urgency_line(
         ui,
         "Territorial urgency",

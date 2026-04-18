@@ -59,7 +59,7 @@ pub fn emotional_brain_propose(
     if in_conversation.is_none()
         && let Some(d) = drives
         && let Some(proposal) = seek_social_initiation(
-            1.0 - d.companionship,
+            d.companionship.deficit(),
             visible,
             mind,
             action_registry,
@@ -77,7 +77,7 @@ pub fn emotional_brain_propose(
         && let Some(self_concept) = self_concept
         && self_concept != Concept::Person
         && let Some(proposal) = seek_flock_proximity(
-            1.0 - d.companionship,
+            d.companionship.deficit(),
             self_concept,
             visible,
             mind,

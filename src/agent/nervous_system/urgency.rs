@@ -173,10 +173,10 @@ pub fn generate_urgency(
 
                 // Psychological drives are all satisfaction now — invert
                 // each to get "how much the agent wants more of X."
-                UrgencySource::Social => drives.map(|d| 1.0 - d.companionship).unwrap_or(0.0),
-                UrgencySource::Fun => drives.map(|d| 1.0 - d.enjoyment).unwrap_or(0.0),
-                UrgencySource::Curiosity => drives.map(|d| 1.0 - d.stimulation).unwrap_or(0.0),
-                UrgencySource::Territoriality => drives.map(|d| 1.0 - d.dominion).unwrap_or(0.0),
+                UrgencySource::Social => drives.map(|d| d.companionship.deficit()).unwrap_or(0.0),
+                UrgencySource::Fun => drives.map(|d| d.enjoyment.deficit()).unwrap_or(0.0),
+                UrgencySource::Curiosity => drives.map(|d| d.stimulation.deficit()).unwrap_or(0.0),
+                UrgencySource::Territoriality => drives.map(|d| d.dominion.deficit()).unwrap_or(0.0),
                 UrgencySource::Fear => emotions
                     .get_emotion_intensity(crate::agent::psyche::emotions::EmotionType::Fear),
                 // Wakefulness is satisfaction (high = rested); the loop
