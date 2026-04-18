@@ -378,7 +378,8 @@ pub fn update_rational_planning(
                 let action_ran_to_end = completed_this_tick
                     .get(&entity)
                     .is_some_and(|set| set.contains(&action.action_type));
-                if effect_matched || action_ran_to_end {
+                let step_just_advanced = effect_matched || action_ran_to_end;
+                if step_just_advanced {
                     plan.current_step += 1;
                     plan.last_touched = current_tick;
                 }
@@ -389,7 +390,18 @@ pub fn update_rational_planning(
                     invalid_ids.push(plan.id);
                     continue;
                 }
-                if let Some(action) = plan.current()
+                // Only invalidate on unmet preconditions when the step has
+                // been current for more than one tick. The tick a step
+                // *just* advanced onto a new action, perception can't yet
+                // have seen the world changes the previous step produced
+                // (e.g. Build spawns a campfire; WarmUp's Near precondition
+                // requires perceiving that campfire). Without this grace
+                // tick, every multi-step plan that produces a world artifact
+                // is dropped the instant it advances past the producing
+                // step — the bug caught during #409 warmth-drive validation
+                // where Build completed but WarmUp never fired.
+                if !step_just_advanced
+                    && let Some(action) = plan.current()
                     && !are_preconditions_met(action, mind)
                 {
                     invalid_ids.push(plan.id);

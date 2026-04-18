@@ -14,8 +14,19 @@ use crate::world::map::TILE_SIZE;
 use crate::world::property::{FuelConsumer, HeatSource, LightSource};
 use bevy::prelude::*;
 
-/// How much `fuel_remaining` one wood item provides when consumed from the fuel slot.
-pub const FUEL_PER_WOOD: f32 = 200.0;
+/// How much `fuel_remaining` one wood item provides when consumed from the
+/// fuel slot. At `consumption_rate = 1.0` per tick this is tick-equivalent:
+/// one wood burns for `FUEL_PER_WOOD` ticks.
+///
+/// Time scales (`GameTime::TICKS_PER_*`):
+/// - 1 tick = 1 game-second
+/// - 3600 ticks = 1 game-hour = 1 real-minute at 60 Hz
+///
+/// Set to 3600 (one game-hour per log) so a single-wood campfire lasts long
+/// enough for nearby agents to perceive it, plan, walk over, and warm up
+/// before it gutters out. Previous value of 200 gave only ~3 game-minutes
+/// of fire per log — vanishingly brief at game-time scale.
+pub const FUEL_PER_WOOD: f32 = 3600.0;
 
 /// Number of wood items a freshly-built campfire starts with in its fuel slot.
 pub const INITIAL_WOOD_COUNT: u32 = 3;

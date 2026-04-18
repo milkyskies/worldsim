@@ -139,12 +139,15 @@ pub mod actions {
     }
 
     pub mod warm_up {
-        /// Ticks per WarmUp cycle. One cycle restores a small increment of
-        /// warmth — a chain of WarmUp cycles runs until the satiation gate
-        /// (warmth >= 0.95) blocks further starts.
-        pub const DURATION_TICKS: u32 = 30;
+        /// Ticks per WarmUp cycle. One cycle restores a chunk of warmth —
+        /// a chain of WarmUp cycles runs until the satiation gate
+        /// (warmth >= 0.95) blocks further starts. 15 ticks matches
+        /// Drink's duration so the two needs feel equally responsive.
+        pub const DURATION_TICKS: u32 = 15;
         /// Warmth satisfaction (0..1) restored per completed WarmUp cycle.
-        pub const WARMTH_RECOVERY: f32 = 0.25;
+        /// 0.5 mirrors Drink's `THIRST_REDUCTION` (also 0.5) — two cycles
+        /// (30 ticks / 0.5 real-second) take an agent from cold to warm.
+        pub const WARMTH_RECOVERY: f32 = 0.5;
         /// Small stamina gain from sitting warm — rest-like by-product.
         pub const STAMINA_GAIN: f32 = 5.0;
     }
