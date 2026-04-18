@@ -1,11 +1,12 @@
 //! Survival brain: reflexive responses to physical threats and urgent needs.
 //!
-//! Reads: PhysicalNeeds, CentralNervousSystem (urgencies), ItemSlots, ActiveActions
+//! Reads: PhysicalNeeds, CentralNervousSystem (urgencies), ItemSlots, ActiveActions, WorldMap, Transform
 //! Writes: BrainProposal
 //! Upstream: nervous_system::urgency (produces urgency scores), item_slots
 //! Downstream: brains::proposal (winner selection)
 
 use super::proposal::{BrainProposal, BrainType, Intent};
+use crate::agent::actions::action::drink::is_adjacent_to_water;
 use crate::agent::actions::{ActionType, ActiveActions};
 use crate::agent::body::needs::PhysicalNeeds;
 use crate::agent::item_slots::ItemSlots;
@@ -13,6 +14,7 @@ use crate::agent::mind::knowledge::Ontology;
 use crate::agent::nervous_system::cns::CentralNervousSystem;
 use crate::agent::nervous_system::urgency::UrgencySource;
 use crate::constants::brains::survival::{WAKE_STAMINA_FRACTION, WAKE_WAKEFULNESS_THRESHOLD};
+use crate::world::map::WorldMap;
 use bevy::prelude::*;
 
 pub struct SurvivalBrainContext<'a> {
@@ -20,6 +22,8 @@ pub struct SurvivalBrainContext<'a> {
     pub cns: &'a CentralNervousSystem,
     /// The visible entity the agent fears most, if any.
     pub most_feared_entity: Option<Entity>,
+    pub pos: Vec2,
+    pub world_map: &'a WorldMap,
 }
 
 /// Propose a survival action based on the highest urgency drive.
@@ -97,7 +101,9 @@ fn propose_for_source(
             }
         }
         UrgencySource::Thirst => {
-            if let Some(action) = action_registry.get(ActionType::Drink) {
+            if is_adjacent_to_water(context.pos, context.world_map)
+                && let Some(action) = action_registry.get(ActionType::Drink)
+            {
                 return Some(BrainProposal {
                     brain: BrainType::Survival,
                     action: escalated(action, None),
@@ -220,15 +226,46 @@ mod tests {
     use super::*;
     use crate::agent::mind::knowledge::setup_ontology;
     use crate::agent::nervous_system::urgency::Urgency;
+    use crate::world::map::{CHUNK_SIZE, TILE_SIZE, TileType};
+    use bevy::math::IVec2;
+
+    fn no_water_map() -> WorldMap {
+        WorldMap::new(0, 0)
+    }
+
+    fn water_adjacent_map() -> WorldMap {
+        use crate::world::map::Chunk;
+        let mut map = WorldMap::new(16, 16);
+        let chunks_x = 16u32.div_ceil(CHUNK_SIZE);
+        let chunks_y = 16u32.div_ceil(CHUNK_SIZE);
+        for cy in 0..chunks_y as i32 {
+            for cx in 0..chunks_x as i32 {
+                map.chunks.insert(IVec2::new(cx, cy), Chunk::new(cx, cy));
+            }
+        }
+        map.set_tile(1, 0, TileType::ShallowWater);
+        map
+    }
+
+    fn tile_center(tx: i32, ty: i32) -> Vec2 {
+        Vec2::new(
+            tx as f32 * TILE_SIZE + TILE_SIZE / 2.0,
+            ty as f32 * TILE_SIZE + TILE_SIZE / 2.0,
+        )
+    }
 
     fn context_with_urgency<'a>(
         physical: &'a PhysicalNeeds,
         cns: &'a CentralNervousSystem,
+        pos: Vec2,
+        world_map: &'a WorldMap,
     ) -> SurvivalBrainContext<'a> {
         SurvivalBrainContext {
             physical,
             cns,
             most_feared_entity: None,
+            pos,
+            world_map,
         }
     }
 
@@ -253,7 +290,8 @@ mod tests {
         let ontology = setup_ontology();
         let physical = PhysicalNeeds::default();
         let cns = cns_with_top(UrgencySource::Hunger, 0.9);
-        let context = context_with_urgency(&physical, &cns);
+        let map = no_water_map();
+        let context = context_with_urgency(&physical, &cns, Vec2::ZERO, &map);
 
         let mut inventory = crate::agent::item_slots::ItemSlots::agent_carry();
         inventory.add(crate::agent::mind::knowledge::Concept::Apple, 1);
@@ -271,7 +309,8 @@ mod tests {
         let ontology = setup_ontology();
         let physical = PhysicalNeeds::default();
         let cns = cns_with_top(UrgencySource::Hunger, 0.9);
-        let context = context_with_urgency(&physical, &cns);
+        let map = no_water_map();
+        let context = context_with_urgency(&physical, &cns, Vec2::ZERO, &map);
 
         let inventory = crate::agent::item_slots::ItemSlots::agent_carry(); // empty
         let active = ActiveActions::default();
@@ -294,6 +333,7 @@ mod tests {
         let physical = PhysicalNeeds::default();
         let inventory = crate::agent::item_slots::ItemSlots::agent_carry();
         let active = ActiveActions::default();
+        let map = no_water_map();
 
         let mut registry = crate::agent::actions::ActionRegistry::default();
         registry.register(crate::agent::actions::action::RestAction);
@@ -301,14 +341,14 @@ mod tests {
 
         // Mild fatigue -> Rest
         let cns = cns_with_top(UrgencySource::Stamina, 0.4);
-        let context = context_with_urgency(&physical, &cns);
+        let context = context_with_urgency(&physical, &cns, Vec2::ZERO, &map);
         let proposals = survival_brain_propose(context, &inventory, &active, &ontology, &registry);
         assert!(find_proposal(&proposals, ActionType::Rest).is_some());
         assert!(find_proposal(&proposals, ActionType::Sleep).is_none());
 
         // Severe fatigue -> still Rest (not Sleep)
         let cns = cns_with_top(UrgencySource::Stamina, 0.9);
-        let context = context_with_urgency(&physical, &cns);
+        let context = context_with_urgency(&physical, &cns, Vec2::ZERO, &map);
         let proposals = survival_brain_propose(context, &inventory, &active, &ontology, &registry);
         assert!(find_proposal(&proposals, ActionType::Rest).is_some());
         assert!(
@@ -322,7 +362,8 @@ mod tests {
         let ontology = setup_ontology();
         let physical = PhysicalNeeds::default();
         let cns = cns_with_top(UrgencySource::Hunger, 0.9);
-        let context = context_with_urgency(&physical, &cns);
+        let map = no_water_map();
+        let context = context_with_urgency(&physical, &cns, Vec2::ZERO, &map);
 
         let inventory = crate::agent::item_slots::ItemSlots::agent_carry();
         let active = ActiveActions::default();
@@ -337,7 +378,8 @@ mod tests {
         let ontology = setup_ontology();
         let physical = PhysicalNeeds::default();
         let cns = cns_with_top(UrgencySource::Social, 0.9);
-        let context = context_with_urgency(&physical, &cns);
+        let map = no_water_map();
+        let context = context_with_urgency(&physical, &cns, Vec2::ZERO, &map);
 
         let inventory = crate::agent::item_slots::ItemSlots::agent_carry();
         let active = ActiveActions::default();
@@ -359,18 +401,19 @@ mod tests {
         let mut inventory = crate::agent::item_slots::ItemSlots::agent_carry();
         inventory.add(crate::agent::mind::knowledge::Concept::Apple, 1);
 
+        let map = no_water_map();
         let cns_high = cns_with_top(UrgencySource::Hunger, 0.9);
         let cns_low = cns_with_top(UrgencySource::Hunger, 0.3);
 
         let high = survival_brain_propose(
-            context_with_urgency(&physical, &cns_high),
+            context_with_urgency(&physical, &cns_high, Vec2::ZERO, &map),
             &inventory,
             &active,
             &ontology,
             &registry,
         );
         let low = survival_brain_propose(
-            context_with_urgency(&physical, &cns_low),
+            context_with_urgency(&physical, &cns_low, Vec2::ZERO, &map),
             &inventory,
             &active,
             &ontology,
@@ -425,7 +468,8 @@ mod tests {
             sleep_wake_trigger: Some(UrgencySource::Fear),
             ..Default::default()
         };
-        let context = context_with_urgency(&physical, &cns);
+        let map = no_water_map();
+        let context = context_with_urgency(&physical, &cns, Vec2::ZERO, &map);
 
         let inventory = crate::agent::item_slots::ItemSlots::agent_carry();
         let active = active_sleep();
@@ -443,7 +487,8 @@ mod tests {
         let ontology = setup_ontology();
         let physical = tired_needs();
         let cns = CentralNervousSystem::default();
-        let context = context_with_urgency(&physical, &cns);
+        let map = no_water_map();
+        let context = context_with_urgency(&physical, &cns, Vec2::ZERO, &map);
 
         let inventory = crate::agent::item_slots::ItemSlots::agent_carry();
         let active = active_sleep();
@@ -462,7 +507,8 @@ mod tests {
         let ontology = setup_ontology();
         let physical = PhysicalNeeds::default(); // aerobic = 100, wakefulness = 1.0
         let cns = CentralNervousSystem::default();
-        let context = context_with_urgency(&physical, &cns);
+        let map = no_water_map();
+        let context = context_with_urgency(&physical, &cns, Vec2::ZERO, &map);
 
         let inventory = crate::agent::item_slots::ItemSlots::agent_carry();
         let active = active_sleep();
@@ -480,7 +526,8 @@ mod tests {
             sleep_wake_trigger: Some(UrgencySource::Fear),
             ..Default::default()
         };
-        let context = context_with_urgency(&physical, &cns);
+        let map = no_water_map();
+        let context = context_with_urgency(&physical, &cns, Vec2::ZERO, &map);
 
         let inventory = crate::agent::item_slots::ItemSlots::agent_carry();
         let active = ActiveActions::default(); // not sleeping
@@ -500,7 +547,8 @@ mod tests {
         let ontology = setup_ontology();
         let physical = PhysicalNeeds::default();
         let cns = cns_with_top(UrgencySource::Hunger, 0.9);
-        let context = context_with_urgency(&physical, &cns);
+        let map = no_water_map();
+        let context = context_with_urgency(&physical, &cns, Vec2::ZERO, &map);
 
         let mut inventory = crate::agent::item_slots::ItemSlots::agent_carry();
         inventory.add(crate::agent::mind::knowledge::Concept::Apple, 1);
@@ -534,10 +582,13 @@ mod tests {
         // Fear urgency 0.9 → should escalate (though Flee is already Maximal)
         let cns = cns_with_top(UrgencySource::Fear, 0.9);
         let feared = bevy::prelude::Entity::from_bits(99);
+        let map = no_water_map();
         let context = SurvivalBrainContext {
             physical: &physical,
             cns: &cns,
             most_feared_entity: Some(feared),
+            pos: Vec2::ZERO,
+            world_map: &map,
         };
 
         let inventory = crate::agent::item_slots::ItemSlots::agent_carry();
@@ -562,7 +613,9 @@ mod tests {
         let ontology = setup_ontology();
         let physical = PhysicalNeeds::default();
         let cns = cns_with_top(UrgencySource::Thirst, 0.3);
-        let context = context_with_urgency(&physical, &cns);
+        let map = water_adjacent_map();
+        let pos = tile_center(0, 0);
+        let context = context_with_urgency(&physical, &cns, pos, &map);
 
         let inventory = crate::agent::item_slots::ItemSlots::agent_carry();
         let active = ActiveActions::default();
@@ -571,7 +624,8 @@ mod tests {
         registry.register(crate::agent::actions::action::DrinkAction);
 
         let proposals = survival_brain_propose(context, &inventory, &active, &ontology, &registry);
-        let proposal = find_proposal(&proposals, ActionType::Drink).expect("should propose Drink");
+        let proposal = find_proposal(&proposals, ActionType::Drink)
+            .expect("should propose Drink when adjacent to water");
 
         assert!(
             matches!(
@@ -579,6 +633,49 @@ mod tests {
                 IntensityPolicy::Fixed(_)
             ),
             "Drink at moderate urgency should keep Fixed intensity"
+        );
+    }
+
+    #[test]
+    fn survival_does_not_propose_drink_when_no_water_adjacent() {
+        let ontology = setup_ontology();
+        let physical = PhysicalNeeds::default();
+        let cns = cns_with_top(UrgencySource::Thirst, 0.9);
+        let map = no_water_map();
+        let context = context_with_urgency(&physical, &cns, Vec2::ZERO, &map);
+
+        let inventory = crate::agent::item_slots::ItemSlots::agent_carry();
+        let active = ActiveActions::default();
+
+        let mut registry = crate::agent::actions::ActionRegistry::default();
+        registry.register(crate::agent::actions::action::DrinkAction);
+
+        let proposals = survival_brain_propose(context, &inventory, &active, &ontology, &registry);
+        assert!(
+            find_proposal(&proposals, ActionType::Drink).is_none(),
+            "Survival must not propose Drink when no water is adjacent; got {proposals:?}"
+        );
+    }
+
+    #[test]
+    fn survival_proposes_drink_when_water_adjacent_and_thirsty() {
+        let ontology = setup_ontology();
+        let physical = PhysicalNeeds::default();
+        let cns = cns_with_top(UrgencySource::Thirst, 0.9);
+        let map = water_adjacent_map();
+        let pos = tile_center(0, 0);
+        let context = context_with_urgency(&physical, &cns, pos, &map);
+
+        let inventory = crate::agent::item_slots::ItemSlots::agent_carry();
+        let active = ActiveActions::default();
+
+        let mut registry = crate::agent::actions::ActionRegistry::default();
+        registry.register(crate::agent::actions::action::DrinkAction);
+
+        let proposals = survival_brain_propose(context, &inventory, &active, &ontology, &registry);
+        assert!(
+            find_proposal(&proposals, ActionType::Drink).is_some(),
+            "Survival must propose Drink when thirsty and adjacent to water; got {proposals:?}"
         );
     }
 }
