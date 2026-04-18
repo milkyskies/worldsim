@@ -1038,10 +1038,14 @@ pub fn apply_action_effects(
 
             if let Some(drives) = drives.as_deref_mut() {
                 if psych.companionship != 0.0 {
-                    drives.companionship.apply_delta(psych.companionship * dt * degradation);
+                    drives
+                        .companionship
+                        .apply_delta(psych.companionship * dt * degradation);
                 }
                 if psych.stimulation != 0.0 {
-                    drives.stimulation.apply_delta(psych.stimulation * dt * degradation);
+                    drives
+                        .stimulation
+                        .apply_delta(psych.stimulation * dt * degradation);
                 }
             }
         }
