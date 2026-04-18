@@ -160,6 +160,9 @@ impl Plugin for AgentPlugin {
                         .after(psyche::flocking::decay_social_from_proximity),
                     skills::skill_progression_system.after(nervous_system::execution::tick_actions),
                     skills::decay_skills_system,
+                    mind::knowledge::drain_mindgraph_mutations
+                        .after(mind::memory::process_perception)
+                        .after(mind::memory::decay_stale_knowledge),
                 )
                     .run_if(not_paused),
             )

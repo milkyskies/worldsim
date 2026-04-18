@@ -150,7 +150,7 @@ fn goap_plans_harvest_then_build() {
         priority: 50.0,
     };
 
-    let plan = regressive_plan(&mind, &goal, &available, &PlanCostContext::neutral());
+    let (plan, _) = regressive_plan(&mind, &goal, &available, &PlanCostContext::neutral());
     assert!(plan.is_some(), "Planner must find a plan");
 
     let plan = plan.unwrap();

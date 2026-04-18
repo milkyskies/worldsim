@@ -239,6 +239,9 @@ pub fn arbitrate_every_tick(
             brain_state.chosen_actions.clear();
         }
 
+        let urgencies_snapshot: Vec<crate::agent::nervous_system::urgency::Urgency> =
+            cns.urgencies.clone();
+
         sim_events.write(crate::agent::events::SimEvent::Decision {
             agent: entity,
             tick: tick.current,
@@ -250,6 +253,44 @@ pub fn arbitrate_every_tick(
                 .collect(),
             powers,
             proposals: std::sync::Arc::new(brain_state.proposals.clone()),
+            urgencies: urgencies_snapshot,
+        });
+
+        // Per-tick state hash for non-determinism debugging.
+        let hash =
+            compute_agent_state_hash(entity, _transform.translation.truncate(), cns, &plan_memory);
+        sim_events.write(crate::agent::events::SimEvent::AgentStateHash {
+            agent: entity,
+            tick: tick.current,
+            hash,
         });
     }
+}
+
+/// FxHash of (tile_x, tile_y, urgency_sources_sorted, plan_ids_sorted).
+/// Used to diff two runs and find the tick of first non-determinism divergence.
+fn compute_agent_state_hash(
+    _entity: Entity,
+    pos: Vec2,
+    cns: &crate::agent::nervous_system::cns::CentralNervousSystem,
+    plan_memory: &super::plan_memory::PlanMemory,
+) -> u64 {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+
+    let tile_x = (pos.x / crate::world::map::TILE_SIZE).floor() as i32;
+    let tile_y = (pos.y / crate::world::map::TILE_SIZE).floor() as i32;
+
+    let mut urgency_sources: Vec<u8> = cns.urgencies.iter().map(|u| u.source as u8).collect();
+    urgency_sources.sort_unstable();
+
+    let mut plan_ids: Vec<u64> = plan_memory.plans.iter().map(|p| p.id.0).collect();
+    plan_ids.sort_unstable();
+
+    let mut h = DefaultHasher::new();
+    tile_x.hash(&mut h);
+    tile_y.hash(&mut h);
+    urgency_sources.hash(&mut h);
+    plan_ids.hash(&mut h);
+    h.finish()
 }

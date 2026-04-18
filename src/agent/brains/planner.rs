@@ -818,18 +818,29 @@ impl Ord for RegressiveSearchNode {
     }
 }
 
+/// Stats returned alongside the plan from `regressive_plan`.
+#[derive(Debug, Clone)]
+pub struct PlanSearchStats {
+    pub iterations: usize,
+    pub exhausted: bool,
+    /// Debug-formatted patterns that remained unmet when the search ended (if no plan found).
+    pub best_unmet_goals: Vec<String>,
+}
+
 /// Backward Search: Starts from Goal, finds actions that satisfy unmet goals.
 /// Special Feature: Implicitly generates 'WalkTo' actions when satisfying `LocatedAt`.
 ///
 /// `ctx` supplies the subjective-cost factors (stamina, alertness, personality,
 /// risk modulation). Use `PlanCostContext::neutral()` for callers that don't
 /// yet supply agent state — it reproduces the old base-cost behaviour.
+///
+/// Returns the plan steps (if found) alongside search telemetry.
 pub fn regressive_plan(
     mind: &MindGraph,
     goal: &Goal,
     available_actions: &[ActionTemplate],
     ctx: &PlanCostContext,
-) -> Option<Vec<ActionTemplate>> {
+) -> (Option<Vec<ActionTemplate>>, PlanSearchStats) {
     use crate::constants::brains::planner::{HEURISTIC_MULTIPLIER, MAX_ITERATIONS};
     let start_time = std::time::Instant::now();
     let mut iterations = 0;
@@ -852,7 +863,14 @@ pub fn regressive_plan(
 
     // If initial_goals is empty, we are already there!
     if initial_goals.is_empty() {
-        return Some(Vec::new());
+        return (
+            Some(Vec::new()),
+            PlanSearchStats {
+                iterations: 0,
+                exhausted: false,
+                best_unmet_goals: vec![],
+            },
+        );
     }
 
     let start = RegressiveState::new(initial_goals, vec![]);
@@ -864,6 +882,7 @@ pub fn regressive_plan(
 
     let mut result = None;
     let mut best_unmet: Vec<TriplePattern> = Vec::new();
+    let mut exhausted = false;
     // Key: stable hash of pattern; value: (representative pattern, count)
     let mut goal_pattern_counts: HashMap<u64, (TriplePattern, usize)> = HashMap::new();
 
@@ -893,6 +912,7 @@ pub fn regressive_plan(
                 "most common unreachable patterns: {:?}",
                 top_readable
             );
+            exhausted = true;
             break;
         }
 
@@ -1010,7 +1030,12 @@ pub fn regressive_plan(
         );
     }
 
-    result
+    let stats = PlanSearchStats {
+        iterations,
+        exhausted,
+        best_unmet_goals: best_unmet.iter().map(|p| format!("{p:?}")).collect(),
+    };
+    (result, stats)
 }
 
 // ─── Helpers ───
@@ -1558,7 +1583,7 @@ mod tests {
         let actions = vec![gather_template(tree, Concept::Apple)];
         let goal = goal_self_contains(Concept::Apple);
 
-        let plan = regressive_plan(&mind, &goal, &actions, &PlanCostContext::neutral());
+        let (plan, _) = regressive_plan(&mind, &goal, &actions, &PlanCostContext::neutral());
         assert!(plan.is_some(), "single gather should produce a valid plan");
         assert!(
             plan.unwrap()
@@ -1590,7 +1615,7 @@ mod tests {
 
         // After planning the first gather (which consumes node 42), the second gather's
         // precondition `entity_contains(42)` is in consumed — so no valid plan exists.
-        let plan = regressive_plan(&mind, &goal, &actions, &PlanCostContext::neutral());
+        let (plan, _) = regressive_plan(&mind, &goal, &actions, &PlanCostContext::neutral());
         if let Some(ref p) = plan {
             let gather_count = p
                 .iter()
@@ -1629,7 +1654,7 @@ mod tests {
         ];
         let goal = goal_self_contains_both(Concept::Apple, Concept::Berry);
 
-        let plan = regressive_plan(&mind, &goal, &actions, &PlanCostContext::neutral());
+        let (plan, _) = regressive_plan(&mind, &goal, &actions, &PlanCostContext::neutral());
         assert!(
             plan.is_some(),
             "two independent sources should produce a valid plan"
@@ -1654,7 +1679,7 @@ mod tests {
 
         let goal = goal_self_contains(Concept::Apple);
 
-        let plan = regressive_plan(&mind, &goal, &[], &PlanCostContext::neutral());
+        let (plan, _) = regressive_plan(&mind, &goal, &[], &PlanCostContext::neutral());
         assert!(plan.is_some(), "goal already satisfied should return Some");
         assert!(
             plan.unwrap().is_empty(),
@@ -1737,7 +1762,7 @@ mod tests {
         ];
         let goal = goal_self_contains(Concept::Apple);
 
-        let plan = regressive_plan(&mind, &goal, &actions, &PlanCostContext::neutral());
+        let (plan, _) = regressive_plan(&mind, &goal, &actions, &PlanCostContext::neutral());
         assert!(plan.is_some(), "should produce a valid plan");
         let plan = plan.unwrap();
 
@@ -1769,7 +1794,7 @@ mod tests {
         ];
         let goal = goal_self_contains(Concept::Apple);
 
-        let plan = regressive_plan(&mind, &goal, &actions, &PlanCostContext::neutral());
+        let (plan, _) = regressive_plan(&mind, &goal, &actions, &PlanCostContext::neutral());
         assert!(
             plan.is_some(),
             "should produce a plan (Rest makes it feasible)"
@@ -1800,7 +1825,7 @@ mod tests {
         ];
         let goal = goal_self_contains(Concept::Apple);
 
-        let plan = regressive_plan(&mind, &goal, &actions, &PlanCostContext::neutral());
+        let (plan, _) = regressive_plan(&mind, &goal, &actions, &PlanCostContext::neutral());
         assert!(
             plan.is_none(),
             "planner must return None for truly infeasible walk"
@@ -1869,7 +1894,7 @@ mod tests {
             priority: 1.0,
         };
 
-        let plan = regressive_plan(&mind, &goal, &actions, &PlanCostContext::neutral());
+        let (plan, _) = regressive_plan(&mind, &goal, &actions, &PlanCostContext::neutral());
         assert!(plan.is_some(), "should produce a plan for stone harvest");
         let plan = plan.unwrap();
 
@@ -1968,7 +1993,7 @@ mod tests {
         };
 
         let actions = vec![eat_action, harvest_stone];
-        let plan = regressive_plan(&mind, &hunger_goal, &actions, &PlanCostContext::neutral());
+        let (plan, _) = regressive_plan(&mind, &hunger_goal, &actions, &PlanCostContext::neutral());
         assert!(
             plan.is_none(),
             "planner must not satisfy hunger by harvesting stone"
@@ -2097,8 +2122,8 @@ mod tests {
             conditions: vec![TriplePattern::self_at((5, 5))],
             priority: 1.0,
         };
-        let plan = regressive_plan(&mind, &goal, &[], &PlanCostContext::neutral())
-            .expect("planner should produce a Walk plan, not an empty plan");
+        let (plan_opt, _) = regressive_plan(&mind, &goal, &[], &PlanCostContext::neutral());
+        let plan = plan_opt.expect("planner should produce a Walk plan, not an empty plan");
         assert!(
             plan.iter().any(|a| a.action_type == ActionType::Walk),
             "plan must include a Walk to reach the target tile"
@@ -2244,7 +2269,7 @@ mod tests {
             .collect();
         let goal = goal_self_contains(Concept::Apple);
 
-        let plan = tracing::subscriber::with_default(subscriber, || {
+        let (plan, _) = tracing::subscriber::with_default(subscriber, || {
             regressive_plan(&mind, &goal, &actions, &PlanCostContext::neutral())
         });
 
@@ -2562,8 +2587,8 @@ mod tests {
         ];
         let goal = goal_self_contains(Concept::Apple);
 
-        let plan = regressive_plan(&mind, &goal, &actions, &PlanCostContext::neutral())
-            .expect("plan should exist");
+        let (plan_opt, _) = regressive_plan(&mind, &goal, &actions, &PlanCostContext::neutral());
+        let plan = plan_opt.expect("plan should exist");
 
         // Find which harvest target was chosen.
         let chosen_target = plan
