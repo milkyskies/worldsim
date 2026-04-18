@@ -51,7 +51,13 @@ pub fn tick_metabolism(
             organ_mods,
         );
 
-        physical.hydration = (physical.hydration - BMR_HYDRATION_DRAIN_PER_SEC * dt).max(0.0);
+        // Sleeping agents lose less water: no sweat, slower breathing, and no
+        // renal activity driven by movement. Match the real ~40% reduction by
+        // scaling by the same consciousness_factor as the BMR glucose drain
+        // — so the "severe dehydration disturbs sleep" threshold isn't
+        // crossed during a normal 6-8 game-hour bout.
+        physical.hydration =
+            (physical.hydration - BMR_HYDRATION_DRAIN_PER_SEC * consciousness_factor * dt).max(0.0);
 
         // Slow passive anaerobic refill so a Flee sprint doesn't leave
         // the pool stuck at 0 forever. The rate is low enough that the
