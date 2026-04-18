@@ -496,9 +496,12 @@ Tune the bucket size (`1200` ticks = 20 game-min) to whatever resolution you wan
 mkdir -p /tmp/worldsim/debug/day_sim
 cargo run --release -- --headless --game-defaults --seed 42 --ticks 86400 \
   --log /tmp/worldsim/debug/day_sim/events.parquet --log-filter agent:Alice \
-  --log-agent alice --log-field needs.hunger --log-field needs.hydration \
-  --log-field needs.wakefulness --log-file /tmp/worldsim/debug/day_sim/fields.jsonl
+  --log-agent alice \
+  --log-field needs.hunger --log-field needs.hydration --log-field needs.wakefulness \
+  --log-file /tmp/worldsim/debug/day_sim/fields.jsonl
 ```
+
+Pick the fields that match what you're investigating. `needs.hunger` is a derived sigmoid — if the question is "why is she hungry" log the raw pools instead (`--log-preset vitals` grabs stomach + glucose + reserves + aerobic + hunger + wakefulness + health in one flag).
 
 ```sql
 -- Paste into duckdb, or pipe via `duckdb -c "..."`.

@@ -54,11 +54,16 @@ pub const GLUCOSE_CRITICAL_THRESHOLD: f32 = 15.0;
 pub const RESERVES_MAX: f32 = 500.0;
 
 /// Rate at which carbs in the stomach convert to glucose (per second).
-pub const DIGEST_CARB_RATE: f32 = 1.0;
+/// Tuned so a default 60/40 carb/fat meal takes ~4 game-hours to clear the
+/// stomach — matches real human mixed-meal gastric emptying (2-4 hr), with
+/// fat being the tail that keeps you full.
+pub const DIGEST_CARB_RATE: f32 = 0.5;
 
 /// Rate at which fat in the stomach converts to reserves (per second).
-/// Slower than carb digestion — fat is a long-burn fuel.
-pub const DIGEST_FAT_RATE: f32 = 0.3;
+/// Slower than carb digestion — fat is a long-burn fuel. At this rate a
+/// 40-fat portion takes ~4.4 game-hours to fully clear, matching real
+/// satiety from a fatty meal.
+pub const DIGEST_FAT_RATE: f32 = 0.15;
 
 /// Rate at which glucose above `GLUCOSE_OVERFLOW_THRESHOLD` converts to
 /// reserves (per second). "Storing" excess energy as fat.
@@ -78,10 +83,11 @@ pub const RESERVE_MOBILIZE_RATE: f32 = 0.8;
 /// genetic `Phenotype::bmr`.
 pub const BMR_GLUCOSE_DRAIN_PER_SEC: f32 = 0.1;
 
-/// Basal hydration drain per second while alive. At this rate, hydration
-/// crosses the thirst sigmoid midpoint (hydration 65) in ~1.5 game-hours,
-/// prompting agents to drink more frequently than they eat.
-pub const BMR_HYDRATION_DRAIN_PER_SEC: f32 = 0.4;
+/// Basal hydration drain per second while alive. Tuned to match real
+/// human water turnover (~2.5 L/day), which hits first-thirst after
+/// 3-4 hours without water. At this rate, hydration crosses the thirst
+/// sigmoid midpoint (hydration 65) in ~3.5 game-hours.
+pub const BMR_HYDRATION_DRAIN_PER_SEC: f32 = 0.15;
 
 /// Hunger urgency blend weights (must sum to 1.0).
 /// Stomach-heavy: ghrelin makes you hungry when your stomach empties,
@@ -519,9 +525,9 @@ mod tests {
         assert_eq!(m.stomach_carbs, 30.0, "carbs go into stomach first");
         assert_eq!(m.glucose, 40.0, "glucose unchanged until digestion tick");
 
-        // Tick 60 seconds: at DIGEST_CARB_RATE = 1.0 carb/s, the 30-carb
-        // meal needs 30 seconds to fully digest. 60s leaves headroom.
-        m.tick(60.0, 0.0, 0.0);
+        // At DIGEST_CARB_RATE = 0.5 carb/s the 30-carb meal needs 60s to fully
+        // digest. Tick 120s to give headroom.
+        m.tick(120.0, 0.0, 0.0);
         assert!(m.stomach_carbs < 0.001, "carbs fully digested");
         assert!(
             m.glucose > 60.0,
@@ -732,8 +738,9 @@ mod tests {
         };
         let pre_glucose = m.glucose;
         let pre_reserves = m.reserves;
+        // 10 fat / DIGEST_FAT_RATE (0.15) = 67s; tick 120s for headroom.
         m.tick_with_mods(
-            60.0,
+            120.0,
             0.0,
             0.0,
             OrganMods {

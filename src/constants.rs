@@ -68,6 +68,10 @@ pub mod movement {
 /// Per-action constants (durations, costs, runtime effects)
 pub mod actions {
     pub mod eat {
+        /// One Eat = ingesting one food item (one berry, one apple). ~20
+        /// game-sec per item matches real chewing + swallowing time. A
+        /// "meal" emerges naturally as a chain of Eats until the stomach-
+        /// full precondition (`Eat::can_start`) blocks further Eat starts.
         pub const DURATION_TICKS: u32 = 20;
         pub const STAMINA_GAIN: f32 = 10.0;
     }
@@ -179,9 +183,11 @@ pub mod brains {
         /// window (22:00–02:00) on a noon-start day.
         pub const ADENOSINE_RATE: f32 = 0.00089;
         /// Sleep restore rate per rate-second while Sleep action is active.
-        /// Tuned so a full sleep bout from ~0.15 → 0.95 takes ~8 game hours
-        /// (480 rate-seconds), matching real-life human sleep duration.
-        pub const SLEEP_RESTORE_RATE: f32 = 0.00167;
+        /// Tuned so a full sleep bout from the typical bedtime wakefulness
+        /// (~0.30, not 0.15 — agents rarely stay up past exhaustion) up to
+        /// the 0.95 wake threshold takes ~8 game hours, matching real-life
+        /// human sleep duration.
+        pub const SLEEP_RESTORE_RATE: f32 = 0.00135;
         /// How much the circadian cycle amplifies wakefulness decay at night.
         /// At full darkness (light = 0.3): effective multiplier = 1.0 + 1.0 * 0.7 = 1.7x.
         /// At full daylight (light = 1.0): multiplier = 1.0 (no change).
