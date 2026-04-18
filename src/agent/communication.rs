@@ -117,6 +117,7 @@ impl Plugin for CommunicationPlugin {
                     emit_communication_events.after(process_received_communication),
                     evaluate_conversation_continuation.after(emit_communication_events),
                 )
+                    .in_set(crate::core::PerfBucket::Communication)
                     .run_if(not_paused),
             );
     }

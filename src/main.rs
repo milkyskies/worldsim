@@ -107,6 +107,8 @@ fn run_windowed() {
         .add_systems(Update, log_performance_stats)
         // Performance profiling for debugging
         .add_plugins(worldsim::core::DiagnosticsPlugin)
+        // Per-system tick timer feeding the F3 overlay.
+        .add_plugins(worldsim::core::PerfPlugin)
         // Menu first so AppState is registered before any other plugin
         // schedules systems on OnEnter(AppState::InSim).
         .add_plugins(MenuPlugin)
