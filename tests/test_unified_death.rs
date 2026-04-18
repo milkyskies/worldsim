@@ -84,8 +84,6 @@ fn prolonged_starvation_eventually_spawns_a_corpse() {
 
     // Metabolism::empty() means is_starving() is true from tick 1.
     // The starvation cascade runs: limbs -> gut -> liver -> heart -> death.
-    // This takes longer than the old flat-health approach, so we tick more.
-    // Fast-forward: 20k game-seconds in 334 cycles.
     world.enable_fast_forward();
     world.tick(20_000);
 

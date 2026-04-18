@@ -44,11 +44,19 @@ fn tired_sleeper() -> (TestWorld, bevy::prelude::Entity) {
     panic!("exhausted agent should enter Sleep within 200 ticks");
 }
 
-/// Ticks the world up to `max_ticks` and returns `true` as soon as the
-/// sleeper exits the Sleep action.
+/// Ticks the world up to `max_ticks` iterations and returns `true` as soon
+/// as the sleeper exits the Sleep action. Each iteration advances one cycle
+/// at the world's current `game_seconds_per_cycle` — so calling
+/// `enable_fast_forward` before invoking this cuts wall-clock by 60×.
 fn tick_until_wake(world: &mut TestWorld, sleeper: bevy::prelude::Entity, max_ticks: u64) -> bool {
+    let step = world
+        .app()
+        .world()
+        .resource::<worldsim::core::TickCount>()
+        .game_seconds_per_cycle
+        .max(1);
     for _ in 0..max_ticks {
-        world.tick(1);
+        world.tick(step);
         if !world
             .get::<ActiveActions>(sleeper)
             .contains(ActionType::Sleep)
@@ -69,8 +77,9 @@ fn exhausted_agent_sleeps_and_then_wakes_once_rested() {
     // (0.00167/rate-sec): from 0.1 to 0.95 takes ~509 rate-seconds =
     // ~30500 ticks. Allow generous headroom.
     let (mut world, sleeper) = tired_sleeper();
+    world.enable_fast_forward();
 
-    let woke = tick_until_wake(&mut world, sleeper, 40_000);
+    let woke = tick_until_wake(&mut world, sleeper, 700);
     let aerobic = world.get::<PhysicalNeeds>(sleeper).stamina.aerobic;
     assert!(
         woke,
@@ -247,6 +256,7 @@ fn rested_human_sleeps_once_per_night_for_six_to_eight_hours() {
         .apple_trees(4, Vec2::new(128.0, 128.0))
         .build();
     let alice = agents["alice"];
+    world.enable_fast_forward();
 
     // Two full game days.
     world.tick(2 * TICKS_PER_DAY);
@@ -352,8 +362,6 @@ fn rested_human_sleeps_once_per_night_for_six_to_eight_hours() {
 #[test]
 fn sleep_start_always_has_matching_terminator() {
     let (mut world, sleeper) = tired_sleeper();
-
-    // Fast-forward: 15k game-seconds of sleep-wake cycling in 250 cycles.
     world.enable_fast_forward();
 
     // Tick long enough for several sleep-wake cycles to happen. One full

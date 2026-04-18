@@ -254,11 +254,12 @@ fn drowsy_agent_sleeps_and_wakes_after_recovery() {
         .done()
         .build();
     let sleeper = agents["sleeper"];
+    world.enable_fast_forward();
 
     // Phase 1: enter Sleep.
     let mut entered = false;
-    for _ in 0..600 {
-        world.tick(1);
+    for _ in 0..10 {
+        world.tick(60);
         if world
             .get::<ActiveActions>(sleeper)
             .contains(ActionType::Sleep)
@@ -278,8 +279,8 @@ fn drowsy_agent_sleeps_and_wakes_after_recovery() {
     // SLEEP_RESTORE_RATE is 0.00167/rate-sec. From 0.05 to 0.95 threshold
     // takes ~539 rate-seconds = ~32340 ticks. Allow generous headroom.
     let mut woke = false;
-    for _ in 0..40000 {
-        world.tick(1);
+    for _ in 0..700 {
+        world.tick(60);
         if !world
             .get::<ActiveActions>(sleeper)
             .contains(ActionType::Sleep)
@@ -325,18 +326,19 @@ fn agent_sleeps_at_night_and_wakes_during_day() {
         .berry_bushes(6, Vec2::new(50.0, 50.0))
         .build();
     let alice = agents["alice"];
+    world.enable_fast_forward();
 
     // Phase 1: tick through the afternoon and evening until Sleep starts.
     // Should happen somewhere around nightfall (tick ~28800-40000).
     let mut slept_at = None;
-    for tick in 0..60000 {
-        world.tick(1);
+    for _ in 0..1000 {
+        world.tick(60);
         if slept_at.is_none()
             && world
                 .get::<ActiveActions>(alice)
                 .contains(ActionType::Sleep)
         {
-            slept_at = Some(tick);
+            slept_at = Some(world.current_tick());
         }
     }
     assert!(
@@ -355,8 +357,8 @@ fn agent_sleeps_at_night_and_wakes_during_day() {
 
     // Phase 2: continue ticking — agent should wake up during the morning.
     let mut woke = false;
-    for _ in 0..40000 {
-        world.tick(1);
+    for _ in 0..700 {
+        world.tick(60);
         if !world
             .get::<ActiveActions>(alice)
             .contains(ActionType::Sleep)
