@@ -334,14 +334,25 @@ impl Metabolism {
     /// `Eat.on_complete` use this signal to decide whether to remove
     /// the corresponding item from the agent's inventory.
     pub fn eat(&mut self, macros: FoodMacros) -> bool {
-        let headroom = (STOMACH_CAPACITY - self.stomach_fullness()).max(0.0);
-        let incoming = macros.total_mass();
-        if incoming <= 0.0 || headroom < incoming {
+        if !self.would_fit(macros) {
             return false;
         }
         self.stomach_carbs = (self.stomach_carbs + macros.carbs).max(0.0);
         self.stomach_fat = (self.stomach_fat + macros.fat).max(0.0);
         true
+    }
+
+    /// Would this meal fit in current stomach headroom? Mirrors the
+    /// all-or-nothing admission rule inside [`Metabolism::eat`] so callers
+    /// can ask "can I eat this?" without mutating. Zero- or negative-mass
+    /// meals never fit (no-op inputs aren't a real meal).
+    pub fn would_fit(&self, macros: FoodMacros) -> bool {
+        let incoming = macros.total_mass();
+        if incoming <= 0.0 {
+            return false;
+        }
+        let headroom = (STOMACH_CAPACITY - self.stomach_fullness()).max(0.0);
+        headroom >= incoming
     }
 
     /// Advance the metabolism one tick with no organ modulation. Delegates

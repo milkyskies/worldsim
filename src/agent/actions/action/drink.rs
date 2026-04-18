@@ -107,6 +107,7 @@ impl Action for DrinkAction {
     fn satiation(
         &self,
         physical: Option<&crate::agent::body::needs::PhysicalNeeds>,
+        _inventory: Option<&crate::agent::item_slots::ItemSlots>,
     ) -> Option<(crate::agent::body::need::NeedKind, f32)> {
         Some((
             crate::agent::body::need::NeedKind::Thirst,
