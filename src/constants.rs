@@ -181,7 +181,7 @@ pub mod brains {
         /// Tuned so wakefulness goes from 1.0 to ~0.15 across ~16 game
         /// hours of awake time (960 rate-seconds at 60 tps), letting
         /// circadian boost nudge the crossover to land in the late-night
-        /// window (22:00–02:00) on a noon-start day.
+        /// window (22:00–02:00) on an 8am-start day.
         pub const ADENOSINE_RATE: f32 = 0.00089;
         /// Sleep restore rate per rate-second while Sleep action is active.
         /// Tuned so a full sleep bout from the typical bedtime wakefulness
