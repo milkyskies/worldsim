@@ -48,15 +48,25 @@ impl TickCount {
         self
     }
 
-    /// Per-tick game-time delta for rate-based effects.
+    /// Per-tick physics delta, in rate-units where **1.0 = 60 game-seconds**.
     ///
-    /// At windowed defaults (60 tps, gspc=1): `dt = 1/60` — each FixedMain
-    /// cycle advances physics by 1/60 wall-second. At test fast-mode defaults
-    /// (60 tps, gspc=60): `dt = 1.0` — each cycle advances 60× more physics,
-    /// matching the 60× coarser tick step so per-game-second behavior is
-    /// preserved.
+    /// Deliberately independent of `ticks_per_second` so that pressing the
+    /// "+" speedup key multiplies the wall-clock rate (more ticks per real
+    /// second → more game-seconds per real second) without also multiplying
+    /// the physics rate per game-second. Every tick carries the same
+    /// physics step; faster simulation speed means more ticks happen per
+    /// real second, not that each tick drains harder.
+    ///
+    /// At windowed defaults (gspc=1): `dt = 1/60` — each tick advances 1
+    /// game-second = 1/60 rate-unit. At test fast-mode (gspc=60):
+    /// `dt = 1.0` — each tick advances 60 game-seconds = 1 rate-unit.
+    ///
+    /// Previous formula (`(ticks_per_second / 3600.0) * gspc`) scaled
+    /// `dt` by `ticks_per_second`, so at 5× speed physics ran 25× faster
+    /// in real time while the game clock only ran 5× faster — agents
+    /// aged 5× faster than the wall clock suggested.
     pub fn dt(&self) -> f32 {
-        (self.ticks_per_second / 3600.0) * self.game_seconds_per_cycle as f32
+        self.game_seconds_per_cycle as f32 / 60.0
     }
 
     /// Check if this entity should run on this tick (for staggered updates)

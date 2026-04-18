@@ -740,8 +740,15 @@ fn render_overview(ui: &mut egui::Ui, world: &World, entity: Entity) {
         let body_ref = world.get::<crate::agent::biology::body::Body>(entity);
         let body_health = body_ref.map_or(1.0, |b| b.overall_health());
         vital_row(ui, "Health", body_health * 100.0, 100.0, 0.3, 0.7);
-        let hydration = (needs.hydration / 100.0).clamp(0.0, 1.0);
-        vital_row_fraction_explained(ui, "Hydration", hydration, 0.3, 0.7, None, " /sec");
+        vital_row_fraction_explained(
+            ui,
+            "Hydration",
+            needs.hydration.value,
+            0.3,
+            0.7,
+            None,
+            " /sec",
+        );
         urgency_line(ui, "Thirst urgency", urgency_for(UrgencySource::Thirst));
         vital_row_explained(
             ui,
@@ -754,7 +761,15 @@ fn render_overview(ui: &mut egui::Ui, world: &World, entity: Entity) {
             " /sec",
         );
         urgency_line(ui, "Fatigue urgency", urgency_for(UrgencySource::Stamina));
-        vital_row_fraction_explained(ui, "Wakefulness", needs.wakefulness, 0.3, 0.7, None, "");
+        vital_row_fraction_explained(
+            ui,
+            "Wakefulness",
+            needs.wakefulness.value,
+            0.3,
+            0.7,
+            None,
+            "",
+        );
         urgency_line(
             ui,
             "Sleepiness urgency",
@@ -1042,7 +1057,7 @@ fn render_needs(ui: &mut egui::Ui, world: &World, entity: Entity) {
     vital_row_fraction_explained(
         ui,
         "Hydration",
-        (needs.hydration / 100.0).clamp(0.0, 1.0),
+        needs.hydration.value,
         0.3,
         0.7,
         None,
@@ -1068,7 +1083,15 @@ fn render_needs(ui: &mut egui::Ui, world: &World, entity: Entity) {
         "Fatigue urgency",
         urgency_for_f32(world, entity, UrgencySource::Stamina),
     );
-    vital_row_fraction_explained(ui, "Wakefulness", needs.wakefulness, 0.3, 0.7, None, "");
+    vital_row_fraction_explained(
+        ui,
+        "Wakefulness",
+        needs.wakefulness.value,
+        0.3,
+        0.7,
+        None,
+        "",
+    );
     urgency_line(
         ui,
         "Sleepiness urgency",
@@ -1119,25 +1142,33 @@ fn render_drives(ui: &mut egui::Ui, world: &World, entity: Entity) {
     vital_row_fraction_explained(
         ui,
         "Companionship",
-        drives.companionship,
+        drives.companionship.value,
         0.3,
         0.6,
         None,
         "",
     );
     urgency_line(ui, "Social urgency", urgency_for(UrgencySource::Social));
-    vital_row_fraction_explained(ui, "Enjoyment", drives.enjoyment, 0.3, 0.6, None, "");
+    vital_row_fraction_explained(ui, "Enjoyment", drives.enjoyment.value, 0.3, 0.6, None, "");
     urgency_line(ui, "Fun urgency", urgency_for(UrgencySource::Fun));
-    vital_row_fraction_explained(ui, "Stimulation", drives.stimulation, 0.3, 0.6, None, "");
+    vital_row_fraction_explained(
+        ui,
+        "Stimulation",
+        drives.stimulation.value,
+        0.3,
+        0.6,
+        None,
+        "",
+    );
     urgency_line(
         ui,
         "Curiosity urgency",
         urgency_for(UrgencySource::Curiosity),
     );
-    vital_row_fraction_explained(ui, "Esteem", drives.esteem, 0.3, 0.6, None, "");
-    vital_row_fraction_explained(ui, "Safety", drives.safety, 0.3, 0.6, None, "");
-    vital_row_fraction_explained(ui, "Autonomy", drives.autonomy, 0.3, 0.6, None, "");
-    vital_row_fraction_explained(ui, "Dominion", drives.dominion, 0.3, 0.6, None, "");
+    vital_row_fraction_explained(ui, "Esteem", drives.esteem.value, 0.3, 0.6, None, "");
+    vital_row_fraction_explained(ui, "Safety", drives.safety.value, 0.3, 0.6, None, "");
+    vital_row_fraction_explained(ui, "Autonomy", drives.autonomy.value, 0.3, 0.6, None, "");
+    vital_row_fraction_explained(ui, "Dominion", drives.dominion.value, 0.3, 0.6, None, "");
     urgency_line(
         ui,
         "Territorial urgency",
@@ -2009,7 +2040,7 @@ fn deprivation_stage(body: &Body, needs: &PhysicalNeeds) -> DeprivationStage {
 
     let hungry = needs.metabolism.is_weak_from_hunger()
         || needs.metabolism.is_starving()
-        || needs.hydration <= 20.0;
+        || needs.hydration.value <= 0.2;
     if hungry {
         return DeprivationStage::Hungry;
     }

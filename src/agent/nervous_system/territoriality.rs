@@ -57,7 +57,7 @@ pub fn update_territoriality(
 
         // Skip entirely for species that have no territorial instinct.
         if baseline == 0.0 {
-            drives.dominion = 1.0;
+            drives.dominion.set(1.0);
             continue;
         }
 
@@ -104,7 +104,8 @@ pub fn update_territoriality(
 
         if intruder_count == 0.0 {
             // No intruders on owned tiles — decay toward baseline (don't snap to zero).
-            drives.dominion = (drives.dominion * 0.85 + (1.0 - baseline) * 0.15).clamp(0.0, 1.0);
+            let relaxed = drives.dominion.value * 0.85 + (1.0 - baseline) * 0.15;
+            drives.dominion.set(relaxed);
             continue;
         }
 
@@ -121,9 +122,9 @@ pub fn update_territoriality(
         let aggression = 1.0 - personality.traits.agreeableness;
         let personality_mod = 0.7 + aggression * 0.6;
 
-        drives.dominion = (1.0
-            - (baseline * intrusion_factor * kin_support * personality_mod).clamp(0.0, 1.0))
-        .clamp(0.0, 1.0);
+        let dominion_value =
+            1.0 - (baseline * intrusion_factor * kin_support * personality_mod).clamp(0.0, 1.0);
+        drives.dominion.set(dominion_value);
     }
 }
 

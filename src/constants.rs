@@ -78,7 +78,8 @@ pub mod actions {
 
     pub mod drink {
         pub const DURATION_TICKS: u32 = 15;
-        pub const THIRST_REDUCTION: f32 = 50.0;
+        /// How much hydration (0..1 Need satisfaction) one Drink grants.
+        pub const THIRST_REDUCTION: f32 = 0.5;
         pub const STAMINA_GAIN: f32 = 5.0;
     }
 
@@ -177,17 +178,18 @@ pub mod brains {
 
     pub mod wakefulness {
         /// Base adenosine-like decay rate per rate-second while awake.
-        /// Tuned so wakefulness goes from 1.0 to ~0.15 across ~16 game
-        /// hours of awake time (960 rate-seconds at 60 tps), letting
-        /// circadian boost nudge the crossover to land in the late-night
-        /// window (22:00–02:00) on a noon-start day.
-        pub const ADENOSINE_RATE: f32 = 0.00089;
+        /// Tuned against a 06:00 start so wakefulness drops to the
+        /// sleepiness-winning threshold around 22:00 — ~16 game-hours
+        /// awake — and 8h of sleep lands wake-up near 06:00 the next
+        /// morning. The circadian boost nudges evening drain up so
+        /// bedtime doesn't drift too far past 22:00.
+        pub const ADENOSINE_RATE: f32 = 0.00066;
         /// Sleep restore rate per rate-second while Sleep action is active.
-        /// Tuned so a full sleep bout from the typical bedtime wakefulness
-        /// (~0.30, not 0.15 — agents rarely stay up past exhaustion) up to
-        /// the 0.95 wake threshold takes ~8 game hours, matching real-life
-        /// human sleep duration.
-        pub const SLEEP_RESTORE_RATE: f32 = 0.00135;
+        /// Tuned so a full sleep bout from bedtime wakefulness (~0.1)
+        /// up to the 0.95 wake threshold takes ~8 game hours — agents
+        /// sleep from roughly 00:00 to 08:00, matching real-life human
+        /// sleep duration.
+        pub const SLEEP_RESTORE_RATE: f32 = 0.00148;
         /// How much the circadian cycle amplifies wakefulness decay at night.
         /// At full darkness (light = 0.3): effective multiplier = 1.0 + 1.0 * 0.7 = 1.7x.
         /// At full daylight (light = 1.0): multiplier = 1.0 (no change).

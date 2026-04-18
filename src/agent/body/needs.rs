@@ -9,6 +9,7 @@ use bevy::prelude::*;
 
 use crate::agent::actions::ActionType;
 use crate::agent::body::metabolism::Metabolism;
+use crate::agent::body::need::Need;
 
 /// Physical fatigue with two biologically-inspired sub-pools.
 ///
@@ -157,33 +158,24 @@ impl Stamina {
 
 /// Physical needs - THE source of truth for survival needs
 /// All agents have this
-#[derive(Component, Reflect, Debug, Clone)]
+#[derive(Component, Reflect, Debug, Clone, Default)]
 #[reflect(Component)]
 pub struct PhysicalNeeds {
     /// Nutrient / energy loop: stomach (carbs+fat) -> glucose -> reserves.
     /// Replaces the flat `hunger` scalar; see `metabolism.rs` for the model.
     pub metabolism: Metabolism,
-    /// 0..100 hydration — high is good. Drains toward 0 over time,
-    /// refills to 100 when the agent drinks. Replaces the old
-    /// `thirst` field which stored the inverse (high = parched).
-    pub hydration: f32,
+    /// Hydration as a `Need` in `0..1` (high = hydrated). Drains at
+    /// `BMR_HYDRATION_DRAIN_PER_SEC` via `tick_metabolism`, tops up when
+    /// the agent drinks. Urgency::Thirst reads the deficit. Default is
+    /// `Need::full()` via `Need::default`.
+    pub hydration: Need,
     pub stamina: Stamina,
-    /// Homeostatic sleep pressure (adenosine analogue). 1.0 = fully rested,
-    /// 0.0 = must sleep. Decays while awake, accelerates at night (circadian),
-    /// and restores during Sleep. Independent of stamina — a desk worker
-    /// gets sleepy without running a marathon.
-    pub wakefulness: f32,
-}
-
-impl Default for PhysicalNeeds {
-    fn default() -> Self {
-        Self {
-            metabolism: Metabolism::default(),
-            hydration: 100.0,
-            stamina: Stamina::default(),
-            wakefulness: 1.0,
-        }
-    }
+    /// Homeostatic sleep pressure (adenosine analogue) as a `Need` in
+    /// `0..1`. 1.0 = fully rested, 0.0 = must sleep. Decays while awake,
+    /// accelerates at night (circadian), restores during Sleep.
+    /// Independent of stamina — a desk worker gets sleepy without
+    /// running a marathon. Default is `Need::full()`.
+    pub wakefulness: Need,
 }
 
 impl PhysicalNeeds {
@@ -192,6 +184,20 @@ impl PhysicalNeeds {
     /// the underlying pool weights stay in one place (`Metabolism::hunger_urgency`).
     pub fn hunger_urgency(&self) -> f32 {
         self.metabolism.hunger_urgency()
+    }
+
+    /// "Just woke up" spawn state: fasted stomach and moderately thirsty,
+    /// same as a real human rolling out of bed after 8 hours of sleep.
+    /// Used by `spawn_person` for the game's initial population; tests
+    /// keep the generous `Default` (full everything) for fixture
+    /// simplicity.
+    pub fn just_woke_up() -> Self {
+        Self {
+            metabolism: Metabolism::morning_fasted(),
+            hydration: Need::new(0.55),
+            stamina: Stamina::default(),
+            wakefulness: Need::full(),
+        }
     }
 }
 
@@ -233,23 +239,23 @@ pub struct SocialDriveOverride(pub f32);
 #[reflect(Component)]
 pub struct PsychologicalDrives {
     /// Social satisfaction. 1.0 = recently connected, 0.0 = desperately lonely.
-    pub companionship: f32,
+    pub companionship: Need,
     /// Playful enjoyment. 1.0 = content, 0.0 = bored.
-    pub enjoyment: f32,
+    pub enjoyment: Need,
     /// Mental stimulation. 1.0 = engaged, 0.0 = starved for novelty.
-    pub stimulation: f32,
+    pub stimulation: Need,
     /// Social standing. 1.0 = respected, 0.0 = disrespected / low-status.
-    pub esteem: f32,
+    pub esteem: Need,
     /// Felt safety. 1.0 = secure, 0.0 = threatened.
-    pub safety: f32,
+    pub safety: Need,
     /// Sense of freedom. 1.0 = self-directed, 0.0 = constrained.
-    pub autonomy: f32,
+    pub autonomy: Need,
     /// Territorial control. 1.0 = uncontested (no intruders),
     /// 0.0 = actively defending against an intruder. Updated each tick
     /// by the territoriality system based on perceived intruders.
     /// Species baseline from `SpeciesProfile::territoriality_baseline`
     /// determines the floor when threats are present.
-    pub dominion: f32,
+    pub dominion: Need,
 }
 
 impl Default for PsychologicalDrives {
@@ -257,13 +263,13 @@ impl Default for PsychologicalDrives {
         // Mid-satisfaction by default; territorial control full (no
         // threats perceived yet).
         Self {
-            companionship: 0.5,
-            enjoyment: 0.5,
-            stimulation: 0.5,
-            esteem: 0.5,
-            safety: 0.5,
-            autonomy: 0.5,
-            dominion: 1.0,
+            companionship: Need::new(0.5),
+            enjoyment: Need::new(0.5),
+            stimulation: Need::new(0.5),
+            esteem: Need::new(0.5),
+            safety: Need::new(0.5),
+            autonomy: Need::new(0.5),
+            dominion: Need::full(),
         }
     }
 }
@@ -280,20 +286,20 @@ impl PsychologicalDrives {
         Self {
             // Extraverts start unsatisfied (low companionship) so they
             // reach toward socializing sooner.
-            companionship: 1.0 - traits.extraversion,
+            companionship: Need::new(1.0 - traits.extraversion),
             // Open personalities start understimulated, driving exploration.
-            stimulation: 1.0 - traits.openness,
+            stimulation: Need::new(1.0 - traits.openness),
             // Neurotic agents feel less safe at baseline.
-            safety: 1.0 - traits.neuroticism,
+            safety: Need::new(1.0 - traits.neuroticism),
             // Conscientious agents start with lower esteem (more to prove).
-            esteem: 1.0 - traits.conscientiousness,
+            esteem: Need::new(1.0 - traits.conscientiousness),
             // Disagreeable agents start with low autonomy satisfaction
             // (feel constrained more easily).
-            autonomy: traits.agreeableness,
-            enjoyment: 0.5,
+            autonomy: Need::new(traits.agreeableness),
+            enjoyment: Need::new(0.5),
             // Starts uncontested; territoriality system lowers this when
             // intruders appear.
-            dominion: 1.0,
+            dominion: Need::full(),
         }
     }
 }
@@ -311,9 +317,9 @@ mod tests {
         };
         let drives = PsychologicalDrives::from_personality(&traits);
         assert!(
-            drives.companionship < 0.2,
+            drives.companionship.value < 0.2,
             "extraverts wake up socially unsatisfied (got {})",
-            drives.companionship
+            drives.companionship.value
         );
     }
 
@@ -325,9 +331,9 @@ mod tests {
         };
         let drives = PsychologicalDrives::from_personality(&traits);
         assert!(
-            drives.companionship > 0.8,
+            drives.companionship.value > 0.8,
             "introverts wake up content (got {})",
-            drives.companionship
+            drives.companionship.value
         );
     }
 
@@ -339,9 +345,9 @@ mod tests {
         };
         let drives = PsychologicalDrives::from_personality(&traits);
         assert!(
-            drives.stimulation < 0.2,
+            drives.stimulation.value < 0.2,
             "open agents wake up understimulated (got {})",
-            drives.stimulation
+            drives.stimulation.value
         );
     }
 
@@ -353,9 +359,9 @@ mod tests {
         };
         let drives = PsychologicalDrives::from_personality(&traits);
         assert!(
-            drives.safety < 0.2,
+            drives.safety.value < 0.2,
             "neurotic agent feels less safe at baseline (got {})",
-            drives.safety
+            drives.safety.value
         );
     }
 
@@ -367,9 +373,9 @@ mod tests {
         };
         let drives = PsychologicalDrives::from_personality(&traits);
         assert!(
-            drives.autonomy > 0.8,
+            drives.autonomy.value > 0.8,
             "agreeable agent feels high autonomy satisfaction (got {})",
-            drives.autonomy
+            drives.autonomy.value
         );
     }
 
@@ -624,10 +630,10 @@ impl StateDisplay for PhysicalNeeds {
             ),
             ("Glucose", self.metabolism.glucose, Scale::Percentage),
             ("Reserves", self.metabolism.reserves, Scale::Percentage),
-            ("Hydration", self.hydration, Scale::Percentage),
+            ("Hydration", self.hydration.value, Scale::Normalized),
             ("Aerobic", self.stamina.aerobic, Scale::Percentage),
             ("Anaerobic", self.stamina.anaerobic, Scale::Percentage),
-            ("Wakefulness", self.wakefulness, Scale::Normalized),
+            ("Wakefulness", self.wakefulness.value, Scale::Normalized),
         ]
     }
 }
@@ -647,13 +653,13 @@ impl StateDisplay for PsychologicalDrives {
     }
     fn get_values(&self) -> Vec<(&'static str, f32, Scale)> {
         vec![
-            ("Companionship", self.companionship, Scale::Normalized),
-            ("Enjoyment", self.enjoyment, Scale::Normalized),
-            ("Stimulation", self.stimulation, Scale::Normalized),
-            ("Esteem", self.esteem, Scale::Normalized),
-            ("Safety", self.safety, Scale::Normalized),
-            ("Autonomy", self.autonomy, Scale::Normalized),
-            ("Dominion", self.dominion, Scale::Normalized),
+            ("Companionship", self.companionship.value, Scale::Normalized),
+            ("Enjoyment", self.enjoyment.value, Scale::Normalized),
+            ("Stimulation", self.stimulation.value, Scale::Normalized),
+            ("Esteem", self.esteem.value, Scale::Normalized),
+            ("Safety", self.safety.value, Scale::Normalized),
+            ("Autonomy", self.autonomy.value, Scale::Normalized),
+            ("Dominion", self.dominion.value, Scale::Normalized),
         ]
     }
 }

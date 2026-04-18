@@ -160,12 +160,12 @@ pub fn decay_social_from_proximity(
         if affection_sum <= 0.0 {
             let extraversion = personality.map(|p| p.traits.extraversion).unwrap_or(0.5);
             let loneliness_rate = LONELINESS_DECAY_PER_SEC * (0.5 + extraversion);
-            drives.companionship = (drives.companionship - loneliness_rate * dt).max(0.0);
+            drives.companionship.drain(loneliness_rate * dt);
             continue;
         }
 
         let delta = SOCIAL_PROXIMITY_DECAY_PER_SEC * affection_sum * dt;
-        drives.companionship = (drives.companionship + delta).min(1.0);
+        drives.companionship.top_up(delta);
     }
 }
 

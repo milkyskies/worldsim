@@ -26,7 +26,10 @@ pub fn spawn_person<R: Rng>(
             name: display_name.clone(),
             position,
             genome: random_genome(rng, Species::Human),
-            physical_needs: PhysicalNeeds::default(),
+            // Game agents spawn in the morning (START_HOUR = 06:00) after
+            // a full night's sleep — empty stomach, moderate thirst. Tests
+            // that want fresh-well-fed agents still use `PhysicalNeeds::default()`.
+            physical_needs: PhysicalNeeds::just_woke_up(),
             cultural_knowledge,
             extra_knowledge: Vec::new(),
         },

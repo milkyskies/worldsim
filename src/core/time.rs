@@ -30,8 +30,14 @@ impl GameTime {
     /// 86,400 ticks per game day. At the default 60 real ticks/sec, 1 game day = 24 real minutes.
     pub const TICKS_PER_DAY: u64 = Self::TICKS_PER_HOUR * Self::HOURS_PER_DAY;
 
-    pub const START_HOUR: u64 = 12;
-    // 12 hours * 60 mins/hr * 60 ticks/min = 43200 ticks
+    /// Wall-clock hour the simulation begins at (both `cargo run` and
+    /// `--headless`). 6am is an early start — agents wake up hungry and
+    /// thirsty (their last meal was dinner the night before), and the
+    /// 16-hour day runs to ~22:00 when the natural sleep pressure wins.
+    pub const START_HOUR: u64 = 6;
+    /// `START_HOUR * MINUTES_PER_HOUR * SECONDS_PER_MINUTE * TICKS_PER_SECOND`
+    /// — the offset applied to raw tick counts when computing wall-clock
+    /// `hours/minutes/seconds` / `days` fields.
     pub const INITIAL_TICK_OFFSET: u64 = Self::START_HOUR
         * Self::MINUTES_PER_HOUR
         * Self::SECONDS_PER_MINUTE

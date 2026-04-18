@@ -101,11 +101,19 @@ impl Action for DrinkAction {
         }
     }
 
+    /// Block Drink when hydration is already ≥ 95%. Without this the
+    /// rational brain can chain-fire Drink every duration cycle while
+    /// the agent stands next to water.
+    fn satiation(&self, ctx: &ActionContext) -> Option<(crate::agent::body::need::NeedKind, f32)> {
+        let physical = ctx.physical?;
+        Some((
+            crate::agent::body::need::NeedKind::Thirst,
+            physical.hydration.value,
+        ))
+    }
+
     fn on_complete(&self, ctx: &mut CompletionContext) {
-        // THIRST_REDUCTION is the legacy "how much thirst drops" value.
-        // Hydration is the inverted satisfaction, so Drink adds that
-        // much hydration (clamped to 100).
-        ctx.physical.hydration = (ctx.physical.hydration + THIRST_REDUCTION).min(100.0);
+        ctx.physical.hydration.top_up(THIRST_REDUCTION);
         ctx.physical.stamina.adjust_aerobic(STAMINA_GAIN);
     }
 
@@ -188,15 +196,15 @@ mod tests {
 
         let agent = world.spawn_agent(AgentConfig {
             pos: Vec2::new(40.0, 40.0),
-            hydration: 10.0,
+            hydration: 0.1,
             ..Default::default()
         });
 
         world.tick(200);
 
         assert!(
-            world.agent_thirst(agent) < 50.0,
-            "Agent should have drunk water and reduced thirst, but thirst is {:.0}",
+            world.agent_thirst(agent) < 0.5,
+            "Agent should have drunk water and reduced thirst, but thirst is {:.2}",
             world.agent_thirst(agent),
         );
     }

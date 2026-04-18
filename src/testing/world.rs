@@ -1176,9 +1176,9 @@ impl TestWorld {
         self.get::<PhysicalNeeds>(agent).hunger_urgency()
     }
 
-    /// Returns the agent's thirst value (0.0–100.0).
+    /// Returns the agent's thirst (hydration deficit) as a `0..1` fraction.
     pub fn agent_thirst(&self, agent: Entity) -> f32 {
-        100.0 - self.get::<PhysicalNeeds>(agent).hydration
+        self.get::<PhysicalNeeds>(agent).hydration.deficit()
     }
 
     /// Returns the agent's aerobic stamina value (0.0–aerobic_max).
@@ -1195,7 +1195,7 @@ impl TestWorld {
 
     /// Returns the agent's wakefulness (0.0 = must sleep, 1.0 = fully rested).
     pub fn agent_wakefulness(&self, agent: Entity) -> f32 {
-        self.get::<PhysicalNeeds>(agent).wakefulness
+        self.get::<PhysicalNeeds>(agent).wakefulness.value
     }
 
     /// Returns true if the entity carries any of the given concept in its inventory.
@@ -1324,12 +1324,12 @@ impl TestWorld {
                 .get::<crate::agent::biology::body::Body>(agent)
                 .map_or(1.0, |b| b.overall_health());
             eprintln!(
-                "  Vitals:    health={:.1}%  thirst={:.1}  stamina(a/an)={:.1}/{:.1}  wakefulness={:.2}",
+                "  Vitals:    health={:.1}%  thirst={:.2}  stamina(a/an)={:.1}/{:.1}  wakefulness={:.2}",
                 body_health * 100.0,
-                100.0 - needs.hydration,
+                needs.hydration.deficit(),
                 needs.stamina.aerobic,
                 needs.stamina.anaerobic,
-                needs.wakefulness
+                needs.wakefulness.value
             );
             eprintln!(
                 "  Metabolism: stomach(c/f)={:.1}/{:.1}  glucose={:.1}/100  reserves={:.0}/500  hunger={:.2}{}",
@@ -1657,12 +1657,12 @@ impl TestWorld {
         if let Some(drives) = world.get::<PsychologicalDrives>(agent) {
             eprintln!(
                 "  Drives:    social={:.2}  fun={:.2}  curiosity={:.2}  status={:.2}  security={:.2}  autonomy={:.2}",
-                1.0 - drives.companionship,
-                1.0 - drives.enjoyment,
-                1.0 - drives.stimulation,
-                1.0 - drives.esteem,
-                1.0 - drives.safety,
-                1.0 - drives.autonomy
+                drives.companionship.deficit(),
+                drives.enjoyment.deficit(),
+                drives.stimulation.deficit(),
+                drives.esteem.deficit(),
+                drives.safety.deficit(),
+                drives.autonomy.deficit()
             );
         }
 
@@ -2187,7 +2187,7 @@ impl TestWorld {
                     }
                     eprintln!(
                         "  wakefulness: {:.3}  (sleeping: {})",
-                        needs.wakefulness, is_sleeping
+                        needs.wakefulness.value, is_sleeping
                     );
                 }
             }
@@ -2888,9 +2888,9 @@ mod tests {
 
         let drives = world.get::<PsychologicalDrives>(deer);
         assert!(
-            drives.companionship < 0.4,
+            drives.companionship.value < 0.4,
             "extrovert genome should yield low baseline companionship (waking up lonely), got {}",
-            drives.companionship
+            drives.companionship.value
         );
     }
 

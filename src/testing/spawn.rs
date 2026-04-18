@@ -68,12 +68,12 @@ pub(super) fn spawn_test_person(
             genome: config.genome,
             physical_needs: PhysicalNeeds {
                 metabolism: config.metabolism.clone(),
-                hydration: config.hydration,
+                hydration: crate::agent::body::need::Need::new(config.hydration),
                 stamina: crate::agent::body::needs::Stamina {
                     aerobic: config.stamina,
                     ..Default::default()
                 },
-                wakefulness: config.wakefulness,
+                wakefulness: crate::agent::body::need::Need::new(config.wakefulness),
             },
             cultural_knowledge,
             extra_knowledge,

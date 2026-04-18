@@ -301,7 +301,7 @@ pub fn develop_phenotype_system(
             // Override stores legacy "social drive" semantics
             // (0 = satisfied, 1 = lonely). Invert to the new
             // satisfaction-based `companionship` field.
-            drives.companionship = 1.0 - *v;
+            drives.companionship.set(1.0 - *v);
         }
 
         sim_events.write(SimEvent::PhenotypeDeveloped {

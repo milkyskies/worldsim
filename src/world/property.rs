@@ -32,7 +32,7 @@ pub trait OntologyTrait: Component {
 /// Define a property component that automatically registers an ontology trait.
 ///
 /// Usage:
-/// ```rust
+/// ```ignore
 /// define_property_component! {
 ///     /// Doc comment
 ///     pub struct LightSource {

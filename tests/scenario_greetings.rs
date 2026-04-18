@@ -158,7 +158,8 @@ fn greeting_bumps_companionship() {
         .world()
         .get::<PsychologicalDrives>(alice)
         .expect("alice should have PsychologicalDrives")
-        .companionship;
+        .companionship
+        .value;
 
     // Run enough ticks for a greeting to fire (check interval = 60).
     world.tick(120);
@@ -168,7 +169,8 @@ fn greeting_bumps_companionship() {
         .world()
         .get::<PsychologicalDrives>(alice)
         .expect("alice should have PsychologicalDrives")
-        .companionship;
+        .companionship
+        .value;
 
     // Companionship should have increased (from greeting + flocking proximity).
     assert!(
