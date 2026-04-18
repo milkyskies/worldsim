@@ -37,12 +37,14 @@ impl Plugin for BrainPlugin {
                     brain_system::arbitrate_every_tick,
                 )
                     .chain()
+                    .in_set(crate::core::PerfBucket::Brain)
                     .after(crate::agent::nervous_system::urgency::generate_urgency)
                     .run_if(not_paused),
             )
             .add_systems(
                 FixedUpdate,
                 history::update_brain_history
+                    .in_set(crate::core::PerfBucket::Brain)
                     .after(crate::agent::nervous_system::execution::apply_action_effects)
                     .run_if(not_paused),
             )

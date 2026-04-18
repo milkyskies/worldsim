@@ -113,6 +113,7 @@ impl Plugin for AgentPlugin {
                     crate::world::emits_effect::emits_effect_system
                         .after(crate::world::becomes::becomes_system),
                 )
+                    .in_set(crate::core::PerfBucket::Action)
                     .run_if(not_paused),
             )
             .add_systems(
@@ -137,6 +138,7 @@ impl Plugin for AgentPlugin {
                     mind::theory_of_mind::update_shared_experience_tom
                         .after(mind::perception::write_perceptions_to_mind),
                 )
+                    .in_set(crate::core::PerfBucket::Perception)
                     .run_if(not_paused),
             )
             .add_systems(
@@ -147,6 +149,16 @@ impl Plugin for AgentPlugin {
                     mind::memory::process_working_memory,
                     mind::memory::decay_stale_knowledge,
                     mind::consolidation::consolidate_knowledge,
+                    mind::knowledge::drain_mindgraph_mutations
+                        .after(mind::memory::process_perception)
+                        .after(mind::memory::decay_stale_knowledge),
+                )
+                    .in_set(crate::core::PerfBucket::Memory)
+                    .run_if(not_paused),
+            )
+            .add_systems(
+                FixedUpdate,
+                (
                     psyche::emotions::decay_emotions,
                     psyche::emotions::update_mood,
                     psyche::emotions::update_stress,
@@ -158,17 +170,23 @@ impl Plugin for AgentPlugin {
                         .after(brains::brain_system::arbitrate_every_tick),
                     psyche::greetings::social_acknowledgments
                         .after(psyche::flocking::decay_social_from_proximity),
+                )
+                    .in_set(crate::core::PerfBucket::Psyche)
+                    .run_if(not_paused),
+            )
+            .add_systems(
+                FixedUpdate,
+                (
                     skills::skill_progression_system.after(nervous_system::execution::tick_actions),
                     skills::decay_skills_system,
-                    mind::knowledge::drain_mindgraph_mutations
-                        .after(mind::memory::process_perception)
-                        .after(mind::memory::decay_stale_knowledge),
                 )
+                    .in_set(crate::core::PerfBucket::Skills)
                     .run_if(not_paused),
             )
             .add_systems(
                 FixedUpdate,
                 item_slots::freshness_decay_system
+                    .in_set(crate::core::PerfBucket::Biology)
                     .run_if(every_n_ticks(100))
                     .run_if(not_paused),
             )

@@ -1,6 +1,7 @@
 pub mod camera;
 pub mod hud;
 pub mod overlays;
+pub mod perf_overlay;
 pub mod status_icons;
 // pub mod inspector; // Merged for now to simplify migration
 
@@ -44,6 +45,7 @@ impl Plugin for UiPlugin {
             .add_plugins(sprite_animation::SpriteAnimationPlugin)
             .add_plugins(status_icons::StatusIconPlugin)
             .add_plugins(character_sheet::CharacterSheetPlugin)
+            .add_plugins(perf_overlay::PerfOverlayPlugin)
             .init_resource::<UiState>()
             .init_resource::<DebugUiEnabled>()
             .init_resource::<debug_knowledge::KnowledgeInspectorState>()
