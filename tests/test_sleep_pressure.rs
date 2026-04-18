@@ -313,7 +313,7 @@ fn agent_sleeps_at_night_and_wakes_during_day() {
     //
     // Game timing: tick 0 = 12:00 noon. Night starts ~20:00 (tick 28800).
     // One full day = 86400 ticks. We simulate 1.5 days. Water strip at x=0
-    // so alice doesn't die of thirst during the multi-day run.
+    // and berry bushes so alice has both food and drink across the run.
     let (mut world, agents) = TestWorld::scenario(42)
         .map_size(32, 32)
         .noise_biomes(false)
@@ -322,6 +322,7 @@ fn agent_sleeps_at_night_and_wakes_during_day() {
         .pos(Vec2::new(50.0, 50.0))
         .wakefulness(1.0)
         .done()
+        .berry_bushes(6, Vec2::new(50.0, 50.0))
         .build();
     let alice = agents["alice"];
 

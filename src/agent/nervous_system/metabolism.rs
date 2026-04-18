@@ -52,12 +52,16 @@ pub fn tick_metabolism(
         );
 
         // Sleeping agents lose less water: no sweat, slower breathing, and no
-        // renal activity driven by movement. Match the real ~40% reduction by
-        // scaling by the same consciousness_factor as the BMR glucose drain
-        // — so the "severe dehydration disturbs sleep" threshold isn't
-        // crossed during a normal 6-8 game-hour bout.
-        physical.hydration =
-            (physical.hydration - BMR_HYDRATION_DRAIN_PER_SEC * consciousness_factor * dt).max(0.0);
+        // renal activity driven by movement. Real biology drops hydration loss
+        // by ~40-60%, but BMR_HYDRATION_DRAIN_PER_SEC is tuned aggressively
+        // for awake gameplay (drink-every-1.5h) so the 60% awake rate would
+        // still empty a full pool within a normal 6-8h bout. A dedicated
+        // hydration-sleep multiplier lets the agent finish the night without
+        // the emergency-wake pathway firing.
+        let hydration_sleep_factor = 0.3 + 0.7 * consciousness.alertness;
+        physical.hydration = (physical.hydration
+            - BMR_HYDRATION_DRAIN_PER_SEC * hydration_sleep_factor * dt)
+            .max(0.0);
 
         // Slow passive anaerobic refill so a Flee sprint doesn't leave
         // the pool stuck at 0 forever. The rate is low enough that the

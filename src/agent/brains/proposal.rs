@@ -127,6 +127,13 @@ pub struct BrainState {
     /// All actions admitted this tick - parallel runs if channels are compatible.
     #[reflect(ignore)]
     pub chosen_actions: Vec<ActionTemplate>,
+    /// Fingerprint of the admitted (brain, action_name) set the last time we
+    /// wrote a brain log line. Used to suppress per-tick "still doing the same
+    /// thing" spam — we only emit a new log when the set of admitted actions
+    /// changes. `None` forces the next tick to log (fresh-spawned agents,
+    /// entities whose admitted set went empty last tick).
+    #[reflect(ignore)]
+    pub last_logged: Option<Vec<(BrainType, String)>>,
 }
 
 impl BrainState {
