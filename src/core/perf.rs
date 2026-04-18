@@ -76,6 +76,116 @@ impl PerfBucket {
     ];
 }
 
+/// Finer-grained groups inside a parent [`PerfBucket`]. Only the parents
+/// that hide something interesting are subdivided — the cheap uniform
+/// buckets (skills, biology, psyche, communication) stay flat. Each variant
+/// is a [`SystemSet`] that individual systems opt into with
+/// `.in_set(PerfSubBucket::X)` *alongside* the parent `.in_set(PerfBucket::Y)`.
+#[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum PerfSubBucket {
+    // Perception ————————————————————————————————————
+    /// N² visibility checks + writing perceptions back to the mind graph.
+    /// Usually the heaviest perception cost.
+    PerceptionVisual,
+    /// Cheap scans: body, tile sensing (water/grass), temperature, hearing,
+    /// danger reaction.
+    PerceptionSensory,
+    /// Social recognition + theory-of-mind updates.
+    PerceptionSocial,
+
+    // Memory ————————————————————————————————————————
+    /// Working-memory bookkeeping: perception ingest, WM tick, decay,
+    /// belief updates from action outcomes.
+    MemoryWmTick,
+    /// WM → MindGraph consolidation pass.
+    MemoryConsolidation,
+    /// Draining pending triple mutations into the MindGraph.
+    MemoryMindgraphDrain,
+
+    // Brain —————————————————————————————————————————
+    /// CNS urgency/drive generation.
+    BrainUrgency,
+    /// Rational brain A* planner.
+    BrainPlanning,
+    /// Arbitration between survival / emotional / rational proposals.
+    BrainArbitration,
+    /// Brain history bookkeeping.
+    BrainHistory,
+
+    // Action ————————————————————————————————————————
+    /// Starting, ticking, and applying effects of running actions.
+    ActionExecution,
+    /// World-side mutations: labor accumulation, `becomes`, emitted effects.
+    ActionWorldMutation,
+}
+
+impl PerfSubBucket {
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::PerceptionVisual => "visual",
+            Self::PerceptionSensory => "sensory",
+            Self::PerceptionSocial => "social",
+            Self::MemoryWmTick => "wm_tick",
+            Self::MemoryConsolidation => "consolidation",
+            Self::MemoryMindgraphDrain => "mindgraph_drain",
+            Self::BrainUrgency => "urgency",
+            Self::BrainPlanning => "planning",
+            Self::BrainArbitration => "arbitration",
+            Self::BrainHistory => "history",
+            Self::ActionExecution => "execution",
+            Self::ActionWorldMutation => "world_mutation",
+        }
+    }
+
+    pub const fn parent(self) -> PerfBucket {
+        match self {
+            Self::PerceptionVisual | Self::PerceptionSensory | Self::PerceptionSocial => {
+                PerfBucket::Perception
+            }
+            Self::MemoryWmTick | Self::MemoryConsolidation | Self::MemoryMindgraphDrain => {
+                PerfBucket::Memory
+            }
+            Self::BrainUrgency
+            | Self::BrainPlanning
+            | Self::BrainArbitration
+            | Self::BrainHistory => PerfBucket::Brain,
+            Self::ActionExecution | Self::ActionWorldMutation => PerfBucket::Action,
+        }
+    }
+
+    const fn index(self) -> usize {
+        match self {
+            Self::PerceptionVisual => 0,
+            Self::PerceptionSensory => 1,
+            Self::PerceptionSocial => 2,
+            Self::MemoryWmTick => 3,
+            Self::MemoryConsolidation => 4,
+            Self::MemoryMindgraphDrain => 5,
+            Self::BrainUrgency => 6,
+            Self::BrainPlanning => 7,
+            Self::BrainArbitration => 8,
+            Self::BrainHistory => 9,
+            Self::ActionExecution => 10,
+            Self::ActionWorldMutation => 11,
+        }
+    }
+
+    pub const ALL: [PerfSubBucket; 12] = [
+        Self::PerceptionVisual,
+        Self::PerceptionSensory,
+        Self::PerceptionSocial,
+        Self::MemoryWmTick,
+        Self::MemoryConsolidation,
+        Self::MemoryMindgraphDrain,
+        Self::BrainUrgency,
+        Self::BrainPlanning,
+        Self::BrainArbitration,
+        Self::BrainHistory,
+        Self::ActionExecution,
+        Self::ActionWorldMutation,
+    ];
+}
+
 /// Fixed-capacity ring buffer of per-tick durations. Keeps an incremental
 /// running sum so `avg()` is O(1) instead of scanning the whole buffer — on a
 /// tool that measures hot paths, paying 120 `Duration` additions every snapshot
@@ -147,6 +257,7 @@ impl BucketData {
 #[derive(Resource)]
 pub struct PerfTracker {
     buckets: [BucketData; 8],
+    sub_buckets: [BucketData; 12],
     total: RollingWindow,
     total_in_flight: Option<Instant>,
 }
@@ -155,6 +266,7 @@ impl PerfTracker {
     pub fn new(capacity: usize) -> Self {
         Self {
             buckets: std::array::from_fn(|_| BucketData::new(capacity)),
+            sub_buckets: std::array::from_fn(|_| BucketData::new(capacity)),
             total: RollingWindow::new(capacity),
             total_in_flight: None,
         }
@@ -171,6 +283,18 @@ impl PerfTracker {
         // runtime bug worth panicking over.
         if let Some(start) = self.buckets[bucket.index()].in_flight.take() {
             self.buckets[bucket.index()].window.push(start.elapsed());
+        }
+    }
+
+    pub fn mark_sub_start(&mut self, bucket: PerfSubBucket) {
+        self.sub_buckets[bucket.index()].in_flight = Some(Instant::now());
+    }
+
+    pub fn mark_sub_end(&mut self, bucket: PerfSubBucket) {
+        if let Some(start) = self.sub_buckets[bucket.index()].in_flight.take() {
+            self.sub_buckets[bucket.index()]
+                .window
+                .push(start.elapsed());
         }
     }
 
@@ -193,13 +317,14 @@ impl PerfTracker {
     }
 
     /// Snapshot sorted by avg descending — the UI wants the heaviest bucket
-    /// on top without having to re-sort client-side.
+    /// on top without having to re-sort client-side. Sub-buckets are sorted
+    /// independently (descending within each parent).
     pub fn snapshot(&self) -> PerfSnapshot {
         let total_avg = self.total.avg();
         let total_max = self.total.max();
         let tick_budget_us = total_avg.as_secs_f64() * 1_000_000.0;
 
-        let mut rows: Vec<BucketStats> = PerfBucket::ALL
+        let mut buckets: Vec<BucketStats> = PerfBucket::ALL
             .iter()
             .map(|bucket| {
                 let data = &self.buckets[bucket.index()];
@@ -218,18 +343,57 @@ impl PerfTracker {
                 }
             })
             .collect();
-
-        rows.sort_by(|a, b| {
+        buckets.sort_by(|a, b| {
             b.avg_us
                 .partial_cmp(&a.avg_us)
                 .unwrap_or(std::cmp::Ordering::Equal)
+        });
+
+        let mut sub_buckets: Vec<SubBucketStats> = PerfSubBucket::ALL
+            .iter()
+            .map(|sub| {
+                let data = &self.sub_buckets[sub.index()];
+                let avg_us = data.window.avg().as_secs_f64() * 1_000_000.0;
+                let max_us = data.window.max().as_secs_f64() * 1_000_000.0;
+                let pct_of_tick = if tick_budget_us > 0.0 {
+                    (avg_us / tick_budget_us) * 100.0
+                } else {
+                    0.0
+                };
+                SubBucketStats {
+                    parent: sub.parent().label(),
+                    name: sub.label(),
+                    avg_us,
+                    max_us,
+                    pct_of_tick,
+                }
+            })
+            .collect();
+        // Sort: primary by parent's rank in `buckets`, secondary by avg desc
+        // within the parent. That way consumers can iterate sub_buckets and
+        // naturally get parent-grouped, heaviest-first rows without doing
+        // their own grouping.
+        let parent_rank: std::collections::HashMap<&'static str, usize> = buckets
+            .iter()
+            .enumerate()
+            .map(|(i, b)| (b.name, i))
+            .collect();
+        sub_buckets.sort_by(|a, b| {
+            let ra = parent_rank.get(a.parent).copied().unwrap_or(usize::MAX);
+            let rb = parent_rank.get(b.parent).copied().unwrap_or(usize::MAX);
+            ra.cmp(&rb).then_with(|| {
+                b.avg_us
+                    .partial_cmp(&a.avg_us)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
         });
 
         PerfSnapshot {
             total_avg_us: total_avg.as_secs_f64() * 1_000_000.0,
             total_max_us: total_max.as_secs_f64() * 1_000_000.0,
             samples: self.total.len(),
-            buckets: rows,
+            buckets,
+            sub_buckets,
         }
     }
 }
@@ -243,11 +407,21 @@ pub struct BucketStats {
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
+pub struct SubBucketStats {
+    pub parent: &'static str,
+    pub name: &'static str,
+    pub avg_us: f64,
+    pub max_us: f64,
+    pub pct_of_tick: f64,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct PerfSnapshot {
     pub total_avg_us: f64,
     pub total_max_us: f64,
     pub samples: usize,
     pub buckets: Vec<BucketStats>,
+    pub sub_buckets: Vec<SubBucketStats>,
 }
 
 impl PerfSnapshot {
@@ -270,14 +444,20 @@ impl PerfSnapshot {
             self.sum_bucket_avg_us(),
         ));
         out.push_str(&format!(
-            "{:<14} {:>10} {:>10} {:>8}\n",
+            "{:<20} {:>10} {:>10} {:>8}\n",
             "system", "avg µs", "max µs", "% tick"
         ));
-        for row in &self.buckets {
+        for parent in &self.buckets {
             out.push_str(&format!(
-                "{:<14} {:>10.1} {:>10.1} {:>7.1}%\n",
-                row.name, row.avg_us, row.max_us, row.pct_of_tick
+                "{:<20} {:>10.1} {:>10.1} {:>7.1}%\n",
+                parent.name, parent.avg_us, parent.max_us, parent.pct_of_tick
             ));
+            for child in self.sub_buckets.iter().filter(|s| s.parent == parent.name) {
+                out.push_str(&format!(
+                    "  └ {:<16} {:>10.1} {:>10.1} {:>7.1}%\n",
+                    child.name, child.avg_us, child.max_us, child.pct_of_tick
+                ));
+            }
         }
         out
     }
@@ -309,6 +489,13 @@ impl Plugin for PerfPlugin {
             let end = move |mut t: ResMut<PerfTracker>| t.mark_end(bucket);
             app.add_systems(FixedUpdate, begin.before(bucket))
                 .add_systems(FixedUpdate, end.after(bucket));
+        }
+
+        for sub in PerfSubBucket::ALL {
+            let begin = move |mut t: ResMut<PerfTracker>| t.mark_sub_start(sub);
+            let end = move |mut t: ResMut<PerfTracker>| t.mark_sub_end(sub);
+            app.add_systems(FixedUpdate, begin.before(sub))
+                .add_systems(FixedUpdate, end.after(sub));
         }
     }
 }

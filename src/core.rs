@@ -22,7 +22,8 @@ pub use field_logger::{
 };
 pub use log::GameLog;
 pub use perf::{
-    BucketStats, PerfBucket, PerfOverlayEnabled, PerfPlugin, PerfSnapshot, PerfTracker,
+    BucketStats, PerfBucket, PerfOverlayEnabled, PerfPlugin, PerfSnapshot, PerfSubBucket,
+    PerfTracker, SubBucketStats,
 };
 pub use sim_rng::SimRng;
 pub use tick::{TickCount, every_n_ticks, not_paused};

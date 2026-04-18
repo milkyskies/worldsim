@@ -24,6 +24,9 @@ Read these files for current API and flag definitions — don't trust documented
 - `src/agent/body/contributions.rs` — shared metabolism contributor breakdown (used by `--why` and `:why`)
 - `src/agent/brains/trace.rs` — decision trace ring buffer and config
 - `src/testing/world.rs` — `TestWorld` inspection methods (work in tests AND in the headless runner setup)
+- `src/core/perf.rs` — per-system tick timer (`PerfTracker`, `PerfBucket` + `PerfSubBucket`), drives the F3 overlay and `--perf` output
+- `src/ui/perf_overlay.rs` — F3 overlay renderer
+- `docs/perf_overlay.md` — user-facing explanation of the overlay, bucket list, and the latency-vs-CPU-time caveat
 
 ## Debug output location
 
@@ -324,7 +327,27 @@ cat /tmp/worldsim/debug/alice/fields.jsonl | jq 'select(.actions[0].type != .act
 cat /tmp/worldsim/debug/alice/fields.jsonl | jq 'select(.needs.hunger > 0.5) | .tick' | head -1
 ```
 
-### 5. TestWorld inspection methods — when debugging from inside a test
+### 5. Per-system tick timer (`--perf` / F3) — for "which system is slow?"
+
+Headless `--perf` collects per-bucket wall-clock timings every tick and prints a sorted Minecraft-F3-style table every N ticks. Parent buckets (perception / memory / psyche / skills / biology / brain / communication / action) expand into sub-buckets where it matters (brain → urgency / planning / arbitration / history, perception → visual / sensory / social, memory → wm_tick / consolidation / mindgraph_drain, action → execution / world_mutation).
+
+```bash
+# Collect timings for 5000 ticks, print every 1000, and dump the final snapshot into the report JSON
+mkdir -p debug/perf
+cargo run --release -- --headless --game-defaults --seed 42 --ticks 5000 \
+  --perf --perf-every 1000 --report 2> debug/perf/perf.log > debug/perf/report.json
+
+# The same table is live in the windowed app: press F3 in the running game.
+```
+
+**Reading the numbers honestly.** Bucket latencies include wall-clock time spent waiting on cross-bucket `.after()` constraints, not just their own CPU work. When you see `Σ bucket avg` > `tick avg` in the header, the scheduler is giving you parallelism for free — the ranking is still trustworthy even when the percentages don't add up to 100%. See `docs/perf_overlay.md` for the full caveat.
+
+**When to reach for it:**
+- "Sim feels slow, is it the planner or consolidation?" — parent buckets rank, sub-buckets split the expensive ones.
+- "Did my refactor make the brain cheaper?" — capture `--report` before and after, diff `perf_stats`.
+- **Not for** microbenchmark regression tracking (use criterion in `benches/`) or per-agent cost (tracker is sim-wide).
+
+### 6. TestWorld inspection methods — when debugging from inside a test
 
 If you're debugging a failing test (not a headless run), call these BEFORE the failing assertion. Output goes to stderr — visible with `cargo nextest run -E 'test(name)' --no-capture` (nextest swallows output by default; `--no-capture` streams it live) or in CI logs.
 
@@ -572,6 +595,21 @@ cargo run --release -- --headless --game-defaults --seed 42 --ticks 30000 \
 ```
 
 Prints every signed per-second contributor (BMR, each running action's drain, digestion) and the net rate. The same breakdown is under "Details" on each bar in the in-game agent panel. Works for `glucose`, `stamina`, `hydration`, `stomach`, `mood`.
+
+### "Which system is eating my tick budget?"
+
+Run with `--perf` and look at the sorted table. Heaviest parent bucket on top; expand it by reading the indented `└ <sub_bucket>` rows.
+
+```bash
+mkdir -p debug/perf
+cargo run --release -- --headless --game-defaults --seed 42 --ticks 3000 \
+  --perf --perf-every 1000 --report 2> debug/perf/perf.log > debug/perf/report.json
+
+# Final snapshot is also inside the report JSON:
+jq '.perf_stats' debug/perf/report.json
+```
+
+Ranking is reliable; absolute percentages are latency-flavored (the scheduler parallelizes buckets). In the windowed app, the same data is live under F3.
 
 ### "Why can't this agent start X right now?"
 

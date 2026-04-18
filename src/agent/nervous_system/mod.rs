@@ -43,6 +43,7 @@ impl Plugin for NervousSystemPlugin {
                 FixedUpdate,
                 urgency::generate_urgency
                     .in_set(crate::core::PerfBucket::Brain)
+                    .in_set(crate::core::PerfSubBucket::BrainUrgency)
                     .after(territoriality::update_territoriality)
                     .run_if(not_paused),
             );
