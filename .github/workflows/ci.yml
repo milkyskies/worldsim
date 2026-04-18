@@ -15,12 +15,6 @@ env:
   # Fast linker for CI. .cargo/config.toml is gitignored (contains
   # per-machine absolute target-dir), so linker flags live here instead.
   RUSTFLAGS: "-D warnings -C link-arg=-fuse-ld=mold"
-  # rust-toolchain.toml pins nightly for local perf work. CI doesn't
-  # need nightly, and dtolnay/rust-toolchain installs stable below —
-  # force rustup to ignore the project file so cargo uses the stable
-  # toolchain the action set up (otherwise fmt/clippy components are
-  # missing on nightly and the job fails).
-  RUSTUP_TOOLCHAIN: stable
 
 jobs:
   rust:
@@ -29,9 +23,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Matches the rust-toolchain.toml pin so CI behaves like local dev.
+      # dtolnay/rust-toolchain falls back to the most recent nightly that
+      # actually has rustfmt + clippy when today's nightly is missing
+      # either component.
       - uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: stable
+          toolchain: nightly
           components: rustfmt, clippy
 
       - uses: Swatinem/rust-cache@v2
