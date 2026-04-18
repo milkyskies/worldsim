@@ -383,16 +383,23 @@ pub trait Action: Send + Sync + 'static {
     /// `Some((Sleep, wakefulness.value))`, Rest returns
     /// `Some((Stamina, aerobic_fraction))`.
     ///
-    /// The execution layer consumes this before calling `can_start`: when
-    /// `fullness >= kind.satiation_threshold()` the action fails with
-    /// `FailureReason::AlreadySatiated` and the brain has to wait for the
-    /// need to decay before re-proposing. This is what prevents the
-    /// chain-eat loop where Eat re-fires every 20 ticks as long as food
-    /// is in inventory.
+    /// Consumed by both the execution gate (refuse to start when
+    /// `fullness >= kind.satiation_threshold()`) and the survival brain
+    /// proposer (don't even propose an un-actable action; otherwise it
+    /// wins arbitration every tick and the agent does nothing useful
+    /// until digestion catches up).
+    ///
+    /// Takes `Option<&PhysicalNeeds>` rather than the full `ActionContext`
+    /// because satiation is a pure read against physiology — no mind
+    /// graph, world map, or target context is needed — and the brain
+    /// proposer doesn't have an `ActionContext` to pass.
     ///
     /// Actions without a single target need (Walk, Harvest, Attack, Flee)
     /// return `None` and skip the gate.
-    fn satiation(&self, _ctx: &ActionContext) -> Option<(crate::agent::body::need::NeedKind, f32)> {
+    fn satiation(
+        &self,
+        _physical: Option<&crate::agent::body::needs::PhysicalNeeds>,
+    ) -> Option<(crate::agent::body::need::NeedKind, f32)> {
         None
     }
 

@@ -131,13 +131,19 @@ pub fn start_actions(
             // targets is already close enough to full. Prevents the
             // chain-fire loop where Eat/Drink/Sleep keep re-starting
             // every time their duration elapses.
-            let satiation_failure = action_def.satiation(&ctx).and_then(|(kind, fullness)| {
-                if fullness >= kind.satiation_threshold() {
-                    Some(crate::agent::events::FailureReason::AlreadySatiated { kind, fullness })
-                } else {
-                    None
-                }
-            });
+            let satiation_failure =
+                action_def
+                    .satiation(ctx.physical)
+                    .and_then(|(kind, fullness)| {
+                        if fullness >= kind.satiation_threshold() {
+                            Some(crate::agent::events::FailureReason::AlreadySatiated {
+                                kind,
+                                fullness,
+                            })
+                        } else {
+                            None
+                        }
+                    });
             let can_start_result = match satiation_failure {
                 Some(reason) => Err(reason),
                 None => action_def.can_start(&ctx),

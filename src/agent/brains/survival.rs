@@ -67,6 +67,22 @@ pub fn survival_brain_propose(
     proposals
 }
 
+/// An action is "viable" when its satiation gate would let it start — i.e.
+/// either the action has no gate (Walk, Harvest, Attack) or the targeted
+/// need is below its satiation threshold. Proposing a non-viable action is
+/// a bug because it would win arbitration, fail at the execution gate, and
+/// starve every other proposal while digestion (or hydration, or sleep
+/// pressure) catches up.
+fn is_action_viable(
+    action: &dyn crate::agent::actions::registry::Action,
+    physical: &PhysicalNeeds,
+) -> bool {
+    match action.satiation(Some(physical)) {
+        Some((kind, fullness)) => fullness < kind.satiation_threshold(),
+        None => true,
+    }
+}
+
 fn propose_for_source(
     source: UrgencySource,
     value: f32,
@@ -90,6 +106,7 @@ fn propose_for_source(
         UrgencySource::Hunger => {
             if inventory.has_edible(ontology)
                 && let Some(action) = action_registry.get(ActionType::Eat)
+                && is_action_viable(action, context.physical)
             {
                 return Some(BrainProposal {
                     brain: BrainType::Survival,
@@ -103,6 +120,7 @@ fn propose_for_source(
         UrgencySource::Thirst => {
             if is_adjacent_to_water(context.pos, context.world_map)
                 && let Some(action) = action_registry.get(ActionType::Drink)
+                && is_action_viable(action, context.physical)
             {
                 return Some(BrainProposal {
                     brain: BrainType::Survival,
@@ -114,7 +132,9 @@ fn propose_for_source(
             }
         }
         UrgencySource::Stamina => {
-            if let Some(action) = action_registry.get(ActionType::Rest) {
+            if let Some(action) = action_registry.get(ActionType::Rest)
+                && is_action_viable(action, context.physical)
+            {
                 return Some(BrainProposal {
                     brain: BrainType::Survival,
                     action: escalated(action, None),
@@ -147,7 +167,9 @@ fn propose_for_source(
             }
         }
         UrgencySource::Sleepiness => {
-            if let Some(action) = action_registry.get(ActionType::Sleep) {
+            if let Some(action) = action_registry.get(ActionType::Sleep)
+                && is_action_viable(action, context.physical)
+            {
                 return Some(BrainProposal {
                     brain: BrainType::Survival,
                     action: action.to_template(None),
@@ -268,6 +290,39 @@ mod tests {
         cns
     }
 
+    /// Build a `PhysicalNeeds` whose target need is depleted below its
+    /// satiation threshold — i.e. the corresponding satisfier action
+    /// (Eat / Drink / Rest / Sleep) is viable. Use this in any test that
+    /// wants to assert "a hungry agent proposes Eat" etc.; the bare
+    /// `PhysicalNeeds::default()` is fully satisfied on every need and
+    /// now correctly suppresses proposals for satiation-gated actions.
+    fn needy_for(source: UrgencySource) -> PhysicalNeeds {
+        use crate::agent::body::need::Need;
+        use crate::agent::body::needs::Stamina;
+        match source {
+            UrgencySource::Hunger => PhysicalNeeds {
+                metabolism: crate::agent::body::metabolism::Metabolism::at_urgency(0.9),
+                ..Default::default()
+            },
+            UrgencySource::Thirst => PhysicalNeeds {
+                hydration: Need::new(0.1),
+                ..Default::default()
+            },
+            UrgencySource::Stamina => PhysicalNeeds {
+                stamina: Stamina {
+                    aerobic: 20.0,
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+            UrgencySource::Sleepiness => PhysicalNeeds {
+                wakefulness: Need::new(0.1),
+                ..Default::default()
+            },
+            _ => PhysicalNeeds::default(),
+        }
+    }
+
     /// Helper: find a proposal by action type from the multi-proposal Vec.
     fn find_proposal(
         proposals: &[BrainProposal],
@@ -281,7 +336,7 @@ mod tests {
     #[test]
     fn high_hunger_urgency_proposes_eat_when_food_available() {
         let ontology = setup_ontology();
-        let physical = PhysicalNeeds::default();
+        let physical = needy_for(UrgencySource::Hunger);
         let cns = cns_with_top(UrgencySource::Hunger, 0.9);
         let map = no_water_map();
         let context = context_with_urgency(&physical, &cns, Vec2::ZERO, &map);
@@ -295,6 +350,93 @@ mod tests {
 
         let proposals = survival_brain_propose(context, &inventory, &active, &ontology, &registry);
         assert!(find_proposal(&proposals, ActionType::Eat).is_some());
+    }
+
+    #[test]
+    fn hunger_with_full_stomach_does_not_propose_eat() {
+        // Full stomach but low glucose/reserves: the urgency signal is
+        // legitimately high (low blood sugar) but eating physically can't
+        // satisfy it until digestion clears the stomach. The brain must
+        // NOT propose Eat — otherwise it wins arbitration every tick and
+        // the agent stands still mashing the fork against a closed mouth.
+        let ontology = setup_ontology();
+        let physical = PhysicalNeeds {
+            metabolism: crate::agent::body::metabolism::Metabolism {
+                // stomach_fraction = 0.90 → above the 0.80 Hunger satiation gate
+                stomach_carbs: 54.0,
+                stomach_fat: 36.0,
+                // glucose + reserves below their caps to keep hunger_urgency high
+                glucose: 5.0,
+                reserves: 10.0,
+            },
+            ..Default::default()
+        };
+        let cns = cns_with_top(UrgencySource::Hunger, 0.9);
+        let map = no_water_map();
+        let context = context_with_urgency(&physical, &cns, Vec2::ZERO, &map);
+
+        let mut inventory = crate::agent::item_slots::ItemSlots::agent_carry();
+        inventory.add(crate::agent::mind::knowledge::Concept::Apple, 1);
+        let active = ActiveActions::default();
+
+        let mut registry = crate::agent::actions::ActionRegistry::default();
+        registry.register(crate::agent::actions::action::EatAction);
+
+        let proposals = survival_brain_propose(context, &inventory, &active, &ontology, &registry);
+        assert!(
+            find_proposal(&proposals, ActionType::Eat).is_none(),
+            "full stomach must suppress Eat even when hunger urgency is high; got {proposals:?}"
+        );
+    }
+
+    #[test]
+    fn thirst_with_full_hydration_does_not_propose_drink() {
+        // Hydration at 100% — the thirst gate is already closed but we
+        // synthesise a high thirst urgency in the CNS to simulate a stale
+        // urgency carried over from the previous tick.
+        let ontology = setup_ontology();
+        let physical = PhysicalNeeds {
+            hydration: crate::agent::body::need::Need::full(),
+            ..Default::default()
+        };
+        let cns = cns_with_top(UrgencySource::Thirst, 0.9);
+        let map = water_adjacent_map();
+        let context = context_with_urgency(&physical, &cns, Vec2::ZERO, &map);
+
+        let inventory = crate::agent::item_slots::ItemSlots::agent_carry();
+        let active = ActiveActions::default();
+
+        let mut registry = crate::agent::actions::ActionRegistry::default();
+        registry.register(crate::agent::actions::action::DrinkAction);
+
+        let proposals = survival_brain_propose(context, &inventory, &active, &ontology, &registry);
+        assert!(
+            find_proposal(&proposals, ActionType::Drink).is_none(),
+            "full hydration must suppress Drink; got {proposals:?}"
+        );
+    }
+
+    #[test]
+    fn stamina_fatigue_with_full_aerobic_does_not_propose_rest() {
+        let ontology = setup_ontology();
+        // Default physical already has aerobic_fraction = 1.0, above the
+        // 0.95 Stamina satiation gate — exactly the scenario we need.
+        let physical = PhysicalNeeds::default();
+        let cns = cns_with_top(UrgencySource::Stamina, 0.9);
+        let map = no_water_map();
+        let context = context_with_urgency(&physical, &cns, Vec2::ZERO, &map);
+
+        let inventory = crate::agent::item_slots::ItemSlots::agent_carry();
+        let active = ActiveActions::default();
+
+        let mut registry = crate::agent::actions::ActionRegistry::default();
+        registry.register(crate::agent::actions::action::RestAction);
+
+        let proposals = survival_brain_propose(context, &inventory, &active, &ontology, &registry);
+        assert!(
+            find_proposal(&proposals, ActionType::Rest).is_none(),
+            "full aerobic must suppress Rest; got {proposals:?}"
+        );
     }
 
     #[test]
@@ -323,7 +465,7 @@ mod tests {
     #[test]
     fn stamina_fatigue_always_proposes_rest() {
         let ontology = setup_ontology();
-        let physical = PhysicalNeeds::default();
+        let physical = needy_for(UrgencySource::Stamina);
         let inventory = crate::agent::item_slots::ItemSlots::agent_carry();
         let active = ActiveActions::default();
         let map = no_water_map();
@@ -385,7 +527,7 @@ mod tests {
     #[test]
     fn urgency_score_scales_with_urgency_value() {
         let ontology = setup_ontology();
-        let physical = PhysicalNeeds::default();
+        let physical = needy_for(UrgencySource::Hunger);
 
         let active = ActiveActions::default();
         let mut registry = crate::agent::actions::ActionRegistry::default();
@@ -538,7 +680,7 @@ mod tests {
         use crate::agent::actions::motor::{ActionPrimitive, Intent as MotorIntent};
 
         let ontology = setup_ontology();
-        let physical = PhysicalNeeds::default();
+        let physical = needy_for(UrgencySource::Hunger);
         let cns = cns_with_top(UrgencySource::Hunger, 0.9);
         let map = no_water_map();
         let context = context_with_urgency(&physical, &cns, Vec2::ZERO, &map);
@@ -604,7 +746,7 @@ mod tests {
         use crate::agent::actions::motor::IntensityPolicy;
 
         let ontology = setup_ontology();
-        let physical = PhysicalNeeds::default();
+        let physical = needy_for(UrgencySource::Thirst);
         let cns = cns_with_top(UrgencySource::Thirst, 0.3);
         let map = water_adjacent_map();
         let pos = map.tile_to_world(0, 0);
@@ -653,7 +795,7 @@ mod tests {
     #[test]
     fn survival_proposes_drink_when_water_adjacent_and_thirsty() {
         let ontology = setup_ontology();
-        let physical = PhysicalNeeds::default();
+        let physical = needy_for(UrgencySource::Thirst);
         let cns = cns_with_top(UrgencySource::Thirst, 0.9);
         let map = water_adjacent_map();
         let pos = map.tile_to_world(0, 0);
