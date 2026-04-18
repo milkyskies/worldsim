@@ -237,6 +237,19 @@ pub struct CliArgs {
     /// `duckdb -init <script> events.db`.
     #[arg(long = "debug", value_name = "RUN_DIR")]
     pub debug_dir: Option<PathBuf>,
+
+    /// Enable per-system tick timing. Prints a sorted Minecraft-F3-style
+    /// table every `--perf-every` ticks and appends `perf_stats` to the
+    /// final `--report` JSON. Only meaningful in `--headless` mode; the
+    /// windowed app always collects tick timings and renders them under
+    /// F3.
+    #[arg(long)]
+    pub perf: bool,
+
+    /// Interval between perf-table prints, in ticks. Default 500. Ignored
+    /// when `--perf` is not set.
+    #[arg(long = "perf-every", default_value_t = 500)]
+    pub perf_every: u64,
 }
 
 impl CliArgs {
@@ -271,6 +284,9 @@ impl CliArgs {
             event_log: self.build_event_log_config(),
             inspect: self.build_inspect_config(),
             field_logger: self.build_field_logger_config(),
+            perf: self.perf.then_some(crate::headless::PerfReportConfig {
+                print_every: self.perf_every.max(1),
+            }),
         }
     }
 

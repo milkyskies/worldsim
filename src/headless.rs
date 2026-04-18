@@ -16,8 +16,8 @@ use crate::agent::brains::trace::{DecisionTraceBuffer, TraceConfig, dump_trace};
 use crate::agent::mind::conversation::ConversationManager;
 use crate::agent::psyche::emotions::{EmotionType, EmotionalState};
 use crate::core::{
-    EventLogBuffer, EventLogConfig, FieldLoggerBuffer, FieldLoggerConfig, collect_event_log,
-    collect_field_log, dump_event_log, dump_field_log,
+    EventLogBuffer, EventLogConfig, FieldLoggerBuffer, FieldLoggerConfig, PerfPlugin, PerfSnapshot,
+    PerfTracker, collect_event_log, collect_field_log, dump_event_log, dump_field_log,
 };
 use crate::testing::TestWorld;
 use crate::world::map::WorldMap;
@@ -106,6 +106,36 @@ pub struct HeadlessConfig {
     pub inspect: InspectConfig,
     /// Per-tick field logger configuration. `None` disables the logger.
     pub field_logger: Option<FieldLoggerConfig>,
+    /// Per-system tick timer. `None` disables perf measurement.
+    pub perf: Option<PerfReportConfig>,
+}
+
+/// Configuration for `--perf` output. Populated when the user passes
+/// `--perf` on the headless CLI.
+#[derive(Debug, Clone, bevy::prelude::Resource)]
+pub struct PerfReportConfig {
+    /// Print the current perf table every N ticks. `1` prints every tick.
+    pub print_every: u64,
+}
+
+/// Prints the live perf snapshot to stderr every `PerfReportConfig::print_every`
+/// ticks. Runs in the `Last` schedule so all bucket measurements for the
+/// current tick are already in the rolling window.
+fn print_perf_table(
+    tick: bevy::prelude::Res<crate::core::TickCount>,
+    tracker: bevy::prelude::Res<PerfTracker>,
+    config: bevy::prelude::Res<PerfReportConfig>,
+) {
+    let current = tick.current;
+    if current == 0 || !current.is_multiple_of(config.print_every) {
+        return;
+    }
+    let snapshot = tracker.snapshot();
+    if snapshot.samples == 0 {
+        return;
+    }
+    eprintln!("──── perf @ tick {current} ────");
+    eprint!("{}", snapshot.format_table());
 }
 
 impl Default for HeadlessConfig {
@@ -123,6 +153,7 @@ impl Default for HeadlessConfig {
             event_log: None,
             inspect: InspectConfig::default(),
             field_logger: None,
+            perf: None,
         }
     }
 }
@@ -139,6 +170,8 @@ pub struct HeadlessReport {
     pub conversations: ConversationStats,
     pub physical_means: PhysicalMeans,
     pub emotions: EmotionStats,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub perf_stats: Option<PerfSnapshot>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -213,6 +246,17 @@ pub fn run_headless(config: HeadlessConfig) -> HeadlessReport {
         world
             .app_mut()
             .add_systems(bevy::app::Last, collect_field_log);
+    }
+
+    // Wire up the per-system tick timer when --perf is set. The plugin owns
+    // begin/end bracket systems that populate PerfTracker; we add a Last
+    // system to print the sorted table every N ticks.
+    if let Some(perf_config) = &config.perf {
+        world.app_mut().add_plugins(PerfPlugin);
+        world.app_mut().insert_resource(perf_config.clone());
+        world
+            .app_mut()
+            .add_systems(bevy::app::Last, print_perf_table);
     }
 
     // Suppress GameLog stdout noise when inspection flags are active,
@@ -414,6 +458,14 @@ fn collect_report(
     };
 
     let agent_entities = world.all_agents();
+    let perf_stats = config.perf.as_ref().and_then(|_| {
+        world
+            .app()
+            .world()
+            .get_resource::<PerfTracker>()
+            .map(|t| t.snapshot())
+    });
+
     HeadlessReport {
         ticks: config.ticks,
         seed: config.seed,
@@ -423,6 +475,7 @@ fn collect_report(
         conversations: collect_conversation_stats(world),
         physical_means: collect_physical_means(world, &agent_entities),
         emotions: collect_emotion_stats(world, &agent_entities),
+        perf_stats,
     }
 }
 
@@ -644,6 +697,76 @@ mod tests {
         };
         let report = run_headless(config);
         assert_eq!(report.agents.spawned, 10); // overridden to 10 humans, 0 deer
+    }
+
+    #[test]
+    fn perf_flag_populates_perf_stats_in_report() {
+        let config = HeadlessConfig {
+            ticks: 30,
+            humans: 2,
+            deer: 0,
+            berry_bushes: 1,
+            apple_trees: 0,
+            perf: Some(PerfReportConfig { print_every: 1000 }),
+            ..Default::default()
+        };
+        let report = run_headless(config);
+
+        let stats = report.perf_stats.expect("perf_stats should be populated");
+        assert_eq!(stats.buckets.len(), crate::core::PerfBucket::ALL.len());
+        for bucket in crate::core::PerfBucket::ALL {
+            assert!(
+                stats.buckets.iter().any(|b| b.name == bucket.label()),
+                "missing bucket {} in perf_stats",
+                bucket.label()
+            );
+        }
+        // Descending ordering must hold on the snapshot too.
+        for pair in stats.buckets.windows(2) {
+            assert!(pair[0].avg_us >= pair[1].avg_us);
+        }
+        assert!(stats.samples > 0, "should have captured at least one tick");
+    }
+
+    #[test]
+    fn perf_disabled_leaves_perf_stats_unset() {
+        let config = HeadlessConfig {
+            ticks: 5,
+            humans: 2,
+            deer: 0,
+            berry_bushes: 0,
+            apple_trees: 0,
+            ..Default::default()
+        };
+        let report = run_headless(config);
+        assert!(report.perf_stats.is_none());
+    }
+
+    #[test]
+    fn perf_flag_overhead_stays_reasonable() {
+        // Soft budget: enabling the perf tracker must not more than double
+        // headless wall-clock at small N. We deliberately avoid asserting a
+        // percentage below noise threshold because CI wall-clock is jittery.
+        let base_config = HeadlessConfig {
+            ticks: 200,
+            humans: 4,
+            deer: 1,
+            berry_bushes: 2,
+            apple_trees: 1,
+            ..Default::default()
+        };
+
+        let baseline = run_headless(base_config.clone()).elapsed_secs;
+        let instrumented = run_headless(HeadlessConfig {
+            perf: Some(PerfReportConfig { print_every: 1000 }),
+            ..base_config
+        })
+        .elapsed_secs;
+
+        assert!(
+            instrumented < baseline * 2.0 + 0.5,
+            "perf overhead too high: baseline {baseline:.3}s vs instrumented {instrumented:.3}s"
+        );
     }
 
     #[test]

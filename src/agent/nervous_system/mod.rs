@@ -27,11 +27,24 @@ impl Plugin for NervousSystemPlugin {
                     metabolism::tick_metabolism,
                     crate::agent::body::wakefulness::tick_wakefulness
                         .after(metabolism::tick_metabolism),
-                    territoriality::update_territoriality
-                        .after(metabolism::tick_metabolism)
-                        .after(crate::agent::mind::perception::write_perceptions_to_mind),
-                    urgency::generate_urgency.after(territoriality::update_territoriality),
                 )
+                    .in_set(crate::core::PerfBucket::Biology)
+                    .run_if(not_paused),
+            )
+            .add_systems(
+                FixedUpdate,
+                territoriality::update_territoriality
+                    .in_set(crate::core::PerfBucket::Psyche)
+                    .after(metabolism::tick_metabolism)
+                    .after(crate::agent::mind::perception::write_perceptions_to_mind)
+                    .run_if(not_paused),
+            )
+            .add_systems(
+                FixedUpdate,
+                urgency::generate_urgency
+                    .in_set(crate::core::PerfBucket::Brain)
+                    .in_set(crate::core::PerfSubBucket::BrainUrgency)
+                    .after(territoriality::update_territoriality)
                     .run_if(not_paused),
             );
     }

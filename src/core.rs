@@ -4,6 +4,7 @@ pub mod diagnostics;
 pub mod event_log;
 pub mod field_logger;
 pub mod log;
+pub mod perf;
 pub mod sim_rng;
 pub mod tick;
 pub mod time;
@@ -20,6 +21,10 @@ pub use field_logger::{
     print_expanded_field_list,
 };
 pub use log::GameLog;
+pub use perf::{
+    BucketStats, PerfBucket, PerfOverlayEnabled, PerfPlugin, PerfSnapshot, PerfSubBucket,
+    PerfTracker, SubBucketStats,
+};
 pub use sim_rng::SimRng;
 pub use tick::{TickCount, every_n_ticks, not_paused};
 pub use time::GameTime;
