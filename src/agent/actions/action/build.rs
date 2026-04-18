@@ -52,13 +52,17 @@ impl Action for BuildAction {
         Some(Posture::Stationary)
     }
 
-    /// Planning: precondition is having the required wood in inventory.
+    /// Planning: precondition is having wood in inventory. Uses the
+    /// wildcard-object + `isa_filter` pattern (same as Eat's
+    /// `self_contains_food`) so the runtime check matches any positive
+    /// wood quantity. A hardcoded `Item(Wood, 1)` would fail against an
+    /// agent carrying `Item(Wood, 3)` because the mindgraph and
+    /// `mind.query` use exact-equality on the Item's quantity.
     fn preconditions(&self) -> Vec<TriplePattern> {
-        vec![TriplePattern::new(
-            Some(Node::Self_),
-            Some(Predicate::Contains),
-            Some(Value::Item(Concept::Wood, 1)),
-        )]
+        vec![TriplePattern {
+            isa_filter: Some(Concept::Wood),
+            ..TriplePattern::new(Some(Node::Self_), Some(Predicate::Contains), None)
+        }]
     }
 
     /// Planning: Build spawns a construction site at the agent's current
