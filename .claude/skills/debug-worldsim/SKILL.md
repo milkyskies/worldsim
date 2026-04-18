@@ -598,18 +598,7 @@ Prints every signed per-second contributor (BMR, each running action's drain, di
 
 ### "Which system is eating my tick budget?"
 
-Run with `--perf` and look at the sorted table. Heaviest parent bucket on top; expand it by reading the indented `└ <sub_bucket>` rows.
-
-```bash
-mkdir -p debug/perf
-cargo run --release -- --headless --game-defaults --seed 42 --ticks 3000 \
-  --perf --perf-every 1000 --report 2> debug/perf/perf.log > debug/perf/report.json
-
-# Final snapshot is also inside the report JSON:
-jq '.perf_stats' debug/perf/report.json
-```
-
-Ranking is reliable; absolute percentages are latency-flavored (the scheduler parallelizes buckets). In the windowed app, the same data is live under F3.
+See §5 — `--perf` (headless) or F3 (windowed). Heaviest parent bucket on top; sub-buckets under the subdivided parents. `jq '.perf_stats' report.json` for the final snapshot when `--report` is set.
 
 ### "Why can't this agent start X right now?"
 
