@@ -91,6 +91,29 @@ pub const BMR_GLUCOSE_DRAIN_PER_SEC: f32 = 0.1;
 /// 0..100 scale; scaled down by 100× for the Need migration.)
 pub const BMR_HYDRATION_DRAIN_PER_SEC: f32 = 0.0015;
 
+/// Sleep-floor multiplier on glucose BMR drain — deep sleep drains at
+/// 60% of awake rate. Matches the real ~15-20% metabolic reduction
+/// during human sleep; the remaining 40% is "consciousness cost" (brain
+/// processing) that scales off with alertness.
+pub const GLUCOSE_SLEEP_FLOOR: f32 = 0.6;
+
+/// Sleep-floor multiplier on hydration drain — deep sleep drains at
+/// 30% of awake rate (no sweat, slower breathing, no exertion-driven
+/// renal activity). Tuned aggressively (biologically ~0.5 would be
+/// more accurate) so a 6-8h sleep bout finishes without the emergency-
+/// wake pathway firing on thirst.
+pub const HYDRATION_SLEEP_FLOOR: f32 = 0.3;
+
+/// Linearly interpolate between `floor` (deep sleep, `alertness = 0`) and
+/// `1.0` (fully awake). Shared shape for every need whose natural drain
+/// dampens during sleep. A `floor` of `1.0` disables dampening entirely
+/// and is the safe default for new drives that shouldn't participate.
+pub fn sleep_drain_multiplier(floor: f32, alertness: f32) -> f32 {
+    let floor = floor.clamp(0.0, 1.0);
+    let alertness = alertness.clamp(0.0, 1.0);
+    floor + (1.0 - floor) * alertness
+}
+
 /// Hunger urgency blend weights (must sum to 1.0).
 /// Stomach-heavy: ghrelin makes you hungry when your stomach empties,
 /// even if glucose and reserves are fine.
@@ -404,6 +427,45 @@ impl Metabolism {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn sleep_drain_multiplier_is_floor_at_zero_alertness() {
+        assert!((sleep_drain_multiplier(HYDRATION_SLEEP_FLOOR, 0.0) - 0.3).abs() < 1e-6);
+        assert!((sleep_drain_multiplier(GLUCOSE_SLEEP_FLOOR, 0.0) - 0.6).abs() < 1e-6);
+    }
+
+    #[test]
+    fn sleep_drain_multiplier_is_one_at_full_alertness() {
+        assert!((sleep_drain_multiplier(HYDRATION_SLEEP_FLOOR, 1.0) - 1.0).abs() < 1e-6);
+        assert!((sleep_drain_multiplier(GLUCOSE_SLEEP_FLOOR, 1.0) - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn sleep_drain_multiplier_interpolates_linearly() {
+        // Hydration at half alertness: 0.3 + 0.7 * 0.5 = 0.65
+        assert!((sleep_drain_multiplier(HYDRATION_SLEEP_FLOOR, 0.5) - 0.65).abs() < 1e-6);
+        // Glucose at half alertness: 0.6 + 0.4 * 0.5 = 0.8
+        assert!((sleep_drain_multiplier(GLUCOSE_SLEEP_FLOOR, 0.5) - 0.8).abs() < 1e-6);
+    }
+
+    /// Regression guard: `floor = 1.0` disables dampening entirely. A new
+    /// drive that adopts sleep-drain multiplier math must not silently
+    /// dampen during sleep just by existing.
+    #[test]
+    fn sleep_drain_multiplier_floor_one_never_dampens() {
+        assert_eq!(sleep_drain_multiplier(1.0, 0.0), 1.0);
+        assert_eq!(sleep_drain_multiplier(1.0, 0.5), 1.0);
+        assert_eq!(sleep_drain_multiplier(1.0, 1.0), 1.0);
+    }
+
+    #[test]
+    fn sleep_drain_multiplier_clamps_inputs() {
+        // Out-of-range alertness and floor clamp into 0..1.
+        assert_eq!(sleep_drain_multiplier(HYDRATION_SLEEP_FLOOR, -0.5), 0.3);
+        assert_eq!(sleep_drain_multiplier(HYDRATION_SLEEP_FLOOR, 1.5), 1.0);
+        assert_eq!(sleep_drain_multiplier(-0.5, 0.0), 0.0);
+        assert_eq!(sleep_drain_multiplier(1.5, 0.0), 1.0);
+    }
 
     #[test]
     fn mobilize_reserves_tops_up_glucose_below_threshold() {
