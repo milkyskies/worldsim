@@ -753,7 +753,7 @@ fn render_overview(ui: &mut egui::Ui, world: &World, entity: Entity) {
             " /sec",
         );
         urgency_line(ui, "Fatigue urgency", urgency_for(UrgencySource::Stamina));
-        vital_row_fraction_explained(ui, "Wakefulness", needs.wakefulness, 0.3, 0.7, None, "");
+        vital_row_fraction_explained(ui, "Wakefulness", needs.wakefulness.value, 0.3, 0.7, None, "");
         urgency_line(
             ui,
             "Sleepiness urgency",
@@ -1067,7 +1067,7 @@ fn render_needs(ui: &mut egui::Ui, world: &World, entity: Entity) {
         "Fatigue urgency",
         urgency_for_f32(world, entity, UrgencySource::Stamina),
     );
-    vital_row_fraction_explained(ui, "Wakefulness", needs.wakefulness, 0.3, 0.7, None, "");
+    vital_row_fraction_explained(ui, "Wakefulness", needs.wakefulness.value, 0.3, 0.7, None, "");
     urgency_line(
         ui,
         "Sleepiness urgency",

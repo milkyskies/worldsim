@@ -182,7 +182,7 @@ pub fn generate_urgency(
                 // Wakefulness is satisfaction (high = rested); the loop
                 // below handles the Sleepiness-specific inversion just
                 // like Stamina, so return the raw satisfaction value here.
-                UrgencySource::Sleepiness => physical.wakefulness,
+                UrgencySource::Sleepiness => physical.wakefulness.value,
                 // Commitment urgency is emitted directly below the drive
                 // loop, not through the source-value map, because its
                 // magnitude comes from PlanMemory not body/drive state.

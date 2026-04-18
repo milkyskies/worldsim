@@ -1195,7 +1195,7 @@ impl TestWorld {
 
     /// Returns the agent's wakefulness (0.0 = must sleep, 1.0 = fully rested).
     pub fn agent_wakefulness(&self, agent: Entity) -> f32 {
-        self.get::<PhysicalNeeds>(agent).wakefulness
+        self.get::<PhysicalNeeds>(agent).wakefulness.value
     }
 
     /// Returns true if the entity carries any of the given concept in its inventory.
@@ -1329,7 +1329,7 @@ impl TestWorld {
                 needs.hydration.deficit(),
                 needs.stamina.aerobic,
                 needs.stamina.anaerobic,
-                needs.wakefulness
+                needs.wakefulness.value
             );
             eprintln!(
                 "  Metabolism: stomach(c/f)={:.1}/{:.1}  glucose={:.1}/100  reserves={:.0}/500  hunger={:.2}{}",
@@ -2187,7 +2187,7 @@ impl TestWorld {
                     }
                     eprintln!(
                         "  wakefulness: {:.3}  (sleeping: {})",
-                        needs.wakefulness, is_sleeping
+                        needs.wakefulness.value, is_sleeping
                     );
                 }
             }

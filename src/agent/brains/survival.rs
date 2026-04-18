@@ -173,7 +173,7 @@ fn check_sleep_wake(
 
     let aerobic = context.physical.stamina.aerobic;
     let aerobic_fraction = context.physical.stamina.aerobic_fraction();
-    let wakefulness = context.physical.wakefulness;
+    let wakefulness = context.physical.wakefulness.value;
 
     let wake_proposal = |urgency: f32, reasoning: String| BrainProposal {
         brain: BrainType::Survival,
@@ -449,7 +449,7 @@ mod tests {
     fn tired_needs() -> PhysicalNeeds {
         let mut needs = PhysicalNeeds::default();
         needs.stamina.aerobic = 10.0; // well below WAKE_STAMINA_THRESHOLD
-        needs.wakefulness = 0.2; // well below WAKE_WAKEFULNESS_THRESHOLD
+        needs.wakefulness.set(0.2); // well below WAKE_WAKEFULNESS_THRESHOLD
         needs
     }
 

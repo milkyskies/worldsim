@@ -731,7 +731,7 @@ mod tests {
             metabolism: Metabolism::well_fed(),
             hydration: Need::full(),
             stamina: Stamina::default(),
-            wakefulness: 1.0,
+            wakefulness: Need::full(),
         }
     }
 

@@ -435,7 +435,7 @@ pub fn resolve_field(world: &World, entity: Entity, path: &str) -> Option<Value>
             .map(|n| json!(n.hydration.value)),
         "needs.wakefulness" => world
             .get::<PhysicalNeeds>(entity)
-            .map(|n| json!(n.wakefulness)),
+            .map(|n| json!(n.wakefulness.value)),
         "needs.health" => Some(json!(
             world
                 .get::<Body>(entity)

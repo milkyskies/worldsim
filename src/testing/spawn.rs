@@ -73,7 +73,7 @@ pub(super) fn spawn_test_person(
                     aerobic: config.stamina,
                     ..Default::default()
                 },
-                wakefulness: config.wakefulness,
+                wakefulness: crate::agent::body::need::Need::new(config.wakefulness),
             },
             cultural_knowledge,
             extra_knowledge,

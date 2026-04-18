@@ -765,7 +765,7 @@ mod threat_tests {
             metabolism: crate::agent::body::metabolism::Metabolism::well_fed(),
             hydration: crate::agent::body::need::Need::full(),
             stamina: Stamina::default(),
-            wakefulness: 1.0,
+            wakefulness: crate::agent::body::need::Need::full(),
         }
     }
 

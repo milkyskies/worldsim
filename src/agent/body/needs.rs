@@ -169,11 +169,12 @@ pub struct PhysicalNeeds {
     /// the agent drinks. Urgency::Thirst reads the deficit.
     pub hydration: Need,
     pub stamina: Stamina,
-    /// Homeostatic sleep pressure (adenosine analogue). 1.0 = fully rested,
-    /// 0.0 = must sleep. Decays while awake, accelerates at night (circadian),
-    /// and restores during Sleep. Independent of stamina — a desk worker
-    /// gets sleepy without running a marathon.
-    pub wakefulness: f32,
+    /// Homeostatic sleep pressure (adenosine analogue) as a `Need` in
+    /// `0..1`. 1.0 = fully rested, 0.0 = must sleep. Decays while awake,
+    /// accelerates at night (circadian), restores during Sleep.
+    /// Independent of stamina — a desk worker gets sleepy without
+    /// running a marathon.
+    pub wakefulness: Need,
 }
 
 impl Default for PhysicalNeeds {
@@ -182,7 +183,7 @@ impl Default for PhysicalNeeds {
             metabolism: Metabolism::default(),
             hydration: Need::full(),
             stamina: Stamina::default(),
-            wakefulness: 1.0,
+            wakefulness: Need::full(),
         }
     }
 }
@@ -628,7 +629,7 @@ impl StateDisplay for PhysicalNeeds {
             ("Hydration", self.hydration.value, Scale::Normalized),
             ("Aerobic", self.stamina.aerobic, Scale::Percentage),
             ("Anaerobic", self.stamina.anaerobic, Scale::Percentage),
-            ("Wakefulness", self.wakefulness, Scale::Normalized),
+            ("Wakefulness", self.wakefulness.value, Scale::Normalized),
         ]
     }
 }
