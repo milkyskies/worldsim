@@ -534,11 +534,11 @@ action_str AS (
 ),
 labelled AS (
   SELECT f.*, a.actions,
-    -- Sim wall-clock starts at 12:00 (see GameTime::START_HOUR in src/core/time.rs).
-    -- Add 12*60 game-minutes so window labels match what the game-time HUD shows
-    -- and what TestWorld's GameTime resource reports.
-    (f.bucket * 20 + 12 * 60)       AS start_min,
-    ((f.bucket + 1) * 20 + 12 * 60) AS end_min
+    -- Sim wall-clock starts at GameTime::START_HOUR (currently 8 — see
+    -- src/core/time.rs). Mirror that offset in minutes so window labels
+    -- match the game-time HUD and TestWorld's GameTime resource.
+    (f.bucket * 20 + 8 * 60)       AS start_min,
+    ((f.bucket + 1) * 20 + 8 * 60) AS end_min
   FROM field_buckets f LEFT JOIN action_str a USING (bucket)
 )
 SELECT
@@ -558,7 +558,7 @@ ORDER BY bucket;
 ```
 
 Notes:
-- **Sim wall-clock starts at 12:00 (noon).** `GameTime::START_HOUR = 12` in `src/core/time.rs` adds an `INITIAL_TICK_OFFSET` of 43200 ticks to every displayed time. Both `--headless` and `TestWorld` share the same `GameTime` resource, so a 24-hour run goes from `D1 12:00` to `D2 12:00`, not `00:00-24:00`. The SQL above reproduces that labelling; if you ever want raw "ticks-from-start" windows, drop the `+ 12 * 60` offset.
+- **Sim wall-clock starts at `GameTime::START_HOUR`** (8 at time of writing — check `src/core/time.rs` for the current value). The constant feeds an `INITIAL_TICK_OFFSET` that both `--headless` and `TestWorld` apply uniformly, so a 24-hour run goes from `D1 08:00` to `D2 08:00`, not `00:00-24:00`. The SQL above mirrors that offset in minutes — update the `+ 8 * 60` terms if you change `START_HOUR`, or drop them entirely for raw ticks-from-start labelling.
 - Use `//` for integer division (the `/` operator returns DOUBLE and casting truncates-then-rounds on some paths).
 - Bucket size `1200` = 20 game-min. For 10-min windows use `600`, for 1-game-hour use `3600`.
 - `--log-filter agent:Alice` keeps the event-log file tiny when you only care about one agent. Matches case-insensitively against the name *or* the `agent_id` (stable entity debug string).
