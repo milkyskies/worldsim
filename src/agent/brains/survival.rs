@@ -226,7 +226,7 @@ mod tests {
     use super::*;
     use crate::agent::mind::knowledge::setup_ontology;
     use crate::agent::nervous_system::urgency::Urgency;
-    use crate::world::map::{CHUNK_SIZE, TILE_SIZE, TileType};
+    use crate::world::map::{CHUNK_SIZE, TileType};
     use bevy::math::IVec2;
 
     fn no_water_map() -> WorldMap {
@@ -245,13 +245,6 @@ mod tests {
         }
         map.set_tile(1, 0, TileType::ShallowWater);
         map
-    }
-
-    fn tile_center(tx: i32, ty: i32) -> Vec2 {
-        Vec2::new(
-            tx as f32 * TILE_SIZE + TILE_SIZE / 2.0,
-            ty as f32 * TILE_SIZE + TILE_SIZE / 2.0,
-        )
     }
 
     fn context_with_urgency<'a>(
@@ -614,7 +607,7 @@ mod tests {
         let physical = PhysicalNeeds::default();
         let cns = cns_with_top(UrgencySource::Thirst, 0.3);
         let map = water_adjacent_map();
-        let pos = tile_center(0, 0);
+        let pos = map.tile_to_world(0, 0);
         let context = context_with_urgency(&physical, &cns, pos, &map);
 
         let inventory = crate::agent::item_slots::ItemSlots::agent_carry();
@@ -663,7 +656,7 @@ mod tests {
         let physical = PhysicalNeeds::default();
         let cns = cns_with_top(UrgencySource::Thirst, 0.9);
         let map = water_adjacent_map();
-        let pos = tile_center(0, 0);
+        let pos = map.tile_to_world(0, 0);
         let context = context_with_urgency(&physical, &cns, pos, &map);
 
         let inventory = crate::agent::item_slots::ItemSlots::agent_carry();
