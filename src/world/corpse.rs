@@ -23,8 +23,9 @@ use bevy::ecs::world::CommandQueue;
 use bevy::prelude::*;
 
 /// Default amount of meat a freshly butchered corpse holds. Future per-species
-/// yields can override this; for now every prey species drops one unit.
-pub const DEFAULT_CORPSE_MEAT: u32 = 1;
+/// yields can override this once a mass/size system exists; for now every
+/// prey species drops the same flat amount.
+pub const DEFAULT_CORPSE_MEAT: u32 = 10;
 
 /// Component bundle for a freshly-spawned corpse with no prior identity.
 /// Used by `spawn_concept_entity` for the rare case where a corpse is
