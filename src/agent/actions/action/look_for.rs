@@ -259,12 +259,9 @@ mod tests {
     #[test]
     fn world_tile_domain_ignores_producer_hints() {
         let map = walkable_map();
-        // Plant a known berry bush in chunk (2, 2). If domain were Inventory
-        // searching for Drinkable, the bush wouldn't match (not a Drinkable
-        // producer) — but we'd still see the producer-chunk iteration run.
-        // For WorldTile, `collect_producer_hint_chunks` must not be invoked
-        // at all. Functionally this test pins that a WorldTile search does
-        // not concentrate on the bush's chunk.
+        // Plant a known berry bush in chunk (2, 2). An Inventory search
+        // for Food would strongly cluster targets in that chunk; a WorldTile
+        // search must not — the bush is irrelevant to a Drinkable query.
         let (mind, _bush) = mind_with_berry_bush_in_chunk(2, 2);
 
         let mut hits_in_bush_chunk = 0;
