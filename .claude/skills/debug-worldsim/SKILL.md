@@ -486,6 +486,68 @@ cargo run --release -- --headless --game-defaults --seed 42 --ticks 86400 \
 cat /tmp/worldsim/debug/alice-glucose/fields.jsonl | jq -r '"\(.tick)\t\(.needs.glucose)"' > /tmp/worldsim/debug/alice-glucose/fields.tsv
 ```
 
+### "Give me a per-window dashboard of one agent's day" (hunger/thirst/wakefulness + actions)
+
+The move-forward debugging view when you want to eyeball behaviour across a full day. Captures three needs at every tick, plus the full event log, and buckets both into 20-game-minute windows. Each window row shows the end-of-window level, the Δ since the start of the window, and an action breakdown (`Eat×42, Walk×1, ...`) so you can instantly see what drove each bump or drop.
+
+Tune the bucket size (`1200` ticks = 20 game-min) to whatever resolution you want.
+
+```bash
+mkdir -p /tmp/worldsim/debug/day_sim
+cargo run --release -- --headless --game-defaults --seed 42 --ticks 86400 \
+  --log /tmp/worldsim/debug/day_sim/events.parquet --log-filter agent:Alice \
+  --log-agent alice --log-field needs.hunger --log-field needs.hydration \
+  --log-field needs.wakefulness --log-file /tmp/worldsim/debug/day_sim/fields.jsonl
+```
+
+```sql
+-- Paste into duckdb, or pipe via `duckdb -c "..."`.
+CREATE OR REPLACE VIEW fields AS SELECT CAST(tick AS BIGINT) AS tick,
+  CAST(needs.hunger AS DOUBLE) AS hunger,
+  CAST(needs.hydration AS DOUBLE) AS hydration,
+  CAST(needs.wakefulness AS DOUBLE) AS wakefulness
+FROM read_json_auto('/tmp/worldsim/debug/day_sim/fields.jsonl');
+
+CREATE OR REPLACE VIEW events AS
+SELECT tick, event_type, agent, payload
+FROM read_parquet('/tmp/worldsim/debug/day_sim/events.parquet');
+
+WITH field_buckets AS (
+  SELECT CAST(FLOOR((tick - 1.0) / 1200.0) AS INTEGER) AS bucket,
+         FIRST(hunger      ORDER BY tick ASC) AS h_s,  LAST(hunger      ORDER BY tick ASC) AS h_e,
+         FIRST(hydration   ORDER BY tick ASC) AS hy_s, LAST(hydration   ORDER BY tick ASC) AS hy_e,
+         FIRST(wakefulness ORDER BY tick ASC) AS w_s,  LAST(wakefulness ORDER BY tick ASC) AS w_e
+  FROM fields GROUP BY 1
+),
+action_buckets AS (
+  SELECT CAST(FLOOR((tick - 1.0) / 1200.0) AS INTEGER) AS bucket,
+         json_extract_string(payload, '$.action') AS action, COUNT(*) AS n
+  FROM events WHERE event_type = 'ActionStarted' AND agent = 'Alice'
+  GROUP BY 1, 2
+),
+action_str AS (
+  SELECT bucket, string_agg(action || '×' || n, ', ' ORDER BY n DESC) AS actions
+  FROM action_buckets GROUP BY bucket
+)
+SELECT
+  f.bucket + 1 AS win,
+  printf('%02d:%02d-%02d:%02d',
+    (f.bucket * 20) // 60, (f.bucket * 20) % 60,
+    ((f.bucket + 1) * 20) // 60, ((f.bucket + 1) * 20) % 60) AS game_time,
+  ROUND(f.h_e, 3) AS hunger,    ROUND(f.h_e  - f.h_s,  3) AS d_hunger,
+  ROUND(f.hy_e, 1) AS hydration, ROUND(f.hy_e - f.hy_s, 2) AS d_hydration,
+  ROUND(f.w_e, 3) AS wakeful,   ROUND(f.w_e  - f.w_s,  3) AS d_wakeful,
+  COALESCE(a.actions, '-') AS actions
+FROM field_buckets f LEFT JOIN action_str a USING (bucket)
+ORDER BY f.bucket;
+```
+
+Notes:
+- Use `//` for integer division (the `/` operator returns DOUBLE and casting truncates-then-rounds on some paths).
+- Bucket size `1200` = 20 game-min. For 10-min windows use `600`, for 1-game-hour use `3600`.
+- `--log-filter agent:Alice` keeps the event-log file tiny when you only care about one agent. Matches case-insensitively against the name *or* the `agent_id` (stable entity debug string).
+- The `actions` column counts `ActionStarted` events, not completions — a chain-preempted action can appear many times in one window, which is itself diagnostic (it means the action kept re-proposing but something is preventing progress).
+
 ### "Why is Alice's glucose / stamina / hydration dropping?"
 
 ```bash
