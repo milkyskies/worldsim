@@ -35,6 +35,7 @@ impl Plugin for NervousSystemPlugin {
                 FixedUpdate,
                 territoriality::update_territoriality
                     .in_set(crate::core::PerfBucket::Psyche)
+                    .in_set(crate::core::PerfSubBucket::PsycheTerritoriality)
                     .after(metabolism::tick_metabolism)
                     .after(crate::agent::mind::perception::write_perceptions_to_mind)
                     .run_if(not_paused),

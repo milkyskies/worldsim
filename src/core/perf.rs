@@ -77,10 +77,10 @@ impl PerfBucket {
 }
 
 /// Finer-grained groups inside a parent [`PerfBucket`]. Only the parents
-/// that hide something interesting are subdivided — the cheap uniform
-/// buckets (skills, biology, psyche, communication) stay flat. Each variant
-/// is a [`SystemSet`] that individual systems opt into with
-/// `.in_set(PerfSubBucket::X)` *alongside* the parent `.in_set(PerfBucket::Y)`.
+/// that hide something interesting are subdivided — `skills` and `biology`
+/// stay flat (2 systems each). Each variant is a [`SystemSet`] that
+/// individual systems opt into with `.in_set(PerfSubBucket::X)` *alongside*
+/// the parent `.in_set(PerfBucket::Y)`.
 #[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum PerfSubBucket {
     // Perception ————————————————————————————————————
@@ -117,6 +117,22 @@ pub enum PerfSubBucket {
     ActionExecution,
     /// World-side mutations: labor accumulation, `becomes`, emitted effects.
     ActionWorldMutation,
+
+    // Psyche ————————————————————————————————————————
+    /// Emotion decay, mood, stress, event reactions.
+    PsycheEmotions,
+    /// Relationship updates and decay.
+    PsycheRelationships,
+    /// Flocking and greeting acknowledgments.
+    PsycheSocial,
+    /// Territoriality drive updates.
+    PsycheTerritoriality,
+
+    // Communication —————————————————————————————————
+    /// Conversation entry + exit: initiate lifecycle, continuation eval.
+    CommunicationLifecycle,
+    /// Per-turn processing: intent selection, theory-of-mind, receive, emit.
+    CommunicationTurn,
 }
 
 impl PerfSubBucket {
@@ -134,6 +150,15 @@ impl PerfSubBucket {
             Self::BrainHistory => "history",
             Self::ActionExecution => "execution",
             Self::ActionWorldMutation => "world_mutation",
+            Self::PsycheEmotions => "emotions",
+            Self::PsycheRelationships => "relationships",
+            // Deliberately not "social" — `PerceptionSocial` already owns that label,
+            // and the F3 table groups sub-buckets under parent name in the printed
+            // output without qualifying, so a collision would be ambiguous.
+            Self::PsycheSocial => "social_drives",
+            Self::PsycheTerritoriality => "territoriality",
+            Self::CommunicationLifecycle => "lifecycle",
+            Self::CommunicationTurn => "turn",
         }
     }
 
@@ -150,6 +175,11 @@ impl PerfSubBucket {
             | Self::BrainArbitration
             | Self::BrainHistory => PerfBucket::Brain,
             Self::ActionExecution | Self::ActionWorldMutation => PerfBucket::Action,
+            Self::PsycheEmotions
+            | Self::PsycheRelationships
+            | Self::PsycheSocial
+            | Self::PsycheTerritoriality => PerfBucket::Psyche,
+            Self::CommunicationLifecycle | Self::CommunicationTurn => PerfBucket::Communication,
         }
     }
 
@@ -167,10 +197,16 @@ impl PerfSubBucket {
             Self::BrainHistory => 9,
             Self::ActionExecution => 10,
             Self::ActionWorldMutation => 11,
+            Self::PsycheEmotions => 12,
+            Self::PsycheRelationships => 13,
+            Self::PsycheSocial => 14,
+            Self::PsycheTerritoriality => 15,
+            Self::CommunicationLifecycle => 16,
+            Self::CommunicationTurn => 17,
         }
     }
 
-    pub const ALL: [PerfSubBucket; 12] = [
+    pub const ALL: [PerfSubBucket; 18] = [
         Self::PerceptionVisual,
         Self::PerceptionSensory,
         Self::PerceptionSocial,
@@ -183,6 +219,12 @@ impl PerfSubBucket {
         Self::BrainHistory,
         Self::ActionExecution,
         Self::ActionWorldMutation,
+        Self::PsycheEmotions,
+        Self::PsycheRelationships,
+        Self::PsycheSocial,
+        Self::PsycheTerritoriality,
+        Self::CommunicationLifecycle,
+        Self::CommunicationTurn,
     ];
 }
 
@@ -257,7 +299,7 @@ impl BucketData {
 #[derive(Resource)]
 pub struct PerfTracker {
     buckets: [BucketData; 8],
-    sub_buckets: [BucketData; 12],
+    sub_buckets: [BucketData; 18],
     total: RollingWindow,
     total_in_flight: Option<Instant>,
 }
@@ -661,5 +703,30 @@ mod tests {
     fn capacity_is_reported_consistently() {
         let tracker = PerfTracker::new(42);
         assert_eq!(tracker.capacity(), 42);
+    }
+
+    #[test]
+    fn format_table_includes_every_sub_bucket_under_its_parent() {
+        let mut tracker = PerfTracker::new(10);
+        tracker.mark_tick_begin();
+        std::thread::sleep(Duration::from_micros(100));
+        tracker.mark_tick_end();
+        for bucket in PerfBucket::ALL {
+            tracker.mark_start(bucket);
+            tracker.mark_end(bucket);
+        }
+        for sub in PerfSubBucket::ALL {
+            tracker.mark_sub_start(sub);
+            tracker.mark_sub_end(sub);
+        }
+        let table = tracker.snapshot().format_table();
+        for sub in PerfSubBucket::ALL {
+            assert!(
+                table.contains(sub.label()),
+                "missing sub-bucket {} in table:\n{}",
+                sub.label(),
+                table
+            );
+        }
     }
 }
