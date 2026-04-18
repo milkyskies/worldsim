@@ -1,7 +1,7 @@
 ---
 name: debug-worldsim
 description: >
-  Investigate agent behavior in the worldsim simulation. Use the headless CLI, JSONL event log, decision trace, ad-hoc inspection, and MindGraph queries to figure out why agents are doing what they're doing.
+  Investigate agent behavior in the worldsim simulation. Use the headless CLI, Parquet/JSONL event log (queried with DuckDB via `worldsim --debug`), decision trace, ad-hoc inspection, and MindGraph queries to figure out why agents are doing what they're doing.
   TRIGGER when: investigating a bug report, asking "why did agent X do Y?", reproducing a flaky issue, validating a feature outside of a test, or doing ad-hoc exploration of the simulation.
   DO NOT TRIGGER when: writing a new test from scratch (use the test-worldsim skill instead — though debugging WITHIN a test is fair game here).
 ---
@@ -19,13 +19,39 @@ Read these files for current API and flag definitions — don't trust documented
 - `src/cli.rs` — every CLI flag, repeatable args, default values
 - `src/headless.rs` — what the headless runner does between ticks
 - `src/agent/events.rs` — `SimEvent` enum, the source of all observability
-- `src/core/event_log.rs` — JSONL logger, filter parsing
+- `src/core/event_log.rs` — JSONL / Parquet writer, DuckDB setup-script generator, filter parsing
 - `src/core/field_logger.rs` — per-tick agent state logger (field resolver, presets, emission rules)
 - `src/agent/body/contributions.rs` — shared metabolism contributor breakdown (used by `--why` and `:why`)
 - `src/agent/brains/trace.rs` — decision trace ring buffer and config
 - `src/testing/world.rs` — `TestWorld` inspection methods (work in tests AND in the headless runner setup)
 
-## The six observability channels
+## Default workflow: Parquet + DuckDB
+
+For anything past a few thousand ticks, the fast path is **Parquet → DuckDB**:
+
+1. Run headless with `--log events.parquet`. The `.parquet` extension flips the logger from JSONL to columnar Parquet — 10-100x smaller than JSONL, and DuckDB reads it instantly.
+2. `worldsim --debug <run-dir>` emits a DuckDB setup script that attaches every log in the directory (`events`, `trace`, `fields`, `mutations`) as a view, plus canned joins like `decisions_with_plans`.
+3. Query with DuckDB — joins across event streams, aggregations, window functions, all without a second sim run.
+
+```bash
+# Capture a full run into a directory
+mkdir -p /tmp/run42
+cargo run --release -- --headless --game-defaults --ticks 5000 --seed 42 \
+  --log /tmp/run42/events.parquet
+
+# Generate the DuckDB setup script and launch a REPL with views attached
+cargo run --release -- --debug /tmp/run42 > /tmp/run42/setup.sql
+duckdb -init /tmp/run42/setup.sql
+
+# Or one-shot it
+duckdb -c "$(cargo run --release -q -- --debug /tmp/run42) SELECT type, COUNT(*) FROM events GROUP BY type ORDER BY 2 DESC;"
+```
+
+Prefer JSONL (`--log events.jsonl` or `--log -`) only when the run is small, you want to grep/jq directly, or you need to stream to stdout.
+
+Every event schema is stable across JSONL and Parquet — the payload column in Parquet holds the raw JSONL line, plus `tick`, `event_type`, and `agent` are extracted into dedicated columns for fast filtering.
+
+## The observability channels
 
 Pick the right one for what you're trying to learn:
 
@@ -33,47 +59,79 @@ Pick the right one for what you're trying to learn:
 
 `cargo run --release -- --dump-map` prints the default-seed terrain as ASCII (one char per tile, y inverted so north is on top) and exits. Use it when debugging `generate_terrain` / `carve_river` instead of launching the game.
 
-### 1. JSONL event log — for post-mortem analysis with jq
+### 1. Event log (Parquet or JSONL) — for post-mortem analysis
 
-Captures every `SimEvent` to a file. Best for "I want to slice the data later."
+Captures every `SimEvent`. Format is picked by extension:
+
+- `--log events.parquet` — columnar, compact, DuckDB reads it directly (preferred)
+- `--log events.jsonl` — one JSON object per line, grep/jq-friendly
+- `--log -` — stream JSONL to stdout for piping
 
 ```bash
-# Capture everything for 5000 ticks
-cargo run --release -- --headless --ticks 5000 --seed 42 --log events.jsonl
+# Capture everything for 5000 ticks (Parquet)
+cargo run --release -- --headless --ticks 5000 --seed 42 --log events.parquet
 
-# Stream to stdout for piping
-cargo run --release -- --headless --ticks 5000 --seed 42 --log -
-
-# Filter at capture time to keep file size down
-cargo run --release -- --headless --ticks 5000 --seed 42 --log events.jsonl \
+# Filter at capture time to keep file size down (both formats support this)
+cargo run --release -- --headless --ticks 5000 --seed 42 --log events.parquet \
   --log-filter agent:alice \
   --log-filter type:Decision,ActionStarted \
   --log-filter tick:1000-2000
 ```
 
-Every event in the log carries both `agent` (display name, e.g. `"alice"`) and `agent_id` (stable Entity debug string, e.g. `"0v0"`). Filter by whichever you have — `agent_id` is safer when names repeat or the agent dies and gets despawned.
+Every event carries both `agent` (display name, e.g. `"alice"`) and `agent_id` (stable Entity debug string, e.g. `"0v0"`). Filter by whichever you have — `agent_id` is safer when names repeat or the agent dies and gets despawned.
 
-**jq patterns:**
+**DuckDB patterns** (against a Parquet log, or JSONL via `read_json_auto`):
+
+```sql
+-- All decisions for one agent
+SELECT * FROM events WHERE agent = 'alice' AND type = 'Decision' ORDER BY tick;
+
+-- Event type distribution
+SELECT type, COUNT(*) AS n FROM events GROUP BY type ORDER BY n DESC;
+
+-- Timeline of an agent's actions
+SELECT tick, json_extract_string(payload, '$.action') AS action
+FROM events WHERE type = 'ActionStarted' AND agent = 'alice' ORDER BY tick;
+
+-- Join decisions with the plan that drove them (canned view)
+SELECT * FROM decisions_with_plans WHERE agent = 'alice' AND tick BETWEEN 4500 AND 4600;
+
+-- Why did alice take action X at tick Z? One query.
+SELECT d.tick, d.winner, d.actions, p.plan_id, p.goal, p.driving_urgency,
+       array_agg(u.source || '=' || u.value) AS urgencies
+FROM events d
+LEFT JOIN events p ON p.type = 'PlanGenerated' AND p.agent = d.agent AND p.tick <= d.tick
+LEFT JOIN (SELECT tick, agent, unnest(urgencies) AS u_rec FROM events WHERE type = 'Decision') u
+  ON u.tick = d.tick AND u.agent = d.agent
+WHERE d.type = 'Decision' AND d.agent = 'alice' AND d.tick = 4521
+GROUP BY d.tick, d.winner, d.actions, p.plan_id, p.goal, p.driving_urgency;
+```
+
+**jq patterns** (JSONL only):
 
 ```bash
-# All decisions for one agent (by name)
+# All decisions for one agent
 cat events.jsonl | jq 'select(.agent == "alice" and .type == "Decision")'
-
-# Same, filtering by entity id instead (works after death / renames)
-cat events.jsonl | jq 'select(.agent_id == "0v0" and .type == "Decision")'
-
-# All deaths
-cat events.jsonl | jq 'select(.type == "Death")'
 
 # Count events by type
 cat events.jsonl | jq -r .type | sort | uniq -c | sort -rn
 
 # Timeline of an agent's actions
 cat events.jsonl | jq -r 'select(.agent == "alice" and .type == "ActionStarted") | "\(.tick)\t\(.action)"'
-
-# Find when relationships changed
-cat events.jsonl | jq 'select(.type == "RelationshipChanged" and .agent == "alice")'
 ```
+
+**Key event types** (see `src/agent/events.rs` for the canonical list):
+
+- `Decision` — per-tick arbitration: winner, brain powers, proposals, and the full `urgencies` contributor list
+- `ActionStarted` / `ActionCompleted` / `ActionFailed` / `ActionPreempted` — action lifecycle. `ActionStarted` carries `plan_id` + `plan_step` when the action came from an executing rational-brain plan
+- `PlanAbandoned` — a running plan was dropped
+- `PlanGenerated` — GOAP produced a new plan (plan_id, goal, step_count, driving_urgency, subjective_cost)
+- `GoapSearchTelemetry` — per-search iteration count, exhausted flag, best_unmet_goals
+- `TargetEnumerated` — every (action, target) pair the brain considered during planning, with inclusion_reason
+- `PatternRejected` — a goal the planner could not satisfy (unmet_patterns — catches the "stone is not food" class of bugs)
+- `MindGraphMutation` — every triple added/removed (op, subject, predicate, object). Replay from tick 0 to reconstruct MindGraph state at any tick.
+- `AgentStateHash` — per-tick hash of (position_tile, urgencies, plan_ids). Diff between two runs to find the exact tick of non-determinism divergence.
+- `Death`, `RelationshipChanged`, `EmotionTriggered`, `CombatHit`, `KnowledgeShared`, `PhenotypeDeveloped`, and more — see `SimEvent`.
 
 ### 2. Decision trace — for focused per-agent decision history
 
@@ -298,30 +356,70 @@ Without `--game-defaults`, headless uses a 64×64 flat map with uniform random s
 
 ## Debugging recipes
 
-### "Why did agent X do Y?"
+### "Why did agent X take action Y at tick Z?"
 
-1. Reproduce headless with the same seed: `cargo run --release -- --headless --game-defaults --ticks N --seed S`
-2. Trace that agent: add `--trace agent:X`
-3. Look at the trace around the moment Y happened — find the winning brain, urgency, and proposals
-4. If the trace is too noisy, narrow with `--trace-ticks START-END`
-5. If you need to see what they knew at that moment, add `--dump-mind agent:X --at-tick N`
+The one-shot DuckDB query the Parquet log was designed for:
+
+```bash
+# Run and capture
+mkdir -p /tmp/run
+cargo run --release -- --headless --game-defaults --ticks N --seed S \
+  --log /tmp/run/events.parquet
+
+# Query
+cargo run --release -q -- --debug /tmp/run > /tmp/run/setup.sql
+duckdb -init /tmp/run/setup.sql
+```
+
+Inside DuckDB:
+
+```sql
+-- The decision itself: winner, admitted actions, urgencies
+SELECT * FROM events WHERE type = 'Decision' AND agent = 'alice' AND tick = 4521;
+
+-- The plan that drove it (joins Decision → PlanGenerated on agent, plan_id)
+SELECT * FROM decisions_with_plans WHERE agent = 'alice' AND tick = 4521;
+
+-- What targets the brain considered during planning that tick
+SELECT * FROM events WHERE type = 'TargetEnumerated' AND agent = 'alice' AND tick = 4521;
+
+-- Why the planner failed (if no plan was produced)
+SELECT * FROM events WHERE type = 'PatternRejected' AND agent = 'alice' AND tick BETWEEN 4500 AND 4521;
+
+-- The GOAP search's own report card
+SELECT tick, iterations, exhausted, best_unmet_goals
+FROM events WHERE type = 'GoapSearchTelemetry' AND agent = 'alice' AND tick BETWEEN 4500 AND 4521;
+```
+
+For anything the events don't cover, fall back to `--trace agent:alice` and `--dump-mind agent:alice --at-tick 4521`.
 
 ### "Why did agents end up in this weird state at the end?"
 
-1. Run with full event log: `--log events.jsonl`
-2. Use jq to find the unusual events: `cat events.jsonl | jq 'select(.type == "Death")'`
-3. Walk backward from the symptom — what happened just before?
-4. Drop into `--inspect` at the tick before the unusual event
+1. Capture the full event log: `--log /tmp/run/events.parquet`
+2. In DuckDB, find the unusual events:
+   ```sql
+   SELECT * FROM events WHERE type = 'Death' ORDER BY tick;
+   SELECT * FROM events WHERE type = 'PlanAbandoned' ORDER BY tick DESC LIMIT 50;
+   ```
+3. Walk backward from the symptom — what `MindGraphMutation` / `Decision` / `PlanGenerated` events preceded it?
+4. If you need live state, drop into `--inspect` at the tick before the unusual event.
 
 ### "This test is flaky"
 
 Flaky tests are non-determinism, period. Don't add retries.
 
 1. Find the seed difference — does the test use `with_seed(0)` consistently?
-2. Find the timing dependency — is the test asserting after exactly N ticks when N is too tight?
-3. Find the wall-clock dependency — `chrono`, `std::time`, anything that isn't `current_tick()`
-4. Find the iteration order — are you iterating a `HashMap`? Use `BTreeMap` or sort first.
-5. Reproduce locally with the same seed and trace the first agent that diverges
+2. Capture `AgentStateHash` from two runs with different seeds and diff them in DuckDB to find the first tick that diverges:
+   ```sql
+   -- After attaching two run dirs as `events_a` and `events_b`:
+   SELECT a.tick, a.agent, a.hash AS hash_a, b.hash AS hash_b
+   FROM events_a a JOIN events_b b USING (tick, agent)
+   WHERE a.type = 'AgentStateHash' AND b.type = 'AgentStateHash' AND a.hash != b.hash
+   ORDER BY a.tick LIMIT 1;
+   ```
+3. Find the timing dependency — is the test asserting after exactly N ticks when N is too tight?
+4. Find the wall-clock dependency — `chrono`, `std::time`, anything that isn't `current_tick()`
+5. Find the iteration order — are you iterating a `HashMap`? Use `BTreeMap` or sort first.
 
 ### "What knowledge does Alice have about Bob?"
 
@@ -332,14 +430,41 @@ cargo run --release -- --headless --ticks N --seed S --query "alice Bob"
 ### "When did Alice lose trust in Bob?"
 
 ```bash
-cargo run --release -- --headless --ticks N --seed S --log events.jsonl
-cat events.jsonl | jq 'select(.type == "RelationshipChanged" and .agent == "alice" and .other == "bob")'
+cargo run --release -- --headless --ticks N --seed S --log /tmp/run/events.parquet
+cargo run --release -q -- --debug /tmp/run > /tmp/run/setup.sql
+duckdb -init /tmp/run/setup.sql -c "
+  SELECT tick, payload FROM events
+  WHERE type = 'RelationshipChanged' AND agent = 'alice'
+    AND json_extract_string(payload, '\$.other') = 'bob'
+  ORDER BY tick;
+"
 ```
 
 ### "How many decisions did each agent make?"
 
-```bash
-cat events.jsonl | jq -r 'select(.type == "Decision") | .agent' | sort | uniq -c | sort -rn
+```sql
+SELECT agent, COUNT(*) AS n FROM events WHERE type = 'Decision' GROUP BY agent ORDER BY n DESC;
+```
+
+### "Reconstruct Alice's MindGraph as of tick 5000"
+
+Replay every `MindGraphMutation` up to that tick. Adds/removes form the running set.
+
+```sql
+-- Running triple set at tick 5000: keep the latest op per (subject, predicate, object)
+WITH mutations AS (
+  SELECT tick, agent,
+         json_extract_string(payload, '$.op')        AS op,
+         json_extract_string(payload, '$.subject')   AS subject,
+         json_extract_string(payload, '$.predicate') AS predicate,
+         json_extract_string(payload, '$.object')    AS object
+  FROM events WHERE type = 'MindGraphMutation' AND agent = 'alice' AND tick <= 5000
+),
+ranked AS (
+  SELECT *, ROW_NUMBER() OVER (PARTITION BY subject, predicate, object ORDER BY tick DESC) AS rn
+  FROM mutations
+)
+SELECT subject, predicate, object FROM ranked WHERE rn = 1 AND op = 'Add';
 ```
 
 ### "Show me Alice's glucose curve for a full game day"
