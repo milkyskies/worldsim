@@ -32,9 +32,6 @@ pub struct ActionContext<'a> {
     /// in `Action::satiation` to block Eat/Drink/Sleep/Rest when the
     /// target need is already satisfied.
     pub physical: Option<&'a crate::agent::body::needs::PhysicalNeeds>,
-    /// Drive satisfaction. `None` for agents without `PsychologicalDrives`
-    /// (rare). Used by satiation gates for Social/Fun/Curiosity actions.
-    pub drives: Option<&'a crate::agent::body::needs::PsychologicalDrives>,
 }
 
 // ============================================================================

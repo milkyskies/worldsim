@@ -29,7 +29,6 @@ fn ctx_with_needs<'a>(
         target_position: None,
         agent_position: Vec2::ZERO,
         physical: Some(physical),
-        drives: None,
     }
 }
 

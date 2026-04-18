@@ -62,7 +62,6 @@ pub fn start_actions(
         Option<&PhysicalNeeds>,
         Option<&Consciousness>,
         Option<&PlanMemory>,
-        Option<&crate::agent::body::needs::PsychologicalDrives>,
     )>,
     entity_transforms: Query<&GlobalTransform>,
     mut outcome_events: MessageWriter<ActionOutcomeEvent>,
@@ -82,7 +81,6 @@ pub fn start_actions(
         physical,
         consciousness,
         plan_memory,
-        drives,
     ) in agents.iter_mut()
     {
         // Snapshot capacities once per agent so the channel methods don't
@@ -127,7 +125,6 @@ pub fn start_actions(
                 target_position: action_template.target_position,
                 agent_position: transform.translation.truncate(),
                 physical,
-                drives,
             };
 
             // Unified satiation gate: ask the action whether the need it
@@ -1041,20 +1038,10 @@ pub fn apply_action_effects(
 
             if let Some(drives) = drives.as_deref_mut() {
                 if psych.companionship != 0.0 {
-                    let delta = psych.companionship * dt * degradation;
-                    if delta >= 0.0 {
-                        drives.companionship.top_up(delta);
-                    } else {
-                        drives.companionship.drain(-delta);
-                    }
+                    drives.companionship.apply_delta(psych.companionship * dt * degradation);
                 }
                 if psych.stimulation != 0.0 {
-                    let delta = psych.stimulation * dt * degradation;
-                    if delta >= 0.0 {
-                        drives.stimulation.top_up(delta);
-                    } else {
-                        drives.stimulation.drain(-delta);
-                    }
+                    drives.stimulation.apply_delta(psych.stimulation * dt * degradation);
                 }
             }
         }

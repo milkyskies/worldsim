@@ -200,7 +200,6 @@ fn deposit_can_start_requires_target_entity() {
         target_position: None,
         agent_position: Vec2::ZERO,
         physical: None,
-        drives: None,
     };
     assert!(deposit.can_start(&no_target).is_err());
 
@@ -213,7 +212,6 @@ fn deposit_can_start_requires_target_entity() {
         target_position: None,
         agent_position: Vec2::ZERO,
         physical: None,
-        drives: None,
     };
     assert!(deposit.can_start(&with_target).is_ok());
 }
@@ -235,7 +233,6 @@ fn deposit_can_start_requires_non_empty_inventory() {
         target_position: None,
         agent_position: Vec2::ZERO,
         physical: None,
-        drives: None,
     };
     assert!(
         deposit.can_start(&ctx).is_err(),

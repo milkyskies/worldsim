@@ -110,6 +110,17 @@ impl Need {
         }
         self.value = (self.value - amount).max(0.0);
     }
+
+    /// Apply a signed delta: positive values call `top_up`, negative values
+    /// call `drain`. Use when the caller computes a delta that can go either
+    /// direction (e.g. an action effect that can both build and deplete a drive).
+    pub fn apply_delta(&mut self, delta: f32) {
+        if delta >= 0.0 {
+            self.top_up(delta);
+        } else {
+            self.drain(-delta);
+        }
+    }
 }
 
 impl Default for Need {
