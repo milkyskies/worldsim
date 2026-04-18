@@ -36,6 +36,17 @@ fn main() {
         return;
     }
 
+    if let Some(run_dir) = &args.debug_dir {
+        match worldsim::core::event_log::generate_duckdb_setup_script(run_dir) {
+            Ok(script) => println!("{script}"),
+            Err(e) => {
+                eprintln!("--debug failed: {e}");
+                std::process::exit(1);
+            }
+        }
+        return;
+    }
+
     if args.headless {
         let report = headless::run_headless(args.to_headless_config());
         if args.report {

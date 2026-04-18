@@ -285,7 +285,10 @@ pub fn update_rational_planning(
         Option<&crate::agent::affordance::Affordance>,
     )>,
     agents: Query<(), With<Agent>>,
-    mut completed_actions: MessageReader<crate::agent::events::SimEvent>,
+    mut sim_events_params: ParamSet<(
+        MessageReader<crate::agent::events::SimEvent>,
+        MessageWriter<crate::agent::events::SimEvent>,
+    )>,
     mapping: Res<TagChannelMapping>,
 ) {
     let perf_logging = game_log.is_enabled(crate::core::log::LogCategory::Performance);
@@ -321,20 +324,24 @@ pub fn update_rational_planning(
         Entity,
         std::collections::HashSet<crate::agent::actions::ActionType>,
     > = std::collections::HashMap::new();
-    for event in completed_actions.read() {
-        match event {
-            crate::agent::events::SimEvent::ActionCompleted { agent, action, .. } => {
-                completed_this_tick
-                    .entry(*agent)
-                    .or_default()
-                    .insert(*action);
+    {
+        let mut completed_actions = sim_events_params.p0();
+        for event in completed_actions.read() {
+            match event {
+                crate::agent::events::SimEvent::ActionCompleted { agent, action, .. } => {
+                    completed_this_tick
+                        .entry(*agent)
+                        .or_default()
+                        .insert(*action);
+                }
+                crate::agent::events::SimEvent::ActionFailed { agent, action, .. } => {
+                    failed_this_tick.entry(*agent).or_default().insert(*action);
+                }
+                _ => {}
             }
-            crate::agent::events::SimEvent::ActionFailed { agent, action, .. } => {
-                failed_this_tick.entry(*agent).or_default().insert(*action);
-            }
-            _ => {}
         }
     }
+    let mut sim_events = sim_events_params.p1();
 
     for (
         entity,
@@ -551,13 +558,32 @@ pub fn update_rational_planning(
                 continue;
             }
 
-            let actions = collect_planning_actions(
+            let action_candidates = collect_planning_actions(
                 &action_registry,
                 mind,
                 &affordances,
                 PlanningMode::Generate,
                 &capacities,
             );
+
+            // Emit TargetEnumerated for each surviving (action, target) pair.
+            for (template, reason) in &action_candidates {
+                let target_desc = template
+                    .target_entity
+                    .map(|e| format!("{e:?}"))
+                    .or_else(|| template.target_position.map(|p| format!("{p:?}")))
+                    .unwrap_or_else(|| "None".to_string());
+                sim_events.write(crate::agent::events::SimEvent::TargetEnumerated {
+                    agent: entity,
+                    tick: current_tick,
+                    action_name: template.name.clone(),
+                    target_description: target_desc,
+                    inclusion_reason: reason.as_str(),
+                });
+            }
+
+            let actions: Vec<crate::agent::brains::thinking::ActionTemplate> =
+                action_candidates.into_iter().map(|(t, _)| t).collect();
 
             plan_attempts += 1;
             plan_memory.plans_generated_total += 1;
@@ -591,9 +617,21 @@ pub fn update_rational_planning(
                 body,
                 tick.current,
             );
-            if let Some(steps) =
-                crate::agent::brains::planner::regressive_plan(mind, &goal, &actions, &cost_ctx)
-            {
+            let goal_desc = format!("{:?}", goal.conditions);
+            let (plan_result, search_stats) =
+                crate::agent::brains::planner::regressive_plan(mind, &goal, &actions, &cost_ctx);
+
+            // Emit GOAP search telemetry.
+            sim_events.write(crate::agent::events::SimEvent::GoapSearchTelemetry {
+                agent: entity,
+                tick: current_tick,
+                goal_description: goal_desc.clone(),
+                iterations: search_stats.iterations,
+                exhausted: search_stats.exhausted,
+                best_unmet_goals: search_stats.best_unmet_goals.clone(),
+            });
+
+            if let Some(steps) = plan_result {
                 let agent_pos = transform.translation.truncate();
 
                 if !crate::agent::brains::planner::check_plan_feasibility(
@@ -618,7 +656,7 @@ pub fn update_rational_planning(
                 plan_memory.insert(HeldPlan {
                     id,
                     goal,
-                    steps,
+                    steps: steps.clone(),
                     state: initial_state,
                     commitment: initial_commitment,
                     subjective_cost: cost,
@@ -629,6 +667,27 @@ pub fn update_rational_planning(
                     last_touched: current_tick,
                     current_step: 0,
                 });
+
+                // Emit PlanGenerated.
+                sim_events.write(crate::agent::events::SimEvent::PlanGenerated {
+                    agent: entity,
+                    tick: current_tick,
+                    plan_id: id.0,
+                    driving_urgency: source,
+                    step_count: steps.len(),
+                    subjective_cost: cost,
+                    goal_description: goal_desc.clone(),
+                });
+            } else {
+                // No plan found — emit PatternRejected if there were unmet goals.
+                if !search_stats.best_unmet_goals.is_empty() {
+                    sim_events.write(crate::agent::events::SimEvent::PatternRejected {
+                        agent: entity,
+                        tick: current_tick,
+                        goal_description: goal_desc,
+                        unmet_patterns: search_stats.best_unmet_goals,
+                    });
+                }
             }
         }
 
@@ -779,6 +838,22 @@ enum PlanningMode {
 /// and `collect_affordance_targets` (proposal path). Distance-based cost
 /// adjustment is the caller's job — the proposal path adds it, the plan
 /// path doesn't, matching pre-#219 behaviour.
+/// Reason an (action, target) pair was included in the planning action set.
+#[derive(Debug, Clone)]
+pub enum TargetInclusionReason {
+    PlanValid,
+    BeliefConfidence(f32),
+}
+
+impl TargetInclusionReason {
+    pub fn as_str(&self) -> String {
+        match self {
+            Self::PlanValid => "is_plan_valid".to_string(),
+            Self::BeliefConfidence(c) => format!("belief_confidence:{c:.2}"),
+        }
+    }
+}
+
 fn collect_planning_actions(
     action_registry: &crate::agent::actions::ActionRegistry,
     mind: &MindGraph,
@@ -788,7 +863,7 @@ fn collect_planning_actions(
     )>,
     mode: PlanningMode,
     capacities: &ChannelCapacities,
-) -> Vec<ActionTemplate> {
+) -> Vec<(ActionTemplate, TargetInclusionReason)> {
     let mut actions = Vec::new();
     let belief_state = crate::agent::mind::belief_state::BeliefState::new(mind);
 
@@ -799,25 +874,29 @@ fn collect_planning_actions(
 
         let source = action.target_source();
         for candidate in enumerate_targets(&source, action.action_type(), mind, affordances) {
-            let keep = match mode {
+            let reason = match mode {
                 PlanningMode::Generate => {
-                    // Keep if either the action's own validity check
-                    // passes (covers non-container targets like prey
-                    // animals) OR the agent has any non-trivial belief
-                    // that the target contains something (covers
-                    // rumoured foraging sources).
-                    action.is_plan_valid(&candidate, mind)
-                        || candidate.as_entity().is_some_and(|entity| {
-                            belief_state.pattern_confidence(&TriplePattern::entity_contains(entity))
-                                > 0.1
-                        })
+                    if action.is_plan_valid(&candidate, mind) {
+                        Some(TargetInclusionReason::PlanValid)
+                    } else {
+                        let conf = candidate
+                            .as_entity()
+                            .map(|entity| {
+                                belief_state
+                                    .pattern_confidence(&TriplePattern::entity_contains(entity))
+                            })
+                            .unwrap_or(0.0);
+                        if conf > 0.1 {
+                            Some(TargetInclusionReason::BeliefConfidence(conf))
+                        } else {
+                            None
+                        }
+                    }
                 }
             };
-            if !keep {
-                continue;
-            }
+            let Some(reason) = reason else { continue };
 
-            actions.push(action.to_template_for_target(&candidate, mind));
+            actions.push((action.to_template_for_target(&candidate, mind), reason));
         }
     }
 
