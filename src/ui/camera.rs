@@ -109,7 +109,7 @@ fn camera_drag(
         return;
     }
 
-    if buttons.pressed(MouseButton::Right) {
+    if buttons.pressed(MouseButton::Middle) {
         for event in events.read() {
             for (mut transform, projection) in cameras.iter_mut() {
                 if let Projection::Orthographic(ortho) = projection {
