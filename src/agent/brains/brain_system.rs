@@ -70,6 +70,7 @@ pub fn arbitrate_every_tick(
     _affordances: Query<(
         &GlobalTransform,
         Option<&crate::agent::affordance::Affordance>,
+        Option<&crate::agent::Dead>,
     )>,
     mut game_log: ResMut<crate::core::GameLog>,
     ontology: Res<crate::agent::mind::knowledge::Ontology>,

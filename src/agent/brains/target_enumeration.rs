@@ -13,6 +13,7 @@
 
 use bevy::prelude::*;
 
+use crate::agent::Dead;
 use crate::agent::actions::{ActionType, TargetCandidate, TargetSource};
 use crate::agent::affordance::Affordance;
 use crate::agent::mind::knowledge::{Concept, MindGraph, Node, Predicate, Value};
@@ -37,7 +38,7 @@ pub fn enumerate_targets(
     source: &TargetSource,
     action_type: ActionType,
     mind: &MindGraph,
-    affordances: &Query<(&GlobalTransform, Option<&Affordance>)>,
+    affordances: &Query<(&GlobalTransform, Option<&Affordance>, Option<&Dead>)>,
 ) -> Vec<TargetCandidate> {
     match source {
         TargetSource::None => vec![TargetCandidate::None],
@@ -68,7 +69,7 @@ pub fn enumerate_targets(
 fn enumerate_entities_with_affordance(
     action_type: ActionType,
     mind: &MindGraph,
-    affordances: &Query<(&GlobalTransform, Option<&Affordance>)>,
+    affordances: &Query<(&GlobalTransform, Option<&Affordance>, Option<&Dead>)>,
 ) -> Vec<TargetCandidate> {
     let mut candidates = Vec::new();
     let mut seen = std::collections::HashSet::new();
@@ -79,7 +80,7 @@ fn enumerate_entities_with_affordance(
         if !seen.insert(entity) {
             return;
         }
-        let Ok((transform, Some(affordance))) = affordances.get(entity) else {
+        let Ok((transform, Some(affordance), _dead)) = affordances.get(entity) else {
             return;
         };
         if affordance.action_type != action_type {
@@ -114,10 +115,15 @@ fn enumerate_entities_with_affordance(
 /// `(deer_42, IsA, Concept::Deer)` for every visible deer, and
 /// `mind.has_trait` walks the IsA chain to discover that
 /// `(Deer, HasTrait, Prey)` lives in cultural/intrinsic knowledge.
+///
+/// Dead entities are filtered out at the ECS layer: a corpse still carries
+/// `IsA Deer` in observer minds until belief invalidation (#524) lands, but
+/// a dead deer is not exhibiting Prey-hood in any actionable sense — Bite
+/// and Attack should route scavengers to Harvest instead.
 fn enumerate_entities_with_trait(
     trait_concept: Concept,
     mind: &MindGraph,
-    affordances: &Query<(&GlobalTransform, Option<&Affordance>)>,
+    affordances: &Query<(&GlobalTransform, Option<&Affordance>, Option<&Dead>)>,
 ) -> Vec<TargetCandidate> {
     let mut candidates = Vec::new();
     let mut seen = std::collections::HashSet::new();
@@ -133,9 +139,12 @@ fn enumerate_entities_with_trait(
             continue;
         }
 
-        let Ok((transform, _)) = affordances.get(entity) else {
+        let Ok((transform, _, dead)) = affordances.get(entity) else {
             continue;
         };
+        if dead.is_some() {
+            continue;
+        }
         candidates.push(TargetCandidate::Entity {
             entity,
             pos: transform.translation().truncate(),
