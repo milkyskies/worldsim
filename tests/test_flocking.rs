@@ -101,10 +101,12 @@ fn visible_kin_decay_social_drive() {
 fn lonely_deer_with_visible_kin_walks_toward_them() {
     let mut world = TestWorld::with_seed(42);
 
-    // Spawn two deer close enough that perception sees the other deer
-    // immediately. Vision range for deer is 128px.
+    // Spawn two deer close enough that perception sees them even at
+    // dawn light. Deer vision is 80px and the simulation starts at 6am
+    // (light ≈ 0.65), so effective range is ~52px — put them 20px apart
+    // to stay safely in-range all day.
     let lonely = world.spawn_deer(Vec2::new(40.0, 40.0));
-    let friend = world.spawn_deer(Vec2::new(120.0, 40.0));
+    let friend = world.spawn_deer(Vec2::new(60.0, 40.0));
 
     // Introduce them at high affection so the flock-walk picks the
     // friend over any random deer that might wander in.
