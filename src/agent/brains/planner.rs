@@ -126,7 +126,7 @@ impl PlanCostContext {
             glucose: physical.metabolism.glucose,
             reserves: physical.metabolism.reserves,
             stamina_anaerobic: physical.stamina.anaerobic,
-            wakefulness: physical.wakefulness,
+            wakefulness: physical.wakefulness.value,
         }
     }
 

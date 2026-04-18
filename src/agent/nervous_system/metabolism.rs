@@ -10,7 +10,10 @@
 use crate::agent::Alive;
 use crate::agent::biology::body::Body;
 use crate::agent::body::genetics::phenotype::Phenotype;
-use crate::agent::body::metabolism::{BMR_GLUCOSE_DRAIN_PER_SEC, BMR_HYDRATION_DRAIN_PER_SEC};
+use crate::agent::body::metabolism::{
+    BMR_GLUCOSE_DRAIN_PER_SEC, BMR_HYDRATION_DRAIN_PER_SEC, GLUCOSE_SLEEP_FLOOR,
+    HYDRATION_SLEEP_FLOOR, sleep_drain_multiplier,
+};
 use crate::agent::body::needs::{Consciousness, PhysicalNeeds};
 use crate::core::TickCount;
 use bevy::prelude::*;
@@ -39,29 +42,20 @@ pub fn tick_metabolism(
         organ_mods.stomach *= digestion_mult;
         organ_mods.gut *= digestion_mult;
         let bmr_mult = phenotype.map(|p| p.bmr).unwrap_or(1.0);
-        // BMR splits into somatic floor (60% — organs, thermoregulation)
-        // and consciousness cost (40% — brain processing). During sleep
-        // alertness drops to ~0, reducing effective BMR to ~60% of awake
-        // rate. Matches the real ~15-20% metabolic reduction during sleep.
-        let consciousness_factor = 0.6 + 0.4 * consciousness.alertness;
+        let glucose_sleep_mult =
+            sleep_drain_multiplier(GLUCOSE_SLEEP_FLOOR, consciousness.alertness);
         physical.metabolism.tick_with_mods(
             dt,
-            BMR_GLUCOSE_DRAIN_PER_SEC * bmr_mult * consciousness_factor,
+            BMR_GLUCOSE_DRAIN_PER_SEC * bmr_mult * glucose_sleep_mult,
             0.0,
             organ_mods,
         );
 
-        // Sleeping agents lose less water: no sweat, slower breathing, and no
-        // renal activity driven by movement. Real biology drops hydration loss
-        // by ~40-60%, but BMR_HYDRATION_DRAIN_PER_SEC is tuned aggressively
-        // for awake gameplay (drink-every-1.5h) so the 60% awake rate would
-        // still empty a full pool within a normal 6-8h bout. A dedicated
-        // hydration-sleep multiplier lets the agent finish the night without
-        // the emergency-wake pathway firing.
-        let hydration_sleep_factor = 0.3 + 0.7 * consciousness.alertness;
-        physical.hydration = (physical.hydration
-            - BMR_HYDRATION_DRAIN_PER_SEC * hydration_sleep_factor * dt)
-            .max(0.0);
+        let hydration_sleep_mult =
+            sleep_drain_multiplier(HYDRATION_SLEEP_FLOOR, consciousness.alertness);
+        physical
+            .hydration
+            .drain(BMR_HYDRATION_DRAIN_PER_SEC * hydration_sleep_mult * dt);
 
         // Slow passive anaerobic refill so a Flee sprint doesn't leave
         // the pool stuck at 0 forever. The rate is low enough that the

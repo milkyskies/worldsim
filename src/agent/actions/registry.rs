@@ -27,6 +27,11 @@ pub struct ActionContext<'a> {
     pub target_entity: Option<Entity>,
     pub target_position: Option<Vec2>,
     pub agent_position: Vec2,
+    /// Physiological state. `None` for agents without `PhysicalNeeds`
+    /// (rare — some test fixtures). Used by the unified satiation gate
+    /// in `Action::satiation` to block Eat/Drink/Sleep/Rest when the
+    /// target need is already satisfied.
+    pub physical: Option<&'a crate::agent::body::needs::PhysicalNeeds>,
 }
 
 // ============================================================================
@@ -369,6 +374,26 @@ pub trait Action: Send + Sync + 'static {
     /// Default: always can start
     fn can_start(&self, _ctx: &ActionContext) -> Result<(), FailureReason> {
         Ok(())
+    }
+
+    /// Unified satiation gate. Return `Some((kind, fullness))` when this
+    /// action targets a specific `Need` that may already be satisfied —
+    /// e.g. Eat returns `Some((Hunger, stomach_fraction))`, Drink returns
+    /// `Some((Thirst, hydration.value))`, Sleep returns
+    /// `Some((Sleep, wakefulness.value))`, Rest returns
+    /// `Some((Stamina, aerobic_fraction))`.
+    ///
+    /// The execution layer consumes this before calling `can_start`: when
+    /// `fullness >= kind.satiation_threshold()` the action fails with
+    /// `FailureReason::AlreadySatiated` and the brain has to wait for the
+    /// need to decay before re-proposing. This is what prevents the
+    /// chain-eat loop where Eat re-fires every 20 ticks as long as food
+    /// is in inventory.
+    ///
+    /// Actions without a single target need (Walk, Harvest, Attack, Flee)
+    /// return `None` and skip the gate.
+    fn satiation(&self, _ctx: &ActionContext) -> Option<(crate::agent::body::need::NeedKind, f32)> {
+        None
     }
 
     /// Planning check - is this action valid for this target/context?

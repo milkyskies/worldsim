@@ -124,9 +124,25 @@ pub fn start_actions(
                 target_entity: action_template.target_entity,
                 target_position: action_template.target_position,
                 agent_position: transform.translation.truncate(),
+                physical,
             };
 
-            if let Err(reason) = action_def.can_start(&ctx) {
+            // Unified satiation gate: ask the action whether the need it
+            // targets is already close enough to full. Prevents the
+            // chain-fire loop where Eat/Drink/Sleep keep re-starting
+            // every time their duration elapses.
+            let satiation_failure = action_def.satiation(&ctx).and_then(|(kind, fullness)| {
+                if fullness >= kind.satiation_threshold() {
+                    Some(crate::agent::events::FailureReason::AlreadySatiated { kind, fullness })
+                } else {
+                    None
+                }
+            });
+            let can_start_result = match satiation_failure {
+                Some(reason) => Err(reason),
+                None => action_def.can_start(&ctx),
+            };
+            if let Err(reason) = can_start_result {
                 game_log.log_debug(format!(
                     "{} cannot start {:?}: {:?}",
                     name.as_str(),
@@ -640,7 +656,7 @@ pub fn tick_actions(
             // field, so we snapshot the urgency (0..1) as "pre_hunger" on a
             // 0..100 scale to preserve the outcome event semantics.
             let pre_hunger = physical.metabolism.hunger_urgency() * 100.0;
-            let pre_thirst = 100.0 - physical.hydration;
+            let pre_thirst = physical.hydration.deficit() * 100.0;
             let pre_aerobic = physical.stamina.aerobic;
             // Snapshot inventory-total so we can detect Harvest/Take
             // completions that yielded nothing (target was empty). Before
@@ -762,7 +778,7 @@ pub fn tick_actions(
             // Walk/Idle/Wander complete with no effects — skip the allocation.
             let post_hunger = physical.metabolism.hunger_urgency() * 100.0;
             let hunger_reduced = pre_hunger - post_hunger;
-            let thirst_reduced = pre_thirst - (100.0 - physical.hydration);
+            let thirst_reduced = pre_thirst - physical.hydration.deficit() * 100.0;
             let stamina_gained = physical.stamina.aerobic - pre_aerobic;
             if hunger_reduced > 0.0 || thirst_reduced > 0.0 || stamina_gained > 0.0 {
                 outcome_events.write(ActionOutcomeEvent {
@@ -1022,13 +1038,14 @@ pub fn apply_action_effects(
 
             if let Some(drives) = drives.as_deref_mut() {
                 if psych.companionship != 0.0 {
-                    drives.companionship = (drives.companionship
-                        + psych.companionship * dt * degradation)
-                        .clamp(0.0, 1.0);
+                    drives
+                        .companionship
+                        .apply_delta(psych.companionship * dt * degradation);
                 }
                 if psych.stimulation != 0.0 {
-                    drives.stimulation =
-                        (drives.stimulation + psych.stimulation * dt * degradation).clamp(0.0, 1.0);
+                    drives
+                        .stimulation
+                        .apply_delta(psych.stimulation * dt * degradation);
                 }
             }
         }

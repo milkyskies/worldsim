@@ -853,7 +853,8 @@ fn social_drive_drains_per_turn() {
         .world()
         .get::<PsychologicalDrives>(alice)
         .expect("alice should have PsychologicalDrives")
-        .companionship;
+        .companionship
+        .value;
 
     // Run enough ticks for several turns (at 30-tick intervals, 200 ticks
     // gives ~6 turns).
@@ -864,7 +865,8 @@ fn social_drive_drains_per_turn() {
         .world()
         .get::<PsychologicalDrives>(alice)
         .expect("alice should have PsychologicalDrives")
-        .companionship;
+        .companionship
+        .value;
 
     assert!(
         after > before,

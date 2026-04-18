@@ -204,6 +204,7 @@ fn build_action_consumes_wood() {
         target_entity: None,
         target_position: None,
         agent_position: Vec2::ZERO,
+        physical: None,
     };
 
     assert!(
@@ -270,6 +271,7 @@ fn build_fails_without_materials() {
         target_entity: None,
         target_position: None,
         agent_position: Vec2::ZERO,
+        physical: None,
     };
 
     assert!(

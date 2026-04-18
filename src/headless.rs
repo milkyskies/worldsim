@@ -481,7 +481,7 @@ fn collect_physical_means(world: &TestWorld, agents: &[Entity]) -> PhysicalMeans
     for entity in agents {
         if let Some(needs) = world.app().world().get::<PhysicalNeeds>(*entity) {
             sum.hunger += needs.hunger_urgency();
-            sum.thirst += 100.0 - needs.hydration;
+            sum.thirst += needs.hydration.deficit();
             sum.stamina += needs.stamina.aerobic;
             let body_health = world
                 .app()

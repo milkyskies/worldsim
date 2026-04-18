@@ -138,10 +138,11 @@ pub fn update_body_perception(
         );
         // Thirst stores "how thirsty" (0 = hydrated, 100 = parched) so
         // downstream goal predicates like `(Self, Thirst, 0)` keep reading
-        // correctly. Translate from the satisfaction field via `100 - hydration`.
+        // correctly. The mind stores thirst as a 0..100 deficit for legacy
+        // goal-predicate compatibility; hydration itself is a 0..1 Need.
         mind.perceive_self(
             Predicate::Thirst,
-            exact(100.0 - physical.hydration),
+            exact(physical.hydration.deficit() * 100.0),
             current_time,
         );
         mind.perceive_self(
@@ -503,9 +504,7 @@ fn assess_threat(
     // Desperation (high hunger or thirst) reduces fear. This lets the
     // arbitration layer pick food/water even when a threat is visible.
     // No desperation → 1.0×, fully desperate → 0.5×.
-    let desperation = needs
-        .hunger_urgency()
-        .max(1.0 - (needs.hydration / 100.0).clamp(0.0, 1.0));
+    let desperation = needs.hunger_urgency().max(needs.hydration.deficit());
     let desperation_mod = 1.0 - desperation * 0.5;
 
     (BASE_THREAT * personality_mod * health_mod * armed_mod * desperation_mod).clamp(0.0, 1.0)
@@ -764,9 +763,9 @@ mod threat_tests {
     fn default_needs() -> PhysicalNeeds {
         PhysicalNeeds {
             metabolism: crate::agent::body::metabolism::Metabolism::well_fed(),
-            hydration: 100.0,
+            hydration: crate::agent::body::need::Need::full(),
             stamina: Stamina::default(),
-            wakefulness: 1.0,
+            wakefulness: crate::agent::body::need::Need::full(),
         }
     }
 

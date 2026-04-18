@@ -25,7 +25,7 @@ pub struct AgentConfig {
     /// Tests that need a hungry agent use `Metabolism::at_urgency(0.8)` or
     /// `Metabolism::empty()` for full-on starvation.
     pub metabolism: Metabolism,
-    /// Hydration value (0.0 = parched, 100.0 = fresh).
+    /// Hydration satisfaction in `0..1` (0.0 = parched, 1.0 = fresh).
     pub hydration: f32,
     /// Stamina value (0.0 = exhausted, 100.0 = fully rested).
     pub stamina: f32,
@@ -59,7 +59,7 @@ impl Default for AgentConfig {
             pos: Vec2::ZERO,
             name: None,
             metabolism: Metabolism::well_fed(),
-            hydration: 100.0,
+            hydration: 1.0,
             stamina: 100.0,
             wakefulness: 1.0,
             social_drive: None,

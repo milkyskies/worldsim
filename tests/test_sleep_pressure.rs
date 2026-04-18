@@ -82,14 +82,18 @@ fn wakefulness_decays_faster_at_night() {
     // whose game-time hour is inside the target light-level window
     // (day = noon, night = midnight). TICKS_PER_HOUR = 3600.
     use worldsim::core::{GameTime, TickCount};
-    // Noon — default spawn time is 12:00, so no adjustment needed for day.
-    // Night — midnight is 12 game-hours after noon.
+    // Sim starts at 06:00. Advance day to noon (+6h) and night to
+    // midnight (+18h) so both land in a stable light-level plateau.
+    {
+        let mut tc = world_day.app_mut().world_mut().resource_mut::<TickCount>();
+        tc.current += GameTime::TICKS_PER_HOUR * 6;
+    }
     {
         let mut tc = world_night
             .app_mut()
             .world_mut()
             .resource_mut::<TickCount>();
-        tc.current += GameTime::TICKS_PER_HOUR * 12;
+        tc.current += GameTime::TICKS_PER_HOUR * 18;
     }
     // Run one tick to apply the time change to GameTime / LightLevel.
     world_day.tick(1);

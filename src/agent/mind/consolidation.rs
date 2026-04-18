@@ -76,8 +76,7 @@ pub fn consolidate_knowledge(
             let mut weighted_sum = 0.0;
             let mut total_weight = 0.0;
 
-            // Time half-life for recency (e.g., 5 minutes worth of ticks)
-            let half_life = 300.0 * tick.ticks_per_second;
+            let half_life = 5.0 * crate::core::time::GameTime::TICKS_PER_HOUR as f32;
 
             for (timestamp, valence) in &events {
                 let age = (current_time.saturating_sub(*timestamp)) as f32;
