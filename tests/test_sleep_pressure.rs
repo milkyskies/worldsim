@@ -12,6 +12,7 @@ use bevy::math::Vec2;
 use worldsim::agent::actions::{ActionType, ActiveActions};
 use worldsim::testing::TestWorld;
 use worldsim::world::environment::LightLevel;
+use worldsim::world::map::TileType;
 
 // ── Decay ────────────────────────────────────────────────────────────────
 
@@ -240,10 +241,12 @@ fn stamina_and_wakefulness_are_independent() {
 #[test]
 fn drowsy_agent_sleeps_and_wakes_after_recovery() {
     // An agent with low wakefulness enters Sleep, recovers, and wakes up.
-    // This is the core sleep/wake cycle test.
+    // This is the core sleep/wake cycle test. Water strip at x=0 so the agent
+    // doesn't die of thirst across the ~30k-tick recovery window.
     let (mut world, agents) = TestWorld::scenario(42)
         .map_size(32, 32)
         .noise_biomes(false)
+        .fill_rect(0, 0, 1, 32, TileType::ShallowWater)
         .agent("sleeper")
         .pos(Vec2::new(50.0, 50.0))
         .wakefulness(0.05)
@@ -309,10 +312,12 @@ fn agent_sleeps_at_night_and_wakes_during_day() {
     // during sleep and the agent wakes before the next noon.
     //
     // Game timing: tick 0 = 12:00 noon. Night starts ~20:00 (tick 28800).
-    // One full day = 86400 ticks. We simulate 1.5 days.
+    // One full day = 86400 ticks. We simulate 1.5 days. Water strip at x=0
+    // so alice doesn't die of thirst during the multi-day run.
     let (mut world, agents) = TestWorld::scenario(42)
         .map_size(32, 32)
         .noise_biomes(false)
+        .fill_rect(0, 0, 1, 32, TileType::ShallowWater)
         .agent("alice")
         .pos(Vec2::new(50.0, 50.0))
         .wakefulness(1.0)

@@ -14,6 +14,7 @@ use worldsim::agent::events::SimEvent;
 use worldsim::agent::nervous_system::cns::CentralNervousSystem;
 use worldsim::agent::nervous_system::urgency::UrgencySource;
 use worldsim::testing::TestWorld;
+use worldsim::world::map::TileType;
 
 /// Builds a scenario with one exhausted agent and ticks until they enter
 /// Sleep. Returns the world and the sleeper entity. Panics if sleep doesn't
@@ -232,12 +233,13 @@ fn rested_human_sleeps_once_per_night_for_six_to_eight_hours() {
     const TICKS_PER_HOUR: u64 = 3600;
     const TICKS_PER_DAY: u64 = TICKS_PER_HOUR * 24;
 
-    // Spawn a single human on a flat walkable map with abundant food and
-    // no predators. Default stamina (100) and wakefulness (1.0) so the
+    // Spawn a single human on a flat walkable map with abundant food, water,
+    // and no predators. Default stamina (100) and wakefulness (1.0) so the
     // agent starts rested — we want to observe the natural decay cycle.
     let (mut world, agents) = TestWorld::scenario(42)
         .map_size(64, 64)
         .noise_biomes(false)
+        .fill_rect(0, 0, 1, 64, TileType::ShallowWater)
         .agent("alice")
         .pos(Vec2::new(128.0, 128.0))
         .done()
