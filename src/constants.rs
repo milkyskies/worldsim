@@ -87,6 +87,15 @@ pub mod actions {
         pub const DURATION_TICKS: u32 = 30;
     }
 
+    pub mod devour {
+        /// One Devour = one bite of meat from a corpse. Slightly longer than
+        /// Eat — tearing flesh off a carcass is more work than swallowing a
+        /// berry. A pack feeding emerges as multiple wolves running Devour
+        /// in parallel against the same target.
+        pub const DURATION_TICKS: u32 = 25;
+        pub const STAMINA_GAIN: f32 = 8.0;
+    }
+
     pub mod deposit {
         pub const DURATION_TICKS: u32 = 15;
     }

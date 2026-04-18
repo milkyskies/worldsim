@@ -47,7 +47,10 @@ pub fn enumerate_targets(
             enumerate_entities_with_affordance(action_type, mind, affordances)
         }
         TargetSource::EntityWithTrait(concept) => {
-            enumerate_entities_with_trait(*concept, mind, affordances)
+            enumerate_entities_with_trait(*concept, mind, affordances, AliveOnly::Yes)
+        }
+        TargetSource::DeadEntityWithTrait(concept) => {
+            enumerate_entities_with_trait(*concept, mind, affordances, AliveOnly::No)
         }
         TargetSource::TileWithTrait(concept) => enumerate_tiles_with_trait(*concept, mind),
     }
@@ -107,6 +110,16 @@ fn enumerate_entities_with_affordance(
     candidates
 }
 
+/// Whether a trait-based enumerator should keep dead entities. Bite/Attack
+/// pass `Yes` (corpses are filtered out — a dead deer is not exhibiting
+/// Prey-hood). Devour passes `No` (corpses are exactly the targets — Carrion
+/// implies dead).
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum AliveOnly {
+    Yes,
+    No,
+}
+
 /// Iterate every perceived entity (anything the mind has an `IsA` belief
 /// about) and keep the ones whose ontology trait inheritance includes
 /// `trait_concept`.
@@ -116,14 +129,16 @@ fn enumerate_entities_with_affordance(
 /// `mind.has_trait` walks the IsA chain to discover that
 /// `(Deer, HasTrait, Prey)` lives in cultural/intrinsic knowledge.
 ///
-/// Dead entities are filtered out at the ECS layer: a corpse still carries
-/// `IsA Deer` in observer minds until belief invalidation (#524) lands, but
-/// a dead deer is not exhibiting Prey-hood in any actionable sense — Bite
-/// and Attack should route scavengers to Harvest instead.
+/// `alive_only` controls the Dead-marker filter. Most trait-based actions
+/// want living targets — a corpse still carries `IsA Deer` in observer
+/// minds until belief invalidation (#524) lands, but a dead deer is not
+/// exhibiting Prey-hood in any actionable sense. Devour and other carrion-
+/// targeting actions invert this and want dead entities specifically.
 fn enumerate_entities_with_trait(
     trait_concept: Concept,
     mind: &MindGraph,
     affordances: &Query<(&GlobalTransform, Option<&Affordance>, Option<&Dead>)>,
+    alive_only: AliveOnly,
 ) -> Vec<TargetCandidate> {
     let mut candidates = Vec::new();
     let mut seen = std::collections::HashSet::new();
@@ -142,8 +157,10 @@ fn enumerate_entities_with_trait(
         let Ok((transform, _, dead)) = affordances.get(entity) else {
             continue;
         };
-        if dead.is_some() {
-            continue;
+        match alive_only {
+            AliveOnly::Yes if dead.is_some() => continue,
+            AliveOnly::No if dead.is_none() => continue,
+            _ => {}
         }
         candidates.push(TargetCandidate::Entity {
             entity,
