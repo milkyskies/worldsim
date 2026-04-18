@@ -851,11 +851,13 @@ impl TestWorld {
         let second_group_cultures = [Culture::Gatherer];
 
         for &pos in &layout.human_positions {
-            let mut rng_guard = self.app.world_mut().resource_mut::<crate::core::SimRng>();
-            let rng = rng_guard.inner_mut();
-            let culture = first_group_cultures[rng.random_range(0..first_group_cultures.len())];
-            let genome = random_genome(rng, Species::Human);
-            drop(rng_guard);
+            let (culture, genome) = {
+                let mut rng_guard = self.app.world_mut().resource_mut::<crate::core::SimRng>();
+                let rng = rng_guard.inner_mut();
+                let culture = first_group_cultures[rng.random_range(0..first_group_cultures.len())];
+                let genome = random_genome(rng, Species::Human);
+                (culture, genome)
+            };
             self.spawn_agent(AgentConfig {
                 genome,
                 culture,
@@ -863,11 +865,14 @@ impl TestWorld {
             });
         }
         for &pos in &layout.second_human_positions {
-            let mut rng_guard = self.app.world_mut().resource_mut::<crate::core::SimRng>();
-            let rng = rng_guard.inner_mut();
-            let culture = second_group_cultures[rng.random_range(0..second_group_cultures.len())];
-            let genome = random_genome(rng, Species::Human);
-            drop(rng_guard);
+            let (culture, genome) = {
+                let mut rng_guard = self.app.world_mut().resource_mut::<crate::core::SimRng>();
+                let rng = rng_guard.inner_mut();
+                let culture =
+                    second_group_cultures[rng.random_range(0..second_group_cultures.len())];
+                let genome = random_genome(rng, Species::Human);
+                (culture, genome)
+            };
             self.spawn_agent(AgentConfig {
                 genome,
                 culture,
@@ -1375,14 +1380,14 @@ impl TestWorld {
             }
             if !started.is_empty() {
                 let mut entries: Vec<(String, usize)> = started.into_iter().collect();
-                entries.sort_by(|a, b| b.1.cmp(&a.1));
+                entries.sort_by_key(|(_, count)| std::cmp::Reverse(*count));
                 let summary: Vec<String> =
                     entries.iter().map(|(k, v)| format!("{k}×{v}")).collect();
                 eprintln!("  Recent({} ticks): [{}]", WINDOW, summary.join(", "));
             }
             if !failed.is_empty() {
                 let mut entries: Vec<(String, usize)> = failed.into_iter().collect();
-                entries.sort_by(|a, b| b.1.cmp(&a.1));
+                entries.sort_by_key(|(_, count)| std::cmp::Reverse(*count));
                 let summary: Vec<String> =
                     entries.iter().map(|(k, v)| format!("{k}×{v}")).collect();
                 eprintln!("  Failed({} ticks): [{}]", WINDOW, summary.join(", "));
@@ -1518,7 +1523,7 @@ impl TestWorld {
             }
             if !blocked.is_empty() {
                 let mut entries: Vec<((i32, i32), usize)> = blocked.into_iter().collect();
-                entries.sort_by(|a, b| b.1.cmp(&a.1));
+                entries.sort_by_key(|(_, count)| std::cmp::Reverse(*count));
                 let summary: Vec<String> = entries
                     .iter()
                     .take(6)

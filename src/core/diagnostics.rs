@@ -176,7 +176,7 @@ fn profile_memory_types(
 
     // Log memory type breakdown
     let mut type_vec: Vec<_> = type_counts.into_iter().collect();
-    type_vec.sort_by(|a, b| b.1.cmp(&a.1));
+    type_vec.sort_by_key(|(_, count)| std::cmp::Reverse(*count));
 
     game_log.performance("Memory types:".to_string());
     for (mem_type, count) in type_vec.iter().take(5) {
@@ -185,7 +185,7 @@ fn profile_memory_types(
 
     // Log predicate breakdown (top 5)
     let mut pred_vec: Vec<_> = predicate_counts.into_iter().collect();
-    pred_vec.sort_by(|a, b| b.1.cmp(&a.1));
+    pred_vec.sort_by_key(|(_, count)| std::cmp::Reverse(*count));
 
     game_log.performance("Top predicates:".to_string());
     for (predicate, count) in pred_vec.iter().take(5) {
