@@ -346,6 +346,9 @@ fn rested_human_sleeps_once_per_night_for_six_to_eight_hours() {
 fn sleep_start_always_has_matching_terminator() {
     let (mut world, sleeper) = tired_sleeper();
 
+    // Fast-forward: 15k game-seconds of sleep-wake cycling in 250 cycles.
+    world.enable_fast_forward();
+
     // Tick long enough for several sleep-wake cycles to happen. One full
     // sleep cycle is roughly 7000 ticks; run 15k to cover the flap window
     // the 4-day trace captured.

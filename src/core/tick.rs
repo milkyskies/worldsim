@@ -1,38 +1,62 @@
 use bevy::prelude::*;
 
 /// Tracks the simulation tick count
-#[derive(Resource, Reflect, Default)]
+#[derive(Resource, Reflect)]
 #[reflect(Resource)]
 pub struct TickCount {
-    /// Current tick number (0, 1, 2, ...)
+    /// Current tick number, denominated in game-seconds (1 tick = 1 game-second
+    /// per `GameTime::TICKS_PER_SECOND`). Incremented by `game_seconds_per_cycle`
+    /// per FixedMain cycle — which is 1 by default (windowed game) and can be
+    /// set larger by test harnesses to compress many game-seconds into one
+    /// FixedMain cycle and cut wall-clock time proportionally.
     pub current: u64,
-    /// Current speed in ticks per wall-clock second. Read by `time_controls`
+    /// Wall-clock speed in FixedUpdate cycles per second. Read by `time_controls`
     /// and the UI speed buttons; written to `Time<Fixed>::set_timestep_hz`
     /// to control how many FixedUpdate cycles Bevy runs per frame.
     pub ticks_per_second: f32,
+    /// How many game-seconds elapse per FixedMain cycle. 1 (default) means one
+    /// cycle simulates one game-second. Test harnesses set this to 60 to run
+    /// 60 game-seconds of physics per cycle — same total effect over the same
+    /// `current` span, 60× fewer cycles of work. Must be ≥ 1.
+    pub game_seconds_per_cycle: u64,
     /// Whether simulation is paused
     pub paused: bool,
+}
+
+impl Default for TickCount {
+    fn default() -> Self {
+        Self {
+            current: 0,
+            ticks_per_second: 60.0,
+            game_seconds_per_cycle: 1,
+            paused: false,
+        }
+    }
 }
 
 impl TickCount {
     pub fn new(ticks_per_second: f32) -> Self {
         Self {
-            current: 0,
             ticks_per_second,
-            paused: false,
+            ..Self::default()
         }
     }
 
-    /// Per-tick time delta for rate-based effects.
+    /// Sets how many game-seconds elapse per FixedMain cycle. See field docs.
+    pub fn with_game_seconds_per_cycle(mut self, gspc: u64) -> Self {
+        self.game_seconds_per_cycle = gspc.max(1);
+        self
+    }
+
+    /// Per-tick game-time delta for rate-based effects.
     ///
-    /// Derived from `ticks_per_second` against a 3600-tick/game-hour baseline:
-    /// at the default 60 tps, `dt = 60/3600 = 1/60` (same as the hardcoded
-    /// value the FixedUpdate migration used). Tests that want each tick to
-    /// represent one full game-second of physics set `ticks_per_second = 3600`
-    /// which yields `dt = 1.0` — matching `GameTime`'s "1 tick = 1 game-second"
-    /// convention so a single tick realizes a full `*PerSec` effect.
+    /// At windowed defaults (60 tps, gspc=1): `dt = 1/60` — each FixedMain
+    /// cycle advances physics by 1/60 wall-second. At test fast-mode defaults
+    /// (60 tps, gspc=60): `dt = 1.0` — each cycle advances 60× more physics,
+    /// matching the 60× coarser tick step so per-game-second behavior is
+    /// preserved.
     pub fn dt(&self) -> f32 {
-        self.ticks_per_second / 3600.0
+        (self.ticks_per_second / 3600.0) * self.game_seconds_per_cycle as f32
     }
 
     /// Check if this entity should run on this tick (for staggered updates)
@@ -63,6 +87,7 @@ pub fn tick_system(mut tick: ResMut<TickCount>, mut game_time: ResMut<super::Gam
     if tick.paused {
         return;
     }
-    tick.current += 1;
+    let step = tick.game_seconds_per_cycle;
+    tick.current += step;
     game_time.update_from_tick(tick.current);
 }

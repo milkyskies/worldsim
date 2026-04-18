@@ -915,18 +915,50 @@ impl TestWorld {
 
     // ─── Simulation ────────────────────────────────────────────────────────
 
-    /// Advances the simulation by `n` ticks. Runs `FixedMain` directly
+    /// Advances the simulation by `n` game-seconds. Runs `FixedMain` directly
     /// (bypassing Bevy's time-accumulation `RunFixedMainLoop`) then the
     /// frame-rate schedules (`PostUpdate` for transform propagation,
     /// `Last` for event collection). Does NOT call `app.update()` —
     /// that would trigger `RunFixedMainLoop` which leaks extra ticks
     /// from wall-clock accumulation.
+    ///
+    /// Each FixedMain cycle advances physics by `game_seconds_per_cycle`
+    /// game-seconds (see [`TickCount`]). By default that's 1, so `tick(n)`
+    /// runs `n` cycles — the same as pre-compression tests. Tests that spend
+    /// most of their budget waiting on physics timers can call
+    /// [`Self::enable_fast_forward`] to run fewer but coarser cycles.
     pub fn tick(&mut self, n: u64) {
-        for _ in 0..n {
+        let gspc = self
+            .app
+            .world()
+            .resource::<TickCount>()
+            .game_seconds_per_cycle
+            .max(1);
+        let cycles = n.div_ceil(gspc);
+        for _ in 0..cycles {
             self.app.world_mut().run_schedule(FixedMain);
             self.app.world_mut().run_schedule(PostUpdate);
             self.app.world_mut().run_schedule(Last);
         }
+    }
+
+    /// Opts this TestWorld into fast-forward mode: each FixedMain cycle
+    /// advances physics by 60 game-seconds instead of 1, cutting wall-clock
+    /// time ~60× for tests dominated by long physics timers (hunger drain,
+    /// wakefulness decay, multi-game-day sleep cycles).
+    ///
+    /// Do NOT use for decision-bound tests (planner behavior, action
+    /// execution, conversation turn sequencing). Those need per-cycle brain
+    /// cadence that fast-forward flattens out — the test would have 60× fewer
+    /// brain-tick opportunities than the budget suggests.
+    ///
+    /// Must be called before any `tick()` — the Time<Fixed> and scheduling
+    /// resources assume a consistent `game_seconds_per_cycle` across the run.
+    pub fn enable_fast_forward(&mut self) {
+        self.app
+            .world_mut()
+            .resource_mut::<TickCount>()
+            .game_seconds_per_cycle = 60;
     }
 
     /// Returns the current tick count.
@@ -2156,13 +2188,15 @@ pub(super) fn make_walkable_map(width: u32, height: u32) -> WorldMap {
     map
 }
 
-/// Replaces `core::tick::tick_system` for tests: increments TickCount.current by
-/// exactly one per update, regardless of real-time delta. Also drives GameTime.
+/// Replaces `core::tick::tick_system` for tests: advances TickCount.current by
+/// `game_seconds_per_cycle` game-seconds per FixedMain cycle, regardless of
+/// real-time delta. Also drives GameTime.
 fn deterministic_tick(mut tick: ResMut<TickCount>, mut game_time: ResMut<GameTime>) {
     if tick.paused {
         return;
     }
-    tick.current += 1;
+    let step = tick.game_seconds_per_cycle;
+    tick.current += step;
     game_time.update_from_tick(tick.current);
 }
 

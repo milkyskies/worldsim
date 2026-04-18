@@ -26,6 +26,10 @@ fn agent_eats_before_stomach_empties() {
         .build();
     let alice = agents["alice"];
 
+    // Fast-forward: each cycle covers 60 game-seconds, cutting 172800-cycle
+    // wall-clock to 2880. Action durations stay game-time-invariant.
+    world.enable_fast_forward();
+
     let initial_stomach = world
         .get::<PhysicalNeeds>(alice)
         .metabolism
