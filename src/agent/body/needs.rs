@@ -9,6 +9,7 @@ use bevy::prelude::*;
 
 use crate::agent::actions::ActionType;
 use crate::agent::body::metabolism::Metabolism;
+use crate::agent::body::need::Need;
 
 /// Physical fatigue with two biologically-inspired sub-pools.
 ///
@@ -163,10 +164,10 @@ pub struct PhysicalNeeds {
     /// Nutrient / energy loop: stomach (carbs+fat) -> glucose -> reserves.
     /// Replaces the flat `hunger` scalar; see `metabolism.rs` for the model.
     pub metabolism: Metabolism,
-    /// 0..100 hydration — high is good. Drains toward 0 over time,
-    /// refills to 100 when the agent drinks. Replaces the old
-    /// `thirst` field which stored the inverse (high = parched).
-    pub hydration: f32,
+    /// Hydration as a `Need` in `0..1` (high = hydrated). Drains at
+    /// `BMR_HYDRATION_DRAIN_PER_SEC` via `tick_metabolism`, tops up when
+    /// the agent drinks. Urgency::Thirst reads the deficit.
+    pub hydration: Need,
     pub stamina: Stamina,
     /// Homeostatic sleep pressure (adenosine analogue). 1.0 = fully rested,
     /// 0.0 = must sleep. Decays while awake, accelerates at night (circadian),
@@ -179,7 +180,7 @@ impl Default for PhysicalNeeds {
     fn default() -> Self {
         Self {
             metabolism: Metabolism::default(),
-            hydration: 100.0,
+            hydration: Need::full(),
             stamina: Stamina::default(),
             wakefulness: 1.0,
         }
@@ -624,7 +625,7 @@ impl StateDisplay for PhysicalNeeds {
             ),
             ("Glucose", self.metabolism.glucose, Scale::Percentage),
             ("Reserves", self.metabolism.reserves, Scale::Percentage),
-            ("Hydration", self.hydration, Scale::Percentage),
+            ("Hydration", self.hydration.value, Scale::Normalized),
             ("Aerobic", self.stamina.aerobic, Scale::Percentage),
             ("Anaerobic", self.stamina.anaerobic, Scale::Percentage),
             ("Wakefulness", self.wakefulness, Scale::Normalized),

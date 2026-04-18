@@ -38,7 +38,7 @@ fn spawn_agent(app: &mut App, pos: Vec2, stress: f32, aerobic: f32) -> Entity {
                     ..Default::default()
                 },
                 metabolism: worldsim::agent::body::metabolism::Metabolism::well_fed(),
-                hydration: 100.0,
+                hydration: worldsim::agent::body::need::Need::full(),
                 wakefulness: 1.0,
             },
             EmotionalState {

@@ -923,7 +923,7 @@ pub fn process_deprivation(
             apply_cascade(&mut body, dt, 1.0);
         }
 
-        if physical.hydration <= 10.0 {
+        if physical.hydration.value <= 0.1 {
             apply_cascade(&mut body, dt, DEHYDRATION_RATE_MULTIPLIER);
         }
     }

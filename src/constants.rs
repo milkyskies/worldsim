@@ -78,7 +78,8 @@ pub mod actions {
 
     pub mod drink {
         pub const DURATION_TICKS: u32 = 15;
-        pub const THIRST_REDUCTION: f32 = 50.0;
+        /// How much hydration (0..1 Need satisfaction) one Drink grants.
+        pub const THIRST_REDUCTION: f32 = 0.5;
         pub const STAMINA_GAIN: f32 = 5.0;
     }
 

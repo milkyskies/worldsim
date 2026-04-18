@@ -14,19 +14,19 @@ fn hydration_decreases_over_time_without_drinking() {
 
     let agent = world.spawn_agent(AgentConfig {
         pos: Vec2::new(200.0, 200.0),
-        hydration: 100.0,
+        hydration: 1.0,
         ..Default::default()
     });
 
-    let before = world.get::<PhysicalNeeds>(agent).hydration;
+    let before = world.get::<PhysicalNeeds>(agent).hydration.value;
 
-    // 10 000 ticks × (1/60) s × 0.035 /s ≈ 5.8 hydration units drained.
+    // 10 000 ticks × (1/60) s × 0.00035 /s ≈ 0.058 hydration units drained.
     world.tick(10_000);
 
-    let after = world.get::<PhysicalNeeds>(agent).hydration;
+    let after = world.get::<PhysicalNeeds>(agent).hydration.value;
     assert!(
-        after < before - 5.0,
-        "hydration should drain over time, got {before:.1} → {after:.1}"
+        after < before - 0.05,
+        "hydration should drain over time, got {before:.3} → {after:.3}"
     );
 }
 
@@ -41,7 +41,7 @@ fn thirsty_agent_near_water_plans_to_drink() {
 
     let agent = world.spawn_agent(AgentConfig {
         pos: Vec2::new(40.0, 40.0),
-        hydration: 20.0,
+        hydration: 0.2,
         ..Default::default()
     });
 

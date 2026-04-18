@@ -83,11 +83,13 @@ pub const RESERVE_MOBILIZE_RATE: f32 = 0.8;
 /// genetic `Phenotype::bmr`.
 pub const BMR_GLUCOSE_DRAIN_PER_SEC: f32 = 0.1;
 
-/// Basal hydration drain per second while alive. Tuned to match real
-/// human water turnover (~2.5 L/day), which hits first-thirst after
-/// 3-4 hours without water. At this rate, hydration crosses the thirst
-/// sigmoid midpoint (hydration 65) in ~3.5 game-hours.
-pub const BMR_HYDRATION_DRAIN_PER_SEC: f32 = 0.15;
+/// Basal hydration drain per second while alive, as a fraction of the
+/// `Need`'s `0..1` scale. Tuned to match real human water turnover
+/// (~2.5 L/day), which hits first-thirst after 3-4 hours without water.
+/// At this rate, hydration crosses the thirst sigmoid midpoint (value
+/// ~0.65) in ~3.5 game-hours. (Previous value was 0.15 on the legacy
+/// 0..100 scale; scaled down by 100× for the Need migration.)
+pub const BMR_HYDRATION_DRAIN_PER_SEC: f32 = 0.0015;
 
 /// Hunger urgency blend weights (must sum to 1.0).
 /// Stomach-heavy: ghrelin makes you hungry when your stomach empties,

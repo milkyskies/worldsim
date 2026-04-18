@@ -200,7 +200,7 @@ fn generate_failure_frustration(
 ) {
     let urgency = match reason {
         FailureReason::NoEdibleFood | FailureReason::MissingItem(_) => needs.hunger_urgency(),
-        FailureReason::NoWaterNearby => 1.0 - (needs.hydration / 100.0).clamp(0.0, 1.0),
+        FailureReason::NoWaterNearby => needs.hydration.deficit(),
         _ => 0.0,
     };
 

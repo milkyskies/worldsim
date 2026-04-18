@@ -640,7 +640,7 @@ pub fn tick_actions(
             // field, so we snapshot the urgency (0..1) as "pre_hunger" on a
             // 0..100 scale to preserve the outcome event semantics.
             let pre_hunger = physical.metabolism.hunger_urgency() * 100.0;
-            let pre_thirst = 100.0 - physical.hydration;
+            let pre_thirst = physical.hydration.deficit() * 100.0;
             let pre_aerobic = physical.stamina.aerobic;
             // Snapshot inventory-total so we can detect Harvest/Take
             // completions that yielded nothing (target was empty). Before
@@ -762,7 +762,7 @@ pub fn tick_actions(
             // Walk/Idle/Wander complete with no effects — skip the allocation.
             let post_hunger = physical.metabolism.hunger_urgency() * 100.0;
             let hunger_reduced = pre_hunger - post_hunger;
-            let thirst_reduced = pre_thirst - (100.0 - physical.hydration);
+            let thirst_reduced = pre_thirst - physical.hydration.deficit() * 100.0;
             let stamina_gained = physical.stamina.aerobic - pre_aerobic;
             if hunger_reduced > 0.0 || thirst_reduced > 0.0 || stamina_gained > 0.0 {
                 outcome_events.write(ActionOutcomeEvent {

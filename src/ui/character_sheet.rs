@@ -740,8 +740,7 @@ fn render_overview(ui: &mut egui::Ui, world: &World, entity: Entity) {
         let body_ref = world.get::<crate::agent::biology::body::Body>(entity);
         let body_health = body_ref.map_or(1.0, |b| b.overall_health());
         vital_row(ui, "Health", body_health * 100.0, 100.0, 0.3, 0.7);
-        let hydration = (needs.hydration / 100.0).clamp(0.0, 1.0);
-        vital_row_fraction_explained(ui, "Hydration", hydration, 0.3, 0.7, None, " /sec");
+        vital_row_fraction_explained(ui, "Hydration", needs.hydration.value, 0.3, 0.7, None, " /sec");
         urgency_line(ui, "Thirst urgency", urgency_for(UrgencySource::Thirst));
         vital_row_explained(
             ui,
@@ -1042,7 +1041,7 @@ fn render_needs(ui: &mut egui::Ui, world: &World, entity: Entity) {
     vital_row_fraction_explained(
         ui,
         "Hydration",
-        (needs.hydration / 100.0).clamp(0.0, 1.0),
+        needs.hydration.value,
         0.3,
         0.7,
         None,
@@ -2009,7 +2008,7 @@ fn deprivation_stage(body: &Body, needs: &PhysicalNeeds) -> DeprivationStage {
 
     let hungry = needs.metabolism.is_weak_from_hunger()
         || needs.metabolism.is_starving()
-        || needs.hydration <= 20.0;
+        || needs.hydration.value <= 0.2;
     if hungry {
         return DeprivationStage::Hungry;
     }

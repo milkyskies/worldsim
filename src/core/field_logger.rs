@@ -432,7 +432,7 @@ pub fn resolve_field(world: &World, entity: Entity, path: &str) -> Option<Value>
             .map(|n| json!(n.hunger_urgency())),
         "needs.hydration" => world
             .get::<PhysicalNeeds>(entity)
-            .map(|n| json!(n.hydration)),
+            .map(|n| json!(n.hydration.value)),
         "needs.wakefulness" => world
             .get::<PhysicalNeeds>(entity)
             .map(|n| json!(n.wakefulness)),
@@ -876,7 +876,9 @@ pub fn default_change_threshold(path: &str) -> f32 {
         | "brain.powers.rational" => 0.05,
         p if p.starts_with("cns.urgencies.") => 0.05,
         "needs.aerobic" | "needs.anaerobic" | "needs.glucose" | "needs.stomach"
-        | "needs.reserves" | "needs.hydration" | "needs.health" => 1.0,
+        | "needs.reserves" | "needs.health" => 1.0,
+        // Hydration is a 0..1 Need; 1.0-unit threshold never triggers.
+        "needs.hydration" => 0.01,
         _ => 0.0,
     }
 }

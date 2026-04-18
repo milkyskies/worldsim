@@ -159,7 +159,7 @@ pub fn generate_urgency(
                 // Already a deficit (high = hungry). Stays as-is.
                 UrgencySource::Hunger => physical.hunger_urgency(),
                 // Satisfaction → urgency via inversion.
-                UrgencySource::Thirst => 1.0 - (physical.hydration / 100.0).clamp(0.0, 1.0),
+                UrgencySource::Thirst => physical.hydration.deficit(),
                 // Stamina is satisfaction (aerobic_fraction() is high=rested);
                 // the loop below does the inversion via the Stamina-specific
                 // branch so no inversion here.
@@ -386,15 +386,14 @@ mod tests {
     /// satisfaction (high = good) and urgency generation inverts it.
     #[test]
     fn low_hydration_gives_high_thirst_input() {
-        let thirst_input = |hydration: f32| 1.0 - (hydration / 100.0).clamp(0.0, 1.0);
-
+        use crate::agent::body::need::Need;
         assert!(
-            thirst_input(10.0) > 0.85,
-            "hydration 10 → thirst input {:.2}, expected > 0.85",
-            thirst_input(10.0)
+            Need::new(0.1).deficit() > 0.85,
+            "hydration 0.1 → thirst input {:.2}, expected > 0.85",
+            Need::new(0.1).deficit()
         );
         assert_eq!(
-            thirst_input(100.0),
+            Need::full().deficit(),
             0.0,
             "fully hydrated agent must have zero thirst input"
         );

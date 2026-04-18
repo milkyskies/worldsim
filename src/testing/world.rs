@@ -1176,9 +1176,9 @@ impl TestWorld {
         self.get::<PhysicalNeeds>(agent).hunger_urgency()
     }
 
-    /// Returns the agent's thirst value (0.0–100.0).
+    /// Returns the agent's thirst (hydration deficit) as a `0..1` fraction.
     pub fn agent_thirst(&self, agent: Entity) -> f32 {
-        100.0 - self.get::<PhysicalNeeds>(agent).hydration
+        self.get::<PhysicalNeeds>(agent).hydration.deficit()
     }
 
     /// Returns the agent's aerobic stamina value (0.0–aerobic_max).
@@ -1324,9 +1324,9 @@ impl TestWorld {
                 .get::<crate::agent::biology::body::Body>(agent)
                 .map_or(1.0, |b| b.overall_health());
             eprintln!(
-                "  Vitals:    health={:.1}%  thirst={:.1}  stamina(a/an)={:.1}/{:.1}  wakefulness={:.2}",
+                "  Vitals:    health={:.1}%  thirst={:.2}  stamina(a/an)={:.1}/{:.1}  wakefulness={:.2}",
                 body_health * 100.0,
-                100.0 - needs.hydration,
+                needs.hydration.deficit(),
                 needs.stamina.aerobic,
                 needs.stamina.anaerobic,
                 needs.wakefulness

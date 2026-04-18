@@ -59,9 +59,9 @@ pub fn tick_metabolism(
         // hydration-sleep multiplier lets the agent finish the night without
         // the emergency-wake pathway firing.
         let hydration_sleep_factor = 0.3 + 0.7 * consciousness.alertness;
-        physical.hydration = (physical.hydration
-            - BMR_HYDRATION_DRAIN_PER_SEC * hydration_sleep_factor * dt)
-            .max(0.0);
+        physical
+            .hydration
+            .drain(BMR_HYDRATION_DRAIN_PER_SEC * hydration_sleep_factor * dt);
 
         // Slow passive anaerobic refill so a Flee sprint doesn't leave
         // the pool stuck at 0 forever. The rate is low enough that the

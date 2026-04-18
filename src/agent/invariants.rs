@@ -85,7 +85,7 @@ fn check_components(world: &mut World) {
                 0.0,
                 crate::agent::body::metabolism::RESERVES_MAX,
             );
-            assert_in_range(entity, "hydration", n.hydration, 0.0, 100.0);
+            assert_in_range(entity, "hydration", n.hydration.value, 0.0, 1.0);
             assert_in_range(
                 entity,
                 "stamina.aerobic",
