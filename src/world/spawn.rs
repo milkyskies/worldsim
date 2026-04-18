@@ -16,9 +16,11 @@ use bevy::prelude::*;
 /// Returns `Some(entity_id)` for handled concepts; returns `None` for concepts
 /// without a registered spawner. Callers may log/skip when `None` is returned.
 ///
-/// Currently uses headless spawners (no sprites) so the same dispatch works
-/// in both runtime and test environments. Visual variants are layered on by
-/// the visual world systems separately.
+/// Campfires use the sprited spawner so Build-produced campfires are visible
+/// in the windowed game — matching pre-placed ones from world init. Color-based
+/// sprites (no textures) are inert in headless, so tests don't regress. The
+/// aspirational "visual variants layered on by visual world systems" plan
+/// (see follow-up issue) would unify sprite attachment across all artifacts.
 pub fn spawn_concept_entity(
     commands: &mut Commands,
     concept: Concept,
@@ -26,9 +28,7 @@ pub fn spawn_concept_entity(
     _started_tick: u64,
 ) -> Option<Entity> {
     match concept {
-        Concept::Campfire => Some(crate::world::campfire::spawn_campfire_headless(
-            commands, position,
-        )),
+        Concept::Campfire => Some(crate::world::campfire::spawn_campfire(commands, position)),
         Concept::Corpse => Some(crate::world::corpse::spawn_corpse_headless(
             commands, position,
         )),
