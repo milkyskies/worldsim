@@ -44,7 +44,9 @@ fn eat_satiation_reports_stomach_fraction_as_hunger() {
     let ctx = ctx_with_needs(&inv, &mind, &map, &physical);
 
     let eat = EatAction;
-    let (kind, fullness) = eat.satiation(ctx.physical).expect("Eat should expose satiation");
+    let (kind, fullness) = eat
+        .satiation(ctx.physical)
+        .expect("Eat should expose satiation");
     assert_eq!(kind, NeedKind::Hunger);
     // well-fed metabolism starts at stomach 100/100 = 1.0
     assert!(fullness > 0.95, "stomach should read ~full, got {fullness}");
