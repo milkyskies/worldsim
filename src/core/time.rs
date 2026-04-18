@@ -31,9 +31,10 @@ impl GameTime {
     pub const TICKS_PER_DAY: u64 = Self::TICKS_PER_HOUR * Self::HOURS_PER_DAY;
 
     /// Wall-clock hour the simulation begins at (both `cargo run` and
-    /// `--headless`). 8am sits agents down to their first breakfast and
-    /// leaves a full day before the first natural bedtime.
-    pub const START_HOUR: u64 = 8;
+    /// `--headless`). 6am is an early start — agents wake up hungry and
+    /// thirsty (their last meal was dinner the night before), and the
+    /// 16-hour day runs to ~22:00 when the natural sleep pressure wins.
+    pub const START_HOUR: u64 = 6;
     /// `START_HOUR * MINUTES_PER_HOUR * SECONDS_PER_MINUTE * TICKS_PER_SECOND`
     /// — the offset applied to raw tick counts when computing wall-clock
     /// `hours/minutes/seconds` / `days` fields.

@@ -185,6 +185,20 @@ impl PhysicalNeeds {
     pub fn hunger_urgency(&self) -> f32 {
         self.metabolism.hunger_urgency()
     }
+
+    /// "Just woke up" spawn state: fasted stomach and moderately thirsty,
+    /// same as a real human rolling out of bed after 8 hours of sleep.
+    /// Used by `spawn_person` for the game's initial population; tests
+    /// keep the generous `Default` (full everything) for fixture
+    /// simplicity.
+    pub fn just_woke_up() -> Self {
+        Self {
+            metabolism: Metabolism::morning_fasted(),
+            hydration: Need::new(0.55),
+            stamina: Stamina::default(),
+            wakefulness: Need::full(),
+        }
+    }
 }
 
 /// Consciousness state - alertness and awareness

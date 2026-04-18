@@ -246,6 +246,20 @@ impl Metabolism {
         }
     }
 
+    /// "Just woke up" morning state after ~8 hours of sleep without food.
+    /// Stomach is empty (dinner fully digested), glucose is low enough
+    /// to trigger real hunger urgency, reserves are partially drawn down
+    /// overnight but still substantial. Used by the game's initial spawn
+    /// so agents start their day wanting breakfast.
+    pub fn morning_fasted() -> Self {
+        Self {
+            stomach_carbs: 0.0,
+            stomach_fat: 0.0,
+            glucose: GLUCOSE_MAX * 0.45,
+            reserves: RESERVES_MAX * 0.9,
+        }
+    }
+
     /// Construct a metabolism whose `hunger_urgency()` matches the given
     /// 0..1 target. Sets every pool to `(1 - urgency)` of its capacity so the
     /// weighted urgency sum collapses cleanly to `urgency`. Used by tests
