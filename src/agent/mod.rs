@@ -199,6 +199,11 @@ impl Plugin for AgentPlugin {
                     .in_set(crate::core::PerfSubBucket::MemoryMindgraphDrain)
                     .run_if(not_paused),
             )
+            // Psyche bucket split into 3 sub-bucket groups (emotions / relationships /
+            // social_drives). Ordering chain `react_to_events → update_relationships
+            // → decay_social_from_proximity → social_acknowledgments` spans the
+            // groups — Bevy preserves it via `.after()` on system identity, so the
+            // tuple split doesn't break execution order.
             .add_systems(
                 FixedUpdate,
                 (
@@ -206,15 +211,32 @@ impl Plugin for AgentPlugin {
                     psyche::emotions::update_mood,
                     psyche::emotions::update_stress,
                     psyche::emotions::react_to_events,
+                )
+                    .in_set(crate::core::PerfBucket::Psyche)
+                    .in_set(crate::core::PerfSubBucket::PsycheEmotions)
+                    .run_if(not_paused),
+            )
+            .add_systems(
+                FixedUpdate,
+                (
                     psyche::relationships::update_relationships
                         .after(psyche::emotions::react_to_events),
                     psyche::relationships::decay_relationships,
+                )
+                    .in_set(crate::core::PerfBucket::Psyche)
+                    .in_set(crate::core::PerfSubBucket::PsycheRelationships)
+                    .run_if(not_paused),
+            )
+            .add_systems(
+                FixedUpdate,
+                (
                     psyche::flocking::decay_social_from_proximity
                         .after(brains::brain_system::arbitrate_every_tick),
                     psyche::greetings::social_acknowledgments
                         .after(psyche::flocking::decay_social_from_proximity),
                 )
                     .in_set(crate::core::PerfBucket::Psyche)
+                    .in_set(crate::core::PerfSubBucket::PsycheSocial)
                     .run_if(not_paused),
             )
             .add_systems(

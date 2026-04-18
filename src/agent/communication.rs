@@ -111,13 +111,22 @@ impl Plugin for CommunicationPlugin {
                 (
                     process_initiate_conversation
                         .after(crate::agent::nervous_system::execution::start_actions),
+                    evaluate_conversation_continuation.after(emit_communication_events),
+                )
+                    .in_set(crate::core::PerfBucket::Communication)
+                    .in_set(crate::core::PerfSubBucket::CommunicationLifecycle)
+                    .run_if(not_paused),
+            )
+            .add_systems(
+                FixedUpdate,
+                (
                     select_turn_intent.after(process_initiate_conversation),
                     update_speaker_theory_of_mind.after(select_turn_intent),
                     process_received_communication.after(select_turn_intent),
                     emit_communication_events.after(process_received_communication),
-                    evaluate_conversation_continuation.after(emit_communication_events),
                 )
                     .in_set(crate::core::PerfBucket::Communication)
+                    .in_set(crate::core::PerfSubBucket::CommunicationTurn)
                     .run_if(not_paused),
             );
     }

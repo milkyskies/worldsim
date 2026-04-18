@@ -50,16 +50,32 @@ output under a `perf_stats` field.
 
 ## Buckets
 
-| bucket | systems |
-| --- | --- |
-| `perception` | visual / body / tile / temperature / hearing perception, social perception, recognition, theory-of-mind |
-| `memory` | working-memory processing, consolidation, knowledge decay, belief updater, MindGraph mutation drain |
-| `psyche` | emotions, relationships, flocking, greetings, territoriality |
-| `skills` | skill progression, skill decay |
-| `biology` | metabolism, wakefulness, freshness decay |
-| `brain` | urgency generation, rational planning, arbitration, brain history |
-| `communication` | conversation lifecycle and turn selection |
-| `action` | action start / tick / apply, world labor accumulation, `becomes`, emitted effects |
+Parents that hide multiple phases are split into sub-buckets so the F3
+overlay and `--perf` table can show where the time actually goes. `skills`
+and `biology` only hold two systems each and stay flat.
+
+| bucket | sub-bucket | systems |
+| --- | --- | --- |
+| `perception` | `visual` | `update_visual_perception`, `write_perceptions_to_mind` |
+| `perception` | `sensory` | body / water / grass / temperature / hearing perception, danger reaction |
+| `perception` | `social` | social perception, recognition, shared-experience ToM |
+| `memory` | `wm_tick` | working-memory processing, decay, belief updater |
+| `memory` | `consolidation` | WM → MindGraph consolidation |
+| `memory` | `mindgraph_drain` | draining pending triple mutations |
+| `brain` | `urgency` | CNS urgency generation |
+| `brain` | `planning` | GOAP A* rational planner |
+| `brain` | `arbitration` | survival / emotional / rational arbitration |
+| `brain` | `history` | brain history bookkeeping |
+| `action` | `execution` | action start / tick / apply effects |
+| `action` | `world_mutation` | labor accumulation, `becomes`, emitted effects |
+| `psyche` | `emotions` | emotion decay, mood, stress, event reactions |
+| `psyche` | `relationships` | relationship update + decay |
+| `psyche` | `social_drives` | flocking social decay, greeting acknowledgments |
+| `psyche` | `territoriality` | territoriality drive update |
+| `communication` | `lifecycle` | conversation initiate, continuation eval |
+| `communication` | `turn` | intent selection, speaker ToM, receive, emit |
+| `skills` | *(flat)* | skill progression, skill decay |
+| `biology` | *(flat)* | metabolism, wakefulness, freshness decay |
 
 ## Reading the numbers honestly
 
@@ -85,9 +101,65 @@ avg`, the scheduler is giving you parallelism for free.
 - **New bucket:** add a variant to `core::perf::PerfBucket`, an entry to
   `PerfBucket::ALL`, a `bucket_markers!` line in `core::perf`, and a
   `.before(...)` / `.after(...)` pair in `PerfPlugin::build`.
+- **New sub-bucket:** add a variant to `PerfSubBucket`, extend the
+  `label`/`parent`/`index`/`ALL` entries, bump the `sub_buckets:
+  [BucketData; N]` array length in `PerfTracker`, and tag the relevant
+  systems with both `.in_set(PerfBucket::X)` and
+  `.in_set(PerfSubBucket::Y)`.
 - **Assigning systems:** add `.in_set(crate::core::PerfBucket::X)` to
   the relevant `add_systems(FixedUpdate, …)` call. Existing `.after()`
   constraints across buckets are preserved — Bevy resolves orderings by
   system identity, not tuple membership.
 - **Tuning the rolling window:** `core::perf::DEFAULT_WINDOW` (currently
   120 ticks = ~2 seconds at 60 tps).
+
+## Complementary profilers
+
+The overlay answers "which logical bucket is eating my tick budget?" —
+it stops at the sub-bucket boundary. Two external tools cover the layers
+underneath:
+
+- **[Tracy](https://github.com/wolfpld/tracy) + the `profile-tracy` Cargo
+  feature.** Build with `cargo run --release --features profile-tracy`
+  and launch the native Tracy viewer — it connects over TCP and shows
+  every Bevy system as a named span with sampled callstacks inside,
+  live. Strict superset of the overlay's data plus function-level
+  detail. Reach for this when a sub-bucket is hot and you need to know
+  which function inside it is the culprit.
+
+  **Viewer version must match the Rust client's wire protocol exactly.**
+  Bevy 0.18 bundles `tracy-client-sys 0.28.0`, which pins Tracy to
+  **0.13.1** — see `~/.cargo/registry/src/**/tracy-client-sys-*/tracy/common/TracyVersion.hpp`.
+  Later Tracy patch releases (0.13.2+) and any `*-git` AUR package bump
+  the protocol and will reject the connection with an
+  "incompatible protocol version" error. The AUR `tracy` package rolls
+  forward without honoring this, so the reliable path is to build the
+  matching tag from source:
+
+  ```bash
+  git clone --branch v0.13.1 --depth 1 https://github.com/wolfpld/tracy ~/src/tracy-0.13.1
+  cd ~/src/tracy-0.13.1
+  for dir in profiler capture csvexport; do
+    cmake -B "$dir/build" -S "$dir" -DCMAKE_BUILD_TYPE=Release
+    cmake --build "$dir/build" --parallel
+  done
+  # Symlink onto PATH so `tracy-capture` / `tracy-csvexport` just work:
+  mkdir -p ~/.local/bin
+  ln -sf ~/src/tracy-0.13.1/profiler/build/tracy-profiler    ~/.local/bin/
+  ln -sf ~/src/tracy-0.13.1/capture/build/tracy-capture      ~/.local/bin/
+  ln -sf ~/src/tracy-0.13.1/csvexport/build/tracy-csvexport  ~/.local/bin/
+  ```
+
+  After a Bevy bump, re-check `TracyVersion.hpp` and rebuild against
+  the matching tag.
+- **[samply](https://github.com/mstange/samply).** Install with `cargo
+  install samply`, then `samply record cargo run --release --
+  --headless --game-defaults --seed 42 --ticks 5000`. Opens a Firefox
+  Profiler tab with an interactive flamegraph + call tree. No code
+  changes, no Bevy feature flag, no native viewer. Pure function-level —
+  it doesn't know what a "Bevy system" is, but it'll tell you `HashMap::
+  insert` is 30% of the sample. Good for quick "what's hot" sanity
+  checks and for sharing profile traces (browser-viewable URL).
+
+Rule of thumb: overlay → Tracy → samply, in that order of specificity.
+Most questions stop at the overlay.

@@ -329,7 +329,7 @@ cat debug/alice/fields.jsonl | jq 'select(.needs.hunger > 0.5) | .tick' | head -
 
 ### 5. Per-system tick timer (`--perf` / F3) — for "which system is slow?"
 
-Headless `--perf` collects per-bucket wall-clock timings every tick and prints a sorted Minecraft-F3-style table every N ticks. Parent buckets (perception / memory / psyche / skills / biology / brain / communication / action) expand into sub-buckets where it matters (brain → urgency / planning / arbitration / history, perception → visual / sensory / social, memory → wm_tick / consolidation / mindgraph_drain, action → execution / world_mutation).
+Headless `--perf` collects per-bucket wall-clock timings every tick and prints a sorted Minecraft-F3-style table every N ticks. Parent buckets (perception / memory / psyche / skills / biology / brain / communication / action) expand into sub-buckets where it matters: brain → urgency / planning / arbitration / history, perception → visual / sensory / social, memory → wm_tick / consolidation / mindgraph_drain, action → execution / world_mutation, psyche → emotions / relationships / social_drives / territoriality, communication → lifecycle / turn. `skills` and `biology` stay flat (2 systems each). See `docs/perf_overlay.md` for the full bucket → system mapping. For function-level timings inside a hot sub-bucket, see §6 (Tracy CLI).
 
 ```bash
 # Collect timings for 5000 ticks, print every 1000, and dump the final snapshot into the report JSON
@@ -345,9 +345,58 @@ cargo run --release -- --headless --game-defaults --seed 42 --ticks 5000 \
 **When to reach for it:**
 - "Sim feels slow, is it the planner or consolidation?" — parent buckets rank, sub-buckets split the expensive ones.
 - "Did my refactor make the brain cheaper?" — capture `--report` before and after, diff `perf_stats`.
-- **Not for** microbenchmark regression tracking (use criterion in `benches/`) or per-agent cost (tracker is sim-wide).
+- **Not for** microbenchmark regression tracking (use criterion in `benches/`) or per-agent cost (tracker is sim-wide). For function-level detail inside a sub-bucket, see §6 (Tracy CLI).
 
-### 6. TestWorld inspection methods — when debugging from inside a test
+### 6. Tracy CLI — for per-Bevy-system function-level timings
+
+When `--perf` says a sub-bucket is hot but you need to know *which function inside it* is the culprit, use Tracy's headless CLI. Build with the `profile-tracy` Cargo feature (forwards to `bevy/trace_tracy`), capture with `tracy-capture`, then export to CSV with `tracy-csvexport` — one row per unique span (every Bevy system + any manually-annotated zone).
+
+**Assumes `tracy-capture` and `tracy-csvexport` are on `PATH`** with a matching Tracy build (see `docs/perf_overlay.md` for install + version pinning — Bevy locks the wire protocol to a specific Tracy release). If the sim errors out with "incompatible protocol version", the installed Tracy viewer is newer than the Rust client expects.
+
+```bash
+mkdir -p debug/tracy
+
+# Terminal 1 (or `&`): headless capture daemon. Exits when the client disconnects.
+tracy-capture -o debug/tracy/run.tracy &
+
+# Terminal 2: run the game with the feature flag. Tracy connects on startup.
+cargo run --release --features profile-tracy -- \
+  --headless --game-defaults --seed 42 --ticks 5000
+
+# Export to CSV once the sim exits
+tracy-csvexport debug/tracy/run.tracy > debug/tracy/zones.csv
+```
+
+**CSV schema** (one row per zone, fields comma-separated):
+`name, src_file, src_line, total_ns, count, mean_ns, median_ns, min_ns, max_ns, stddev_ns`
+
+**Query patterns:**
+
+```bash
+# Top 20 hottest zones by cumulative time (total_ns is column 4)
+sort -t',' -k4 -gr debug/tracy/zones.csv | head -20
+
+# Top 20 by mean per-call (mean_ns is column 6) — finds expensive one-shots
+sort -t',' -k6 -gr debug/tracy/zones.csv | head -20
+
+# Pull one system's stats
+grep 'drain_mindgraph_mutations' debug/tracy/zones.csv
+
+# Every zone whose name matches a pattern, sorted by total time
+grep 'perception' debug/tracy/zones.csv | sort -t',' -k4 -gr
+```
+
+**When to reach for it:**
+- "`memory.mindgraph_drain` is 1.6ms — which function inside it?" — `grep mindgraph` against the CSV, or look at the top zones overall.
+- "Is `update_visual_perception` doing N² iteration?" — `mean_ns × count` shows per-call cost vs. call frequency.
+- Any time `--perf` sub-buckets flatten out more detail than you need.
+
+**Not for:**
+- Per-agent cost (zones are sim-wide, same as `--perf`).
+- Tests — tracy requires a live client; use `--perf` counters or `TestWorld` inspection instead.
+- Small runs — needs at least a few hundred ticks to get meaningful averages.
+
+### 7. TestWorld inspection methods — when debugging from inside a test
 
 If you're debugging a failing test (not a headless run), call these BEFORE the failing assertion. Output goes to stderr — visible with `cargo nextest run -E 'test(name)' --no-capture` (nextest swallows output by default; `--no-capture` streams it live) or in CI logs.
 
