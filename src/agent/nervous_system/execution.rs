@@ -127,17 +127,25 @@ pub fn start_actions(
                 physical,
             };
 
-            // Unified satiation gate: ask the action whether the need it
-            // targets is already close enough to full. Prevents the
-            // chain-fire loop where Eat/Drink/Sleep keep re-starting
-            // every time their duration elapses.
-            let satiation_failure = action_def.satiation(&ctx).and_then(|(kind, fullness)| {
-                if fullness >= kind.satiation_threshold() {
-                    Some(crate::agent::events::FailureReason::AlreadySatiated { kind, fullness })
-                } else {
-                    None
-                }
-            });
+            // Defense-in-depth satiation gate. Survival brain pre-filters
+            // already-satiated proposals via `is_action_viable` (#595), so
+            // in the common case this branch is unreachable. It stays to
+            // catch any future proposer (rational, emotional, tests) that
+            // forgets to call the viability filter, which would otherwise
+            // revive the chain-fire Eat/Drink/Sleep loop that #495 fixed.
+            let satiation_failure =
+                action_def
+                    .satiation(ctx.physical)
+                    .and_then(|(kind, fullness)| {
+                        if fullness >= kind.satiation_threshold() {
+                            Some(crate::agent::events::FailureReason::AlreadySatiated {
+                                kind,
+                                fullness,
+                            })
+                        } else {
+                            None
+                        }
+                    });
             let can_start_result = match satiation_failure {
                 Some(reason) => Err(reason),
                 None => action_def.can_start(&ctx),

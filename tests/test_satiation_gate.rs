@@ -44,7 +44,9 @@ fn eat_satiation_reports_stomach_fraction_as_hunger() {
     let ctx = ctx_with_needs(&inv, &mind, &map, &physical);
 
     let eat = EatAction;
-    let (kind, fullness) = eat.satiation(&ctx).expect("Eat should expose satiation");
+    let (kind, fullness) = eat
+        .satiation(ctx.physical)
+        .expect("Eat should expose satiation");
     assert_eq!(kind, NeedKind::Hunger);
     // well-fed metabolism starts at stomach 100/100 = 1.0
     assert!(fullness > 0.95, "stomach should read ~full, got {fullness}");
@@ -59,7 +61,7 @@ fn drink_refuses_when_hydration_full() {
     let ctx = ctx_with_needs(&inv, &mind, &map, &physical);
 
     let drink = DrinkAction;
-    let (kind, fullness) = drink.satiation(&ctx).unwrap();
+    let (kind, fullness) = drink.satiation(ctx.physical).unwrap();
     assert_eq!(kind, NeedKind::Thirst);
     // Should trip the threshold (0.95).
     assert!(fullness >= kind.satiation_threshold());
@@ -77,7 +79,7 @@ fn drink_allows_when_thirsty() {
     let ctx = ctx_with_needs(&inv, &mind, &map, &physical);
 
     let drink = DrinkAction;
-    let (_kind, fullness) = drink.satiation(&ctx).unwrap();
+    let (_kind, fullness) = drink.satiation(ctx.physical).unwrap();
     assert!(fullness < NeedKind::Thirst.satiation_threshold());
 }
 
@@ -90,7 +92,7 @@ fn sleep_refuses_when_already_rested() {
     let ctx = ctx_with_needs(&inv, &mind, &map, &physical);
 
     let sleep = SleepAction;
-    let (kind, fullness) = sleep.satiation(&ctx).unwrap();
+    let (kind, fullness) = sleep.satiation(ctx.physical).unwrap();
     assert_eq!(kind, NeedKind::Sleep);
     assert!(fullness >= kind.satiation_threshold());
 }
@@ -107,7 +109,7 @@ fn rest_refuses_when_aerobic_full() {
     let ctx = ctx_with_needs(&inv, &mind, &map, &physical);
 
     let rest = RestAction;
-    let (kind, fullness) = rest.satiation(&ctx).unwrap();
+    let (kind, fullness) = rest.satiation(ctx.physical).unwrap();
     assert_eq!(kind, NeedKind::Stamina);
     assert!(fullness >= kind.satiation_threshold());
 }
