@@ -97,7 +97,6 @@ impl Plugin for AgentPlugin {
             .add_plugins(invariants::InvariantPlugin)
             .init_resource::<psyche::greetings::GreetingCooldowns>()
             .add_plugins(communication::CommunicationPlugin)
-            // Action bucket: execution
             .add_systems(
                 FixedUpdate,
                 (
@@ -112,7 +111,6 @@ impl Plugin for AgentPlugin {
                     .in_set(crate::core::PerfSubBucket::ActionExecution)
                     .run_if(not_paused),
             )
-            // Action bucket: world-state mutation
             .add_systems(
                 FixedUpdate,
                 (
@@ -127,7 +125,10 @@ impl Plugin for AgentPlugin {
                     .in_set(crate::core::PerfSubBucket::ActionWorldMutation)
                     .run_if(not_paused),
             )
-            // Perception bucket: visual (the expensive one — N² visibility)
+            // Visual perception is N² across visible entities — the dominant cost
+            // inside the Perception bucket. Kept isolated so regressions here
+            // show up under its own sub-bucket instead of hiding in a combined
+            // row with the cheap sensory scans.
             .add_systems(
                 FixedUpdate,
                 (
@@ -139,7 +140,6 @@ impl Plugin for AgentPlugin {
                     .in_set(crate::core::PerfSubBucket::PerceptionVisual)
                     .run_if(not_paused),
             )
-            // Perception bucket: cheap sensory scans
             .add_systems(
                 FixedUpdate,
                 (
@@ -157,7 +157,6 @@ impl Plugin for AgentPlugin {
                     .in_set(crate::core::PerfSubBucket::PerceptionSensory)
                     .run_if(not_paused),
             )
-            // Perception bucket: social (other agents + ToM)
             .add_systems(
                 FixedUpdate,
                 (
@@ -172,7 +171,6 @@ impl Plugin for AgentPlugin {
                     .in_set(crate::core::PerfSubBucket::PerceptionSocial)
                     .run_if(not_paused),
             )
-            // Memory bucket: working-memory tick
             .add_systems(
                 FixedUpdate,
                 (
@@ -185,7 +183,6 @@ impl Plugin for AgentPlugin {
                     .in_set(crate::core::PerfSubBucket::MemoryWmTick)
                     .run_if(not_paused),
             )
-            // Memory bucket: consolidation (WM → MindGraph)
             .add_systems(
                 FixedUpdate,
                 mind::consolidation::consolidate_knowledge
@@ -193,7 +190,6 @@ impl Plugin for AgentPlugin {
                     .in_set(crate::core::PerfSubBucket::MemoryConsolidation)
                     .run_if(not_paused),
             )
-            // Memory bucket: MindGraph mutation drain
             .add_systems(
                 FixedUpdate,
                 mind::knowledge::drain_mindgraph_mutations

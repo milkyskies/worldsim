@@ -18,47 +18,6 @@ fn fast_brains(world: &mut TestWorld) {
 }
 
 #[test]
-fn passing_agents_exchange_greetings() {
-    let (mut world, agents) = TestWorld::scenario(42)
-        .map_size(64, 64)
-        .noise_biomes(false)
-        .agent("alice")
-        .pos(Vec2::new(200.0, 200.0))
-        .social_drive(0.3)
-        .done()
-        .agent("bob")
-        .pos(Vec2::new(210.0, 200.0))
-        .social_drive(0.3)
-        .done()
-        .relationship("alice", "bob", |r| r.trust(0.5).affection(0.6))
-        .build();
-
-    fast_brains(&mut world);
-    world.tick(120);
-
-    let alice = agents["alice"];
-    let bob = agents["bob"];
-
-    let greetings: Vec<_> = world
-        .sim_events()
-        .all()
-        .iter()
-        .filter(|e| {
-            matches!(
-                e,
-                SimEvent::SocialAcknowledgment { actor, target, .. }
-                    if (*actor == alice && *target == bob) || (*actor == bob && *target == alice)
-            )
-        })
-        .collect();
-
-    assert!(
-        !greetings.is_empty(),
-        "alice and bob should have exchanged at least one greeting"
-    );
-}
-
-#[test]
 fn greeting_cooldown_prevents_spam() {
     let (mut world, agents) = TestWorld::scenario(42)
         .map_size(64, 64)

@@ -23,9 +23,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Matches the rust-toolchain.toml pin so CI behaves like local dev.
+      # dtolnay/rust-toolchain falls back to the most recent nightly that
+      # actually has rustfmt + clippy when today's nightly is missing
+      # either component.
       - uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: stable
+          toolchain: nightly
           components: rustfmt, clippy
 
       - uses: Swatinem/rust-cache@v2
