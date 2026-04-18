@@ -269,6 +269,7 @@ pub fn update_decision_trace(
                 chosen_actions,
                 powers,
                 proposals,
+                ..
             } => {
                 if !config.in_tick_range(*tick) {
                     continue;

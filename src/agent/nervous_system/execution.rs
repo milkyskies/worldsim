@@ -16,6 +16,7 @@ use crate::agent::biology::body::{Body, TagChannelMapping};
 use crate::agent::body::genetics::phenotype::Phenotype;
 use crate::agent::body::needs::{Consciousness, PhysicalNeeds};
 use crate::agent::body::species::SpeciesProfile;
+use crate::agent::brains::plan_memory::{PlanMemory, PlanState};
 use crate::agent::brains::proposal::BrainState;
 use crate::agent::events::{ActionOutcome, ActionOutcomeEvent, NeedSatisfaction};
 use crate::agent::item_slots::ItemSlots;
@@ -60,6 +61,7 @@ pub fn start_actions(
         Option<&Body>,
         Option<&PhysicalNeeds>,
         Option<&Consciousness>,
+        Option<&PlanMemory>,
     )>,
     entity_transforms: Query<&GlobalTransform>,
     mut outcome_events: MessageWriter<ActionOutcomeEvent>,
@@ -78,6 +80,7 @@ pub fn start_actions(
         body,
         physical,
         consciousness,
+        plan_memory,
     ) in agents.iter_mut()
     {
         // Snapshot capacities once per agent so the channel methods don't
@@ -307,11 +310,22 @@ pub fn start_actions(
                 }
             }
 
+            let plan_context = plan_memory.and_then(|pm| {
+                pm.in_state(PlanState::Executing)
+                    .find(|p| {
+                        p.current()
+                            .map(|a| a.action_type == wanted_action)
+                            .unwrap_or(false)
+                    })
+                    .map(|p| (p.id.0, p.current_step))
+            });
             sim_events.write(crate::agent::events::SimEvent::ActionStarted {
                 agent: entity,
                 tick: tick.current,
                 action: wanted_action,
                 target: action_template.target_entity,
+                plan_id: plan_context.map(|(id, _)| id),
+                plan_step: plan_context.map(|(_, step)| step),
             });
 
             active.insert(new_state);

@@ -850,6 +850,12 @@ pub struct MindGraph {
     /// Number of tombstoned slots — reclaimed by `compact()`.
     tombstone_count: usize,
 
+    /// Pending mutation records to be drained by `drain_mindgraph_mutations`.
+    /// Each entry is (op, subject_debug, predicate_debug, object_debug).
+    /// "Add" for insertions, "Remove" for tombstones.
+    #[reflect(ignore)]
+    pub pending_mutations: Vec<(String, String, String, String)>,
+
     /// Subject → live triple ids.
     #[reflect(ignore)]
     by_subject: HashMap<Node, IdxList>,
@@ -868,6 +874,7 @@ impl MindGraph {
             shared_knowledge: Vec::new(),
             triples: Vec::new(),
             tombstone_count: 0,
+            pending_mutations: Vec::new(),
             by_subject: HashMap::new(),
             by_predicate: HashMap::new(),
             by_subject_predicate: HashMap::new(),
@@ -952,6 +959,12 @@ impl MindGraph {
         if let Some(slot) = self.triples.get_mut(idx)
             && let Some(triple) = slot.take()
         {
+            self.pending_mutations.push((
+                "Remove".to_string(),
+                format!("{:?}", triple.subject),
+                format!("{:?}", triple.predicate),
+                format!("{:?}", triple.object),
+            ));
             self.tombstone_count += 1;
             self.index_remove(idx, &triple.subject, triple.predicate);
         }
@@ -1003,6 +1016,12 @@ impl MindGraph {
     pub fn add(&mut self, triple: Triple) {
         let idx = self.triples.len();
         self.index_insert(idx, &triple.subject, triple.predicate);
+        self.pending_mutations.push((
+            "Add".to_string(),
+            format!("{:?}", triple.subject),
+            format!("{:?}", triple.predicate),
+            format!("{:?}", triple.object),
+        ));
         self.triples.push(Some(triple));
     }
 
@@ -1694,6 +1713,32 @@ pub fn setup_ontology() -> Ontology {
 }
 
 // NOTE: Perception systems are now consolidated in cognition/perception.rs
+
+// ─── Mutation drain system ───────────────────────────────────────────────────
+
+/// Bevy system: drains `MindGraph::pending_mutations` into `SimEvent::MindGraphMutation`.
+/// Runs once per tick after all perception and knowledge-write systems.
+pub fn drain_mindgraph_mutations(
+    tick: Res<crate::core::tick::TickCount>,
+    mut agents: Query<(Entity, &mut MindGraph), With<crate::agent::Agent>>,
+    mut sim_events: MessageWriter<crate::agent::events::SimEvent>,
+) {
+    for (entity, mut mind) in agents.iter_mut() {
+        if mind.pending_mutations.is_empty() {
+            continue;
+        }
+        for (op, subject, predicate, object) in mind.pending_mutations.drain(..) {
+            sim_events.write(crate::agent::events::SimEvent::MindGraphMutation {
+                agent: entity,
+                tick: tick.current,
+                op,
+                subject,
+                predicate,
+                object,
+            });
+        }
+    }
+}
 
 #[cfg(test)]
 mod tests {

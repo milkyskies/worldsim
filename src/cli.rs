@@ -227,6 +227,16 @@ pub struct CliArgs {
     /// the resolved field list to stdout, then exit without running a sim.
     #[arg(long = "log-list-fields")]
     pub log_list_fields: bool,
+
+    /// Launch DuckDB with the given run directory's logs pre-attached as
+    /// views. Expects `events.jsonl` / `events.parquet` / `trace.jsonl` /
+    /// `fields.jsonl` in the directory and attaches whichever exist.
+    ///
+    /// The subcommand prints a SQL setup script to stdout that you can
+    /// `source` into a running DuckDB session or run via
+    /// `duckdb -init <script> events.db`.
+    #[arg(long = "debug", value_name = "RUN_DIR")]
+    pub debug_dir: Option<PathBuf>,
 }
 
 impl CliArgs {
@@ -325,7 +335,7 @@ impl CliArgs {
         let output = if log_path == "-" {
             EventLogOutput::Stdout
         } else {
-            EventLogOutput::File(PathBuf::from(log_path))
+            crate::core::event_log::output_from_path(PathBuf::from(log_path))
         };
         let filters = self
             .log_filter

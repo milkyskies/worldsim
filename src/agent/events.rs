@@ -7,6 +7,7 @@
 
 use super::actions::ActionType;
 use super::brains::proposal::{BrainPowers, BrainProposal, BrainType, Intent};
+use super::nervous_system::urgency::Urgency;
 use super::psyche::emotions::EmotionType;
 use crate::agent::mind::knowledge::Concept;
 use bevy::prelude::*;
@@ -151,6 +152,8 @@ pub enum SimEvent {
         powers: BrainPowers,
         #[reflect(ignore)]
         proposals: Arc<Vec<BrainProposal>>,
+        /// Per-drive urgency values at the moment of the decision.
+        urgencies: Vec<Urgency>,
     },
 
     /// An action was admitted into the running set.
@@ -159,6 +162,10 @@ pub enum SimEvent {
         tick: u64,
         action: ActionType,
         target: Option<Entity>,
+        /// Plan id from PlanMemory if this action was driven by the rational brain.
+        plan_id: Option<u64>,
+        /// Step index within the plan.
+        plan_step: Option<usize>,
     },
 
     /// An action completed normally.
@@ -397,6 +404,81 @@ pub enum SimEvent {
         agent: Entity,
         tick: u64,
         phenotype: crate::agent::body::genetics::phenotype::Phenotype,
+    },
+
+    /// The GOAP regressive planner ran a search for an agent. Carries search
+    /// telemetry: iteration count, whether the search exhausted its budget,
+    /// and the patterns that remained unsatisfied (if any).
+    GoapSearchTelemetry {
+        agent: Entity,
+        tick: u64,
+        /// Debug-formatted goal conditions.
+        goal_description: String,
+        iterations: usize,
+        /// True when MAX_ITERATIONS was hit before a solution was found.
+        exhausted: bool,
+        /// Debug-formatted patterns that were still unmet when the search ended.
+        best_unmet_goals: Vec<String>,
+    },
+
+    /// A GOAP plan was generated and inserted into PlanMemory.
+    PlanGenerated {
+        agent: Entity,
+        tick: u64,
+        plan_id: u64,
+        driving_urgency: crate::agent::nervous_system::urgency::UrgencySource,
+        step_count: usize,
+        subjective_cost: f32,
+        /// Debug-formatted goal conditions.
+        goal_description: String,
+    },
+
+    /// An action candidate was included (or considered) during target enumeration.
+    /// Emitted once per surviving (action, target) pair from `collect_planning_actions`.
+    TargetEnumerated {
+        agent: Entity,
+        tick: u64,
+        action_name: String,
+        /// Debug-formatted target (entity id, tile coords, or "None").
+        target_description: String,
+        /// Why this candidate was kept: "is_plan_valid" or "belief_confidence:<f32>".
+        inclusion_reason: String,
+    },
+
+    /// The GOAP planner could not find a plan for a goal. Carries the patterns
+    /// that couldn't be satisfied, enabling diagnosis of "why can't I eat?"
+    /// style questions.
+    PatternRejected {
+        agent: Entity,
+        tick: u64,
+        /// Debug-formatted goal conditions that the planner was trying to satisfy.
+        goal_description: String,
+        /// Debug-formatted patterns that remained unmet after the full search.
+        unmet_patterns: Vec<String>,
+    },
+
+    /// A triple was added to or removed from an agent's MindGraph.
+    /// Emitted in bulk by `drain_mindgraph_mutations` — one event per mutation.
+    MindGraphMutation {
+        agent: Entity,
+        tick: u64,
+        /// "Add" or "Remove".
+        op: String,
+        /// Debug-formatted subject node.
+        subject: String,
+        /// Debug-formatted predicate.
+        predicate: String,
+        /// Debug-formatted object value.
+        object: String,
+    },
+
+    /// Per-tick hash of an agent's observable state. Comparing hashes across
+    /// two runs with different seeds pinpoints the exact tick of divergence.
+    AgentStateHash {
+        agent: Entity,
+        tick: u64,
+        /// FxHash of (position_tile_x, position_tile_y, urgency_sources_sorted, plan_ids_sorted).
+        hash: u64,
     },
 }
 

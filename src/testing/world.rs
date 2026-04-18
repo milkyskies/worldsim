@@ -114,7 +114,13 @@ fn sim_event_tick(event: &SimEvent) -> u64 {
         | SimEvent::CombatMissed { tick, .. }
         | SimEvent::PartSevered { tick, .. }
         | SimEvent::PhenotypeDeveloped { tick, .. }
-        | SimEvent::SocialAcknowledgment { tick, .. } => *tick,
+        | SimEvent::SocialAcknowledgment { tick, .. }
+        | SimEvent::GoapSearchTelemetry { tick, .. }
+        | SimEvent::PlanGenerated { tick, .. }
+        | SimEvent::TargetEnumerated { tick, .. }
+        | SimEvent::PatternRejected { tick, .. }
+        | SimEvent::MindGraphMutation { tick, .. }
+        | SimEvent::AgentStateHash { tick, .. } => *tick,
     }
 }
 
@@ -164,7 +170,13 @@ fn sim_event_involves(event: &SimEvent, agent: Entity) -> bool {
         | SimEvent::EffectApplied { agent: a, .. }
         | SimEvent::LaborContributed { agent: a, .. }
         | SimEvent::SkillChanged { agent: a, .. }
-        | SimEvent::PhenotypeDeveloped { agent: a, .. } => *a == agent,
+        | SimEvent::PhenotypeDeveloped { agent: a, .. }
+        | SimEvent::GoapSearchTelemetry { agent: a, .. }
+        | SimEvent::PlanGenerated { agent: a, .. }
+        | SimEvent::TargetEnumerated { agent: a, .. }
+        | SimEvent::PatternRejected { agent: a, .. }
+        | SimEvent::MindGraphMutation { agent: a, .. }
+        | SimEvent::AgentStateHash { agent: a, .. } => *a == agent,
 
         SimEvent::CombatHit {
             attacker, defender, ..
@@ -198,11 +210,18 @@ fn format_sim_event(event: &SimEvent) -> String {
             tick,
             action,
             target,
+            plan_id,
+            ..
         } => {
             if let Some(t) = target {
-                format!("[t{tick}] ActionStarted   agent={agent:?} action={action:?} target={t:?}")
+                format!(
+                    "[t{tick}] ActionStarted   agent={agent:?} action={action:?} target={t:?} \
+                     plan={plan_id:?}"
+                )
             } else {
-                format!("[t{tick}] ActionStarted   agent={agent:?} action={action:?}")
+                format!(
+                    "[t{tick}] ActionStarted   agent={agent:?} action={action:?} plan={plan_id:?}"
+                )
             }
         }
 
@@ -461,6 +480,70 @@ fn format_sim_event(event: &SimEvent) -> String {
             tick,
         } => {
             format!("[t{tick}] SocialAcknowledgment {actor:?} greeted {target:?}")
+        }
+        SimEvent::GoapSearchTelemetry {
+            agent,
+            tick,
+            goal_description,
+            iterations,
+            exhausted,
+            ..
+        } => {
+            format!(
+                "[t{tick}] GoapSearchTelemetry agent={agent:?} goal={goal_description} \
+                 iters={iterations} exhausted={exhausted}"
+            )
+        }
+        SimEvent::PlanGenerated {
+            agent,
+            tick,
+            plan_id,
+            driving_urgency,
+            step_count,
+            ..
+        } => {
+            format!(
+                "[t{tick}] PlanGenerated agent={agent:?} plan={plan_id} \
+                 urgency={driving_urgency:?} steps={step_count}"
+            )
+        }
+        SimEvent::TargetEnumerated {
+            agent,
+            tick,
+            action_name,
+            target_description,
+            inclusion_reason,
+        } => {
+            format!(
+                "[t{tick}] TargetEnumerated agent={agent:?} action={action_name} \
+                 target={target_description} reason={inclusion_reason}"
+            )
+        }
+        SimEvent::PatternRejected {
+            agent,
+            tick,
+            goal_description,
+            unmet_patterns,
+        } => {
+            format!(
+                "[t{tick}] PatternRejected agent={agent:?} goal={goal_description} \
+                 unmet={unmet_patterns:?}"
+            )
+        }
+        SimEvent::MindGraphMutation {
+            agent,
+            tick,
+            op,
+            subject,
+            predicate,
+            object,
+        } => {
+            format!(
+                "[t{tick}] MindGraphMutation agent={agent:?} {op} {subject} {predicate} {object}"
+            )
+        }
+        SimEvent::AgentStateHash { agent, tick, hash } => {
+            format!("[t{tick}] AgentStateHash agent={agent:?} hash={hash}")
         }
     }
 }

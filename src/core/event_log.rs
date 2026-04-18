@@ -19,7 +19,20 @@ use crate::agent::events::SimEvent;
 #[derive(Debug, Clone)]
 pub enum EventLogOutput {
     Stdout,
+    /// JSONL file (default). One JSON object per line.
     File(PathBuf),
+    /// Parquet file. Columnar format — 10-100x smaller than JSONL and
+    /// DuckDB reads it instantly via `read_parquet`.
+    Parquet(PathBuf),
+}
+
+/// Build an `EventLogOutput::File` or `EventLogOutput::Parquet` from a path
+/// based on the file extension.
+pub fn output_from_path(path: PathBuf) -> EventLogOutput {
+    match path.extension().and_then(|s| s.to_str()) {
+        Some("parquet") => EventLogOutput::Parquet(path),
+        _ => EventLogOutput::File(path),
+    }
 }
 
 /// A single filter condition. All specified filters are ANDed together.
@@ -273,6 +286,20 @@ fn event_meta<'a>(
             target,
             tick,
         } => two("SocialAcknowledgment", *tick, *actor, *target, true),
+        SimEvent::GoapSearchTelemetry { agent, tick, .. } => {
+            one("GoapSearchTelemetry", *tick, *agent, true)
+        }
+        SimEvent::PlanGenerated { agent, tick, .. } => one("PlanGenerated", *tick, *agent, true),
+        SimEvent::TargetEnumerated { agent, tick, .. } => {
+            one("TargetEnumerated", *tick, *agent, true)
+        }
+        SimEvent::PatternRejected { agent, tick, .. } => {
+            one("PatternRejected", *tick, *agent, true)
+        }
+        SimEvent::MindGraphMutation { agent, tick, .. } => {
+            one("MindGraphMutation", *tick, *agent, true)
+        }
+        SimEvent::AgentStateHash { agent, tick, .. } => one("AgentStateHash", *tick, *agent, true),
     }
 }
 
@@ -289,6 +316,7 @@ fn event_to_json(
             chosen_actions,
             powers,
             proposals,
+            urgencies,
             ..
         } => {
             let proposals_json: Vec<Value> = proposals
@@ -299,6 +327,15 @@ fn event_to_json(
                         "action": p.action.name,
                         "urgency": p.urgency,
                         "reasoning": p.reasoning,
+                    })
+                })
+                .collect();
+            let urgencies_json: Vec<Value> = urgencies
+                .iter()
+                .map(|u| {
+                    serde_json::json!({
+                        "source": format!("{:?}", u.source),
+                        "value": u.value,
                     })
                 })
                 .collect();
@@ -315,12 +352,15 @@ fn event_to_json(
                     "rational": powers.rational,
                 },
                 "proposals": proposals_json,
+                "urgencies": urgencies_json,
             })
         }
         SimEvent::ActionStarted {
             agent,
             action,
             target,
+            plan_id,
+            plan_step,
             ..
         } => {
             serde_json::json!({
@@ -331,6 +371,8 @@ fn event_to_json(
                 "action": format!("{action:?}"),
                 "target": target.map(resolve),
                 "target_id": target.map(entity_id_str),
+                "plan_id": plan_id,
+                "plan_step": plan_step,
             })
         }
         SimEvent::ActionCompleted { agent, action, .. } => {
@@ -690,6 +732,106 @@ fn event_to_json(
                 "target_id": entity_id_str(*target),
             })
         }
+        SimEvent::GoapSearchTelemetry {
+            agent,
+            goal_description,
+            iterations,
+            exhausted,
+            best_unmet_goals,
+            ..
+        } => {
+            serde_json::json!({
+                "tick": tick,
+                "type": event_type,
+                "agent": resolve(*agent),
+                "agent_id": entity_id_str(*agent),
+                "goal": goal_description,
+                "iterations": iterations,
+                "exhausted": exhausted,
+                "best_unmet_goals": best_unmet_goals,
+            })
+        }
+        SimEvent::PlanGenerated {
+            agent,
+            plan_id,
+            driving_urgency,
+            step_count,
+            subjective_cost,
+            goal_description,
+            ..
+        } => {
+            serde_json::json!({
+                "tick": tick,
+                "type": event_type,
+                "agent": resolve(*agent),
+                "agent_id": entity_id_str(*agent),
+                "plan_id": plan_id,
+                "driving_urgency": format!("{driving_urgency:?}"),
+                "step_count": step_count,
+                "subjective_cost": subjective_cost,
+                "goal": goal_description,
+            })
+        }
+        SimEvent::TargetEnumerated {
+            agent,
+            action_name,
+            target_description,
+            inclusion_reason,
+            ..
+        } => {
+            serde_json::json!({
+                "tick": tick,
+                "type": event_type,
+                "agent": resolve(*agent),
+                "agent_id": entity_id_str(*agent),
+                "action": action_name,
+                "target": target_description,
+                "inclusion_reason": inclusion_reason,
+            })
+        }
+        SimEvent::PatternRejected {
+            agent,
+            goal_description,
+            unmet_patterns,
+            ..
+        } => {
+            serde_json::json!({
+                "tick": tick,
+                "type": event_type,
+                "agent": resolve(*agent),
+                "agent_id": entity_id_str(*agent),
+                "goal": goal_description,
+                "unmet_patterns": unmet_patterns,
+            })
+        }
+        SimEvent::MindGraphMutation {
+            agent,
+            op,
+            subject,
+            predicate,
+            object,
+            ..
+        } => {
+            serde_json::json!({
+                "tick": tick,
+                "type": event_type,
+                "agent": resolve(*agent),
+                "agent_id": entity_id_str(*agent),
+                "op": op,
+                "subject": subject,
+                "predicate": predicate,
+                "object": object,
+            })
+        }
+        SimEvent::AgentStateHash { agent, hash, .. } => {
+            serde_json::json!({
+                "tick": tick,
+                "type": event_type,
+                "agent": resolve(*agent),
+                "agent_id": entity_id_str(*agent),
+                "hash": hash,
+            })
+        }
     }
 }
 
@@ -729,7 +871,265 @@ pub fn dump_event_log(buffer: &EventLogBuffer, config: &EventLogConfig) {
                 let _ = writeln!(writer, "{line}");
             }
         }
+        EventLogOutput::Parquet(path) => {
+            if let Err(e) = write_parquet(&buffer.lines, path) {
+                eprintln!(
+                    "event-log: parquet write failed for {}: {e}",
+                    path.display()
+                );
+            }
+        }
     }
+}
+
+/// Write a list of JSONL event lines to a Parquet file with a minimal schema
+/// (tick INT64, event_type STRING, agent STRING, payload STRING).
+///
+/// Each line is parsed to extract `tick`/`type`/`agent` for fast columnar
+/// filtering; the full JSON is also stored in `payload` so no data is lost.
+pub fn write_parquet(lines: &[String], path: &std::path::Path) -> std::io::Result<()> {
+    use parquet::basic::{Compression, Type as PhysicalType};
+    use parquet::data_type::{ByteArray, ByteArrayType, Int64Type};
+    use parquet::file::properties::WriterProperties;
+    use parquet::file::writer::SerializedFileWriter;
+    use parquet::schema::types::Type as SchemaType;
+    use std::sync::Arc;
+
+    let schema = Arc::new(
+        SchemaType::group_type_builder("events")
+            .with_fields(vec![
+                Arc::new(
+                    SchemaType::primitive_type_builder("tick", PhysicalType::INT64)
+                        .with_repetition(parquet::basic::Repetition::REQUIRED)
+                        .build()
+                        .map_err(|e| std::io::Error::other(e.to_string()))?,
+                ),
+                Arc::new(
+                    SchemaType::primitive_type_builder("event_type", PhysicalType::BYTE_ARRAY)
+                        .with_repetition(parquet::basic::Repetition::REQUIRED)
+                        .with_logical_type(Some(parquet::basic::LogicalType::String))
+                        .build()
+                        .map_err(|e| std::io::Error::other(e.to_string()))?,
+                ),
+                Arc::new(
+                    SchemaType::primitive_type_builder("agent", PhysicalType::BYTE_ARRAY)
+                        .with_repetition(parquet::basic::Repetition::OPTIONAL)
+                        .with_logical_type(Some(parquet::basic::LogicalType::String))
+                        .build()
+                        .map_err(|e| std::io::Error::other(e.to_string()))?,
+                ),
+                Arc::new(
+                    SchemaType::primitive_type_builder("payload", PhysicalType::BYTE_ARRAY)
+                        .with_repetition(parquet::basic::Repetition::REQUIRED)
+                        .with_logical_type(Some(parquet::basic::LogicalType::String))
+                        .build()
+                        .map_err(|e| std::io::Error::other(e.to_string()))?,
+                ),
+            ])
+            .build()
+            .map_err(|e| std::io::Error::other(e.to_string()))?,
+    );
+
+    let props = Arc::new(
+        WriterProperties::builder()
+            .set_compression(Compression::UNCOMPRESSED)
+            .build(),
+    );
+
+    let file = std::fs::File::create(path)?;
+    let mut writer = SerializedFileWriter::new(file, schema, props)
+        .map_err(|e| std::io::Error::other(e.to_string()))?;
+
+    let mut ticks: Vec<i64> = Vec::with_capacity(lines.len());
+    let mut types: Vec<ByteArray> = Vec::with_capacity(lines.len());
+    let mut agents: Vec<ByteArray> = Vec::with_capacity(lines.len());
+    let mut agent_defs: Vec<i16> = Vec::with_capacity(lines.len());
+    let mut payloads: Vec<ByteArray> = Vec::with_capacity(lines.len());
+
+    for line in lines {
+        let json: Value = match serde_json::from_str(line) {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+        let tick = json.get("tick").and_then(|v| v.as_i64()).unwrap_or(0);
+        let event_type = json
+            .get("type")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        let agent = json
+            .get("agent")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+
+        ticks.push(tick);
+        types.push(ByteArray::from(event_type.into_bytes()));
+        match agent {
+            Some(a) => {
+                agents.push(ByteArray::from(a.into_bytes()));
+                agent_defs.push(1);
+            }
+            None => {
+                agent_defs.push(0);
+            }
+        }
+        payloads.push(ByteArray::from(line.clone().into_bytes()));
+    }
+
+    let mut row_group = writer
+        .next_row_group()
+        .map_err(|e| std::io::Error::other(e.to_string()))?;
+
+    if let Some(mut col) = row_group
+        .next_column()
+        .map_err(|e| std::io::Error::other(e.to_string()))?
+    {
+        col.typed::<Int64Type>()
+            .write_batch(&ticks, None, None)
+            .map_err(|e| std::io::Error::other(e.to_string()))?;
+        col.close()
+            .map_err(|e| std::io::Error::other(e.to_string()))?;
+    }
+    if let Some(mut col) = row_group
+        .next_column()
+        .map_err(|e| std::io::Error::other(e.to_string()))?
+    {
+        col.typed::<ByteArrayType>()
+            .write_batch(&types, None, None)
+            .map_err(|e| std::io::Error::other(e.to_string()))?;
+        col.close()
+            .map_err(|e| std::io::Error::other(e.to_string()))?;
+    }
+    if let Some(mut col) = row_group
+        .next_column()
+        .map_err(|e| std::io::Error::other(e.to_string()))?
+    {
+        col.typed::<ByteArrayType>()
+            .write_batch(&agents, Some(&agent_defs), None)
+            .map_err(|e| std::io::Error::other(e.to_string()))?;
+        col.close()
+            .map_err(|e| std::io::Error::other(e.to_string()))?;
+    }
+    if let Some(mut col) = row_group
+        .next_column()
+        .map_err(|e| std::io::Error::other(e.to_string()))?
+    {
+        col.typed::<ByteArrayType>()
+            .write_batch(&payloads, None, None)
+            .map_err(|e| std::io::Error::other(e.to_string()))?;
+        col.close()
+            .map_err(|e| std::io::Error::other(e.to_string()))?;
+    }
+    row_group
+        .close()
+        .map_err(|e| std::io::Error::other(e.to_string()))?;
+    writer
+        .close()
+        .map_err(|e| std::io::Error::other(e.to_string()))?;
+
+    Ok(())
+}
+
+/// Emit a DuckDB setup script that pre-attaches the run directory's logs
+/// as views. The script creates one view per log file found (events,
+/// trace, fields, mutations) and a handful of canned joined views.
+///
+/// Usage:
+///   worldsim --debug path/to/run > setup.sql
+///   duckdb -init setup.sql run.db
+pub fn generate_duckdb_setup_script(run_dir: &std::path::Path) -> std::io::Result<String> {
+    use std::fmt::Write;
+
+    if !run_dir.is_dir() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            format!("run directory not found: {}", run_dir.display()),
+        ));
+    }
+
+    let mut out = String::new();
+    writeln!(
+        &mut out,
+        "-- worldsim debug views for {}",
+        run_dir.display()
+    )
+    .ok();
+    writeln!(&mut out).ok();
+
+    let pairs: [(&str, &str); 4] = [
+        ("events", "events"),
+        ("trace", "trace"),
+        ("fields", "fields"),
+        ("mutations", "mutations"),
+    ];
+
+    for (view_name, file_stem) in pairs {
+        let jsonl = run_dir.join(format!("{file_stem}.jsonl"));
+        let parquet = run_dir.join(format!("{file_stem}.parquet"));
+        if parquet.is_file() {
+            writeln!(
+                &mut out,
+                "CREATE OR REPLACE VIEW {view_name} AS SELECT * FROM read_parquet('{}');",
+                parquet.display()
+            )
+            .ok();
+        } else if jsonl.is_file() {
+            writeln!(
+                &mut out,
+                "CREATE OR REPLACE VIEW {view_name} AS SELECT * FROM read_json_auto('{}');",
+                jsonl.display()
+            )
+            .ok();
+        }
+    }
+
+    writeln!(&mut out).ok();
+    writeln!(&mut out, "-- Canned joined views").ok();
+    writeln!(
+        &mut out,
+        "CREATE OR REPLACE VIEW decisions_with_plans AS
+  SELECT d.tick, d.agent, d.winner, d.actions, p.plan_id, p.goal, p.driving_urgency
+  FROM events d LEFT JOIN events p
+    ON p.type = 'PlanGenerated' AND p.agent = d.agent AND p.tick = d.tick
+  WHERE d.type = 'Decision';"
+    )
+    .ok();
+
+    Ok(out)
+}
+
+/// Read `payload` column from a Parquet file — the raw JSONL lines
+/// stored by `write_parquet`. Used by round-trip tests and by
+/// `worldsim debug` to stream events back out without DuckDB.
+pub fn read_parquet_payloads(path: &std::path::Path) -> std::io::Result<Vec<String>> {
+    use parquet::file::reader::{FileReader, SerializedFileReader};
+    use parquet::record::reader::RowIter;
+
+    let file = std::fs::File::open(path)?;
+    let reader =
+        SerializedFileReader::new(file).map_err(|e| std::io::Error::other(e.to_string()))?;
+    let iter: RowIter = reader
+        .get_row_iter(None)
+        .map_err(|e| std::io::Error::other(e.to_string()))?;
+
+    let mut out = Vec::new();
+    for row_result in iter {
+        let row = row_result.map_err(|e| std::io::Error::other(e.to_string()))?;
+        // Column layout: tick (i64), event_type (string), agent (string?), payload (string)
+        for (name, field) in row.get_column_iter() {
+            if name == "payload" {
+                let s = match field {
+                    parquet::record::Field::Str(s) => s.clone(),
+                    parquet::record::Field::Bytes(b) => {
+                        String::from_utf8_lossy(b.data()).into_owned()
+                    }
+                    _ => String::new(),
+                };
+                out.push(s);
+            }
+        }
+    }
+    Ok(out)
 }
 
 #[cfg(test)]
