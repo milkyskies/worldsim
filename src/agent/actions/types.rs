@@ -80,6 +80,13 @@ pub enum ActionType {
     /// perform it. Distinct from `Attack`, which needs `Manipulation` and
     /// covers hands / weapons / grapples.
     Bite,
+    /// Predator/scavenger feeding from a corpse. Tears meat off the
+    /// target's ItemSlots in place — no Harvest hop into personal
+    /// inventory. Multiple agents can devour the same corpse on the
+    /// same tick (pack feeding). Distinct from `Eat` (eat-from-own-
+    /// inventory) so the species split stays clean: humans Eat, wolves
+    /// Devour.
+    Devour,
     Flee,
 }
 
@@ -119,6 +126,7 @@ impl ActionType {
             ActionType::Converse => "Talking to",
             ActionType::Attack => "Attacking",
             ActionType::Bite => "Biting",
+            ActionType::Devour => "Devouring",
             ActionType::Flee => "Fleeing from",
         }
     }

@@ -8,18 +8,12 @@ use crate::agent::actions::motor::{
 use crate::agent::actions::registry::{
     Action, ActionContext, ActionKind, CompletionContext, RuntimeEffects,
 };
-use crate::agent::body::metabolism::{FoodMacros, food_macros};
+use crate::agent::body::metabolism::{FALLBACK_MEAL, food_macros};
 use crate::agent::brains::thinking::TriplePattern;
 use crate::agent::events::FailureReason;
 use crate::agent::item_slots::ItemSlots;
 use crate::agent::mind::knowledge::{Concept, Node, Predicate, Quantity, Triple, Value};
 use crate::constants::actions::eat::{DURATION_TICKS, STAMINA_GAIN};
-
-/// Fallback macros for edible items that don't yet have an entry in the
-/// `food_macros` lookup table. Tuned to match the legacy "eat grants 50
-/// hunger reduction" feel — 30 carbs + 10 fat is a medium meal that digests
-/// into a full glucose top-up plus a small reserve contribution.
-const FALLBACK_MEAL: FoodMacros = FoodMacros::new(30.0, 10.0);
 
 pub struct EatAction;
 
