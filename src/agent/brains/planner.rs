@@ -1352,65 +1352,50 @@ fn action_contribution_to_goal(
     target_goal: &TriplePattern,
     ontology: &Ontology,
 ) -> Option<Option<TriplePattern>> {
-    // Fast path: the effect fully matches via at-least semantics.
-    if action_satisfies_pattern(action, target_goal, ontology) {
-        return Some(None);
-    }
-
-    // Partial-quantity path: only Item goals accumulate.
-    let (target_concept, target_qty) = match &target_goal.object {
-        Some(Value::Item(c, n)) if *n > 0 => (*c, *n),
-        _ => return None,
+    let target_item = match &target_goal.object {
+        Some(Value::Item(c, n)) if *n > 0 => Some((*c, *n)),
+        _ => None,
     };
+    // Relaxed pattern with quantity=1: `pattern_matches_triple` runs all
+    // subject / predicate / isa / trait checks but the at-least gate
+    // admits any positive-qty effect of the same concept. The actual
+    // contribution quantity is extracted from the matching effect.
+    let relaxed = target_item.map(|(c, _)| TriplePattern {
+        object: Some(Value::Item(c, 1)),
+        ..target_goal.clone()
+    });
 
+    let mut full_match = false;
     let mut best_contribution: u32 = 0;
     for effect in &action.effects {
-        // Skip effects whose subject/predicate don't match the pattern;
-        // isa/trait filters remain the province of `pattern_matches_triple`.
-        if let Some(s) = &target_goal.subject
-            && &effect.subject != s
-        {
-            continue;
+        if pattern_matches_triple(target_goal, effect, Some(ontology)) {
+            full_match = true;
+            break;
         }
-        if let Some(p) = target_goal.predicate
-            && effect.predicate != p
-        {
+        let Some(ref relaxed_pattern) = relaxed else {
             continue;
-        }
-        let (effect_concept, effect_qty) = match &effect.object {
-            Value::Item(c, n) if *n > 0 => (*c, *n),
-            _ => continue,
         };
-        if effect_concept != target_concept {
+        if !pattern_matches_triple(relaxed_pattern, effect, Some(ontology)) {
             continue;
         }
-        // isa_filter / trait_filter still apply to the *concrete* concept.
-        if let Some(isa) = target_goal.isa_filter
-            && !ontology.is_a(effect_concept, isa)
+        if let Value::Item(_, qty) = effect.object
+            && qty > best_contribution
         {
-            continue;
-        }
-        if let Some(trait_) = target_goal.trait_filter
-            && !ontology.has_trait(effect_concept, trait_)
-        {
-            continue;
-        }
-        if effect_qty > best_contribution {
-            best_contribution = effect_qty;
+            best_contribution = qty;
         }
     }
 
+    if full_match {
+        return Some(None);
+    }
+    let (target_concept, target_qty) = target_item?;
     if best_contribution == 0 {
         return None;
     }
-    // If a single effect covered the whole requirement we'd have hit the
-    // fast path above, so `best_contribution < target_qty` is guaranteed.
-    let remainder_qty = target_qty - best_contribution;
-    let remainder = TriplePattern {
-        object: Some(Value::Item(target_concept, remainder_qty)),
+    Some(Some(TriplePattern {
+        object: Some(Value::Item(target_concept, target_qty - best_contribution)),
         ..target_goal.clone()
-    };
-    Some(Some(remainder))
+    }))
 }
 
 /// The stamina precondition pattern the planner adds before a Walk when the agent needs to sleep
