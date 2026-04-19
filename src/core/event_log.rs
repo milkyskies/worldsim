@@ -10,8 +10,7 @@ use std::path::PathBuf;
 use bevy::prelude::*;
 use serde_json::Value;
 
-use crate::agent::Agent;
-use crate::agent::events::{SimEvent, SimEventKind};
+use crate::agent::events::SimEvent;
 
 // ─── Config ──────────────────────────────────────────────────────────────────
 
