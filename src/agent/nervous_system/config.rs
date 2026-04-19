@@ -370,8 +370,10 @@ impl Default for NervousSystemConfig {
                 // WARMTH: thermal comfort deficit. Sigmoid lights up when
                 // `normalized_input = 1 - warmth` crosses ~0.7, so the drive
                 // starts pressing in the urgent band (warmth < 0.3). Gains
-                // interoceptive gating so a sleeping agent can be roused by
-                // life-threatening cold.
+                // interoceptive gating so warmth competes with other visceral
+                // drives. Hypothermic wake pathway is deferred until shelter
+                // (#323) lets sleepers stay warm by default — without it,
+                // an exposed sleeper would be roused before recovery.
                 DriveConfig {
                     name: "Warmth".to_string(),
                     source: UrgencySource::Warmth,
@@ -388,10 +390,7 @@ impl Default for NervousSystemConfig {
                     modifiers: vec![],
                     min_threshold: crate::constants::brains::warmth::MIN_URGENCY_THRESHOLD,
                     bypasses_gating: false,
-                    // Hypothermic wake pathway: once warmth has cratered below
-                    // ~0.1 (normalized_input >= 0.9), the cold shock rouses
-                    // a sleeper before it becomes life-threatening.
-                    sleep_wake_threshold: Some(0.9),
+                    sleep_wake_threshold: None,
                 },
                 DriveConfig {
                     name: "Sleepiness".to_string(),
