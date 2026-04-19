@@ -53,6 +53,10 @@ pub enum ActionType {
     /// dropping alertness. The natural fit for mild fatigue that
     /// doesn't justify losing consciousness.
     Rest,
+    /// Stay beside a heat source to restore warmth. The direct satisfier
+    /// of `NeedKind::Warmth` — mirrors Eat/Drink/Sleep: stays in place,
+    /// passively absorbs the drive-restoring effect over time.
+    WarmUp,
     /// Stand still and attend to a visible target. Satisfies curiosity
     /// without moving. A cat watching a bird, a wolf watching a deer
     /// from a distance, a human studying a stranger.
@@ -120,6 +124,7 @@ impl ActionType {
             ActionType::LookFor => "Looking for",
             ActionType::Idle => "Idle",
             ActionType::Rest => "Resting",
+            ActionType::WarmUp => "Warming up by",
             ActionType::Observe => "Watching",
             ActionType::Wave => "Waving at",
             ActionType::InitiateConversation => "Approaching",

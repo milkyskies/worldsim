@@ -6,3 +6,4 @@ pub mod need;
 pub mod needs;
 pub mod species;
 pub mod wakefulness;
+pub mod warmth;

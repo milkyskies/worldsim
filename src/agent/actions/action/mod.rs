@@ -24,6 +24,7 @@ pub mod take;
 pub mod wake_up;
 pub mod walk;
 pub mod wander;
+pub mod warm_up;
 
 pub use attack::AttackAction;
 pub use bite::BiteAction;
@@ -48,3 +49,4 @@ pub use take::TakeAction;
 pub use wake_up::WakeUpAction;
 pub use walk::WalkAction;
 pub use wander::WanderAction;
+pub use warm_up::WarmUpAction;

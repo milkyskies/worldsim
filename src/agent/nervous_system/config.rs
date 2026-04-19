@@ -367,6 +367,31 @@ impl Default for NervousSystemConfig {
                 // dampening in `urgency::generate_urgency`, this anchors
                 // sleep proposals to the late-night window and produces
                 // realistic 6–8 game hour sleep bouts.
+                // WARMTH: thermal comfort deficit. Sigmoid lights up when
+                // `normalized_input = 1 - warmth` crosses ~0.7, so the drive
+                // starts pressing in the urgent band (warmth < 0.3). Gains
+                // interoceptive gating so warmth competes with other visceral
+                // drives. Hypothermic wake pathway is deferred until shelter
+                // (#323) lets sleepers stay warm by default — without it,
+                // an exposed sleeper would be roused before recovery.
+                DriveConfig {
+                    name: "Warmth".to_string(),
+                    source: UrgencySource::Warmth,
+                    base_constant: 0.0,
+                    curve: ResponseCurve::Sigmoid {
+                        k: 10.0,
+                        midpoint: 0.7,
+                    },
+                    sensitivity: PersonalityMod {
+                        trait_type: PersonalityTrait::Neuroticism,
+                        base: 0.8,
+                        scale: 0.3,
+                    },
+                    modifiers: vec![],
+                    min_threshold: crate::constants::brains::warmth::MIN_URGENCY_THRESHOLD,
+                    bypasses_gating: false,
+                    sleep_wake_threshold: None,
+                },
                 DriveConfig {
                     name: "Sleepiness".to_string(),
                     source: UrgencySource::Sleepiness,
@@ -403,6 +428,7 @@ impl Default for NervousSystemConfig {
                     UrgencySource::Hunger,
                     UrgencySource::Pain,
                     UrgencySource::Thirst,
+                    UrgencySource::Warmth,
                 ],
             },
             exteroception: SensoryChannelConfig {

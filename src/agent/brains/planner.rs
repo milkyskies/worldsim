@@ -1018,6 +1018,34 @@ pub fn regressive_plan(
                 &mut open_set,
             );
         }
+
+        // C. Concept-near walks for unmet `(Self_, Near, Concept(X))` goals.
+        //
+        // Grounds the abstract "near some campfire" goal into concrete tile
+        // walks by enumerating known entities of the target concept. Runs in
+        // parallel with explicit action matching — Build's `Near` effect
+        // (no known entity case) and Walk-to-existing (known entity case)
+        // are both considered by A*.
+        let near_candidates = generate_concept_near_walks(
+            target_goal,
+            remaining_goals,
+            current_g,
+            mind,
+            &current_state.consumed,
+            &cost_cache,
+        );
+        for (walk_action, next_state, new_cost) in near_candidates {
+            update_search_candidate(
+                walk_action,
+                next_state,
+                new_cost,
+                &current_state,
+                HEURISTIC_MULTIPLIER,
+                &mut came_from,
+                &mut g_score,
+                &mut open_set,
+            );
+        }
     }
 
     let elapsed = start_time.elapsed();
@@ -1041,6 +1069,32 @@ pub fn regressive_plan(
 // ─── Helpers ───
 
 fn mind_satisfies_pattern(mind: &MindGraph, pattern: &TriplePattern) -> bool {
+    // Special-case `Near`: `(Self, Near, Concept(X))` is a planner-level
+    // relation that is never stored as a triple. It is satisfied iff
+    // self's current tile holds some known entity whose IsA chain leads
+    // to the target concept.
+    if pattern.predicate == Some(Predicate::Near) {
+        let Some(MindNode::Self_) = &pattern.subject else {
+            return false;
+        };
+        let Some(Value::Concept(target_concept)) = &pattern.object else {
+            return false;
+        };
+        let Some(Value::Tile(self_tile)) =
+            mind.get(&MindNode::Self_, Predicate::LocatedAt).cloned()
+        else {
+            return false;
+        };
+        let entities_at_tile = mind.query(
+            None,
+            Some(Predicate::LocatedAt),
+            Some(&Value::Tile(self_tile)),
+        );
+        return entities_at_tile.iter().any(|t| {
+            matches!(t.subject, MindNode::Entity(_)) && mind.is_a(&t.subject, *target_concept)
+        });
+    }
+
     let results = mind.query(
         pattern.subject.as_ref(),
         pattern.predicate,
@@ -1416,6 +1470,91 @@ fn generate_implicit_walk(
         );
 
     Some((walk_action, next_state, new_cost))
+}
+
+/// Grounds `(Self_, Near, Concept(X))` into one walk candidate per known
+/// entity of concept `X`, deduped by target tile. Returns empty when no
+/// matching entity has a known `LocatedAt` — callers fall through to
+/// explicit actions whose effect matches `Near` (Build, Construct).
+fn generate_concept_near_walks(
+    target_goal: &TriplePattern,
+    remaining_goals: &[TriplePattern],
+    current_g: f32,
+    mind: &MindGraph,
+    current_consumed: &[TriplePattern],
+    cost_cache: &PlanCostCache,
+) -> Vec<(ActionTemplate, RegressiveState, f32)> {
+    if target_goal.predicate != Some(Predicate::Near) {
+        return Vec::new();
+    }
+    if !matches!(&target_goal.subject, Some(MindNode::Self_)) {
+        return Vec::new();
+    }
+    let target_concept = match &target_goal.object {
+        Some(Value::Concept(c)) => *c,
+        _ => return Vec::new(),
+    };
+
+    let Some(current_pos_val) = mind.get(&MindNode::Self_, Predicate::LocatedAt) else {
+        return Vec::new();
+    };
+    let (cx, cy) = match current_pos_val {
+        Value::Tile((cx, cy)) => (*cx, *cy),
+        _ => return Vec::new(),
+    };
+
+    let mut candidates = Vec::new();
+    let mut seen_tiles: std::collections::HashSet<(i32, i32)> = std::collections::HashSet::new();
+
+    // Enumerate every entity with a known tile, keep those whose IsA chain
+    // leads to the target concept.
+    for triple in mind.query(None, Some(Predicate::LocatedAt), None) {
+        if !matches!(triple.subject, MindNode::Entity(_)) {
+            continue;
+        }
+        if !mind.is_a(&triple.subject, target_concept) {
+            continue;
+        }
+        let tile = match &triple.object {
+            Value::Tile(t) => *t,
+            _ => continue,
+        };
+        if !seen_tiles.insert(tile) {
+            continue;
+        }
+        if cost_cache.is_unreachable(tile) {
+            continue;
+        }
+
+        let dist = (((cx - tile.0).pow(2) + (cy - tile.1).pow(2)) as f32).sqrt();
+        let world_pos = Vec2::new(
+            tile.0 as f32 * TILE_SIZE + TILE_SIZE / 2.0,
+            tile.1 as f32 * TILE_SIZE + TILE_SIZE / 2.0,
+        );
+
+        let mut walk_action = build_walk_template(world_pos, tile);
+        walk_action.effects.push(Triple::new(
+            MindNode::Self_,
+            Predicate::Near,
+            Value::Concept(target_concept),
+        ));
+
+        let Some(next_goals) = build_walk_goals(dist, remaining_goals, mind) else {
+            continue;
+        };
+        let next_state = RegressiveState::new(next_goals, current_consumed.to_vec());
+        let new_cost = current_g
+            + subjective_walk_cost(
+                dist,
+                tile,
+                walk_action.locomotion_intensity.max(0.5),
+                cost_cache,
+            );
+
+        candidates.push((walk_action, next_state, new_cost));
+    }
+
+    candidates
 }
 
 // =============================================================================

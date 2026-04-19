@@ -732,6 +732,7 @@ mod tests {
             hydration: Need::full(),
             stamina: Stamina::default(),
             wakefulness: Need::full(),
+            warmth: Need::full(),
         }
     }
 

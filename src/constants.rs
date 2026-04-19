@@ -117,8 +117,12 @@ pub mod actions {
     pub mod build {
         /// Ticks to build a campfire (matches design doc: ~120 ticks).
         pub const CAMPFIRE_DURATION_TICKS: u32 = 120;
-        /// Wood required to build a campfire.
-        pub const CAMPFIRE_WOOD_REQUIRED: u32 = 3;
+        /// Wood required to build a campfire. Temporarily 1 (was 3) until
+        /// the planner learns quantity-aware Item matching (#607). Build's
+        /// `plan_consumes: Item(Wood, 1)` can only chain one Harvest→Pickup
+        /// per Build, so any value above 1 makes the planner generate
+        /// valid-looking plans that fail at runtime with `MissingMaterials`.
+        pub const CAMPFIRE_WOOD_REQUIRED: u32 = 1;
         /// Ticks to build a lean-to shelter.
         pub const LEAN_TO_DURATION_TICKS: u32 = 180;
         /// Wood required to build a lean-to.
@@ -138,6 +142,20 @@ pub mod actions {
 
         /// Estimated stamina cost per tile at tired speed (below TIRED_STAMINA_THRESHOLD).
         pub const STAMINA_PER_TILE_TIRED: f32 = 0.2;
+    }
+
+    pub mod warm_up {
+        /// Ticks per WarmUp cycle. One cycle restores a chunk of warmth —
+        /// a chain of WarmUp cycles runs until the satiation gate
+        /// (warmth >= 0.95) blocks further starts. 15 ticks matches
+        /// Drink's duration so the two needs feel equally responsive.
+        pub const DURATION_TICKS: u32 = 15;
+        /// Warmth satisfaction (0..1) restored per completed WarmUp cycle.
+        /// 0.5 mirrors Drink's `THIRST_REDUCTION` (also 0.5) — two cycles
+        /// (30 ticks / 0.5 real-second) take an agent from cold to warm.
+        pub const WARMTH_RECOVERY: f32 = 0.5;
+        /// Small stamina gain from sitting warm — rest-like by-product.
+        pub const STAMINA_GAIN: f32 = 5.0;
     }
 
     pub mod rest {
@@ -183,6 +201,37 @@ pub mod brains {
         /// proper 6–8 game hour cycle from wake ≈ 0.15 → 0.95 instead of
         /// waking half-rested every ~2 game hours.
         pub const WAKE_WAKEFULNESS_THRESHOLD: f32 = 0.95;
+    }
+
+    /// Warmth drive: thermal comfort drain and recovery.
+    pub mod warmth {
+        /// Baseline satisfaction drain per rate-second in neutral conditions
+        /// (no exposure, not near heat). Slow trickle — an unattended agent
+        /// noticeably cools over ~15 game minutes.
+        pub const BASELINE_DRAIN_PER_SEC: f32 = 0.00055;
+        /// Extra satisfaction drain per rate-second when the agent is exposed
+        /// (not within a HeatSource radius and not inside a ShelterProvider).
+        /// Additive on top of the baseline. Tuned so an exposed agent drops
+        /// into the urgent band (warmth < 0.3) in roughly 5 game minutes.
+        pub const EXPOSURE_DRAIN_PER_SEC: f32 = 0.0028;
+        /// Satisfaction gain per rate-second when within a lit HeatSource
+        /// radius. A full recovery from hypothermic (0.0) to comfortable
+        /// (1.0) takes ~3 game minutes of continuous exposure.
+        pub const HEAT_RECOVERY_PER_SEC: f32 = 0.0055;
+        /// Satisfaction gain per rate-second when inside a ShelterProvider
+        /// (but no heat source). Smaller than HEAT_RECOVERY — shelter
+        /// insulates but doesn't actively warm.
+        pub const SHELTER_RECOVERY_PER_SEC: f32 = 0.0012;
+        /// Warmth above this value produces near-zero urgency.
+        pub const COMFORT_THRESHOLD: f32 = 0.6;
+        /// Warmth at or below this value produces urgency rivalling Hunger.
+        pub const URGENT_THRESHOLD: f32 = 0.3;
+        /// Warmth at or below this value produces life-threatening urgency.
+        pub const CRITICAL_THRESHOLD: f32 = 0.1;
+        /// Minimum urgency value below which the Warmth drive is suppressed —
+        /// matches the `min_threshold` convention used by other drives so a
+        /// barely-cool agent doesn't clutter the urgency list.
+        pub const MIN_URGENCY_THRESHOLD: f32 = 0.05;
     }
 
     pub mod wakefulness {

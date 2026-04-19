@@ -113,7 +113,7 @@ pub fn goal_for_urgency(
             vec![TriplePattern::self_has(Predicate::Hunger, zero.clone())]
         }
         UrgencySource::Stamina => {
-            vec![TriplePattern::self_has(Predicate::Stamina, full)]
+            vec![TriplePattern::self_has(Predicate::Stamina, full.clone())]
         }
         UrgencySource::Social => vec![TriplePattern::self_has(
             Predicate::SocialDrive,
@@ -124,6 +124,9 @@ pub fn goal_for_urgency(
         }
         UrgencySource::Thirst => {
             vec![TriplePattern::self_has(Predicate::Thirst, zero)]
+        }
+        UrgencySource::Warmth => {
+            vec![TriplePattern::self_has(Predicate::Warmth, full)]
         }
         UrgencySource::Commitment => {
             // Use the conditions from the highest-commitment verbal
@@ -376,7 +379,8 @@ pub fn update_rational_planning(
                 let action_ran_to_end = completed_this_tick
                     .get(&entity)
                     .is_some_and(|set| set.contains(&action.action_type));
-                if effect_matched || action_ran_to_end {
+                let step_just_advanced = effect_matched || action_ran_to_end;
+                if step_just_advanced {
                     plan.current_step += 1;
                     plan.last_touched = current_tick;
                 }
@@ -387,7 +391,14 @@ pub fn update_rational_planning(
                     invalid_ids.push(plan.id);
                     continue;
                 }
-                if let Some(action) = plan.current()
+                // Grace tick on step advance: perception hasn't yet seen
+                // the world changes the previous step produced (e.g. Build
+                // spawns a campfire; WarmUp's Near precondition needs that
+                // campfire perceived). Invalidating on unmet preconditions
+                // the same tick the step advanced drops every multi-step
+                // plan that produces an artifact.
+                if !step_just_advanced
+                    && let Some(action) = plan.current()
                     && !are_preconditions_met(action, mind)
                 {
                     invalid_ids.push(plan.id);

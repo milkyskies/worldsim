@@ -104,6 +104,7 @@ fn sim_event_tick(event: &SimEvent) -> u64 {
         | SimEvent::StrangerDetected { tick, .. }
         | SimEvent::KnowledgeShared { tick, .. }
         | SimEvent::WarmthPerceived { tick, .. }
+        | SimEvent::WarmthChanged { tick, .. }
         | SimEvent::SoundPerceived { tick, .. }
         | SimEvent::TheoryOfMindUpdated { tick, .. }
         | SimEvent::ItemSpoiled { tick, .. }
@@ -158,9 +159,9 @@ fn sim_event_involves(event: &SimEvent, agent: Entity) -> bool {
             ..
         } => *abandoner == agent || *abandoned == agent,
 
-        SimEvent::WarmthPerceived { agent: a, .. } | SimEvent::SoundPerceived { agent: a, .. } => {
-            *a == agent
-        }
+        SimEvent::WarmthPerceived { agent: a, .. }
+        | SimEvent::WarmthChanged { agent: a, .. }
+        | SimEvent::SoundPerceived { agent: a, .. } => *a == agent,
 
         SimEvent::TheoryOfMindUpdated {
             agent: a, about, ..
@@ -371,6 +372,15 @@ fn format_sim_event(event: &SimEvent) -> String {
             source,
         } => {
             format!("[t{tick}] WarmthPerceived  agent={agent:?} source={source:?}")
+        }
+
+        SimEvent::WarmthChanged {
+            agent,
+            tick,
+            old_value,
+            new_value,
+        } => {
+            format!("[t{tick}] WarmthChanged    agent={agent:?} {old_value:.2} -> {new_value:.2}")
         }
 
         SimEvent::SoundPerceived {
@@ -1196,6 +1206,11 @@ impl TestWorld {
     /// Returns the agent's wakefulness (0.0 = must sleep, 1.0 = fully rested).
     pub fn agent_wakefulness(&self, agent: Entity) -> f32 {
         self.get::<PhysicalNeeds>(agent).wakefulness.value
+    }
+
+    /// Returns the agent's thermal comfort (0.0 = hypothermic, 1.0 = warm).
+    pub fn agent_warmth(&self, agent: Entity) -> f32 {
+        self.get::<PhysicalNeeds>(agent).warmth.value
     }
 
     /// Returns true if the entity carries any of the given concept in its inventory.

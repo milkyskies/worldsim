@@ -28,6 +28,8 @@ pub enum Intent {
     SatisfyTerritoriality,
     /// Sleep pressure from wakefulness decay, independent of stamina fatigue.
     SatisfySleepiness,
+    /// Thermal comfort: warm up by a heat source, build one if none exists.
+    SatisfyWarmth,
     /// Explore for its own sake, not to serve another drive.
     SatisfyCuriosity,
     /// Reserved for future reproduction drive.
@@ -52,6 +54,7 @@ impl Intent {
             UrgencySource::Territoriality => Intent::SatisfyTerritoriality,
             UrgencySource::Fun | UrgencySource::Curiosity => Intent::SatisfyCuriosity,
             UrgencySource::Sleepiness => Intent::SatisfySleepiness,
+            UrgencySource::Warmth => Intent::SatisfyWarmth,
             UrgencySource::Commitment => Intent::FulfillCommitment,
         }
     }

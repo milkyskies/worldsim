@@ -52,22 +52,30 @@ impl Action for BuildAction {
         Some(Posture::Stationary)
     }
 
-    /// Planning: precondition is having the required wood in inventory.
+    /// Planning: precondition is having wood in inventory. Uses the
+    /// wildcard-object + `isa_filter` pattern (same as Eat's
+    /// `self_contains_food`) so the runtime check matches any positive
+    /// wood quantity. A hardcoded `Item(Wood, 1)` would fail against an
+    /// agent carrying `Item(Wood, 3)` because the mindgraph and
+    /// `mind.query` use exact-equality on the Item's quantity.
     fn preconditions(&self) -> Vec<TriplePattern> {
-        vec![TriplePattern::new(
-            Some(Node::Self_),
-            Some(Predicate::Contains),
-            Some(Value::Item(Concept::Wood, 1)),
-        )]
+        vec![TriplePattern {
+            isa_filter: Some(Concept::Wood),
+            ..TriplePattern::new(Some(Node::Self_), Some(Predicate::Contains), None)
+        }]
     }
 
-    /// Planning: effect is a conceptual "agent has built a campfire".
-    /// The planner uses this to chain goals (want campfire → plan build).
+    /// Planning: Build spawns a construction site at the agent's current
+    /// position, so immediately after Build runs self is adjacent to a new
+    /// campfire-in-progress. Declaring `(Self_, Near, Campfire)` lets the
+    /// planner chain warmth-seeking goals cleanly — `want Near Campfire →
+    /// Build → Harvest + Pickup` — without the `Contains` fiction that an
+    /// agent could pocket a campfire.
     fn plan_effects(&self) -> Vec<Triple> {
         vec![Triple::new(
             Node::Self_,
-            Predicate::Contains,
-            Value::Item(Concept::Campfire, 1),
+            Predicate::Near,
+            Value::Concept(Concept::Campfire),
         )]
     }
 

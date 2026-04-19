@@ -76,10 +76,11 @@ impl Action for ConstructAction {
         vec![]
     }
 
-    /// Effect from the planner's perspective: constructing this site will
-    /// eventually produce the finished entity, treated as if the agent now
-    /// "has" that entity. This drives the backward chain:
-    ///   Want warmth → campfire provides warmth → construct site → walk to site
+    /// Effect from the planner's perspective: the site transforms into the
+    /// finished entity in place, so the constructor ends up adjacent to the
+    /// newly-spawned artifact. Declaring `(Self_, Near, Concept)` drives
+    /// the backward chain honestly:
+    ///   Want Near Campfire → Construct site → Walk to site
     fn plan_effects_for_target(&self, target: &TargetCandidate, mind: &MindGraph) -> Vec<Triple> {
         let Some(entity) = target.as_entity() else {
             return vec![];
@@ -89,11 +90,7 @@ impl Action for ConstructAction {
             .into_iter()
             .filter_map(|t| {
                 if let Value::Concept(c) = t.object {
-                    Some(Triple::new(
-                        Node::Self_,
-                        Predicate::Contains,
-                        Value::Item(c, 1),
-                    ))
+                    Some(Triple::new(Node::Self_, Predicate::Near, Value::Concept(c)))
                 } else {
                     None
                 }

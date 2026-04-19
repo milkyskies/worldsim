@@ -264,18 +264,18 @@ pub struct Goal {
 
 impl Goal {
     /// Extract the concept-level target of a resource-acquisition goal.
-    /// Returns the first `Item` concept referenced by any condition — this
-    /// is the thing the agent is pursuing (Apple, Campfire, ...). Drive-based
-    /// goals (hunger, thirst, ...) have no concept target and return `None`.
+    /// Returns the first `Item` or bare `Concept` object referenced by any
+    /// condition — the thing the agent is pursuing (Apple, Campfire, ...).
+    /// Drive-based goals (hunger, thirst, ...) have no concept target and
+    /// return `None`.
     pub fn target_concept(&self) -> Option<crate::agent::mind::knowledge::Concept> {
         use crate::agent::mind::knowledge::Value;
-        self.conditions.iter().find_map(|pattern| {
-            if let Some(Value::Item(concept, _)) = pattern.object {
-                Some(concept)
-            } else {
-                None
-            }
-        })
+        self.conditions
+            .iter()
+            .find_map(|pattern| match pattern.object {
+                Some(Value::Item(concept, _)) | Some(Value::Concept(concept)) => Some(concept),
+                _ => None,
+            })
     }
 }
 
@@ -335,6 +335,19 @@ pub fn derive_search_concept(
                     isa: pre.isa_filter,
                     trait_: pre.trait_filter,
                     domain: SearchDomain::Inventory,
+                });
+            }
+            // Near preconditions (Self, Near, Concept(X)) describe a
+            // world-side need — the agent satisfies them by finding some
+            // entity of concept X. LookFor biases toward unexplored chunks
+            // likely to contain such an entity.
+            if pre.predicate == Some(Predicate::Near)
+                && let Some(Value::Concept(c)) = &pre.object
+            {
+                return Some(SearchFilter {
+                    isa: Some(*c),
+                    trait_: None,
+                    domain: SearchDomain::WorldEntity,
                 });
             }
         }
@@ -427,6 +440,37 @@ mod derive_search_concept_tests {
         assert!(
             result.is_none(),
             "drives whose satisfier has no isa_filter must not trigger LookFor; got {result:?}"
+        );
+    }
+
+    #[test]
+    fn derive_search_concept_chases_near_precondition_to_concept() {
+        // WarmUp's plan_effect is (Self, Warmth, 100) and its precondition
+        // is (Self, Near, Concept(Campfire)). A warmth goal must resolve
+        // to a Campfire world-entity search so the Explore fallback biases
+        // toward unexplored chunks when no known campfire exists.
+        // Without this, Near-preconditioned actions silently return None
+        // and the fallback falls through to the next (unrelated) urgency.
+        let mut registry = ActionRegistry::default();
+        registry.register(action::WarmUpAction);
+
+        let goal = Goal {
+            conditions: vec![TriplePattern::self_has(
+                Predicate::Warmth,
+                Value::Quantity(Quantity::Exact(100.0)),
+            )],
+            priority: 1.0,
+        };
+
+        let result = derive_search_concept(&goal, &registry);
+        assert_eq!(
+            result,
+            Some(SearchFilter {
+                isa: Some(Concept::Campfire),
+                trait_: None,
+                domain: SearchDomain::WorldEntity,
+            }),
+            "warmth goal must resolve to Campfire WorldEntity search"
         );
     }
 
