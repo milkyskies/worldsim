@@ -858,7 +858,7 @@ use super::action::{
 
 /// Every [`ActionDefinition`] in the game, in a single slice. Order is not
 /// observable; the registry looks actions up by [`ActionType`].
-const ALL_DEFS: &[&'static ActionDefinition] = &[
+const ALL_DEFS: &[&ActionDefinition] = &[
     &IDLE_DEF,
     &SLEEP_DEF,
     &WAKE_UP_DEF,
