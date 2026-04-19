@@ -1,4 +1,9 @@
-//! Action implementations - each action in its own file.
+//! Action definitions — one `pub static FOO_DEF: ActionDefinition` per file.
+//!
+//! Every action is pure data. Irreducibly custom logic (metabolism-aware
+//! on_complete, target-contingent preconditions, picker algorithms) lives
+//! as named helper functions referenced through
+//! [`Hooks`](super::definition::Hooks).
 
 pub mod attack;
 pub mod bite;
@@ -26,27 +31,27 @@ pub mod walk;
 pub mod wander;
 pub mod warm_up;
 
-pub use attack::AttackAction;
-pub use bite::BiteAction;
-pub use build::BuildAction;
-pub use construct::ConstructAction;
-pub use converse::ConverseAction;
-pub use deposit::DepositAction;
-pub use devour::DevourAction;
-pub use drink::DrinkAction;
-pub use eat::EatAction;
-pub use explore::ExploreAction;
-pub use flee::FleeAction;
-pub use graze::GrazeAction;
-pub use harvest::HarvestAction;
-pub use idle::IdleAction;
-pub use initiate_conversation::InitiateConversationAction;
-pub use look_for::LookForAction;
-pub use observe::ObserveAction;
-pub use rest::RestAction;
-pub use sleep::SleepAction;
-pub use take::TakeAction;
-pub use wake_up::WakeUpAction;
-pub use walk::WalkAction;
-pub use wander::WanderAction;
-pub use warm_up::WarmUpAction;
+pub use attack::ATTACK_DEF;
+pub use bite::BITE_DEF;
+pub use build::BUILD_DEF;
+pub use construct::CONSTRUCT_DEF;
+pub use converse::CONVERSE_DEF;
+pub use deposit::DEPOSIT_DEF;
+pub use devour::DEVOUR_DEF;
+pub use drink::DRINK_DEF;
+pub use eat::EAT_DEF;
+pub use explore::EXPLORE_DEF;
+pub use flee::FLEE_DEF;
+pub use graze::GRAZE_DEF;
+pub use harvest::HARVEST_DEF;
+pub use idle::IDLE_DEF;
+pub use initiate_conversation::INITIATE_CONVERSATION_DEF;
+pub use look_for::LOOK_FOR_DEF;
+pub use observe::OBSERVE_DEF;
+pub use rest::REST_DEF;
+pub use sleep::SLEEP_DEF;
+pub use take::TAKE_DEF;
+pub use wake_up::WAKE_UP_DEF;
+pub use walk::WALK_DEF;
+pub use wander::WANDER_DEF;
+pub use warm_up::WARM_UP_DEF;

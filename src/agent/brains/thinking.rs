@@ -404,7 +404,7 @@ mod derive_search_concept_tests {
         // self_contains_food (isa_filter = Food). A hunger goal must
         // resolve to a Food search via one-step-back introspection.
         let mut registry = ActionRegistry::default();
-        registry.register(action::EatAction);
+        registry.register_def(&action::EAT_DEF);
 
         let goal = Goal {
             conditions: vec![TriplePattern::self_has(
@@ -426,7 +426,7 @@ mod derive_search_concept_tests {
         // Rational fallback skips this drive instead of proposing a
         // useless search.
         let mut registry = ActionRegistry::default();
-        registry.register(action::RestAction);
+        registry.register_def(&action::REST_DEF);
 
         let goal = Goal {
             conditions: vec![TriplePattern::self_has(
@@ -452,7 +452,7 @@ mod derive_search_concept_tests {
         // Without this, Near-preconditioned actions silently return None
         // and the fallback falls through to the next (unrelated) urgency.
         let mut registry = ActionRegistry::default();
-        registry.register(action::WarmUpAction);
+        registry.register_def(&action::WARM_UP_DEF);
 
         let goal = Goal {
             conditions: vec![TriplePattern::self_has(
@@ -480,7 +480,7 @@ mod derive_search_concept_tests {
         // TargetSource::TileWithTrait(Drinkable). A thirst goal must still
         // resolve to a Drinkable search so agents look for water when thirsty.
         let mut registry = ActionRegistry::default();
-        registry.register(action::DrinkAction);
+        registry.register_def(&action::DRINK_DEF);
 
         let goal = Goal {
             conditions: vec![TriplePattern::self_has(
@@ -503,7 +503,7 @@ mod derive_search_concept_tests {
         // Registry with an unrelated action (Wander has no effects).
         // A hunger goal has nothing that matches, so derive returns None.
         let mut registry = ActionRegistry::default();
-        registry.register(action::WanderAction);
+        registry.register_def(&action::WANDER_DEF);
 
         let goal = Goal {
             conditions: vec![TriplePattern::self_has(

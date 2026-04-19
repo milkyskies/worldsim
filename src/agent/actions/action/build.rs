@@ -1,165 +1,86 @@
-//! Build action - construct entities from materials in inventory.
+//! Build action — construct a campfire from wood in inventory.
+//!
+//! Build is uninterruptible: a half-built campfire is not something to drop
+//! because a smaller urgency edged in. On completion, spawns a construction
+//! site pre-stocked with the materials the agent just consumed — for a
+//! single-agent build, the next `becomes_system` pass transforms it into
+//! the finished entity.
+//!
+//! The recipe data (materials, build time, trait provides) is declared via
+//! [`Recipe`] on the definition, and culture seeding auto-derives the
+//! corresponding MindGraph triples — no parallel declaration in `culture.rs`.
 
 use crate::agent::actions::ActionType;
 use crate::agent::actions::channel::{Channel, ChannelUsage, Posture};
-use crate::agent::actions::motor::{
-    ActionPrimitive, Behavior, IntensityPolicy, Intent, TargetSelector,
+use crate::agent::actions::definition::{
+    ActionDefinition, CompletionPredicate, EffectTemplate, Gate, Hooks, Pattern, PlanValidity,
+    Recipe, RuntimeOp, TargetEffects,
 };
-use crate::agent::actions::registry::{
-    Action, ActionContext, ActionKind, CompletionContext, SpawnRequest, TargetCandidate,
-};
-use crate::agent::brains::thinking::TriplePattern;
-use crate::agent::events::FailureReason;
-use crate::agent::mind::knowledge::{Concept, MindGraph, Node, Predicate, Triple, Value};
+use crate::agent::actions::motor::{ActionPrimitive, IntensityPolicy, Intent, TargetSelector};
+use crate::agent::actions::registry::{ActionKind, TargetSource};
+use crate::agent::mind::knowledge::Concept;
 use crate::constants::actions::build::{CAMPFIRE_DURATION_TICKS, CAMPFIRE_WOOD_REQUIRED};
 
-pub struct BuildAction;
+const CHANNELS: &[ChannelUsage] = &[
+    ChannelUsage::new(Channel::Manipulation, 0.9),
+    ChannelUsage::new(Channel::Focus, 0.4),
+];
 
-impl Action for BuildAction {
-    fn action_type(&self) -> ActionType {
-        ActionType::Build
-    }
+const CAMPFIRE_REQUIREMENTS: &[(Concept, u32)] = &[(Concept::Wood, CAMPFIRE_WOOD_REQUIRED)];
+const CAMPFIRE_PROVIDES: &[Concept] = &[Concept::Warmth, Concept::Safety, Concept::Light];
 
-    fn default_behavior(&self) -> Behavior {
-        Behavior::new(
-            ActionPrimitive::Manipulate,
-            TargetSelector::InPlace,
-            IntensityPolicy::Fixed(0.0),
-            Intent::Goal,
-        )
-    }
-
-    fn name(&self) -> &'static str {
-        "Build"
-    }
-
-    fn kind(&self) -> ActionKind {
-        ActionKind::Timed {
-            duration_ticks: CAMPFIRE_DURATION_TICKS,
-        }
-    }
-
-    fn body_channels(&self) -> &'static [ChannelUsage] {
-        const CHANNELS: &[ChannelUsage] = &[
-            ChannelUsage::new(Channel::Manipulation, 0.9),
-            ChannelUsage::new(Channel::Focus, 0.4),
-        ];
-        CHANNELS
-    }
-
-    fn posture(&self) -> Option<Posture> {
-        // Legs planted over the work site — mutexes with Movement.
-        Some(Posture::Stationary)
-    }
-
-    /// Planning: precondition is having the required wood in inventory.
-    /// The planner's at-least Item matching + partial-satisfaction
-    /// backward search (see `action_contribution_to_goal`) chains
-    /// enough Harvest + Pickup steps to accumulate the full quantity.
-    fn preconditions(&self) -> Vec<TriplePattern> {
-        vec![TriplePattern::new(
-            Some(Node::Self_),
-            Some(Predicate::Contains),
-            Some(Value::Item(Concept::Wood, CAMPFIRE_WOOD_REQUIRED)),
-        )]
-    }
-
-    /// Planning: Build spawns a construction site at the agent's current
-    /// position, so immediately after Build runs self is adjacent to a new
-    /// campfire-in-progress. Declaring `(Self_, Near, Campfire)` lets the
-    /// planner chain warmth-seeking goals cleanly — `want Near Campfire →
-    /// Build → Harvest + Pickup` — without the `Contains` fiction that an
-    /// agent could pocket a campfire.
-    fn plan_effects(&self) -> Vec<Triple> {
-        vec![Triple::new(
-            Node::Self_,
-            Predicate::Near,
-            Value::Concept(Concept::Campfire),
-        )]
-    }
-
-    /// Planning: consuming wood from self prevents double-planning against
-    /// the same stock. Matches `CAMPFIRE_WOOD_REQUIRED` so the planner
-    /// tracks the actual consumption amount.
-    fn plan_consumes(&self) -> Vec<TriplePattern> {
-        vec![TriplePattern::new(
-            Some(Node::Self_),
-            Some(Predicate::Contains),
-            Some(Value::Item(Concept::Wood, CAMPFIRE_WOOD_REQUIRED)),
-        )]
-    }
-
-    fn cost(&self) -> f32 {
-        5.0
-    }
-
-    /// Build is uninterruptible: a half-built campfire is not something we want
-    /// to drop because a smaller urgency edged in. The channel-level preempt
-    /// pass in `nervous_system::execution::preempt_to_make_room` skips this
-    /// action when looking for a victim, so any action whose channel
-    /// requirements would otherwise displace Build is itself rejected.
-    ///
-    /// **Exit transition.** Build is `ActionKind::Timed { duration_ticks:
-    /// CAMPFIRE_DURATION_TICKS }`. The standard tick countdown in
-    /// `tick_actions` decrements `ticks_remaining` each tick and fires
-    /// `on_complete` when it reaches zero. There is no special force-clear
-    /// path — the action's natural completion is its only exit. This is safe
-    /// because Build's body channels (Hands 0.9, Legs 0.2) leave room for
-    /// the timed-action machinery to keep ticking it down without conflict
-    /// with itself.
-    ///
-    /// Trade-off: an agent being chased by a wolf will keep building rather
-    /// than flee. We accept this for now; tier-aware preemption (where Flee
-    /// can override an uninterruptible Build because the urgency is high
-    /// enough) is a future extension of this hook.
-    fn interruptible(&self) -> bool {
-        false
-    }
-
-    /// Runtime check: agent must have enough wood.
-    fn can_start(&self, ctx: &ActionContext) -> Result<(), FailureReason> {
-        let wood_count = ctx.inventory.count(Concept::Wood);
-        if wood_count >= CAMPFIRE_WOOD_REQUIRED {
-            Ok(())
-        } else {
-            Err(FailureReason::MissingMaterials)
-        }
-    }
-
-    fn is_plan_valid(&self, _target: &TargetCandidate, mind: &MindGraph) -> bool {
-        // Valid if the agent knows at least one recipe (campfire requires something)
-        !mind
-            .query(
-                Some(&Node::Concept(Concept::Campfire)),
-                Some(Predicate::Requires),
-                None,
-            )
-            .is_empty()
-    }
-
-    fn on_complete(&self, ctx: &mut CompletionContext) {
-        // Consume materials from the agent's inventory.
-        ctx.inventory.remove(Concept::Wood, CAMPFIRE_WOOD_REQUIRED);
-
-        // Spawn a construction site rather than the finished campfire.
-        // The site immediately receives the materials the agent just consumed,
-        // so for a single-agent build the next `becomes_system` pass transforms
-        // it into the finished entity. For collaborative builds (#62 Deposit
-        // action), other agents top up partial slots over time.
-        ctx.spawn_requests.push(SpawnRequest::Site {
+pub static BUILD_DEF: ActionDefinition = ActionDefinition {
+    action_type: ActionType::Build,
+    kind: ActionKind::Timed {
+        duration_ticks: CAMPFIRE_DURATION_TICKS,
+    },
+    target_source: TargetSource::None,
+    base_cost: 5.0,
+    primitive: ActionPrimitive::Manipulate,
+    target_selector: TargetSelector::InPlace,
+    intensity: IntensityPolicy::Fixed(0.0),
+    intent: Intent::Goal,
+    body_channels: CHANNELS,
+    posture: Some(Posture::Stationary),
+    interruptible: false,
+    start_log: Some("started building"),
+    complete_log: Some("built campfire"),
+    joy_per_sec: 0.0,
+    stomach_carbs_per_sec: 0.0,
+    preconditions: &[Pattern::SelfContains {
+        concept: Concept::Wood,
+        quantity: CAMPFIRE_WOOD_REQUIRED,
+    }],
+    plan_effects: &[EffectTemplate::SelfNearConcept(Concept::Campfire)],
+    plan_consumes: &[Pattern::SelfContains {
+        concept: Concept::Wood,
+        quantity: CAMPFIRE_WOOD_REQUIRED,
+    }],
+    target_effects: TargetEffects::Static,
+    plan_validity: PlanValidity::RecipeKnown(Concept::Campfire),
+    gates: &[Gate::InventoryHasQuantity {
+        concept: Concept::Wood,
+        quantity: CAMPFIRE_WOOD_REQUIRED,
+    }],
+    satiation: None,
+    completion: CompletionPredicate::Never,
+    on_complete_ops: &[
+        RuntimeOp::RemoveFromInventory {
+            concept: Concept::Wood,
+            quantity: CAMPFIRE_WOOD_REQUIRED,
+        },
+        RuntimeOp::SpawnSite {
             target: Concept::Campfire,
-            position: ctx.agent_position,
-            requirements: vec![(Concept::Wood, CAMPFIRE_WOOD_REQUIRED)],
-            initial_items: vec![(Concept::Wood, CAMPFIRE_WOOD_REQUIRED)],
+            requirements: CAMPFIRE_REQUIREMENTS,
+            initial_items: CAMPFIRE_REQUIREMENTS,
             labor_required: None,
-        });
-    }
-
-    fn start_log(&self) -> Option<&'static str> {
-        Some("started building")
-    }
-
-    fn complete_log(&self) -> Option<&'static str> {
-        Some("built campfire")
-    }
-}
+        },
+    ],
+    hooks: Hooks::EMPTY,
+    recipe: Some(Recipe {
+        concept: Concept::Campfire,
+        requirements: CAMPFIRE_REQUIREMENTS,
+        provides: CAMPFIRE_PROVIDES,
+        build_time_ticks: CAMPFIRE_DURATION_TICKS,
+    }),
+};

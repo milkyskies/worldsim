@@ -1,68 +1,52 @@
-//! Observe action — stand still and watch a visible target.
+//! Observe action — stand (or walk) and watch.
 //!
-//! Observe is the curious-but-stationary counterpart to Explore. An
-//! Explore walks somewhere new; an Observe stands where it is and
-//! studies something already in view. Good for wolves watching deer
-//! from cover, deer tracking a wolf's approach, humans sizing up a
-//! stranger they haven't greeted yet.
-//!
-//! Mapping: Emotional brain proposes Observe for Fun/Boredom urgency
-//! when there's a visible entity — curiosity satisfied by watching,
-//! not by moving. Falls through to Explore when there's nothing
-//! interesting in view.
+//! A bounded 2-second glance. The curious-but-stationary counterpart to
+//! Explore: an Observe studies something already in view. After the window
+//! the agent re-evaluates against whatever wins arbitration next tick.
 
 use crate::agent::actions::ActionType;
-use crate::agent::actions::channel::{Channel, ChannelUsage, Posture};
-use crate::agent::actions::motor::{
-    ActionPrimitive, Behavior, IntensityPolicy, Intent, TargetSelector,
+use crate::agent::actions::channel::{Channel, ChannelUsage};
+use crate::agent::actions::definition::{
+    ActionDefinition, CompletionPredicate, Hooks, PlanValidity, TargetEffects,
 };
-use crate::agent::actions::registry::{Action, ActionKind};
+use crate::agent::actions::motor::{ActionPrimitive, IntensityPolicy, Intent, TargetSelector};
+use crate::agent::actions::registry::{ActionKind, TargetSource};
 
-pub struct ObserveAction;
+const CHANNELS: &[ChannelUsage] = &[
+    ChannelUsage::new(Channel::Focus, 0.3),
+    ChannelUsage::new(Channel::Awareness, 0.6),
+];
 
-impl Action for ObserveAction {
-    fn action_type(&self) -> ActionType {
-        ActionType::Observe
-    }
-
-    fn name(&self) -> &'static str {
-        "Observe"
-    }
-
-    fn default_behavior(&self) -> Behavior {
-        Behavior::new(
-            ActionPrimitive::Observe,
-            TargetSelector::InPlace,
-            IntensityPolicy::Ambient,
-            Intent::Curiosity,
-        )
-    }
-
-    fn kind(&self) -> ActionKind {
-        // ~2 seconds of sim time (60 ticks/sec). A real "watching
-        // glance" is bounded — staring at one thing forever isn't
-        // curiosity, it's a bug. After the window the agent naturally
-        // moves on and re-evaluates: another novel thing, conversation,
-        // exploration, whatever wins arbitration next tick.
-        ActionKind::Timed {
-            duration_ticks: 120,
-        }
-    }
-
-    fn body_channels(&self) -> &'static [ChannelUsage] {
-        const CHANNELS: &[ChannelUsage] = &[
-            ChannelUsage::new(Channel::Focus, 0.3),
-            ChannelUsage::new(Channel::Awareness, 0.6),
-        ];
-        CHANNELS
-    }
-
-    fn posture(&self) -> Option<Posture> {
-        // Watching works from a standstill or mid-walk — both are real.
-        None
-    }
-
-    fn start_log(&self) -> Option<&'static str> {
-        Some("watching")
-    }
-}
+pub static OBSERVE_DEF: ActionDefinition = ActionDefinition {
+    action_type: ActionType::Observe,
+    // ~2 seconds of sim time (60 ticks/sec). Watching one thing forever
+    // isn't curiosity, it's a bug.
+    kind: ActionKind::Timed {
+        duration_ticks: 120,
+    },
+    target_source: TargetSource::None,
+    base_cost: 1.0,
+    primitive: ActionPrimitive::Observe,
+    target_selector: TargetSelector::InPlace,
+    intensity: IntensityPolicy::Ambient,
+    intent: Intent::Curiosity,
+    body_channels: CHANNELS,
+    // Posture-agnostic: watching works from a standstill or mid-walk.
+    posture: None,
+    interruptible: true,
+    start_log: Some("watching"),
+    complete_log: None,
+    joy_per_sec: 0.0,
+    stomach_carbs_per_sec: 0.0,
+    preconditions: &[],
+    plan_effects: &[],
+    plan_consumes: &[],
+    target_effects: TargetEffects::Static,
+    plan_validity: PlanValidity::Always,
+    gates: &[],
+    satiation: None,
+    completion: CompletionPredicate::Never,
+    on_complete_ops: &[],
+    hooks: Hooks::EMPTY,
+    recipe: None,
+};

@@ -4,92 +4,70 @@ use crate::agent::actions::ActionType;
 use crate::agent::actions::action::explore::pick_explore_target;
 use crate::agent::actions::action::search_utils::{sample_walkable_scored, staleness_penalty};
 use crate::agent::actions::channel::{Channel, ChannelUsage, Posture};
-use crate::agent::actions::motor::{
-    ActionPrimitive, Behavior, IntensityPolicy, Intent, TargetSelector,
+use crate::agent::actions::definition::{
+    ActionDefinition, CompletionPredicate, Hooks, PlanValidity, TargetEffects,
 };
-use crate::agent::actions::registry::{Action, ActionKind, LegCompleteContext, LegResult};
+use crate::agent::actions::motor::{ActionPrimitive, IntensityPolicy, Intent, TargetSelector};
+use crate::agent::actions::registry::{ActionKind, LegCompleteContext, LegResult, TargetSource};
 use crate::agent::brains::thinking::{SearchDomain, SearchFilter};
 use crate::agent::mind::knowledge::{Concept, MindGraph, Node, Predicate, Value};
 use crate::world::map::{CHUNK_SIZE, WorldMap};
 use bevy::math::IVec2;
 use bevy::prelude::Vec2;
 
-pub struct LookForAction;
+const CHANNELS: &[ChannelUsage] = &[
+    ChannelUsage::new(Channel::Locomotion, 0.4),
+    ChannelUsage::new(Channel::Focus, 0.15),
+    ChannelUsage::new(Channel::Awareness, 0.2),
+];
 
-impl Action for LookForAction {
-    fn action_type(&self) -> ActionType {
-        ActionType::LookFor
-    }
+pub static LOOK_FOR_DEF: ActionDefinition = ActionDefinition {
+    action_type: ActionType::LookFor,
+    kind: ActionKind::Ambient,
+    target_source: TargetSource::None,
+    base_cost: 3.0,
+    primitive: ActionPrimitive::Locomote,
+    target_selector: TargetSelector::UnknownArea,
+    intensity: IntensityPolicy::Normal,
+    intent: Intent::Goal,
+    body_channels: CHANNELS,
+    posture: Some(Posture::Moving),
+    interruptible: true,
+    start_log: Some("looking for something"),
+    complete_log: None,
+    joy_per_sec: 0.0,
+    stomach_carbs_per_sec: 0.0,
+    preconditions: &[],
+    plan_effects: &[],
+    plan_consumes: &[],
+    target_effects: TargetEffects::Static,
+    plan_validity: PlanValidity::Always,
+    gates: &[],
+    satiation: None,
+    completion: CompletionPredicate::Never,
+    on_complete_ops: &[],
+    hooks: Hooks {
+        on_leg_complete: Some(look_for_on_leg_complete),
+        ..Hooks::EMPTY
+    },
+    recipe: None,
+};
 
-    fn name(&self) -> &'static str {
-        "LookFor"
-    }
-
-    fn default_behavior(&self) -> Behavior {
-        Behavior::new(
-            ActionPrimitive::Locomote,
-            TargetSelector::UnknownArea,
-            IntensityPolicy::Normal,
-            Intent::Goal,
-        )
-    }
-
-    fn kind(&self) -> ActionKind {
-        // Ambient, same as Explore. The "I found it" termination happens
-        // one level up: when perception writes a Contains triple the
-        // planner builds a real Harvest/Walk/Eat plan, and its urgency
-        // outranks LookFor in arbitration.
-        ActionKind::Ambient
-    }
-
-    fn cost(&self) -> f32 {
-        3.0
-    }
-
-    fn body_channels(&self) -> &'static [ChannelUsage] {
-        const CHANNELS: &[ChannelUsage] = &[
-            ChannelUsage::new(Channel::Locomotion, 0.4),
-            ChannelUsage::new(Channel::Focus, 0.15),
-            ChannelUsage::new(Channel::Awareness, 0.2),
-        ];
-        CHANNELS
-    }
-
-    fn posture(&self) -> Option<Posture> {
-        Some(Posture::Moving)
-    }
-
-    fn start_log(&self) -> Option<&'static str> {
-        Some("looking for something")
-    }
-
-    fn on_leg_complete(&self, ctx: &mut LegCompleteContext) -> LegResult {
-        match pick_look_for_target(
-            ctx.agent_position,
-            ctx.mind,
-            ctx.world_map,
-            ctx.current_tick,
-            ctx.search_filter,
-            ctx.rng,
-        ) {
-            Some(pos) => LegResult::NextLeg(pos),
-            None => LegResult::Complete,
-        }
+fn look_for_on_leg_complete(ctx: &mut LegCompleteContext) -> LegResult {
+    match pick_look_for_target(
+        ctx.agent_position,
+        ctx.mind,
+        ctx.world_map,
+        ctx.current_tick,
+        ctx.search_filter,
+        ctx.rng,
+    ) {
+        Some(pos) => LegResult::NextLeg(pos),
+        None => LegResult::Complete,
     }
 }
 
 /// Concept-hint-aware target picker.
-///
-/// Scores random walkable samples by a combination of:
-///   * **Hint bonus** — chunks with a visible entity whose concept
-///     `Produces` an item passing the filter get a large negative
-///     score.
-///   * **Staleness penalty** — recently-`Explored` chunks get the same
-///     `1000 / (age + 1)` penalty `pick_explore_target` uses.
-///   * **Distance** — small tiebreaker (added by `sample_walkable_scored`).
-///
-/// Falls through to `pick_explore_target` when no filter is set, so the
-/// action never stalls.
 pub fn pick_look_for_target(
     current_pos: Vec2,
     mind: &MindGraph,
@@ -106,11 +84,6 @@ pub fn pick_look_for_target(
         "LookFor dispatched with an empty SearchFilter — derive_search_concept should never return an empty filter"
     );
 
-    // Domain picks the biasing strategy. Inventory search biases toward
-    // chunks with known producers (berry bush → berry); world-tile and
-    // world-entity search have no producer indirection — if the agent
-    // already knew a match, the planner would build a real plan instead
-    // of LookFor — so pure staleness wins.
     let hint_chunks = match filter.domain {
         SearchDomain::Inventory => collect_producer_hint_chunks(mind, &filter),
         SearchDomain::WorldTile | SearchDomain::WorldEntity => Vec::new(),
@@ -127,13 +100,6 @@ pub fn pick_look_for_target(
     picked.or_else(|| pick_explore_target(current_pos, mind, world_map, current_tick, rng))
 }
 
-/// Chunks that likely contain a producer of something matching the filter.
-///
-/// Walks the MindGraph for `Entity LocatedAt Tile` triples whose
-/// subject concept is known to `Produces` an `Item` that passes the
-/// filter. Returns the `(chunk_x, chunk_y)` of each match. Only relevant
-/// for `SearchDomain::Inventory` — tile/entity domains wander by pure
-/// staleness since any known match would already be a planner target.
 fn collect_producer_hint_chunks(mind: &MindGraph, filter: &SearchFilter) -> Vec<IVec2> {
     let mut chunks = Vec::new();
 
@@ -253,15 +219,9 @@ mod tests {
         );
     }
 
-    /// WorldTile domain must NOT apply `Produces` biasing — water tiles don't
-    /// have producers. The picker should fall through to pure staleness
-    /// regardless of what producers the MindGraph knows about.
     #[test]
     fn world_tile_domain_ignores_producer_hints() {
         let map = walkable_map();
-        // Plant a known berry bush in chunk (2, 2). An Inventory search
-        // for Food would strongly cluster targets in that chunk; a WorldTile
-        // search must not — the bush is irrelevant to a Drinkable query.
         let (mind, _bush) = mind_with_berry_bush_in_chunk(2, 2);
 
         let mut hits_in_bush_chunk = 0;

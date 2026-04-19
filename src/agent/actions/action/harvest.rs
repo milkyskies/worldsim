@@ -1,295 +1,158 @@
-//! Harvest action - gather resources from targets.
+//! Harvest action — gather resources from targets.
+//!
+//! Complex target-aware logic lives in hooks: target_preconditions chooses
+//! between `(target, Contains, ?)` and type-level `Produces` knowledge;
+//! on_complete transfers skill-scaled yields with perishable freshness
+//! tracking.
 
 use crate::agent::actions::ActionType;
 use crate::agent::actions::channel::{Channel, ChannelUsage, Posture};
-use crate::agent::actions::motor::{
-    ActionPrimitive, Behavior, IntensityPolicy, Intent, TargetSelector,
+use crate::agent::actions::definition::{
+    ActionDefinition, CompletionPredicate, EffectTemplate, Gate, Hooks, PlanValidity, TargetEffects,
 };
+use crate::agent::actions::motor::{ActionPrimitive, IntensityPolicy, Intent, TargetSelector};
 use crate::agent::actions::registry::{
-    Action, ActionContext, ActionKind, CompletionContext, TargetCandidate, TargetSource,
+    ActionKind, CompletionContext, TargetCandidate, TargetSource,
 };
 use crate::agent::brains::thinking::TriplePattern;
-use crate::agent::events::FailureReason;
 use crate::agent::item_slots::{Thing, perishable_decay_rate};
-use crate::agent::mind::knowledge::{Concept, MindGraph, Node, Predicate, Triple, Value};
+use crate::agent::mind::knowledge::{Concept, MindGraph, Node, Predicate, Value};
 use crate::agent::skills::SkillKind;
 use crate::constants::actions::harvest::DURATION_TICKS;
 
-pub struct HarvestAction;
+const CHANNELS: &[ChannelUsage] = &[
+    ChannelUsage::new(Channel::Manipulation, 0.9),
+    ChannelUsage::new(Channel::Focus, 0.1),
+];
 
-impl Action for HarvestAction {
-    fn action_type(&self) -> ActionType {
-        ActionType::Harvest
+pub static HARVEST_DEF: ActionDefinition = ActionDefinition {
+    action_type: ActionType::Harvest,
+    kind: ActionKind::Timed {
+        duration_ticks: DURATION_TICKS,
+    },
+    target_source: TargetSource::EntityAffordance,
+    base_cost: 2.0,
+    primitive: ActionPrimitive::Manipulate,
+    target_selector: TargetSelector::InPlace,
+    intensity: IntensityPolicy::Fixed(0.0),
+    intent: Intent::Goal,
+    body_channels: CHANNELS,
+    posture: Some(Posture::Stationary),
+    interruptible: true,
+    start_log: None,
+    complete_log: Some("harvested"),
+    joy_per_sec: 0.0,
+    stomach_carbs_per_sec: 0.0,
+    preconditions: &[],
+    // Fallback placeholder when target has no known Produces; `FromTargetProduces`
+    // target_effects override kicks in when the target is known.
+    plan_effects: &[EffectTemplate::SelfContains {
+        concept: Concept::Apple,
+        quantity: 1,
+    }],
+    plan_consumes: &[],
+    target_effects: TargetEffects::FromTargetProduces,
+    plan_validity: PlanValidity::TargetProducesFoodOrResource,
+    gates: &[Gate::TargetEntity(
+        crate::agent::events::FailureReason::TargetGone,
+    )],
+    satiation: None,
+    completion: CompletionPredicate::Never,
+    on_complete_ops: &[],
+    hooks: Hooks {
+        on_complete: Some(harvest_on_complete),
+        target_preconditions: Some(harvest_target_preconditions),
+        target_consumes: Some(harvest_target_consumes),
+        ..Hooks::EMPTY
+    },
+    recipe: None,
+};
+
+fn harvest_target_preconditions(target: &TargetCandidate, mind: &MindGraph) -> Vec<TriplePattern> {
+    let Some(entity) = target.as_entity() else {
+        return vec![];
+    };
+
+    // Fresh Contains belief: require it so the planner tracks consumption
+    // correctly across chained harvests.
+    let has_contains = mind
+        .query(Some(&Node::Entity(entity)), Some(Predicate::Contains), None)
+        .iter()
+        .any(|t| matches!(t.object, Value::Item(_, qty) if qty > 0));
+    if has_contains {
+        return vec![TriplePattern::entity_contains(entity)];
     }
 
-    fn default_behavior(&self) -> Behavior {
-        Behavior::new(
-            ActionPrimitive::Manipulate,
-            TargetSelector::InPlace,
-            IntensityPolicy::Fixed(0.0),
-            Intent::Goal,
-        )
-    }
-
-    fn name(&self) -> &'static str {
-        "Harvest"
-    }
-
-    fn kind(&self) -> ActionKind {
-        ActionKind::Timed {
-            duration_ticks: DURATION_TICKS,
-        }
-    }
-
-    // Planning: After harvesting, we have a generic placeholder item.
-    // The real per-target effect (apple, wood, stone, ...) comes from
-    // `plan_effects_for_target` which queries the target's `Produces` triples.
-    fn plan_effects(&self) -> Vec<Triple> {
-        vec![Triple::new(
-            Node::Self_,
-            Predicate::Contains,
-            Value::Item(Concept::Apple, 1),
-        )]
-    }
-
-    fn cost(&self) -> f32 {
-        2.0
-    }
-
-    fn target_source(&self) -> TargetSource {
-        TargetSource::EntityAffordance
-    }
-
-    fn target_preconditions(
-        &self,
-        target: &TargetCandidate,
-        mind: &MindGraph,
-    ) -> Vec<TriplePattern> {
-        let Some(entity) = target.as_entity() else {
-            return vec![];
-        };
-
-        // If we have a fresh Contains belief, require it so the planner
-        // tracks consumption correctly across chained harvests.
-        let has_contains = mind
-            .query(Some(&Node::Entity(entity)), Some(Predicate::Contains), None)
-            .iter()
-            .any(|t| matches!(t.object, Value::Item(_, qty) if qty > 0));
-        if has_contains {
-            return vec![TriplePattern::entity_contains(entity)];
-        }
-
-        // No Contains belief, but we may know the entity's type produces
-        // something (e.g. BerryBush -> Produces -> Berry via cultural
-        // knowledge). Trust that and skip the Contains precondition so the
-        // planner can still chain Walk -> Harvest -> Eat.
-        let type_produces = mind
-            .query(Some(&Node::Entity(entity)), Some(Predicate::IsA), None)
-            .iter()
-            .any(|t| {
-                if let Value::Concept(concept) = t.object {
-                    !mind
-                        .query(
-                            Some(&Node::Concept(concept)),
-                            Some(Predicate::Produces),
-                            None,
-                        )
-                        .is_empty()
-                } else {
-                    false
-                }
-            });
-        if type_produces {
-            return vec![];
-        }
-
-        // Fallback: require Contains (may block the plan if decayed).
-        vec![TriplePattern::entity_contains(entity)]
-    }
-
-    /// Per-target consumed pattern: harvesting removes items from the target
-    /// entity's stock so two plan steps can't double-count the same stack.
-    /// Only emitted when the agent has a concrete Contains belief — if we're
-    /// planning from type-level Produces knowledge there's nothing to consume.
-    fn target_consumes(&self, target: &TargetCandidate, mind: &MindGraph) -> Vec<TriplePattern> {
-        let Some(entity) = target.as_entity() else {
-            return vec![];
-        };
-        let has_contains = mind
-            .query(Some(&Node::Entity(entity)), Some(Predicate::Contains), None)
-            .iter()
-            .any(|t| matches!(t.object, Value::Item(_, qty) if qty > 0));
-        if has_contains {
-            vec![TriplePattern::entity_contains(entity)]
-        } else {
-            vec![]
-        }
-    }
-
-    fn body_channels(&self) -> &'static [ChannelUsage] {
-        // Hands only — the legs are planted and the posture gate handles
-        // the "you can't harvest while walking" mutex.
-        const CHANNELS: &[ChannelUsage] = &[
-            ChannelUsage::new(Channel::Manipulation, 0.9),
-            ChannelUsage::new(Channel::Focus, 0.1),
-        ];
-        CHANNELS
-    }
-
-    fn posture(&self) -> Option<Posture> {
-        Some(Posture::Stationary)
-    }
-
-    // Execution: Must have a target entity
-    fn can_start(&self, ctx: &ActionContext) -> Result<(), FailureReason> {
-        if ctx.target_entity.is_some() {
-            Ok(())
-        } else {
-            Err(FailureReason::TargetGone)
-        }
-    }
-
-    fn is_plan_valid(&self, target: &TargetCandidate, mind: &MindGraph) -> bool {
-        let Some(target_entity) = target.as_entity() else {
-            return false;
-        };
-
-        // If we recently observed this entity is empty, skip it.
-        let known_empty = mind
-            .query(
-                Some(&Node::Entity(target_entity)),
-                Some(Predicate::Contains),
-                None,
-            )
-            .iter()
-            .any(|t| matches!(t.object, Value::Item(_, 0)));
-        if known_empty {
-            return false;
-        }
-
-        let mut produced: Vec<Value> = mind
-            .query(
-                Some(&Node::Entity(target_entity)),
-                Some(Predicate::Produces),
-                None,
-            )
-            .into_iter()
-            .map(|t| t.object.clone())
-            .collect();
-
-        if produced.is_empty() {
-            let type_triples = mind.query(
-                Some(&Node::Entity(target_entity)),
-                Some(Predicate::IsA),
-                None,
-            );
-            for triple in type_triples {
-                if let Value::Concept(concept) = triple.object {
-                    let type_produced = mind.query(
-                        Some(&Node::Concept(concept)),
-                        Some(Predicate::Produces),
-                        None,
-                    );
-                    produced.extend(type_produced.into_iter().map(|t| t.object.clone()));
-                }
-            }
-        }
-
-        if produced.is_empty() {
-            return false;
-        }
-
-        produced.iter().any(|value| {
-            if let Value::Item(concept, _) = value {
-                mind.is_a(&Node::Concept(*concept), Concept::Food)
-                    || mind.is_a(&Node::Concept(*concept), Concept::Resource)
-            } else {
-                false
-            }
-        })
-    }
-
-    // Execution: What happens when harvest completes
-    fn on_complete(&self, ctx: &mut CompletionContext) {
-        // Transfer items from target's inventory to agent's inventory.
-        // Perishable items get freshness = 1.0 and created_at stamped at
-        // harvest time. A skilled harvester pulls more per action — novices
-        // extract one item, masters extract up to three — bounded by what
-        // the target actually has in stock.
-        let Some(target_inv) = &mut ctx.target_inventory else {
-            return;
-        };
-        let Some(concept) = target_inv.all_items().next().map(|t| t.concept) else {
-            return;
-        };
-
-        let skill_level = ctx
-            .skills
-            .map(|s| s.level(SkillKind::Harvesting))
-            .unwrap_or(0.0);
-        // 1 at skill 0.0, 2 by ~0.5, 3 at 1.0. Floor so the progression
-        // is predictable and replay-friendly.
-        let desired = 1 + (skill_level * 2.0).floor() as u32;
-        let available = target_inv.count(concept);
-        let actual = desired.min(available);
-
-        for _ in 0..actual {
-            if !target_inv.remove(concept, 1) {
-                break;
-            }
-            let thing = if perishable_decay_rate(concept).is_some() {
-                Thing::fresh(concept, ctx.tick)
-            } else {
-                Thing::new(concept)
-            };
-            ctx.inventory.add_thing(thing);
-        }
-    }
-
-    fn complete_log(&self) -> Option<&'static str> {
-        Some("harvested")
-    }
-
-    /// Harvest yields whatever the target entity actually produces, not a hardcoded Apple.
-    ///
-    /// Checks `(Entity, Produces, ?)` first (directly observed entity), then falls back
-    /// to `(ConceptType, Produces, ?)` via `IsA` (type-level knowledge from culture).
-    fn plan_effects_for_target(&self, target: &TargetCandidate, mind: &MindGraph) -> Vec<Triple> {
-        let Some(entity) = target.as_entity() else {
-            return self.plan_effects();
-        };
-
-        // Direct: (entity, Produces, ?item)
-        let produced = mind.query(Some(&Node::Entity(entity)), Some(Predicate::Produces), None);
-        if !produced.is_empty() {
-            return produced
-                .into_iter()
-                .map(|t| Triple::new(Node::Self_, Predicate::Contains, t.object.clone()))
-                .collect();
-        }
-
-        // Indirect: entity IsA concept → (concept, Produces, ?item)
-        let type_triples = mind.query(Some(&Node::Entity(entity)), Some(Predicate::IsA), None);
-        let concept_effects: Vec<Triple> = type_triples
-            .iter()
-            .flat_map(|type_triple| {
-                if let Value::Concept(concept) = type_triple.object {
-                    mind.query(
+    // No Contains belief but we may know the type's Produces (e.g. BerryBush
+    // from cultural knowledge). Trust that and skip the Contains requirement
+    // so the planner can still chain Walk → Harvest → Eat.
+    let type_produces = mind
+        .query(Some(&Node::Entity(entity)), Some(Predicate::IsA), None)
+        .iter()
+        .any(|t| {
+            if let Value::Concept(concept) = t.object {
+                !mind
+                    .query(
                         Some(&Node::Concept(concept)),
                         Some(Predicate::Produces),
                         None,
                     )
-                } else {
-                    vec![]
-                }
-            })
-            .map(|t| Triple::new(Node::Self_, Predicate::Contains, t.object.clone()))
-            .collect();
+                    .is_empty()
+            } else {
+                false
+            }
+        });
+    if type_produces {
+        return vec![];
+    }
 
-        if concept_effects.is_empty() {
-            self.plan_effects()
-        } else {
-            concept_effects
+    // Fallback: require Contains (may block the plan if decayed).
+    vec![TriplePattern::entity_contains(entity)]
+}
+
+fn harvest_target_consumes(target: &TargetCandidate, mind: &MindGraph) -> Vec<TriplePattern> {
+    let Some(entity) = target.as_entity() else {
+        return vec![];
+    };
+    let has_contains = mind
+        .query(Some(&Node::Entity(entity)), Some(Predicate::Contains), None)
+        .iter()
+        .any(|t| matches!(t.object, Value::Item(_, qty) if qty > 0));
+    if has_contains {
+        vec![TriplePattern::entity_contains(entity)]
+    } else {
+        vec![]
+    }
+}
+
+fn harvest_on_complete(ctx: &mut CompletionContext) {
+    // Transfer items from target's inventory to agent's inventory.
+    // Perishable items get freshness = 1.0 and created_at stamped at harvest
+    // time. Skilled harvesters pull more per action — 1 at skill 0.0, 2 by
+    // ~0.5, 3 at 1.0 — bounded by what the target actually has.
+    let Some(target_inv) = &mut ctx.target_inventory else {
+        return;
+    };
+    let Some(concept) = target_inv.all_items().next().map(|t| t.concept) else {
+        return;
+    };
+    let skill_level = ctx
+        .skills
+        .map(|s| s.level(SkillKind::Harvesting))
+        .unwrap_or(0.0);
+    let desired = 1 + (skill_level * 2.0).floor() as u32;
+    let available = target_inv.count(concept);
+    let actual = desired.min(available);
+
+    for _ in 0..actual {
+        if !target_inv.remove(concept, 1) {
+            break;
         }
+        let thing = if perishable_decay_rate(concept).is_some() {
+            Thing::fresh(concept, ctx.tick)
+        } else {
+            Thing::new(concept)
+        };
+        ctx.inventory.add_thing(thing);
     }
 }

@@ -1,26 +1,61 @@
 //! Drink action — drink water from a known drinkable tile.
 //!
-//! Declares `TargetSource::TileWithTrait(Drinkable)` so the rational brain
-//! enumerates one Drink target per known water tile (asserted by water
-//! perception as `Tile(?) HasTrait Drinkable`). The default
-//! `to_template_for_target` default implementation auto-injects a `self_at(tile)` precondition,
-//! and the regressive planner chains `Walk → Drink` via the implicit walk
-//! generator. No manual preconditions or `to_template` override needed.
+//! `TargetSource::TileWithTrait(Drinkable)` lets the rational brain enumerate
+//! one Drink target per known water tile. The default `to_template_for_target`
+//! auto-injects a `self_at(tile)` precondition and the regressive planner
+//! chains `Walk → Drink` via the implicit walk generator.
 
 use crate::agent::actions::ActionType;
 use crate::agent::actions::channel::{Channel, ChannelUsage, Posture};
-use crate::agent::actions::motor::{
-    ActionPrimitive, Behavior, IntensityPolicy, Intent, TargetSelector,
+use crate::agent::actions::definition::{
+    ActionDefinition, CompletionPredicate, EffectTemplate, Gate, Hooks, PlanValidity, RuntimeOp,
+    SatiationGate, TargetEffects,
 };
-use crate::agent::actions::registry::{
-    Action, ActionContext, ActionKind, CompletionContext, TargetSource,
-};
-use crate::agent::events::FailureReason;
-use crate::agent::mind::knowledge::{Concept, Node, Predicate, Quantity, Triple, Value};
+use crate::agent::actions::motor::{ActionPrimitive, IntensityPolicy, Intent, TargetSelector};
+use crate::agent::actions::registry::{ActionKind, TargetSource};
+use crate::agent::mind::knowledge::{Concept, Predicate};
 use crate::constants::actions::drink::{DURATION_TICKS, STAMINA_GAIN, THIRST_REDUCTION};
-pub struct DrinkAction;
 
-/// Check if any tile adjacent to the given position is a water source.
+const CHANNELS: &[ChannelUsage] = &[ChannelUsage::new(Channel::Consumption, 0.8)];
+
+pub static DRINK_DEF: ActionDefinition = ActionDefinition {
+    action_type: ActionType::Drink,
+    kind: ActionKind::Timed {
+        duration_ticks: DURATION_TICKS,
+    },
+    target_source: TargetSource::TileWithTrait(Concept::Drinkable),
+    base_cost: 1.0,
+    primitive: ActionPrimitive::Ingest,
+    target_selector: TargetSelector::InPlace,
+    intensity: IntensityPolicy::Fixed(0.0),
+    intent: Intent::Thirst,
+    body_channels: CHANNELS,
+    posture: Some(Posture::Stationary),
+    interruptible: true,
+    start_log: None,
+    complete_log: Some("drank water"),
+    joy_per_sec: 0.0,
+    stomach_carbs_per_sec: 0.0,
+    preconditions: &[],
+    plan_effects: &[EffectTemplate::SelfNeedExact {
+        predicate: Predicate::Thirst,
+        value: 0.0,
+    }],
+    plan_consumes: &[],
+    target_effects: TargetEffects::Static,
+    plan_validity: PlanValidity::Always,
+    gates: &[Gate::AdjacentToWater],
+    satiation: Some(SatiationGate::HydrationValue),
+    completion: CompletionPredicate::Never,
+    on_complete_ops: &[
+        RuntimeOp::TopUpHydration(THIRST_REDUCTION),
+        RuntimeOp::AdjustAerobic(STAMINA_GAIN),
+    ],
+    hooks: Hooks::EMPTY,
+    recipe: None,
+};
+
+/// Re-export for tests that need the adjacency check directly.
 pub fn is_adjacent_to_water(
     agent_pos: bevy::math::Vec2,
     world_map: &crate::world::map::WorldMap,
@@ -28,7 +63,6 @@ pub fn is_adjacent_to_water(
     let tile_size = crate::world::map::TILE_SIZE;
     let tx = (agent_pos.x / tile_size).floor() as i32;
     let ty = (agent_pos.y / tile_size).floor() as i32;
-
     for dx in -1..=1 {
         for dy in -1..=1 {
             let nx = tx + dx;
@@ -43,86 +77,6 @@ pub fn is_adjacent_to_water(
         }
     }
     false
-}
-
-impl Action for DrinkAction {
-    fn action_type(&self) -> ActionType {
-        ActionType::Drink
-    }
-
-    fn name(&self) -> &'static str {
-        "Drink"
-    }
-
-    fn default_behavior(&self) -> Behavior {
-        Behavior::new(
-            ActionPrimitive::Ingest,
-            TargetSelector::InPlace,
-            IntensityPolicy::Fixed(0.0),
-            Intent::Thirst,
-        )
-    }
-
-    fn kind(&self) -> ActionKind {
-        ActionKind::Timed {
-            duration_ticks: DURATION_TICKS,
-        }
-    }
-
-    fn body_channels(&self) -> &'static [ChannelUsage] {
-        // Consumption only — drinking uses the mouth/jaws directly. Animals
-        // without hands can lap from water surfaces the same as humans.
-        const CHANNELS: &[ChannelUsage] = &[ChannelUsage::new(Channel::Consumption, 0.8)];
-        CHANNELS
-    }
-
-    fn posture(&self) -> Option<Posture> {
-        // Head-down at the waterline — stationary until done.
-        Some(Posture::Stationary)
-    }
-
-    fn target_source(&self) -> TargetSource {
-        TargetSource::TileWithTrait(Concept::Drinkable)
-    }
-
-    fn plan_effects(&self) -> Vec<Triple> {
-        vec![Triple::new(
-            Node::Self_,
-            Predicate::Thirst,
-            Value::Quantity(Quantity::Exact(0.0)),
-        )]
-    }
-
-    fn can_start(&self, ctx: &ActionContext) -> Result<(), FailureReason> {
-        if is_adjacent_to_water(ctx.agent_position, ctx.world_map) {
-            Ok(())
-        } else {
-            Err(FailureReason::NoWaterNearby)
-        }
-    }
-
-    /// Block Drink when hydration is already ≥ 95%. Without this the
-    /// rational brain can chain-fire Drink every duration cycle while
-    /// the agent stands next to water.
-    fn satiation(
-        &self,
-        physical: Option<&crate::agent::body::needs::PhysicalNeeds>,
-        _inventory: Option<&crate::agent::item_slots::ItemSlots>,
-    ) -> Option<(crate::agent::body::need::NeedKind, f32)> {
-        Some((
-            crate::agent::body::need::NeedKind::Thirst,
-            physical?.hydration.value,
-        ))
-    }
-
-    fn on_complete(&self, ctx: &mut CompletionContext) {
-        ctx.physical.hydration.top_up(THIRST_REDUCTION);
-        ctx.physical.stamina.adjust_aerobic(STAMINA_GAIN);
-    }
-
-    fn complete_log(&self) -> Option<&'static str> {
-        Some("drank water")
-    }
 }
 
 #[cfg(test)]
@@ -185,26 +139,16 @@ mod tests {
         assert!(!is_adjacent_to_water(tile_center(8, 8), &map));
     }
 
-    /// Regression for #213: a thirsty agent standing next to a water tile
-    /// should plan and execute Drink directly. Re-enabled by #219, which
-    /// switched Drink to `TargetSource::TileWithTrait(Drinkable)` so the
-    /// rational brain enumerates the water tile as a planning target.
     #[test]
     fn thirsty_agent_near_water_drinks() {
         let mut world = TestWorld::with_seed(42);
-
-        // Place water tiles adjacent to where the agent will be.
-        // Agent at tile (2, 2) → world pos ~(40, 40). Water at tile (3, 2).
         world.set_tile(3, 2, TileType::ShallowWater);
-
         let agent = world.spawn_agent(AgentConfig {
             pos: Vec2::new(40.0, 40.0),
             hydration: 0.1,
             ..Default::default()
         });
-
         world.tick(200);
-
         assert!(
             world.agent_thirst(agent) < 0.5,
             "Agent should have drunk water and reduced thirst, but thirst is {:.2}",

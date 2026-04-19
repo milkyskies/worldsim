@@ -1,147 +1,92 @@
 //! Graze action — slow drift across grass while continuously eating.
 //!
-//! A single fused action that expresses "walk + eat" via the capability
-//! channel system: `Locomotion` at low intensity (slow drift) plus
-//! `Consumption` at high intensity (continuous nibbling). Herbivores eat
-//! mouth-first, not by handling food, so no `Manipulation` channel is
-//! declared — the occupancy matches the anatomy of the behaviour. Plant
-//! carbs flow into the stomach continuously via `stomach_carbs_per_sec` on
-//! `runtime_effects`, not a completion hook — the animal feeds throughout
-//! the drift, not only on arrival.
-//!
-//! Declares `TargetSource::TileWithTrait(Grazable)` so the rational brain
-//! enumerates one Graze target per known grass tile (asserted by
-//! `perceive_grass_tiles` as `Tile(?) HasTrait Grazable`). The default
-//! `to_template_for_target` auto-injects a `self_at(tile)` precondition,
-//! and the regressive planner chains `Walk → Graze` via the implicit walk
-//! generator if the agent isn't already on a grass tile.
+//! Fused walk-and-eat action expressed via capability channels: Locomotion
+//! at low intensity (slow drift) plus Consumption at high intensity
+//! (continuous nibbling). Plant carbs flow continuously via
+//! `stomach_carbs_per_sec`, not a completion hook — the animal feeds
+//! throughout the drift.
 
 use crate::agent::actions::ActionType;
 use crate::agent::actions::channel::{Channel, ChannelUsage, Posture};
-use crate::agent::actions::motor::{
-    ActionPrimitive, Behavior, IntensityPolicy, Intent, TargetSelector,
+use crate::agent::actions::definition::{
+    ActionDefinition, CompletionPredicate, EffectTemplate, Gate, Hooks, PlanValidity, TargetEffects,
 };
-use crate::agent::actions::registry::{
-    Action, ActionContext, ActionKind, RuntimeEffects, TargetSource,
-};
-use crate::agent::events::FailureReason;
-use crate::agent::mind::knowledge::{Concept, Node, Predicate, Quantity, Triple, Value};
+use crate::agent::actions::motor::{ActionPrimitive, IntensityPolicy, Intent, TargetSelector};
+use crate::agent::actions::registry::{ActionKind, TargetSource};
+use crate::agent::mind::knowledge::{Concept, Predicate};
 use crate::constants::actions::graze::STOMACH_CARBS_PER_SEC;
-use crate::world::map::TileType;
 
-pub struct GrazeAction;
+const CHANNELS: &[ChannelUsage] = &[
+    ChannelUsage::new(Channel::Locomotion, 0.3),
+    ChannelUsage::new(Channel::Consumption, 0.8),
+];
 
-impl Action for GrazeAction {
-    fn action_type(&self) -> ActionType {
-        ActionType::Graze
-    }
-
-    fn name(&self) -> &'static str {
-        "Graze"
-    }
-
-    fn default_behavior(&self) -> Behavior {
-        Behavior::new(
-            ActionPrimitive::Ingest,
-            TargetSelector::InPlace,
-            IntensityPolicy::Ambient,
-            Intent::Hunger,
-        )
-    }
-
-    fn kind(&self) -> ActionKind {
-        ActionKind::Movement
-    }
-
-    fn cost(&self) -> f32 {
-        2.0
-    }
-
-    fn target_source(&self) -> TargetSource {
-        TargetSource::TileWithTrait(Concept::Grazable)
-    }
-
-    fn plan_effects(&self) -> Vec<Triple> {
-        vec![Triple::new(
-            Node::Self_,
-            Predicate::Hunger,
-            Value::Quantity(Quantity::Exact(0.0)),
-        )]
-    }
-
-    fn body_channels(&self) -> &'static [ChannelUsage] {
-        const CHANNELS: &[ChannelUsage] = &[
-            ChannelUsage::new(Channel::Locomotion, 0.3),
-            ChannelUsage::new(Channel::Consumption, 0.8),
-        ];
-        CHANNELS
-    }
-
-    fn posture(&self) -> Option<Posture> {
-        // Graze is the fused walk-and-eat action — the animal is
-        // continuously drifting, not committed in place.
-        Some(Posture::Moving)
-    }
-
-    fn runtime_effects(&self) -> RuntimeEffects {
-        RuntimeEffects {
-            stomach_carbs_per_sec: STOMACH_CARBS_PER_SEC,
-            ..Default::default()
-        }
-    }
-
-    fn can_start(&self, ctx: &ActionContext) -> Result<(), FailureReason> {
-        match ctx.world_map.tile_at(ctx.agent_position) {
-            Some(TileType::Grass) => Ok(()),
-            _ => Err(FailureReason::NoEdibleFood),
-        }
-    }
-
-    fn start_log(&self) -> Option<&'static str> {
-        Some("grazing")
-    }
-}
+pub static GRAZE_DEF: ActionDefinition = ActionDefinition {
+    action_type: ActionType::Graze,
+    kind: ActionKind::Movement,
+    target_source: TargetSource::TileWithTrait(Concept::Grazable),
+    base_cost: 2.0,
+    primitive: ActionPrimitive::Ingest,
+    target_selector: TargetSelector::InPlace,
+    intensity: IntensityPolicy::Ambient,
+    intent: Intent::Hunger,
+    body_channels: CHANNELS,
+    posture: Some(Posture::Moving),
+    interruptible: true,
+    start_log: Some("grazing"),
+    complete_log: None,
+    joy_per_sec: 0.0,
+    stomach_carbs_per_sec: STOMACH_CARBS_PER_SEC,
+    preconditions: &[],
+    plan_effects: &[EffectTemplate::SelfNeedExact {
+        predicate: Predicate::Hunger,
+        value: 0.0,
+    }],
+    plan_consumes: &[],
+    target_effects: TargetEffects::Static,
+    plan_validity: PlanValidity::Always,
+    gates: &[Gate::OnGrassTile],
+    satiation: None,
+    completion: CompletionPredicate::Never,
+    on_complete_ops: &[],
+    hooks: Hooks::EMPTY,
+    recipe: None,
+};
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::agent::actions::GenericAction;
     use crate::agent::actions::channel::{ChannelCapacities, ChannelLoad};
+    use crate::agent::actions::registry::Action;
+
+    fn graze() -> GenericAction {
+        GenericAction::new(&GRAZE_DEF)
+    }
 
     #[test]
     fn graze_admits_cleanly_on_empty_load() {
-        let graze = GrazeAction;
         let load = ChannelLoad::new();
         let caps = ChannelCapacities::full();
-        assert!(!load.would_hard_conflict(graze.body_channels(), &caps));
+        assert!(!load.would_hard_conflict(graze().body_channels(), &caps));
     }
 
     #[test]
     fn graze_leaves_most_locomotion_free_for_flee() {
-        // Graze needs to coexist with the *threat* of being preempted: a
-        // deer hearing a wolf should still have Locomotion headroom for
-        // Flee. With Graze at Locomotion 0.3, there's 0.7 free on the
-        // channel — enough for Flee (1.0) to saturate and preempt via the
-        // Movement single-slot rule.
-        let graze = GrazeAction;
         let mut load = ChannelLoad::new();
-        load.add(graze.body_channels());
+        load.add(graze().body_channels());
         assert!(load.saturation(Channel::Locomotion) < 0.5);
     }
 
     #[test]
     fn graze_fills_stomach_per_second() {
-        let graze = GrazeAction;
-        assert!(
-            graze.runtime_effects().stomach_carbs_per_sec > 0.0,
-            "grazing continuously loads carbs into the stomach"
-        );
+        assert!(graze().runtime_effects().stomach_carbs_per_sec > 0.0);
     }
 
     #[test]
     fn graze_targets_grazable_tiles() {
-        let graze = GrazeAction;
         assert!(matches!(
-            graze.target_source(),
+            graze().target_source(),
             TargetSource::TileWithTrait(Concept::Grazable)
         ));
     }

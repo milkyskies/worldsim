@@ -2,154 +2,81 @@
 //! agent's own slots.
 //!
 //! Polymorphic across chests, dropped piles, furnace outputs, and any other
-//! entity with `ItemSlots`. The polymorphism lives in `ItemSlots`: the action
-//! walks the target's slots, finds the first item with `extract_access != None`,
-//! and transfers it. Construction sites are explicitly NOT extractable —
-//! their slots have `extract_access: None`, so Take silently skips them.
+//! entity with `ItemSlots`. Construction sites are explicitly NOT extractable;
+//! their slots have `extract_access: None` and Take silently skips them.
 
 use crate::agent::actions::ActionType;
 use crate::agent::actions::channel::{Channel, ChannelUsage, Posture};
-use crate::agent::actions::motor::{
-    ActionPrimitive, Behavior, IntensityPolicy, Intent, TargetSelector,
+use crate::agent::actions::definition::{
+    ActionDefinition, CompletionPredicate, Gate, Hooks, PlanValidity, TargetEffects,
 };
+use crate::agent::actions::motor::{ActionPrimitive, IntensityPolicy, Intent, TargetSelector};
 use crate::agent::actions::registry::{
-    Action, ActionContext, ActionKind, CompletionContext, TargetCandidate, TargetSource,
+    ActionKind, CompletionContext, TargetCandidate, TargetSource,
 };
 use crate::agent::brains::thinking::TriplePattern;
-use crate::agent::events::FailureReason;
-use crate::agent::mind::knowledge::{Concept, MindGraph, Node, Predicate, Triple, Value};
+use crate::agent::mind::knowledge::{Concept, MindGraph};
 use crate::constants::actions::take::DURATION_TICKS;
 
-pub struct TakeAction;
+const CHANNELS: &[ChannelUsage] = &[ChannelUsage::new(Channel::Manipulation, 0.4)];
 
-impl Action for TakeAction {
-    fn action_type(&self) -> ActionType {
-        ActionType::Take
+pub static TAKE_DEF: ActionDefinition = ActionDefinition {
+    action_type: ActionType::Take,
+    kind: ActionKind::Timed {
+        duration_ticks: DURATION_TICKS,
+    },
+    target_source: TargetSource::EntityAffordance,
+    base_cost: 2.0,
+    primitive: ActionPrimitive::Manipulate,
+    target_selector: TargetSelector::InPlace,
+    intensity: IntensityPolicy::Fixed(0.0),
+    intent: Intent::Goal,
+    body_channels: CHANNELS,
+    posture: Some(Posture::Stationary),
+    interruptible: true,
+    start_log: None,
+    complete_log: Some("took"),
+    joy_per_sec: 0.0,
+    stomach_carbs_per_sec: 0.0,
+    preconditions: &[],
+    plan_effects: &[],
+    plan_consumes: &[],
+    target_effects: TargetEffects::FromTargetContains,
+    plan_validity: PlanValidity::TargetContainsAny,
+    gates: &[Gate::TargetEntity(
+        crate::agent::events::FailureReason::TargetGone,
+    )],
+    satiation: None,
+    completion: CompletionPredicate::Never,
+    on_complete_ops: &[],
+    hooks: Hooks {
+        on_complete: Some(take_on_complete),
+        target_consumes: Some(take_target_consumes),
+        ..Hooks::EMPTY
+    },
+    recipe: None,
+};
+
+fn take_target_consumes(target: &TargetCandidate, _mind: &MindGraph) -> Vec<TriplePattern> {
+    match target.as_entity() {
+        Some(entity) => vec![TriplePattern::entity_contains(entity)],
+        None => vec![],
     }
+}
 
-    fn default_behavior(&self) -> Behavior {
-        Behavior::new(
-            ActionPrimitive::Manipulate,
-            TargetSelector::InPlace,
-            IntensityPolicy::Fixed(0.0),
-            Intent::Goal,
-        )
-    }
-
-    fn name(&self) -> &'static str {
-        "Take"
-    }
-
-    fn kind(&self) -> ActionKind {
-        ActionKind::Timed {
-            duration_ticks: DURATION_TICKS,
-        }
-    }
-
-    fn target_source(&self) -> TargetSource {
-        TargetSource::EntityAffordance
-    }
-
-    /// Per-target consumed pattern: Take destroys items from the target so the
-    /// planner doesn't double-count the same stack across two plan steps.
-    fn target_consumes(&self, target: &TargetCandidate, _mind: &MindGraph) -> Vec<TriplePattern> {
-        match target.as_entity() {
-            Some(entity) => vec![TriplePattern::entity_contains(entity)],
-            None => vec![],
-        }
-    }
-
-    fn body_channels(&self) -> &'static [ChannelUsage] {
-        const CHANNELS: &[ChannelUsage] = &[ChannelUsage::new(Channel::Manipulation, 0.4)];
-        CHANNELS
-    }
-
-    fn posture(&self) -> Option<Posture> {
-        Some(Posture::Stationary)
-    }
-
-    fn cost(&self) -> f32 {
-        2.0
-    }
-
-    /// Plan-time view: agent gains whatever the target is known to contain.
-    /// One effect per item the agent's mind says the target holds.
-    fn plan_effects_for_target(&self, target: &TargetCandidate, mind: &MindGraph) -> Vec<Triple> {
-        let Some(entity) = target.as_entity() else {
-            return self.plan_effects();
-        };
-
-        mind.query(Some(&Node::Entity(entity)), Some(Predicate::Contains), None)
-            .into_iter()
-            .filter_map(|triple| {
-                if let Value::Item(_, qty) = triple.object
-                    && qty > 0
-                {
-                    Some(Triple::new(
-                        Node::Self_,
-                        Predicate::Contains,
-                        triple.object.clone(),
-                    ))
-                } else {
-                    None
-                }
-            })
-            .collect()
-    }
-
-    fn is_plan_valid(&self, target: &TargetCandidate, mind: &MindGraph) -> bool {
-        // Valid if the target is known to contain at least one item with a
-        // non-zero quantity. Belief about extract_access lives on the world
-        // entity, not the mind, so the runtime check filters sealed slots.
-        let Some(entity) = target.as_entity() else {
-            return false;
-        };
-        mind.query(Some(&Node::Entity(entity)), Some(Predicate::Contains), None)
-            .iter()
-            .any(|t| matches!(t.object, Value::Item(_, qty) if qty > 0))
-    }
-
-    fn can_start(&self, ctx: &ActionContext) -> Result<(), FailureReason> {
-        let Some(target_entity) = ctx.target_entity else {
-            return Err(FailureReason::TargetGone);
-        };
-
-        // We can't read the target's actual ItemSlots from ActionContext (it
-        // only has the agent's own inventory). The runtime check is "we have
-        // a target". on_complete handles the case where the target turns out
-        // to have nothing extractable by simply doing nothing.
-        let _ = target_entity;
-        Ok(())
-    }
-
-    /// Pull extractable items from the target into the agent's inventory,
-    /// preserving per-instance properties (freshness, quality, provenance).
-    ///
-    /// Finds the first concept that can be extracted and transfers all items
-    /// of that concept (mimicking the old stack-based "take the whole pile").
-    fn on_complete(&self, ctx: &mut CompletionContext) {
-        let Some(target_inv) = ctx.target_inventory.as_deref_mut() else {
-            return;
-        };
-
-        // Collect extractable concepts first (snapshot avoids borrow conflict).
-        let extractable: Vec<Concept> = target_inv
-            .all_items()
-            .filter(|t| target_inv.can_extract(t.concept))
-            .map(|t| t.concept)
-            .collect();
-
-        let Some(&concept) = extractable.first() else {
-            return;
-        };
-
-        // Transfer all Things of that concept.
-        while let Some(thing) = target_inv.extract_thing(concept) {
-            ctx.inventory.add_thing(thing);
-        }
-    }
-
-    fn complete_log(&self) -> Option<&'static str> {
-        Some("took")
+fn take_on_complete(ctx: &mut CompletionContext) {
+    let Some(target_inv) = ctx.target_inventory.as_deref_mut() else {
+        return;
+    };
+    let extractable: Vec<Concept> = target_inv
+        .all_items()
+        .filter(|t| target_inv.can_extract(t.concept))
+        .map(|t| t.concept)
+        .collect();
+    let Some(&concept) = extractable.first() else {
+        return;
+    };
+    while let Some(thing) = target_inv.extract_thing(concept) {
+        ctx.inventory.add_thing(thing);
     }
 }

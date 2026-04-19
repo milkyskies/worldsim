@@ -1,91 +1,51 @@
-//! InitiateConversation action - walk to a partner to start a conversation.
+//! InitiateConversation action — walk to a partner to start a conversation.
 //!
-//! This action is **proposed by brains** (emotional brain when social drive is
-//! high, rational brain when a goal needs another agent's help) and **owned by
-//! the [`CommunicationPlugin`](crate::agent::communication::CommunicationPlugin)**.
-//!
-//! The action itself contains no on-completion logic — it is a Movement marker
-//! that walks the agent toward their partner while occupying the `Legs` channel.
-//! A dedicated polling system in `CommunicationPlugin` watches for agents with
-//! this action active, checks proximity to the partner each tick, and on
-//! arrival swaps `InitiateConversation` for `Converse` in `ActiveActions`,
-//! registers a new `Conversation`, and inserts `InConversation` on both
-//! participants. After that the standard turn-taking systems take over.
-//!
-//! This mirrors the [`ConverseAction`](super::ConverseAction) pattern: the
-//! action is just a body-channel marker; the plugin owns the lifecycle.
+//! Proposed by brains, owned by [`CommunicationPlugin`](crate::agent::communication::CommunicationPlugin).
+//! The action itself contains no on-completion logic — it's a Movement marker
+//! that walks the agent toward their partner. A dedicated plugin polling
+//! system swaps InitiateConversation → Converse on arrival at CONVERSATION_RANGE.
 
 use crate::agent::actions::ActionType;
 use crate::agent::actions::channel::{Channel, ChannelUsage, Posture};
-use crate::agent::actions::motor::{
-    ActionPrimitive, Behavior, IntensityPolicy, Intent, TargetSelector,
+use crate::agent::actions::definition::{
+    ActionDefinition, CompletionPredicate, Gate, Hooks, PlanValidity, TargetEffects,
 };
-use crate::agent::actions::registry::{Action, ActionContext, ActionKind, TargetSource};
-use crate::agent::events::FailureReason;
+use crate::agent::actions::motor::{ActionPrimitive, IntensityPolicy, Intent, TargetSelector};
+use crate::agent::actions::registry::{ActionKind, TargetSource};
 
-pub struct InitiateConversationAction;
+const CHANNELS: &[ChannelUsage] = &[ChannelUsage::new(Channel::Locomotion, 1.0)];
 
-impl Action for InitiateConversationAction {
-    fn action_type(&self) -> ActionType {
-        ActionType::InitiateConversation
-    }
-
-    fn default_behavior(&self) -> Behavior {
-        Behavior::new(
-            ActionPrimitive::Locomote,
-            TargetSelector::InPlace,
-            IntensityPolicy::Normal,
-            Intent::Social,
-        )
-    }
-
-    fn name(&self) -> &'static str {
-        "InitiateConversation"
-    }
-
-    fn kind(&self) -> ActionKind {
-        // Movement: walk to the partner. The CommunicationPlugin intercepts
-        // arrival at CONVERSATION_RANGE (32px) before the standard 2px
-        // arrival check fires, so this never auto-completes via the movement
-        // system on its own.
-        ActionKind::Movement
-    }
-
-    /// `Implicit` because this action is *proposed by the emotional brain*,
-    /// not enumerated by the rational brain. The rational brain skips
-    /// `Implicit` sources during target enumeration, so InitiateConversation
-    /// never appears in a rational plan and never gets the auto-injected
-    /// proximity precondition (the action does its own walking via the
-    /// CommunicationPlugin's polling system).
-    fn target_source(&self) -> TargetSource {
-        TargetSource::Implicit
-    }
-
-    fn body_channels(&self) -> &'static [ChannelUsage] {
-        // Full Locomotion commitment — walking toward a specific person is
-        // a directed locomotion task that should hard-conflict with any
-        // other Movement action (Explore, Wander, Walk) so the agent doesn't
-        // simultaneously try to wander somewhere else and lose its target.
-        const CHANNELS: &[ChannelUsage] = &[ChannelUsage::new(Channel::Locomotion, 1.0)];
-        CHANNELS
-    }
-
-    fn posture(&self) -> Option<Posture> {
-        Some(Posture::Moving)
-    }
-
-    fn can_start(&self, ctx: &ActionContext) -> Result<(), FailureReason> {
-        if ctx.target_entity.is_none() {
-            return Err(FailureReason::NoTarget);
-        }
-        Ok(())
-    }
-
-    fn interruptible(&self) -> bool {
-        true
-    }
-
-    fn start_log(&self) -> Option<&'static str> {
-        Some("approaching to talk")
-    }
-}
+pub static INITIATE_CONVERSATION_DEF: ActionDefinition = ActionDefinition {
+    action_type: ActionType::InitiateConversation,
+    // Movement: walk to the partner. The CommunicationPlugin intercepts
+    // arrival at CONVERSATION_RANGE before the standard arrival check fires.
+    kind: ActionKind::Movement,
+    // Implicit: proposed by the emotional brain, not enumerated by the
+    // rational brain (which skips Implicit sources during target enumeration).
+    target_source: TargetSource::Implicit,
+    base_cost: 1.0,
+    primitive: ActionPrimitive::Locomote,
+    target_selector: TargetSelector::InPlace,
+    intensity: IntensityPolicy::Normal,
+    intent: Intent::Social,
+    body_channels: CHANNELS,
+    posture: Some(Posture::Moving),
+    interruptible: true,
+    start_log: Some("approaching to talk"),
+    complete_log: None,
+    joy_per_sec: 0.0,
+    stomach_carbs_per_sec: 0.0,
+    preconditions: &[],
+    plan_effects: &[],
+    plan_consumes: &[],
+    target_effects: TargetEffects::Static,
+    plan_validity: PlanValidity::Always,
+    gates: &[Gate::TargetEntity(
+        crate::agent::events::FailureReason::NoTarget,
+    )],
+    satiation: None,
+    completion: CompletionPredicate::Never,
+    on_complete_ops: &[],
+    hooks: Hooks::EMPTY,
+    recipe: None,
+};

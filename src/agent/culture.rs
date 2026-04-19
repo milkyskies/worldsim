@@ -1,3 +1,5 @@
+use crate::agent::actions::action::BUILD_DEF;
+use crate::agent::actions::definition::Recipe;
 use crate::agent::mind::knowledge::{
     Concept, MemoryType, Metadata, Node, Predicate, Quantity, Source, Triple, Value,
 };
@@ -60,28 +62,22 @@ pub fn create_cultural_knowledge(culture: Culture) -> Vec<Triple> {
     add(c(Thing), IsA, v(Physical));
 
     // ─── Universal recipe knowledge (all cultures know these) ───
+    //
+    // Campfire's recipe comes from the Build action's declarative
+    // [`Recipe`], so the numbers (wood required, build time, provides
+    // traits) live in exactly one place — the action definition — and
+    // can't drift from the runtime. See
+    // `src/agent/actions/action/build.rs`.
+    if let Some(recipe) = BUILD_DEF.recipe.as_ref() {
+        for (p, o) in recipe_assertions(recipe) {
+            add(Node::Concept(recipe.concept), p, o);
+        }
+    }
 
-    // Campfire: Wood(3) → provides Safety, Warmth, Light
-    add(
-        c(Campfire),
-        Requires,
-        Value::Item(
-            Wood,
-            crate::constants::actions::build::CAMPFIRE_WOOD_REQUIRED,
-        ),
-    );
-    add(c(Campfire), Provides, v(Concept::Warmth));
-    add(c(Campfire), Provides, v(Safety));
-    add(c(Campfire), Provides, v(Light));
-    add(
-        c(Campfire),
-        BuildTime,
-        Value::Quantity(Quantity::Exact(
-            crate::constants::actions::build::CAMPFIRE_DURATION_TICKS as f32,
-        )),
-    );
-
-    // Lean-to shelter: Wood(5) + LargeLeaves(2) → provides Safety
+    // Lean-to shelter: Wood(5) + LargeLeaves(2) → provides Safety.
+    // No Build action for LeanTo yet, so the recipe still lives here as
+    // aspirational cultural knowledge. When a builder exists, move the
+    // data to its `ActionDefinition::recipe`.
     add(
         c(LeanTo),
         Requires,
@@ -131,6 +127,27 @@ pub fn create_cultural_knowledge(culture: Culture) -> Vec<Triple> {
     }
 
     triples
+}
+
+/// Emit the (predicate, value) pairs that express one action [`Recipe`]
+/// as cultural knowledge. The subject is always `Concept(recipe.concept)`.
+fn recipe_assertions(recipe: &Recipe) -> Vec<(Predicate, Value)> {
+    let mut out: Vec<(Predicate, Value)> = recipe
+        .requirements
+        .iter()
+        .map(|(material, quantity)| (Predicate::Requires, Value::Item(*material, *quantity)))
+        .collect();
+    out.extend(
+        recipe
+            .provides
+            .iter()
+            .map(|c| (Predicate::Provides, Value::Concept(*c))),
+    );
+    out.push((
+        Predicate::BuildTime,
+        Value::Quantity(Quantity::Exact(recipe.build_time_ticks as f32)),
+    ));
+    out
 }
 
 // Helper to convert ActionType to Node

@@ -10,7 +10,8 @@
 //!     Harvesting skill level.
 
 use bevy::prelude::*;
-use worldsim::agent::actions::action::HarvestAction;
+use worldsim::agent::actions::GenericAction;
+use worldsim::agent::actions::action::HARVEST_DEF;
 use worldsim::agent::actions::registry::{Action, CompletionContext, SpawnRequest};
 use worldsim::agent::body::needs::PhysicalNeeds;
 use worldsim::agent::item_slots::ItemSlots;
@@ -184,7 +185,7 @@ fn run_harvest_on_complete(
         spawn_requests: &mut spawn_requests,
     };
 
-    HarvestAction.on_complete(&mut ctx);
+    GenericAction::new(&HARVEST_DEF).on_complete(&mut ctx);
 }
 
 #[test]

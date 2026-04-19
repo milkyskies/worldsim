@@ -4,8 +4,9 @@
 //! ONE definition serves the planner AND the executor.
 
 use crate::agent::actions::ActionType;
-use crate::agent::actions::action::{AttackAction, BiteAction};
 use crate::agent::actions::channel::{ChannelUsage, Posture};
+use crate::agent::actions::definition::{ActionDefinition, Recipe};
+use crate::agent::actions::generic_action::GenericAction;
 use crate::agent::actions::motor::Behavior;
 use crate::agent::brains::thinking::{ActionTemplate, TriplePattern};
 use crate::agent::events::FailureReason;
@@ -849,54 +850,62 @@ impl ActiveActions {
 // ============================================================================
 
 use super::action::{
-    BuildAction, ConstructAction, ConverseAction, DepositAction, DevourAction, DrinkAction,
-    EatAction, ExploreAction, FleeAction, GrazeAction, HarvestAction, IdleAction,
-    InitiateConversationAction, LookForAction, ObserveAction, RestAction, SleepAction, TakeAction,
-    WakeUpAction, WalkAction, WanderAction, WarmUpAction,
+    ATTACK_DEF, BITE_DEF, BUILD_DEF, CONSTRUCT_DEF, CONVERSE_DEF, DEPOSIT_DEF, DEVOUR_DEF,
+    DRINK_DEF, EAT_DEF, EXPLORE_DEF, FLEE_DEF, GRAZE_DEF, HARVEST_DEF, IDLE_DEF,
+    INITIATE_CONVERSATION_DEF, LOOK_FOR_DEF, OBSERVE_DEF, REST_DEF, SLEEP_DEF, TAKE_DEF,
+    WAKE_UP_DEF, WALK_DEF, WANDER_DEF, WARM_UP_DEF,
 };
+
+/// Every [`ActionDefinition`] in the game, in a single slice. Order is not
+/// observable; the registry looks actions up by [`ActionType`].
+const ALL_DEFS: &[&ActionDefinition] = &[
+    &IDLE_DEF,
+    &SLEEP_DEF,
+    &WAKE_UP_DEF,
+    &EAT_DEF,
+    &DEVOUR_DEF,
+    &DRINK_DEF,
+    &GRAZE_DEF,
+    &WALK_DEF,
+    &FLEE_DEF,
+    &EXPLORE_DEF,
+    &LOOK_FOR_DEF,
+    &ATTACK_DEF,
+    &BITE_DEF,
+    &HARVEST_DEF,
+    &BUILD_DEF,
+    &CONSTRUCT_DEF,
+    &DEPOSIT_DEF,
+    &TAKE_DEF,
+    &WANDER_DEF,
+    &REST_DEF,
+    &OBSERVE_DEF,
+    &WARM_UP_DEF,
+    &INITIATE_CONVERSATION_DEF,
+    &CONVERSE_DEF,
+];
 
 #[derive(Resource, Default)]
 pub struct ActionRegistry {
     actions: HashMap<ActionType, Box<dyn Action>>,
+    defs: Vec<&'static ActionDefinition>,
 }
 
 impl ActionRegistry {
     pub fn new() -> Self {
         let mut registry = Self::default();
-        // Register all actions from action/ directory
-        registry.register(IdleAction);
-        registry.register(SleepAction);
-        registry.register(WakeUpAction);
-        registry.register(EatAction);
-        registry.register(DevourAction);
-        registry.register(DrinkAction);
-        registry.register(GrazeAction);
-        registry.register(WalkAction);
-        registry.register(FleeAction);
-        registry.register(ExploreAction);
-        registry.register(LookForAction);
-        registry.register(AttackAction);
-        registry.register(BiteAction);
-        registry.register(HarvestAction);
-        registry.register(BuildAction);
-        registry.register(ConstructAction);
-        registry.register(DepositAction);
-        registry.register(TakeAction);
-        registry.register(WanderAction);
-        // Ambient / low-drive behaviours (#386). These are the actions an
-        // agent picks when they have mild drives and no urgent plan, so
-        // the sim stays alive instead of freezing on "no proposal".
-        registry.register(RestAction);
-        registry.register(ObserveAction);
-        registry.register(WarmUpAction);
-        // Conversation actions — owned by the CommunicationPlugin.
-        registry.register(InitiateConversationAction);
-        registry.register(ConverseAction);
+        for def in ALL_DEFS {
+            registry.register_def(def);
+        }
         registry
     }
 
-    pub fn register<A: Action>(&mut self, action: A) {
-        self.actions.insert(action.action_type(), Box::new(action));
+    /// Register an [`ActionDefinition`]. Wraps it in a [`GenericAction`] and
+    /// stores the def for later recipe derivation.
+    pub fn register_def(&mut self, def: &'static ActionDefinition) {
+        self.actions
+            .insert(def.action_type, Box::new(GenericAction::new(def)));
+        self.defs.push(def);
     }
 
     pub fn get(&self, action_type: ActionType) -> Option<&dyn Action> {
@@ -908,12 +917,10 @@ impl ActionRegistry {
         self.actions.values().map(|a| a.as_ref())
     }
 
-    /// Find actions whose effects could satisfy a goal pattern
-    pub fn actions_satisfying(&self, predicate: impl Fn(&Triple) -> bool) -> Vec<&dyn Action> {
-        self.actions
-            .values()
-            .filter(|a| a.plan_effects().iter().any(&predicate))
-            .map(|a| a.as_ref())
-            .collect()
+    /// Iterate over every recipe declared by a registered action. Used by
+    /// [`crate::agent::actions::recipes::derive_recipe_triples`] to seed
+    /// cultural recipe knowledge directly from the action definitions.
+    pub fn recipes(&self) -> impl Iterator<Item = &'static Recipe> + '_ {
+        self.defs.iter().filter_map(|def| def.recipe.as_ref())
     }
 }
