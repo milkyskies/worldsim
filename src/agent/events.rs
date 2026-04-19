@@ -6,7 +6,7 @@
 //! Downstream: belief_updater (consumes ActionOutcomeEvent), relationship systems (consume SocialInteraction), SimEvent consumers (#84, #123, #124, #125)
 
 use super::actions::ActionType;
-use super::brains::proposal::{BrainPowers, BrainProposal, BrainType, Intent};
+use super::brains::proposal::{BrainPowers, BrainProposal, BrainType};
 use super::nervous_system::urgency::Urgency;
 use super::psyche::emotions::EmotionType;
 use crate::agent::mind::knowledge::Concept;
@@ -180,6 +180,29 @@ impl SimEvent {
         }
     }
 
+    /// Helper for the three sites that report a plan lifecycle drop —
+    /// verify pass, retain sweep, and the initiate-conversation stall
+    /// path. Consolidates the boilerplate so every `PlanAbandoned`
+    /// emission reports the same shape.
+    pub fn plan_abandoned(
+        tick: u64,
+        agent: Entity,
+        plan_id: crate::agent::brains::plan_memory::PlanId,
+        driving_urgency: crate::agent::nervous_system::urgency::UrgencySource,
+        reason: crate::agent::brains::plan_memory::PlanAbandonReason,
+    ) -> Self {
+        Self::single(
+            tick,
+            agent,
+            SimEventKind::PlanAbandoned {
+                agent,
+                plan_id: plan_id.0,
+                driving_urgency,
+                reason,
+            },
+        )
+    }
+
     pub fn involves(&self, entity: Entity) -> bool {
         self.agents.contains(&entity)
     }
@@ -242,12 +265,17 @@ pub enum SimEventKind {
         reason: FailureReason,
     },
 
-    /// An active plan was abandoned (stalled out or replaced by a better proposal).
+    /// A plan in `PlanMemory` was removed before completion. The reason
+    /// distinguishes urgency-based drops (stale sweep) from runtime
+    /// invalidation (preconditions broke, step action failed). Emitted
+    /// once per removal so tooling can correlate plan lifecycle with
+    /// driving drives without probing internal state.
     PlanAbandoned {
         #[serde(serialize_with = "crate::core::entity_serde::serialize_entity")]
         agent: Entity,
-        action: ActionType,
-        intent: Intent,
+        plan_id: u64,
+        driving_urgency: crate::agent::nervous_system::urgency::UrgencySource,
+        reason: crate::agent::brains::plan_memory::PlanAbandonReason,
     },
 
     /// A conversation was started between participants.

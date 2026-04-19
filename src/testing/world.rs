@@ -172,14 +172,15 @@ fn format_sim_event(event: &SimEvent) -> String {
             kind:
                 SimEventKind::PlanAbandoned {
                     agent,
-                    action,
-                    intent,
+                    plan_id,
+                    driving_urgency,
+                    reason,
                     ..
                 },
             ..
         } => {
             format!(
-                "[t{tick}] PlanAbandoned    agent={agent:?} action={action:?} intent={intent:?}"
+                "[t{tick}] PlanAbandoned    agent={agent:?} plan={plan_id} urgency={driving_urgency:?} reason={reason:?}"
             )
         }
 

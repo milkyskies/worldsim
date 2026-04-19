@@ -25,11 +25,19 @@ impl CentralNervousSystem {
     /// Look up the current urgency value for a given source, or 0.0 if
     /// that source isn't in the list.
     pub fn urgency_value(&self, source: UrgencySource) -> f32 {
+        self.urgency_value_opt(source).unwrap_or(0.0)
+    }
+
+    /// Look up the current urgency value for a given source, distinguishing
+    /// "absent from the list" (`None`) from "present at 0.0" (`Some(0.0)`).
+    /// Callers that need to know whether a drive is actively generated —
+    /// like the stale-plan sweep, which treats absence as a separate
+    /// abandonment reason — use this instead of `urgency_value`.
+    pub fn urgency_value_opt(&self, source: UrgencySource) -> Option<f32> {
         self.urgencies
             .iter()
             .find(|u| u.source == source)
             .map(|u| u.value)
-            .unwrap_or(0.0)
     }
 }
 

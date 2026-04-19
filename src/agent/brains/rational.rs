@@ -11,7 +11,8 @@ use crate::agent::actions::channel::{ChannelCapacities, ChannelLoad};
 use crate::agent::biology::body::{Body, TagChannelMapping};
 use crate::agent::body::needs::{Consciousness, PhysicalNeeds};
 use crate::agent::brains::plan_memory::{
-    HeldPlan, PlanMemory, PlanSource, PlanState, max_plans_for,
+    HeldPlan, PlanAbandonReason, PlanId, PlanMemory, PlanSource, PlanState, RetentionDecision,
+    classify_for_retention, max_plans_for,
 };
 use crate::agent::brains::proposal::{BrainProposal, BrainType, Intent};
 use crate::agent::brains::target_enumeration::enumerate_targets;
@@ -82,15 +83,11 @@ pub fn commitment_tick_delta(inputs: &CommitmentTickInputs) -> f32 {
 /// Below this the drive isn't pressing enough to justify thinking cost.
 pub const PLAN_GENERATION_MIN_URGENCY: f32 = 0.1;
 
-/// A plan is dropped when its driving urgency falls below this absolute
-/// floor, regardless of the relative-decay rule. Catches the case where a
-/// drive became essentially zero after satisfaction.
-pub const PLAN_STALE_FLOOR: f32 = 0.05;
-
-/// A plan survives as long as its driving urgency is at least this
-/// fraction of what it was when the plan was created. "Half as bad as
-/// when I started" is the "problem mostly solved itself" cutoff.
-pub const PLAN_STALE_RELATIVE_FRACTION: f32 = 0.5;
+/// Added to an Executing plan's effective arbitration urgency for every
+/// tick it has progressed past step 0. Prevents a competing drive that
+/// briefly edges past this plan's driving urgency from flip-flopping
+/// arbitration and stranding a partially-completed chain.
+pub const PLAN_MOMENTUM_URGENCY_BONUS: f32 = 0.15;
 
 /// Synthesize a concrete goal from an active urgency. Returns `None`
 /// for urgencies with no planner-level satisfier — those drives
@@ -360,9 +357,11 @@ pub fn update_rational_planning(
 
         // 1. Verify every Executing plan: advance completed steps, drop
         //    plans whose preconditions broke, drop plans that have
-        //    reached the end of their step list.
-        let mut invalid_ids = Vec::new();
-        let mut finished_ids = Vec::new();
+        //    reached the end of their step list. Emission happens after
+        //    the iteration because `plan_memory.remove` can't run while
+        //    `iter_mut` borrows `plan_memory.plans`.
+        let mut invalid_ids: Vec<PlanId> = Vec::new();
+        let mut finished_ids: Vec<PlanId> = Vec::new();
         for plan in plan_memory.plans.iter_mut() {
             if plan.state != PlanState::Executing {
                 continue;
@@ -381,6 +380,13 @@ pub fn update_rational_planning(
                     plan.current().is_some_and(|a| set.contains(&a.action_type))
                 });
                 if action_failed_at_runtime {
+                    sim_events.write(crate::agent::events::SimEvent::plan_abandoned(
+                        current_tick,
+                        entity,
+                        plan.id,
+                        plan.driving_urgency,
+                        PlanAbandonReason::StepAdvancedInvalid,
+                    ));
                     invalid_ids.push(plan.id);
                     continue;
                 }
@@ -394,6 +400,13 @@ pub fn update_rational_planning(
                     && let Some(action) = plan.current()
                     && !are_preconditions_met(action, mind)
                 {
+                    sim_events.write(crate::agent::events::SimEvent::plan_abandoned(
+                        current_tick,
+                        entity,
+                        plan.id,
+                        plan.driving_urgency,
+                        PlanAbandonReason::PreconditionsUnmet,
+                    ));
                     invalid_ids.push(plan.id);
                     continue;
                 }
@@ -402,10 +415,7 @@ pub fn update_rational_planning(
                 finished_ids.push(plan.id);
             }
         }
-        for id in &invalid_ids {
-            plan_memory.remove(*id);
-        }
-        for id in &finished_ids {
+        for id in invalid_ids.iter().chain(finished_ids.iter()) {
             plan_memory.remove(*id);
         }
 
@@ -504,29 +514,30 @@ pub fn update_rational_planning(
         }
 
         // 4. Urgency-based stale-plan sweep. Drop Rational-sourced plans
-        //    whose driving urgency has dropped to less than half its
-        //    creation-time value (the "problem mostly solved itself" rule)
-        //    or whose urgency is no longer present in the CNS list at all.
-        //    Verbal commitments are exempt — they flow through a
-        //    `UrgencySource::Commitment` entry that `generate_urgency`
-        //    maintains based on promise state, not drive decay.
+        //    whose driving urgency has dropped below the relative-fraction
+        //    cutoff ("problem mostly solved itself") or whose urgency is
+        //    no longer present in the CNS list at all. Engaged plans
+        //    (at least one completed step) get a looser cutoff so a
+        //    multi-step chain mid-execution is not dropped for partial
+        //    progress. Verbal commitments are exempt — they flow through
+        //    a `UrgencySource::Commitment` entry maintained by promise
+        //    state, not drive decay.
         plan_memory.plans.retain(|plan| {
             if !matches!(plan.source, PlanSource::Brain(BrainType::Rational)) {
                 return true;
             }
-            match cns
-                .urgencies
-                .iter()
-                .find(|u| u.source == plan.driving_urgency)
-            {
-                Some(u) => {
-                    if u.value < PLAN_STALE_FLOOR {
-                        return false;
-                    }
-                    let origin = plan.created_at_urgency.max(0.01);
-                    u.value >= origin * PLAN_STALE_RELATIVE_FRACTION
+            match classify_for_retention(plan, cns.urgency_value_opt(plan.driving_urgency)) {
+                RetentionDecision::Keep => true,
+                RetentionDecision::Drop(reason) => {
+                    sim_events.write(crate::agent::events::SimEvent::plan_abandoned(
+                        current_tick,
+                        entity,
+                        plan.id,
+                        plan.driving_urgency,
+                        reason,
+                    ));
+                    false
                 }
-                None => false,
             }
         });
 
@@ -777,8 +788,20 @@ pub fn rational_brain_propose(
         // creation time). That way a plan's score tracks how bad the
         // underlying drive actually is right now, so arbitration
         // picks the plan that addresses the most pressing need.
+        //
+        // Plans that have advanced past step 0 receive a small momentum
+        // bonus so a competing drive that briefly edges past their
+        // driving urgency can't flip-flop arbitration and strand a
+        // partially-completed chain. The bonus naturally ends when the
+        // plan finishes and leaves the Executing state.
         let current_urgency = cns.urgency_value(plan.driving_urgency);
-        let urgency = (current_urgency * 100.0).max(1.0);
+        let momentum = if plan.current_step > 0 {
+            PLAN_MOMENTUM_URGENCY_BONUS
+        } else {
+            0.0
+        };
+        let effective_urgency = (current_urgency + momentum).clamp(0.0, 1.0);
+        let urgency = (effective_urgency * 100.0).max(1.0);
         // Per-plan intent, derived from the plan's driving urgency so
         // multiple Executing plans don't all collapse onto the same
         // intent in arbitration's dedup pass.

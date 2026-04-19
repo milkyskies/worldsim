@@ -41,8 +41,9 @@ use crate::agent::Agent;
 use crate::agent::actions::registry::{ActionState, ActiveActions};
 use crate::agent::actions::types::ActionType;
 use crate::agent::body::needs::{Consciousness, PsychologicalDrives};
-use crate::agent::brains::plan_memory::{HeldPlan, PlanMemory, PlanSource, PlanState};
-use crate::agent::brains::proposal::Intent as BrainIntent;
+use crate::agent::brains::plan_memory::{
+    HeldPlan, PlanAbandonReason, PlanMemory, PlanSource, PlanState,
+};
 use crate::agent::brains::thinking::{Goal, TriplePattern};
 use crate::agent::events::{ConversationTopic, FailureReason, GameEvent, SimEvent, SimEventKind};
 use crate::agent::mind::conversation::{
@@ -411,6 +412,10 @@ fn drop_stale_initiate(
 
     // Drop any held plan whose current step is InitiateConversation so a
     // stalled-out approach doesn't leave a stale plan lingering in memory.
+    // On `Abandon`, also report each dropped plan as a `PlanAbandoned`
+    // event so plan-lifecycle tooling doesn't have to infer it from the
+    // sibling `ActionFailed`.
+    let abandon = matches!(kind, DropKind::Abandon { .. });
     if let Ok(mut memory) = plan_memory_query.get_mut(initiator) {
         let doomed: Vec<_> = memory
             .plans
@@ -420,10 +425,19 @@ fn drop_stale_initiate(
                     .map(|a| a.action_type == ActionType::InitiateConversation)
                     .unwrap_or(false)
             })
-            .map(|p| p.id)
+            .map(|p| (p.id, p.driving_urgency))
             .collect();
-        for id in doomed {
+        for (id, source) in doomed {
             memory.remove(id);
+            if abandon {
+                sim_events.write(SimEvent::plan_abandoned(
+                    tick,
+                    initiator,
+                    id,
+                    source,
+                    PlanAbandonReason::StepAdvancedInvalid,
+                ));
+            }
         }
     }
 
@@ -447,15 +461,6 @@ fn drop_stale_initiate(
                     agent: initiator,
                     action: ActionType::InitiateConversation,
                     reason,
-                },
-            ));
-            sim_events.write(SimEvent::single(
-                tick,
-                initiator,
-                SimEventKind::PlanAbandoned {
-                    agent: initiator,
-                    action: ActionType::InitiateConversation,
-                    intent: BrainIntent::SatisfySocial,
                 },
             ));
         }

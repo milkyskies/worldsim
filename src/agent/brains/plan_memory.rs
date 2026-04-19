@@ -122,6 +122,82 @@ impl HeldPlan {
     pub fn current(&self) -> Option<&ActionTemplate> {
         self.steps.get(self.current_step)
     }
+
+    /// True when at least one step has already completed. Used by the
+    /// stale-plan sweep to apply sunk-cost-aware retention — a plan with
+    /// visible progress gets more headroom before it is dropped.
+    pub fn is_engaged(&self) -> bool {
+        self.current_step >= 1
+    }
+}
+
+// ─── Plan lifecycle: abandonment ──────────────────────────────────────────
+
+/// Why a plan was removed from `PlanMemory`. Emitted as part of
+/// `SimEvent::PlanAbandoned` so tooling can see which lifecycle path
+/// dropped a plan instead of having to infer it from other state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Reflect, strum::AsRefStr, serde::Serialize)]
+pub enum PlanAbandonReason {
+    /// Driving urgency fell below the relative-fraction cutoff of the
+    /// value it had at plan creation time ("problem mostly solved itself").
+    DrivingUrgencyStale,
+    /// Driving urgency is no longer present in the CNS urgency list —
+    /// the drive stopped being generated altogether.
+    DrivingUrgencyMissing,
+    /// An action in the plan's current step has preconditions that are
+    /// no longer satisfied by the agent's mental model of the world.
+    PreconditionsUnmet,
+    /// The plan's current-step action failed at runtime or the cursor
+    /// advanced into an invalid state.
+    StepAdvancedInvalid,
+}
+
+/// Classification outcome for the stale-plan sweep.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RetentionDecision {
+    Keep,
+    Drop(PlanAbandonReason),
+}
+
+/// A plan is dropped when its driving urgency falls below this absolute
+/// floor, regardless of the relative-decay rule. Catches the case where a
+/// drive became essentially zero after satisfaction.
+pub const PLAN_STALE_FLOOR: f32 = 0.05;
+
+/// A plan that has not yet advanced past step 0 survives as long as its
+/// driving urgency is at least this fraction of what it was when the plan
+/// was created. "Half as bad as when I started" is the "problem mostly
+/// solved itself" cutoff for pre-execution plans.
+pub const PLAN_STALE_RELATIVE_FRACTION: f32 = 0.5;
+
+/// Once a plan has at least one completed step, the relative cutoff
+/// loosens: we're sunk-cost-aware so that chains in progress (e.g.
+/// `Harvest × 3 → Build → WarmUp`) don't get dropped the moment the
+/// driving urgency eases partially from visible progress.
+pub const PLAN_STALE_RELATIVE_FRACTION_ENGAGED: f32 = 0.2;
+
+/// Decide whether a plan still merits retention given its current driving
+/// urgency. `current_urgency` is `None` if the drive is no longer present
+/// in the CNS list. The fraction used depends on whether the plan has
+/// already advanced past its first step.
+pub fn classify_for_retention(plan: &HeldPlan, current_urgency: Option<f32>) -> RetentionDecision {
+    let Some(urgency) = current_urgency else {
+        return RetentionDecision::Drop(PlanAbandonReason::DrivingUrgencyMissing);
+    };
+    if urgency < PLAN_STALE_FLOOR {
+        return RetentionDecision::Drop(PlanAbandonReason::DrivingUrgencyStale);
+    }
+    let fraction = if plan.is_engaged() {
+        PLAN_STALE_RELATIVE_FRACTION_ENGAGED
+    } else {
+        PLAN_STALE_RELATIVE_FRACTION
+    };
+    let origin = plan.created_at_urgency.max(0.01);
+    if urgency < origin * fraction {
+        RetentionDecision::Drop(PlanAbandonReason::DrivingUrgencyStale)
+    } else {
+        RetentionDecision::Keep
+    }
 }
 
 // ─── Cognitive load constants ──────────────────────────────────────────────
@@ -618,5 +694,90 @@ mod tests {
             )
         };
         assert!(plan.current().is_none());
+    }
+
+    fn engaged_plan(created_at_urgency: f32, current_step: usize) -> HeldPlan {
+        HeldPlan {
+            current_step,
+            created_at_urgency,
+            ..held_plan(
+                1,
+                PlanState::Executing,
+                PlanSource::Brain(BrainType::Rational),
+                1.0,
+            )
+        }
+    }
+
+    #[test]
+    fn retain_keeps_engaged_plan_at_30_percent_creation_urgency() {
+        // current_step >= 1 plans use the looser 0.2× cutoff, so a plan
+        // created at urgency 1.0 should still survive at 0.3.
+        let plan = engaged_plan(1.0, 2);
+        assert_eq!(
+            classify_for_retention(&plan, Some(0.3)),
+            RetentionDecision::Keep,
+            "engaged plans get the 0.2× sunk-cost cutoff, not 0.5×"
+        );
+    }
+
+    #[test]
+    fn retain_drops_engaged_plan_at_10_percent_creation_urgency() {
+        let plan = engaged_plan(1.0, 2);
+        assert_eq!(
+            classify_for_retention(&plan, Some(0.1)),
+            RetentionDecision::Drop(PlanAbandonReason::DrivingUrgencyStale),
+            "below 0.2× the engaged cutoff still drops"
+        );
+    }
+
+    #[test]
+    fn retain_drops_non_engaged_plan_at_30_percent_creation_urgency() {
+        // Pre-execution plans keep the original 0.5× cutoff.
+        let plan = engaged_plan(1.0, 0);
+        assert_eq!(
+            classify_for_retention(&plan, Some(0.3)),
+            RetentionDecision::Drop(PlanAbandonReason::DrivingUrgencyStale),
+        );
+    }
+
+    #[test]
+    fn retain_drops_when_urgency_missing() {
+        let plan = engaged_plan(1.0, 2);
+        assert_eq!(
+            classify_for_retention(&plan, None),
+            RetentionDecision::Drop(PlanAbandonReason::DrivingUrgencyMissing),
+        );
+    }
+
+    #[test]
+    fn retain_drops_when_urgency_below_absolute_floor() {
+        // 0.04 < PLAN_STALE_FLOOR (0.05) -> drop even for an engaged plan
+        // with a tiny creation-time urgency where the relative rule would
+        // pass.
+        let plan = engaged_plan(0.1, 2);
+        assert_eq!(
+            classify_for_retention(&plan, Some(0.04)),
+            RetentionDecision::Drop(PlanAbandonReason::DrivingUrgencyStale),
+        );
+    }
+
+    #[test]
+    fn needs_replan_for_urgency_false_when_executing_plan_exists() {
+        use crate::agent::actions::ActionType;
+        let mut mem = PlanMemory::default();
+        let mut plan = held_plan(
+            1,
+            PlanState::Executing,
+            PlanSource::Brain(BrainType::Rational),
+            1.0,
+        );
+        plan.driving_urgency = UrgencySource::Warmth;
+        plan.steps = vec![test_template(ActionType::Walk)];
+        mem.insert(plan);
+        assert!(
+            !mem.needs_replan_for_urgency(UrgencySource::Warmth),
+            "Executing Rational plan for Warmth must gate further Warmth replans"
+        );
     }
 }
