@@ -193,12 +193,16 @@ fn cold_agent_with_wood_plans_build_for_warmth_goal() {
         Value::Tile((0, 0)),
     ));
 
-    // Item(Wood, 1) matches Build's precondition exactly — the planner
-    // uses unit-quantity matching (see #607 for the quantity-aware fix).
+    // Agent is carrying the full Build recipe amount. The planner's
+    // at-least quantity rule lets stored Item(Wood, n) satisfy any
+    // precondition asking for <= n units.
     mind.assert(Triple::new(
         Node::Self_,
         Predicate::Contains,
-        Value::Item(Concept::Wood, 1),
+        Value::Item(
+            Concept::Wood,
+            worldsim::constants::actions::build::CAMPFIRE_WOOD_REQUIRED,
+        ),
     ));
 
     let registry = ActionRegistry::new();

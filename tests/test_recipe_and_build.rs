@@ -64,15 +64,18 @@ fn build_action_registered() {
     );
 }
 
-/// The GOAP planner generates a multi-step plan: Harvest wood → Build campfire.
+/// The GOAP planner generates a multi-step plan: Harvest wood × N → Build campfire.
+/// With the at-least quantity rule + partial-satisfaction backward search,
+/// the planner chains `CAMPFIRE_WOOD_REQUIRED` harvests (one per log) to
+/// accumulate enough wood for Build. Per-entity consume patterns prevent
+/// double-harvesting any individual log; quantity accumulation across
+/// distinct entities is the intended GOAP path.
 #[test]
 fn goap_plans_harvest_then_build() {
+    use worldsim::constants::actions::build::CAMPFIRE_WOOD_REQUIRED;
+
     let ontology = setup_ontology();
     let mut mind = MindGraph::new(ontology.clone());
-
-    // Agent knows a wood log entity exists and contains wood.
-    let log_entity = Entity::from_bits(1);
-    let log_pos = Vec2::new(64.0, 64.0);
 
     let cultural_meta = Metadata {
         source: Source::Cultural,
@@ -87,7 +90,7 @@ fn goap_plans_harvest_then_build() {
     mind.assert(Triple::with_meta(
         MindNode::Concept(Concept::Campfire),
         Predicate::Requires,
-        Value::Item(Concept::Wood, 3),
+        Value::Item(Concept::Wood, CAMPFIRE_WOOD_REQUIRED),
         cultural_meta,
     ));
 
@@ -98,22 +101,7 @@ fn goap_plans_harvest_then_build() {
         Value::Tile((0, 0)),
     ));
 
-    // World knowledge: a log entity exists with wood
-    mind.assert(Triple::new(
-        MindNode::Entity(log_entity),
-        Predicate::IsA,
-        Value::Concept(Concept::WoodLog),
-    ));
-    mind.assert(Triple::new(
-        MindNode::Entity(log_entity),
-        Predicate::Contains,
-        Value::Item(Concept::Wood, 3),
-    ));
-    mind.assert(Triple::new(
-        MindNode::Entity(log_entity),
-        Predicate::LocatedAt,
-        Value::Tile((4, 4)), // tile 4,4 at TILE_SIZE=16 → pixel (64, 64)
-    ));
+    // Type-level ontology: WoodLog is harvestable and yields Wood(1) per harvest.
     mind.assert(Triple::new(
         MindNode::Concept(Concept::WoodLog),
         Predicate::HasTrait,
@@ -125,22 +113,43 @@ fn goap_plans_harvest_then_build() {
         Value::Item(Concept::Wood, 1),
     ));
 
-    let registry = ActionRegistry::new();
+    // Spawn `CAMPFIRE_WOOD_REQUIRED` distinct log entities so the planner
+    // has one harvestable per required wood unit — per-entity consume
+    // tracking prevents re-harvesting any single log within one plan.
+    let mut harvest_templates = Vec::new();
+    for i in 0..CAMPFIRE_WOOD_REQUIRED {
+        let log_entity = Entity::from_bits(1 + i as u64);
+        let log_pos = Vec2::new(64.0 + i as f32 * 16.0, 64.0);
+        mind.assert(Triple::new(
+            MindNode::Entity(log_entity),
+            Predicate::IsA,
+            Value::Concept(Concept::WoodLog),
+        ));
+        mind.assert(Triple::new(
+            MindNode::Entity(log_entity),
+            Predicate::Contains,
+            Value::Item(Concept::Wood, 1),
+        ));
+        mind.assert(Triple::new(
+            MindNode::Entity(log_entity),
+            Predicate::LocatedAt,
+            Value::Tile((4 + i as i32, 4)),
+        ));
 
-    // Build action template (no entity target — agent builds at their location)
+        let registry = ActionRegistry::new();
+        let harvest_action = registry.get(ActionType::Harvest).unwrap();
+        let harvest_target = TargetCandidate::Entity {
+            entity: log_entity,
+            pos: log_pos,
+        };
+        harvest_templates.push(harvest_action.to_template_for_target(&harvest_target, &mind));
+    }
+
+    let registry = ActionRegistry::new();
     let build_template = registry.get(ActionType::Build).unwrap().to_template(None);
 
-    // Harvest template for the log — go through `to_template_for_target` so the
-    // planner sees "produces Wood" (per-target effect) and the auto-injected
-    // proximity precondition + entity-content precondition + consumes pattern.
-    let harvest_action = registry.get(ActionType::Harvest).unwrap();
-    let harvest_target = TargetCandidate::Entity {
-        entity: log_entity,
-        pos: log_pos,
-    };
-    let harvest_template = harvest_action.to_template_for_target(&harvest_target, &mind);
-
-    let available = vec![build_template, harvest_template];
+    let mut available = vec![build_template];
+    available.extend(harvest_templates);
 
     let goal = Goal {
         conditions: vec![TriplePattern::new(

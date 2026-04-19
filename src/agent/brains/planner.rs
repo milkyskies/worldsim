@@ -632,7 +632,7 @@ fn pattern_matches_triple(
         return false;
     }
     if let Some(o) = &pattern.object
-        && &triple.object != o
+        && !triple.object.satisfies_pattern(o)
     {
         return false;
     }
@@ -1126,20 +1126,6 @@ fn mind_satisfies_pattern(mind: &MindGraph, pattern: &TriplePattern) -> bool {
     })
 }
 
-fn action_satisfies_pattern(
-    action: &ActionTemplate,
-    pattern: &TriplePattern,
-    ontology: &Ontology,
-) -> bool {
-    // Action satisfies pattern if one of its effects matches the pattern
-    for effect in &action.effects {
-        if pattern_matches_triple(pattern, effect, Some(ontology)) {
-            return true;
-        }
-    }
-    false
-}
-
 fn reconstruct_regressive_path(
     mut came_from: HashMap<RegressiveState, (ActionTemplate, RegressiveState)>,
     mut current: RegressiveState,
@@ -1198,7 +1184,7 @@ fn patterns_overlap(a: &TriplePattern, b: &TriplePattern) -> bool {
         return false;
     }
     if let (Some(oa), Some(ob)) = (&a.object, &b.object)
-        && compare_values(oa, ob) != Ordering::Equal
+        && !oa.overlaps_pattern(ob)
     {
         return false;
     }
@@ -1301,11 +1287,22 @@ fn find_explicit_actions_for_goal(
     let mut candidates = Vec::new();
 
     for action in available_actions {
-        if !action_satisfies_pattern(action, target_goal, &mind.ontology) {
+        // An action contributes to the target goal if one of its effects
+        // either fully satisfies the pattern (at-least rule) or partially
+        // satisfies an Item quantity. For Item goals the partial case
+        // leaves a reduced-quantity remainder as a new unmet sub-goal so
+        // the backward search chains additional copies of the action
+        // until the total is covered.
+        let Some(partial_remainder) =
+            action_contribution_to_goal(action, target_goal, &mind.ontology)
+        else {
             continue;
-        }
+        };
 
         let mut new_unmet = remaining_goals.to_vec();
+        if let Some(remainder) = partial_remainder {
+            new_unmet.push(remainder);
+        }
         for pre in &action.preconditions {
             // A precondition is unmet if:
             // 1. It isn't satisfied in the live world, OR
@@ -1326,6 +1323,65 @@ fn find_explicit_actions_for_goal(
     }
 
     candidates
+}
+
+/// How does `action` contribute to satisfying `target_goal`?
+///
+/// - `None`: no effect matches — action is irrelevant.
+/// - `Some(None)`: an effect fully satisfies the goal (at-least rule).
+/// - `Some(Some(remainder))`: an effect partially satisfies an Item
+///   quantity; the remainder is a new unmet sub-goal so the backward
+///   search chains another copy of the action (or any other action
+///   producing the same concept) to cover the rest.
+fn action_contribution_to_goal(
+    action: &ActionTemplate,
+    target_goal: &TriplePattern,
+    ontology: &Ontology,
+) -> Option<Option<TriplePattern>> {
+    let target_item = match &target_goal.object {
+        Some(Value::Item(c, n)) if *n > 0 => Some((*c, *n)),
+        _ => None,
+    };
+    // Relaxed pattern with quantity=1: `pattern_matches_triple` runs all
+    // subject / predicate / isa / trait checks but the at-least gate
+    // admits any positive-qty effect of the same concept. The actual
+    // contribution quantity is extracted from the matching effect.
+    let relaxed = target_item.map(|(c, _)| TriplePattern {
+        object: Some(Value::Item(c, 1)),
+        ..target_goal.clone()
+    });
+
+    let mut full_match = false;
+    let mut best_contribution: u32 = 0;
+    for effect in &action.effects {
+        if pattern_matches_triple(target_goal, effect, Some(ontology)) {
+            full_match = true;
+            break;
+        }
+        let Some(ref relaxed_pattern) = relaxed else {
+            continue;
+        };
+        if !pattern_matches_triple(relaxed_pattern, effect, Some(ontology)) {
+            continue;
+        }
+        if let Value::Item(_, qty) = effect.object
+            && qty > best_contribution
+        {
+            best_contribution = qty;
+        }
+    }
+
+    if full_match {
+        return Some(None);
+    }
+    let (target_concept, target_qty) = target_item?;
+    if best_contribution == 0 {
+        return None;
+    }
+    Some(Some(TriplePattern {
+        object: Some(Value::Item(target_concept, target_qty - best_contribution)),
+        ..target_goal.clone()
+    }))
 }
 
 /// The stamina precondition pattern the planner adds before a Walk when the agent needs to sleep
@@ -2803,6 +2859,158 @@ mod tests {
         assert!(
             with || !without,
             "adding a sleep step should not make a plan less feasible"
+        );
+    }
+
+    // ─── Item quantity semantics (at-least matching) ─────────────────────────
+
+    #[test]
+    fn pattern_matches_triple_item_stored_covers_requested() {
+        // A precondition Item(Wood, 1) is satisfied by an effect / triple
+        // that carries a larger stock — `satisfies_pattern` reads "stored >=
+        // requested" for Items. Without this, Build's precondition fails
+        // against an agent holding `Item(Wood, 3)`.
+        let ontology = setup_ontology();
+        let pattern = TriplePattern::new(
+            Some(MindNode::Self_),
+            Some(Predicate::Contains),
+            Some(Value::Item(Concept::Wood, 1)),
+        );
+        let triple = Triple::new(
+            MindNode::Self_,
+            Predicate::Contains,
+            Value::Item(Concept::Wood, 3),
+        );
+        assert!(pattern_matches_triple(&pattern, &triple, Some(&ontology)));
+    }
+
+    #[test]
+    fn pattern_matches_triple_item_stored_less_than_requested_rejects() {
+        // The at-least rule is asymmetric: a precondition asking for
+        // `Item(Wood, 3)` is NOT satisfied by a triple with only
+        // `Item(Wood, 1)`. Ensures the planner doesn't spuriously close
+        // chains when the agent doesn't actually have enough resources.
+        let ontology = setup_ontology();
+        let pattern = TriplePattern::new(
+            Some(MindNode::Self_),
+            Some(Predicate::Contains),
+            Some(Value::Item(Concept::Wood, 3)),
+        );
+        let triple = Triple::new(
+            MindNode::Self_,
+            Predicate::Contains,
+            Value::Item(Concept::Wood, 1),
+        );
+        assert!(!pattern_matches_triple(&pattern, &triple, Some(&ontology)));
+    }
+
+    #[test]
+    fn pattern_matches_triple_preserves_exact_equality_for_non_item_values() {
+        let ontology = setup_ontology();
+        let pattern = TriplePattern::new(
+            Some(MindNode::Self_),
+            Some(Predicate::LocatedAt),
+            Some(Value::Tile((3, 4))),
+        );
+        let matching = Triple::new(MindNode::Self_, Predicate::LocatedAt, Value::Tile((3, 4)));
+        let different = Triple::new(MindNode::Self_, Predicate::LocatedAt, Value::Tile((3, 5)));
+        assert!(pattern_matches_triple(&pattern, &matching, Some(&ontology)));
+        assert!(!pattern_matches_triple(
+            &pattern,
+            &different,
+            Some(&ontology)
+        ));
+    }
+
+    #[test]
+    fn patterns_overlap_same_concept_different_quantities() {
+        // Consume tracking asks "could this pattern's resource be consumed
+        // by that pattern?" The answer is about concept, not unit count —
+        // two `Contains, Wood(_)` patterns overlap regardless of quantity.
+        let a = TriplePattern::new(
+            Some(MindNode::Self_),
+            Some(Predicate::Contains),
+            Some(Value::Item(Concept::Wood, 1)),
+        );
+        let b = TriplePattern::new(
+            Some(MindNode::Self_),
+            Some(Predicate::Contains),
+            Some(Value::Item(Concept::Wood, 3)),
+        );
+        assert!(patterns_overlap(&a, &b));
+    }
+
+    #[test]
+    fn patterns_overlap_different_concepts_do_not_overlap() {
+        let a = TriplePattern::new(
+            Some(MindNode::Self_),
+            Some(Predicate::Contains),
+            Some(Value::Item(Concept::Wood, 1)),
+        );
+        let b = TriplePattern::new(
+            Some(MindNode::Self_),
+            Some(Predicate::Contains),
+            Some(Value::Item(Concept::Apple, 1)),
+        );
+        assert!(!patterns_overlap(&a, &b));
+    }
+
+    #[test]
+    fn planner_chains_three_harvests_for_wood_3_goal() {
+        // Build needs Item(Wood, 3). Harvest produces Item(Wood, 1) per
+        // call. Without quantity-accumulating backward search, the planner
+        // would close the chain after one Harvest (Item(Wood, 1) fails the
+        // at-least rule against Item(Wood, 3)) and Build would fail at
+        // runtime with MissingMaterials. Three Harvests keep the chain
+        // valid by partially satisfying the target each iteration.
+        let mut mind = test_mind();
+
+        // Three distinct wood-log entities so Harvest has three candidates.
+        for i in 1..=3 {
+            let log = Entity::from_bits(i);
+            mind.assert(Triple::new(
+                MindNode::Entity(log),
+                Predicate::Contains,
+                Value::Item(Concept::Wood, 1),
+            ));
+        }
+        // Agent at origin so implicit-walk costs are finite.
+        mind.assert(Triple::new(
+            MindNode::Self_,
+            Predicate::LocatedAt,
+            Value::Tile((0, 0)),
+        ));
+
+        let gathers: Vec<ActionTemplate> = (1..=3)
+            .map(|i| gather_template(Entity::from_bits(i), Concept::Wood))
+            .collect();
+
+        let goal = Goal {
+            conditions: vec![TriplePattern::new(
+                Some(MindNode::Self_),
+                Some(Predicate::Contains),
+                Some(Value::Item(Concept::Wood, 3)),
+            )],
+            priority: 1.0,
+        };
+
+        let (plan, stats) = regressive_plan(&mind, &goal, &gathers, &PlanCostContext::neutral());
+        let plan = plan.unwrap_or_else(|| {
+            panic!(
+                "planner must chain three gather steps; unmet: {:?}",
+                stats.best_unmet_goals
+            )
+        });
+
+        let gather_count = plan
+            .iter()
+            .filter(|a| a.action_type == ActionType::Harvest)
+            .count();
+        assert_eq!(
+            gather_count,
+            3,
+            "plan must contain exactly 3 Harvest steps (got {gather_count}): {:?}",
+            plan.iter().map(|a| a.name.as_str()).collect::<Vec<_>>()
         );
     }
 }

@@ -117,12 +117,8 @@ pub mod actions {
     pub mod build {
         /// Ticks to build a campfire (matches design doc: ~120 ticks).
         pub const CAMPFIRE_DURATION_TICKS: u32 = 120;
-        /// Wood required to build a campfire. Temporarily 1 (was 3) until
-        /// the planner learns quantity-aware Item matching (#607). Build's
-        /// `plan_consumes: Item(Wood, 1)` can only chain one Harvest→Pickup
-        /// per Build, so any value above 1 makes the planner generate
-        /// valid-looking plans that fail at runtime with `MissingMaterials`.
-        pub const CAMPFIRE_WOOD_REQUIRED: u32 = 1;
+        /// Wood required to build a campfire.
+        pub const CAMPFIRE_WOOD_REQUIRED: u32 = 3;
         /// Ticks to build a lean-to shelter.
         pub const LEAN_TO_DURATION_TICKS: u32 = 180;
         /// Wood required to build a lean-to.
