@@ -56,6 +56,18 @@ const MANIPULATION_AEROBIC_RATE: f32 = 0.55;
 /// Quadratic scaling: drain = rate * s^2.
 const ISOMETRIC_AEROBIC_RATE: f32 = 0.4;
 
+/// Base coefficient for locomotion aerobic drain. Paired with
+/// `LOCOMOTION_AEROBIC_K` in `drain = base * exp(k * i)`. Calibrated
+/// against real-human time-to-exhaustion: casual walk (i=0.25) sustains
+/// ~90min before Rest trigger fires, jog (i=0.5) ~30min, hard run
+/// (i=0.7) ~12min, sprint (i=1.0) ~3min.
+const LOCOMOTION_AEROBIC_BASE: f32 = 0.216;
+
+/// Exponential steepness for locomotion aerobic drain. Higher k makes
+/// high intensity hurt disproportionately more than low intensity. 4.53
+/// fits the four human benchmarks listed on `LOCOMOTION_AEROBIC_BASE`.
+const LOCOMOTION_AEROBIC_K: f32 = 4.53;
+
 /// Reference body mass in kg. Locomotion energy scales linearly with mass
 /// relative to this reference.
 pub const DEFAULT_BODY_MASS: f32 = 70.0;
@@ -181,17 +193,15 @@ pub fn compute_action_cost(
 
         cost.energy += LOCOMOTION_ENERGY_RATE * (i * i.sqrt()) * mass_factor;
 
+        cost.aerobic_drain += LOCOMOTION_AEROBIC_BASE * (LOCOMOTION_AEROBIC_K * i).exp();
+
+        // Anaerobic stays piecewise: lactate clearance has a real
+        // threshold around ~VO₂max 70%, so the step at i=0.7 is
+        // physiological, not a modelling shortcut.
         if i > 0.7 {
-            // Sprint: heavy anaerobic + aerobic penalty.
             cost.anaerobic_drain += 0.2 * i2 * 60.0;
-            cost.aerobic_drain += 0.4 * i2 * 60.0;
         } else if i > 0.3 {
-            // Sustained: mostly aerobic with a touch of anaerobic.
-            cost.aerobic_drain += 0.05 * i2 * 60.0;
             cost.anaerobic_drain += 0.02 * i2 * 60.0;
-        } else {
-            // Walking/idle: minimal aerobic cost.
-            cost.aerobic_drain += 0.005 * 60.0;
         }
     }
 
@@ -329,6 +339,49 @@ mod tests {
             walk_cost.energy,
             stroll_cost.energy,
         );
+    }
+
+    #[test]
+    fn aerobic_drain_is_continuous_across_intensity() {
+        let just_below = EffortProfile {
+            locomotion: 0.69,
+            ..Default::default()
+        };
+        let just_above = EffortProfile {
+            locomotion: 0.71,
+            ..Default::default()
+        };
+        let below = compute_action_cost(&just_below, HUMAN_MASS, HEALTHY_LUNGS);
+        let above = compute_action_cost(&just_above, HUMAN_MASS, HEALTHY_LUNGS);
+        let ratio = above.aerobic_drain / below.aerobic_drain;
+        assert!(
+            ratio < 1.2,
+            "aerobic drain should be smooth across i=0.7 boundary, ratio = {ratio} (below={}, above={})",
+            below.aerobic_drain,
+            above.aerobic_drain,
+        );
+    }
+
+    #[test]
+    fn aerobic_drain_matches_human_benchmarks() {
+        // `aerobic_drain` is per game-minute — the *60 baked into
+        // every rate in this module. Target values come from
+        // `LOCOMOTION_AEROBIC_BASE`'s calibration notes.
+        let cases = [(0.25f32, 0.67f32), (0.50, 2.07), (0.70, 5.09), (1.00, 20.0)];
+        for (i, expected) in cases {
+            let profile = EffortProfile {
+                locomotion: i,
+                ..Default::default()
+            };
+            let cost = compute_action_cost(&profile, HUMAN_MASS, HEALTHY_LUNGS);
+            let rel_err = (cost.aerobic_drain - expected).abs() / expected;
+            assert!(
+                rel_err < 0.05,
+                "aerobic drain at i={i} expected ~{expected}/min, got {} ({}% off)",
+                cost.aerobic_drain,
+                rel_err * 100.0,
+            );
+        }
     }
 
     #[test]

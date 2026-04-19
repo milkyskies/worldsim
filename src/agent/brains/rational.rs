@@ -806,7 +806,15 @@ pub fn rational_brain_propose(
     // and once the MindGraph gains a matching `Contains` triple the
     // normal planning path will generate a real plan whose urgency
     // outranks this fallback during arbitration.
+    //
+    // The threshold gate mirrors the main planner: a drive below
+    // `PLAN_GENERATION_MIN_URGENCY` isn't motivating enough to justify
+    // even a search. Without this a mildly-hungry agent spams
+    // `LookFor(Food)` every tick.
     for urgency in &cns.urgencies {
+        if urgency.value < PLAN_GENERATION_MIN_URGENCY {
+            continue;
+        }
         let Some(goal) = goal_for_urgency(urgency.source, urgency.value, plan_memory, mind) else {
             continue;
         };
@@ -1060,6 +1068,37 @@ mod tests {
         );
         let expected = 1.0 * EXPLORE_FALLBACK_PRIORITY_MULTIPLIER * 100.0;
         assert!((proposals[0].urgency - expected).abs() < 0.01);
+    }
+
+    #[test]
+    fn look_for_fallback_suppressed_below_planning_threshold() {
+        let weak = 0.5 * PLAN_GENERATION_MIN_URGENCY;
+        let cns = cns_with_hunger(weak);
+        let memory = PlanMemory::default();
+
+        let proposals =
+            rational_brain_propose(&memory, &cns, &MindGraph::default(), &test_registry());
+
+        assert!(
+            proposals.is_empty(),
+            "hunger below planning threshold must not fire LookFor fallback; got {proposals:?}"
+        );
+    }
+
+    #[test]
+    fn look_for_fallback_fires_at_planning_threshold() {
+        let cns = cns_with_hunger(PLAN_GENERATION_MIN_URGENCY);
+        let memory = PlanMemory::default();
+
+        let proposals =
+            rational_brain_propose(&memory, &cns, &MindGraph::default(), &test_registry());
+
+        assert_eq!(
+            proposals.len(),
+            1,
+            "hunger at the planning threshold should produce a LookFor proposal"
+        );
+        assert_eq!(proposals[0].action.action_type, ActionType::LookFor);
     }
 
     #[test]
