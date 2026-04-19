@@ -17,7 +17,6 @@ use crate::constants::actions::rest::COMPLETE_AEROBIC_FRACTION;
 
 pub static REST_DEF: ActionDefinition = ActionDefinition {
     action_type: ActionType::Rest,
-    name: "Rest",
     // Indefinite: the brain replaces Rest with something else once stamina
     // recovers or a stronger drive takes priority.
     kind: ActionKind::Timed {

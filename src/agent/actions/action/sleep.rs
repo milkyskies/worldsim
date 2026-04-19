@@ -19,7 +19,6 @@ const CHANNELS: &[ChannelUsage] = &[ChannelUsage::new(Channel::FullBody, 1.0)];
 
 pub static SLEEP_DEF: ActionDefinition = ActionDefinition {
     action_type: ActionType::Sleep,
-    name: "Sleep",
     kind: ActionKind::Timed {
         duration_ticks: u32::MAX,
     },

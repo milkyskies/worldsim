@@ -27,7 +27,6 @@ const CHANNELS: &[ChannelUsage] = &[
 
 pub static HARVEST_DEF: ActionDefinition = ActionDefinition {
     action_type: ActionType::Harvest,
-    name: "Harvest",
     kind: ActionKind::Timed {
         duration_ticks: DURATION_TICKS,
     },
@@ -54,7 +53,9 @@ pub static HARVEST_DEF: ActionDefinition = ActionDefinition {
     plan_consumes: &[],
     target_effects: TargetEffects::FromTargetProduces,
     plan_validity: PlanValidity::TargetProducesFoodOrResource,
-    gates: &[Gate::TargetEntityExists],
+    gates: &[Gate::TargetEntity(
+        crate::agent::events::FailureReason::TargetGone,
+    )],
     satiation: None,
     completion: CompletionPredicate::Never,
     on_complete_ops: &[],

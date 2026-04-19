@@ -20,7 +20,6 @@ const CHANNELS: &[ChannelUsage] = &[ChannelUsage::new(Channel::Consumption, 0.8)
 
 pub static DRINK_DEF: ActionDefinition = ActionDefinition {
     action_type: ActionType::Drink,
-    name: "Drink",
     kind: ActionKind::Timed {
         duration_ticks: DURATION_TICKS,
     },
@@ -140,8 +139,6 @@ mod tests {
         assert!(!is_adjacent_to_water(tile_center(8, 8), &map));
     }
 
-    /// Regression for #213: a thirsty agent standing next to a water tile
-    /// should plan and execute Drink directly.
     #[test]
     fn thirsty_agent_near_water_drinks() {
         let mut world = TestWorld::with_seed(42);

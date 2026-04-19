@@ -10,7 +10,6 @@ use crate::agent::actions::registry::{ActionKind, TargetSource};
 
 pub static IDLE_DEF: ActionDefinition = ActionDefinition {
     action_type: ActionType::Idle,
-    name: "Idle",
     kind: ActionKind::Timed {
         duration_ticks: u32::MAX,
     },

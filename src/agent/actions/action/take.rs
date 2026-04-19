@@ -22,7 +22,6 @@ const CHANNELS: &[ChannelUsage] = &[ChannelUsage::new(Channel::Manipulation, 0.4
 
 pub static TAKE_DEF: ActionDefinition = ActionDefinition {
     action_type: ActionType::Take,
-    name: "Take",
     kind: ActionKind::Timed {
         duration_ticks: DURATION_TICKS,
     },
@@ -44,7 +43,9 @@ pub static TAKE_DEF: ActionDefinition = ActionDefinition {
     plan_consumes: &[],
     target_effects: TargetEffects::FromTargetContains,
     plan_validity: PlanValidity::TargetContainsAny,
-    gates: &[Gate::TargetEntityExists],
+    gates: &[Gate::TargetEntity(
+        crate::agent::events::FailureReason::TargetGone,
+    )],
     satiation: None,
     completion: CompletionPredicate::Never,
     on_complete_ops: &[],

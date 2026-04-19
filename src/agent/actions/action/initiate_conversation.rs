@@ -17,7 +17,6 @@ const CHANNELS: &[ChannelUsage] = &[ChannelUsage::new(Channel::Locomotion, 1.0)]
 
 pub static INITIATE_CONVERSATION_DEF: ActionDefinition = ActionDefinition {
     action_type: ActionType::InitiateConversation,
-    name: "InitiateConversation",
     // Movement: walk to the partner. The CommunicationPlugin intercepts
     // arrival at CONVERSATION_RANGE before the standard arrival check fires.
     kind: ActionKind::Movement,
@@ -41,7 +40,9 @@ pub static INITIATE_CONVERSATION_DEF: ActionDefinition = ActionDefinition {
     plan_consumes: &[],
     target_effects: TargetEffects::Static,
     plan_validity: PlanValidity::Always,
-    gates: &[Gate::TargetEntityRequired],
+    gates: &[Gate::TargetEntity(
+        crate::agent::events::FailureReason::NoTarget,
+    )],
     satiation: None,
     completion: CompletionPredicate::Never,
     on_complete_ops: &[],

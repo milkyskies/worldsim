@@ -1,9 +1,8 @@
 //! Eat action — consume food from inventory.
 //!
-//! Custom `on_complete`: the metabolism's `eat()` call returns false when
-//! the stomach is full. The inventory item only comes out if the metabolism
-//! actually accepted the food; otherwise the berry stays put and can be
-//! eaten once digestion makes room (#416).
+//! The metabolism's `eat()` returns false when the stomach is full; the
+//! inventory item is only removed if the metabolism accepted the food,
+//! otherwise the berry stays put until digestion makes room.
 
 use crate::agent::actions::ActionType;
 use crate::agent::actions::channel::{Channel, ChannelUsage};
@@ -21,7 +20,6 @@ const CHANNELS: &[ChannelUsage] = &[ChannelUsage::new(Channel::Consumption, 0.8)
 
 pub static EAT_DEF: ActionDefinition = ActionDefinition {
     action_type: ActionType::Eat,
-    name: "Eat",
     kind: ActionKind::Timed {
         duration_ticks: DURATION_TICKS,
     },
@@ -69,7 +67,7 @@ fn eat_on_complete(ctx: &mut CompletionContext) {
     if let Some(concept) = concept {
         let macros = food_macros(concept).unwrap_or(FALLBACK_MEAL);
         // Only consume the inventory item if metabolism actually accepted
-        // the food (#416).
+        // the food; otherwise a full stomach silently loses the item.
         if ctx.physical.metabolism.eat(macros) {
             ctx.inventory.remove(concept, 1);
         }

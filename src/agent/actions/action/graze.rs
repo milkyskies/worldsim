@@ -23,7 +23,6 @@ const CHANNELS: &[ChannelUsage] = &[
 
 pub static GRAZE_DEF: ActionDefinition = ActionDefinition {
     action_type: ActionType::Graze,
-    name: "Graze",
     kind: ActionKind::Movement,
     target_source: TargetSource::TileWithTrait(Concept::Grazable),
     base_cost: 2.0,

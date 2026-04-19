@@ -1443,7 +1443,7 @@ fn build_walk_template(world_pos: Vec2, tile: (i32, i32)) -> ActionTemplate {
     );
     let locomotion_intensity = behavior.intensity.resolve();
     ActionTemplate {
-        name: crate::agent::actions::action::walk::WALK_NAME.to_string(),
+        name: ActionType::Walk.name().to_string(),
         action_type: ActionType::Walk,
         behavior,
         target_entity: None,

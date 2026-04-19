@@ -135,4 +135,38 @@ impl ActionType {
             ActionType::Flee => "Fleeing from",
         }
     }
+
+    /// Short action name for logs and planning templates. One source of
+    /// truth so `Action::name()` can't drift from the enum variant.
+    pub fn name(self) -> &'static str {
+        match self {
+            ActionType::Eat => "Eat",
+            ActionType::Sleep => "Sleep",
+            ActionType::WakeUp => "Wake Up",
+            ActionType::Drink => "Drink",
+            ActionType::Graze => "Graze",
+            ActionType::Construct => "Construct",
+            ActionType::Harvest => "Harvest",
+            ActionType::Pickup => "Pickup",
+            ActionType::Drop => "Drop",
+            ActionType::Build => "Build",
+            ActionType::Deposit => "Deposit",
+            ActionType::Take => "Take",
+            ActionType::Walk => "Walk",
+            ActionType::Wander => "Wander",
+            ActionType::Explore => "Explore",
+            ActionType::LookFor => "LookFor",
+            ActionType::Idle => "Idle",
+            ActionType::Rest => "Rest",
+            ActionType::WarmUp => "WarmUp",
+            ActionType::Observe => "Observe",
+            ActionType::Wave => "Wave",
+            ActionType::InitiateConversation => "InitiateConversation",
+            ActionType::Converse => "Converse",
+            ActionType::Attack => "Attack",
+            ActionType::Bite => "Bite",
+            ActionType::Devour => "Devour",
+            ActionType::Flee => "Flee",
+        }
+    }
 }

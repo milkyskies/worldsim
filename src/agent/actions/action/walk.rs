@@ -13,11 +13,6 @@ use crate::agent::actions::definition::{
 use crate::agent::actions::motor::{ActionPrimitive, IntensityPolicy, Intent, TargetSelector};
 use crate::agent::actions::registry::{ActionKind, TargetSource};
 
-/// Canonical display name for the Walk action. Shared with the planner's
-/// implicit-walk template builder so the runtime sees the same name whether
-/// the walk was hand-built or planner-generated.
-pub const WALK_NAME: &str = "Walk";
-
 const CHANNELS: &[ChannelUsage] = &[
     ChannelUsage::new(Channel::Locomotion, 0.4),
     ChannelUsage::new(Channel::Awareness, 0.1),
@@ -25,7 +20,6 @@ const CHANNELS: &[ChannelUsage] = &[
 
 pub static WALK_DEF: ActionDefinition = ActionDefinition {
     action_type: ActionType::Walk,
-    name: WALK_NAME,
     kind: ActionKind::Movement,
     target_source: TargetSource::Implicit,
     base_cost: 1.0,

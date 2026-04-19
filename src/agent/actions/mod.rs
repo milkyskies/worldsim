@@ -8,7 +8,6 @@ pub mod channel;
 pub mod definition;
 pub mod generic_action;
 pub mod motor;
-pub mod recipes;
 pub mod registry;
 pub mod types;
 
@@ -19,7 +18,6 @@ pub use definition::{
 };
 pub use generic_action::GenericAction;
 pub use motor::{ActionPrimitive, Behavior, IntensityPolicy, Intent, PsychEffect, TargetSelector};
-pub use recipes::derive_recipe_triples;
 pub use registry::{
     Action, ActionContext, ActionKind, ActionRegistry, ActionState, ActiveActions, RuntimeEffects,
     TargetCandidate, TargetSource,

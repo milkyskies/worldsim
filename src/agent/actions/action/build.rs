@@ -31,7 +31,6 @@ const CAMPFIRE_PROVIDES: &[Concept] = &[Concept::Warmth, Concept::Safety, Concep
 
 pub static BUILD_DEF: ActionDefinition = ActionDefinition {
     action_type: ActionType::Build,
-    name: "Build",
     kind: ActionKind::Timed {
         duration_ticks: CAMPFIRE_DURATION_TICKS,
     },

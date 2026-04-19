@@ -24,7 +24,6 @@ const CHANNELS: &[ChannelUsage] = &[
 
 pub static ATTACK_DEF: ActionDefinition = ActionDefinition {
     action_type: ActionType::Attack,
-    name: "Attack",
     kind: ActionKind::Timed {
         duration_ticks: DURATION_TICKS,
     },
@@ -49,7 +48,9 @@ pub static ATTACK_DEF: ActionDefinition = ActionDefinition {
     plan_consumes: &[],
     target_effects: TargetEffects::FromTargetProduces,
     plan_validity: PlanValidity::TargetProducesFoodOrResource,
-    gates: &[Gate::TargetEntityRequired],
+    gates: &[Gate::TargetEntity(
+        crate::agent::events::FailureReason::NoTarget,
+    )],
     satiation: None,
     completion: CompletionPredicate::Never,
     on_complete_ops: &[],

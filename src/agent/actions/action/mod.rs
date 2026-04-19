@@ -52,6 +52,6 @@ pub use rest::REST_DEF;
 pub use sleep::SLEEP_DEF;
 pub use take::TAKE_DEF;
 pub use wake_up::WAKE_UP_DEF;
-pub use walk::{WALK_DEF, WALK_NAME};
+pub use walk::WALK_DEF;
 pub use wander::WANDER_DEF;
 pub use warm_up::WARM_UP_DEF;

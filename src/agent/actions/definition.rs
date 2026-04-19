@@ -136,7 +136,7 @@ pub enum PlanValidity {
 /// start the action; returning an error keeps the action out of
 /// [`ActiveActions`](super::ActiveActions) and surfaces a failure reason to
 /// the brain.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub enum Gate {
     /// Agent inventory contains at least `quantity` of `concept`.
     /// Maps failure to [`FailureReason::MissingMaterials`].
@@ -147,12 +147,10 @@ pub enum Gate {
     /// Agent inventory is non-empty.
     /// Maps failure to [`FailureReason::MissingMaterials`].
     InventoryNonEmpty,
-    /// `target_entity` is `Some`.
-    /// Maps failure to [`FailureReason::TargetGone`].
-    TargetEntityExists,
-    /// `target_entity` is `Some` (semantic variant for combat actions).
-    /// Maps failure to [`FailureReason::NoTarget`].
-    TargetEntityRequired,
+    /// `target_entity` is `Some`. The inner [`FailureReason`] distinguishes
+    /// "target no longer exists" (`TargetGone`) from "no target was chosen"
+    /// (`NoTarget`), which matters for brain-side retry logic.
+    TargetEntity(FailureReason),
     /// An adjacent 3×3 tile is water.
     /// Maps failure to [`FailureReason::NoWaterNearby`].
     AdjacentToWater,
@@ -314,7 +312,6 @@ pub struct Recipe {
 pub struct ActionDefinition {
     // ── Identity ────────────────────────────────────────────────────────
     pub action_type: ActionType,
-    pub name: &'static str,
     pub kind: ActionKind,
     pub target_source: TargetSource,
     pub base_cost: f32,

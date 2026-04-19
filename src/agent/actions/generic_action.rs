@@ -8,6 +8,7 @@
 //! Harvest, staleness-weighted picker in Explore) live as named helper
 //! functions referenced through [`Hooks`].
 
+use super::action::drink::is_adjacent_to_water;
 use super::channel::{ChannelUsage, Posture};
 use super::definition::{
     ActionDefinition, CompletionPredicate, EffectTemplate, Gate, Pattern, PlanValidity, RuntimeOp,
@@ -218,10 +219,10 @@ fn from_target_contains(target: &TargetCandidate, mind: &MindGraph) -> Option<Ve
 // GATES — runtime can_start checks
 // ============================================================================
 
-fn check_gate(gate: Gate, ctx: &ActionContext) -> Result<(), FailureReason> {
+fn check_gate(gate: &Gate, ctx: &ActionContext) -> Result<(), FailureReason> {
     match gate {
         Gate::InventoryHasQuantity { concept, quantity } => {
-            if ctx.inventory.count(concept) >= quantity {
+            if ctx.inventory.count(*concept) >= *quantity {
                 Ok(())
             } else {
                 Err(FailureReason::MissingMaterials)
@@ -245,18 +246,11 @@ fn check_gate(gate: Gate, ctx: &ActionContext) -> Result<(), FailureReason> {
                 Err(FailureReason::MissingMaterials)
             }
         }
-        Gate::TargetEntityExists => {
+        Gate::TargetEntity(reason) => {
             if ctx.target_entity.is_some() {
                 Ok(())
             } else {
-                Err(FailureReason::TargetGone)
-            }
-        }
-        Gate::TargetEntityRequired => {
-            if ctx.target_entity.is_some() {
-                Ok(())
-            } else {
-                Err(FailureReason::NoTarget)
+                Err(reason.clone())
             }
         }
         Gate::AdjacentToWater => {
@@ -301,29 +295,6 @@ fn is_near_heat_emitter(mind: &MindGraph) -> bool {
     .any(|t| {
         matches!(t.subject, Node::Entity(_)) && mind.has_trait(&t.subject, Concept::HeatEmitting)
     })
-}
-
-fn is_adjacent_to_water(
-    agent_pos: bevy::math::Vec2,
-    world_map: &crate::world::map::WorldMap,
-) -> bool {
-    let tile_size = crate::world::map::TILE_SIZE;
-    let tx = (agent_pos.x / tile_size).floor() as i32;
-    let ty = (agent_pos.y / tile_size).floor() as i32;
-    for dx in -1..=1 {
-        for dy in -1..=1 {
-            let nx = tx + dx;
-            let ny = ty + dy;
-            if nx >= 0
-                && ny >= 0
-                && let Some(tile) = world_map.get_tile(nx as u32, ny as u32)
-                && tile.is_water()
-            {
-                return true;
-            }
-        }
-    }
-    false
 }
 
 // ============================================================================
@@ -507,7 +478,7 @@ impl Action for GenericAction {
     }
 
     fn name(&self) -> &'static str {
-        self.def.name
+        self.def.action_type.name()
     }
 
     fn default_behavior(&self) -> Behavior {
@@ -625,7 +596,7 @@ impl Action for GenericAction {
             return custom(ctx);
         }
         for gate in self.def.gates {
-            check_gate(*gate, ctx)?;
+            check_gate(gate, ctx)?;
         }
         Ok(())
     }

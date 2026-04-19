@@ -21,7 +21,6 @@ const CHANNELS: &[ChannelUsage] = &[ChannelUsage::new(Channel::Focus, 0.3)];
 
 pub static WARM_UP_DEF: ActionDefinition = ActionDefinition {
     action_type: ActionType::WarmUp,
-    name: "WarmUp",
     kind: ActionKind::Timed {
         duration_ticks: DURATION_TICKS,
     },

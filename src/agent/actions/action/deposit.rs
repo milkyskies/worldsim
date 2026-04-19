@@ -18,7 +18,6 @@ const CHANNELS: &[ChannelUsage] = &[ChannelUsage::new(Channel::Manipulation, 0.4
 
 pub static DEPOSIT_DEF: ActionDefinition = ActionDefinition {
     action_type: ActionType::Deposit,
-    name: "Deposit",
     kind: ActionKind::Timed {
         duration_ticks: DURATION_TICKS,
     },
@@ -40,7 +39,10 @@ pub static DEPOSIT_DEF: ActionDefinition = ActionDefinition {
     plan_consumes: &[Pattern::SelfContainsAny],
     target_effects: TargetEffects::FromTargetBecomesRequirements,
     plan_validity: PlanValidity::TargetHasBecomes,
-    gates: &[Gate::TargetEntityExists, Gate::InventoryNonEmpty],
+    gates: &[
+        Gate::TargetEntity(crate::agent::events::FailureReason::TargetGone),
+        Gate::InventoryNonEmpty,
+    ],
     satiation: None,
     completion: CompletionPredicate::Never,
     on_complete_ops: &[],

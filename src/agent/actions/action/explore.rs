@@ -20,7 +20,6 @@ const CHANNELS: &[ChannelUsage] = &[
 
 pub static EXPLORE_DEF: ActionDefinition = ActionDefinition {
     action_type: ActionType::Explore,
-    name: "Explore",
     kind: ActionKind::Ambient,
     target_source: TargetSource::None,
     base_cost: 3.0,

@@ -21,7 +21,6 @@ const CHANNELS: &[ChannelUsage] = &[
 
 pub static WANDER_DEF: ActionDefinition = ActionDefinition {
     action_type: ActionType::Wander,
-    name: "Wander",
     kind: ActionKind::Ambient,
     target_source: TargetSource::None,
     base_cost: 5.0,

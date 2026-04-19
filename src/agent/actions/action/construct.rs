@@ -23,7 +23,6 @@ const CHANNELS: &[ChannelUsage] = &[
 
 pub static CONSTRUCT_DEF: ActionDefinition = ActionDefinition {
     action_type: ActionType::Construct,
-    name: "Construct",
     kind: ActionKind::Timed {
         duration_ticks: u32::MAX,
     },
@@ -46,7 +45,9 @@ pub static CONSTRUCT_DEF: ActionDefinition = ActionDefinition {
     // (Self_, Near, concept) derived from (target, Becomes, concept).
     target_effects: TargetEffects::FromTargetBecomes,
     plan_validity: PlanValidity::TargetHasBecomes,
-    gates: &[Gate::TargetEntityExists],
+    gates: &[Gate::TargetEntity(
+        crate::agent::events::FailureReason::TargetGone,
+    )],
     satiation: None,
     completion: CompletionPredicate::Never,
     on_complete_ops: &[],

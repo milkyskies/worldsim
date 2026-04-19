@@ -26,7 +26,6 @@ const CHANNELS: &[ChannelUsage] = &[
 
 pub static DEVOUR_DEF: ActionDefinition = ActionDefinition {
     action_type: ActionType::Devour,
-    name: "Devour",
     kind: ActionKind::Timed {
         duration_ticks: DURATION_TICKS,
     },
@@ -51,7 +50,9 @@ pub static DEVOUR_DEF: ActionDefinition = ActionDefinition {
     plan_consumes: &[],
     target_effects: TargetEffects::Static,
     plan_validity: PlanValidity::TargetContainsEdible,
-    gates: &[Gate::TargetEntityRequired],
+    gates: &[Gate::TargetEntity(
+        crate::agent::events::FailureReason::NoTarget,
+    )],
     satiation: Some(SatiationGate::HungerStomach),
     completion: CompletionPredicate::Never,
     on_complete_ops: &[],

@@ -16,7 +16,6 @@ const CHANNELS: &[ChannelUsage] = &[
 
 pub static FLEE_DEF: ActionDefinition = ActionDefinition {
     action_type: ActionType::Flee,
-    name: "Flee",
     kind: ActionKind::Movement,
     target_source: TargetSource::None,
     base_cost: 1.0,

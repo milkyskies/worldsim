@@ -917,15 +917,6 @@ impl ActionRegistry {
         self.actions.values().map(|a| a.as_ref())
     }
 
-    /// Find actions whose effects could satisfy a goal pattern
-    pub fn actions_satisfying(&self, predicate: impl Fn(&Triple) -> bool) -> Vec<&dyn Action> {
-        self.actions
-            .values()
-            .filter(|a| a.plan_effects().iter().any(&predicate))
-            .map(|a| a.as_ref())
-            .collect()
-    }
-
     /// Iterate over every recipe declared by a registered action. Used by
     /// [`crate::agent::actions::recipes::derive_recipe_triples`] to seed
     /// cultural recipe knowledge directly from the action definitions.

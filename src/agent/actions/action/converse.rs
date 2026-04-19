@@ -21,7 +21,6 @@ const CHANNELS: &[ChannelUsage] = &[
 
 pub static CONVERSE_DEF: ActionDefinition = ActionDefinition {
     action_type: ActionType::Converse,
-    name: "Converse",
     // Indefinite — only the CommunicationPlugin removes it (or preemption).
     kind: ActionKind::Timed {
         duration_ticks: u32::MAX,

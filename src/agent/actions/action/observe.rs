@@ -19,7 +19,6 @@ const CHANNELS: &[ChannelUsage] = &[
 
 pub static OBSERVE_DEF: ActionDefinition = ActionDefinition {
     action_type: ActionType::Observe,
-    name: "Observe",
     // ~2 seconds of sim time (60 ticks/sec). Watching one thing forever
     // isn't curiosity, it's a bug.
     kind: ActionKind::Timed {

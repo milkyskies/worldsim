@@ -18,7 +18,6 @@ const CHANNELS: &[ChannelUsage] = &[ChannelUsage::new(Channel::FullBody, 0.4)];
 
 pub static WAKE_UP_DEF: ActionDefinition = ActionDefinition {
     action_type: ActionType::WakeUp,
-    name: "Wake Up",
     kind: ActionKind::Timed { duration_ticks: 30 },
     target_source: TargetSource::None,
     base_cost: 1.0,

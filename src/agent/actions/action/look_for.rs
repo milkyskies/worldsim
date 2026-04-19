@@ -23,7 +23,6 @@ const CHANNELS: &[ChannelUsage] = &[
 
 pub static LOOK_FOR_DEF: ActionDefinition = ActionDefinition {
     action_type: ActionType::LookFor,
-    name: "LookFor",
     kind: ActionKind::Ambient,
     target_source: TargetSource::None,
     base_cost: 3.0,
