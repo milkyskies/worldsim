@@ -14,6 +14,7 @@ use super::rational::rational_brain_propose;
 use super::survival::{SurvivalBrainContext, survival_brain_propose};
 use crate::agent::biology::body::{Body, TagChannelMapping};
 use crate::agent::body::needs::{Consciousness, PhysicalNeeds, PsychologicalDrives};
+use crate::agent::events::SimEventKind;
 use crate::agent::mind::perception::VisibleObjects;
 use crate::agent::nervous_system::cns::CentralNervousSystem;
 use crate::agent::psyche::emotions::EmotionalState;
@@ -257,28 +258,34 @@ pub fn arbitrate_every_tick(
         let urgencies_snapshot: Vec<crate::agent::nervous_system::urgency::Urgency> =
             cns.urgencies.clone();
 
-        sim_events.write(crate::agent::events::SimEvent::Decision {
-            agent: entity,
-            tick: tick.current,
-            winner: brain_state.winner,
-            chosen_actions: brain_state
-                .chosen_actions
-                .iter()
-                .map(|a| a.action_type)
-                .collect(),
-            powers,
-            proposals: std::sync::Arc::new(brain_state.proposals.clone()),
-            urgencies: urgencies_snapshot,
-        });
+        sim_events.write(crate::agent::events::SimEvent::single(
+            tick.current,
+            entity,
+            SimEventKind::Decision {
+                agent: entity,
+                winner: brain_state.winner,
+                chosen_actions: brain_state
+                    .chosen_actions
+                    .iter()
+                    .map(|a| a.action_type)
+                    .collect(),
+                powers,
+                proposals: std::sync::Arc::new(brain_state.proposals.clone()),
+                urgencies: urgencies_snapshot,
+            },
+        ));
 
         // Per-tick state hash for non-determinism debugging.
         let hash =
             compute_agent_state_hash(entity, transform.translation.truncate(), cns, &plan_memory);
-        sim_events.write(crate::agent::events::SimEvent::AgentStateHash {
-            agent: entity,
-            tick: tick.current,
-            hash,
-        });
+        sim_events.write(crate::agent::events::SimEvent::single(
+            tick.current,
+            entity,
+            SimEventKind::AgentStateHash {
+                agent: entity,
+                hash,
+            },
+        ));
     }
 }
 

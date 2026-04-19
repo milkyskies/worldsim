@@ -1515,6 +1515,7 @@ impl MindGraph {
 // ONTOLOGY — Shared universal truths with precomputed caches
 // ═══════════════════════════════════════════════════════════════════════════
 
+use crate::agent::events::SimEventKind;
 use std::collections::HashSet;
 
 #[derive(Resource, Clone)]
@@ -1784,14 +1785,17 @@ pub fn drain_mindgraph_mutations(
             continue;
         }
         for (op, subject, predicate, object) in mind.pending_mutations.drain(..) {
-            sim_events.write(crate::agent::events::SimEvent::MindGraphMutation {
-                agent: entity,
-                tick: tick.current,
-                op,
-                subject,
-                predicate,
-                object,
-            });
+            sim_events.write(crate::agent::events::SimEvent::single(
+                tick.current,
+                entity,
+                SimEventKind::MindGraphMutation {
+                    agent: entity,
+                    op,
+                    subject,
+                    predicate,
+                    object,
+                },
+            ));
         }
     }
 }

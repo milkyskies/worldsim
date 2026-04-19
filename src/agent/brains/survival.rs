@@ -298,29 +298,17 @@ mod tests {
     /// `PhysicalNeeds::default()` is fully satisfied on every need and
     /// now correctly suppresses proposals for satiation-gated actions.
     fn needy_for(source: UrgencySource) -> PhysicalNeeds {
-        use crate::agent::body::need::Need;
         use crate::agent::body::needs::Stamina;
         match source {
-            UrgencySource::Hunger => PhysicalNeeds {
-                metabolism: crate::agent::body::metabolism::Metabolism::at_urgency(0.9),
+            UrgencySource::Hunger => PhysicalNeeds::full()
+                .with_metabolism(crate::agent::body::metabolism::Metabolism::at_urgency(0.9)),
+            UrgencySource::Thirst => PhysicalNeeds::full().with_hydration(0.1),
+            UrgencySource::Stamina => PhysicalNeeds::full().with_stamina(Stamina {
+                aerobic: 20.0,
                 ..Default::default()
-            },
-            UrgencySource::Thirst => PhysicalNeeds {
-                hydration: Need::new(0.1),
-                ..Default::default()
-            },
-            UrgencySource::Stamina => PhysicalNeeds {
-                stamina: Stamina {
-                    aerobic: 20.0,
-                    ..Default::default()
-                },
-                ..Default::default()
-            },
-            UrgencySource::Sleepiness => PhysicalNeeds {
-                wakefulness: Need::new(0.1),
-                ..Default::default()
-            },
-            _ => PhysicalNeeds::default(),
+            }),
+            UrgencySource::Sleepiness => PhysicalNeeds::full().with_wakefulness(0.1),
+            _ => PhysicalNeeds::full(),
         }
     }
 

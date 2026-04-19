@@ -147,19 +147,53 @@ pub struct ActionOutcomeEvent {
 
 /// Unified event bus capturing every meaningful simulation state change.
 ///
-/// Most variants carry `agent` and `tick` for uniform filtering.
-/// Conversation variants use `participants` instead of a single `agent`.
-/// Bevy events are free if unread — zero performance impact without consumers.
-#[derive(Event, Message, Debug, Clone, Reflect)]
-pub enum SimEvent {
+/// `tick` and `agents` live at the top level so `involves(e)` and tick
+/// filtering are plain field access — no dispatch. `kind` holds the
+/// variant-specific payload; `kind.as_ref()` (from `strum::AsRefStr`)
+/// gives the variant name for JSON type tags and logging. Bevy events
+/// are free if unread — zero performance impact without consumers.
+#[derive(Event, Message, Debug, Clone)]
+pub struct SimEvent {
+    pub tick: u64,
+    pub agents: Vec<Entity>,
+    pub kind: SimEventKind,
+}
+
+impl SimEvent {
+    pub fn new(tick: u64, agents: Vec<Entity>, kind: SimEventKind) -> Self {
+        Self { tick, agents, kind }
+    }
+
+    pub fn single(tick: u64, agent: Entity, kind: SimEventKind) -> Self {
+        Self {
+            tick,
+            agents: vec![agent],
+            kind,
+        }
+    }
+
+    pub fn pair(tick: u64, a: Entity, b: Entity, kind: SimEventKind) -> Self {
+        Self {
+            tick,
+            agents: vec![a, b],
+            kind,
+        }
+    }
+
+    pub fn involves(&self, entity: Entity) -> bool {
+        self.agents.contains(&entity)
+    }
+}
+
+#[derive(Debug, Clone, strum::AsRefStr)]
+pub enum SimEventKind {
     /// A brain decision was made: the arbitration system selected actions.
     Decision {
         agent: Entity,
-        tick: u64,
         winner: Option<BrainType>,
         chosen_actions: Vec<ActionType>,
         powers: BrainPowers,
-        #[reflect(ignore)]
+
         proposals: Arc<Vec<BrainProposal>>,
         /// Per-drive urgency values at the moment of the decision.
         urgencies: Vec<Urgency>,
@@ -168,7 +202,6 @@ pub enum SimEvent {
     /// An action was admitted into the running set.
     ActionStarted {
         agent: Entity,
-        tick: u64,
         action: ActionType,
         target: Option<Entity>,
         /// Plan id from PlanMemory if this action was driven by the rational brain.
@@ -180,7 +213,6 @@ pub enum SimEvent {
     /// An action completed normally.
     ActionCompleted {
         agent: Entity,
-        tick: u64,
         action: ActionType,
         /// The entity this action was running against, if any. Carried
         /// here so downstream systems (combat resolution, perception
@@ -192,14 +224,12 @@ pub enum SimEvent {
     /// An action was preempted to make room for a higher-priority action.
     ActionPreempted {
         agent: Entity,
-        tick: u64,
         preempted_action: ActionType,
     },
 
     /// An action failed its can_start check.
     ActionFailed {
         agent: Entity,
-        tick: u64,
         action: ActionType,
         reason: FailureReason,
     },
@@ -207,7 +237,6 @@ pub enum SimEvent {
     /// An active plan was abandoned (stalled out or replaced by a better proposal).
     PlanAbandoned {
         agent: Entity,
-        tick: u64,
         action: ActionType,
         intent: Intent,
     },
@@ -215,14 +244,12 @@ pub enum SimEvent {
     /// A conversation was started between participants.
     ConversationStarted {
         participants: Vec<Entity>,
-        tick: u64,
         conversation_id: u64,
     },
 
     /// A conversation ended.
     ConversationEnded {
         participants: Vec<Entity>,
-        tick: u64,
         conversation_id: u64,
     },
 
@@ -230,7 +257,6 @@ pub enum SimEvent {
     /// participant (group grew from N to N+1).
     ConversationJoined {
         joiner: Entity,
-        tick: u64,
         conversation_id: u64,
     },
 
@@ -239,7 +265,6 @@ pub enum SimEvent {
     /// group broke up) and `ConversationAbandoned` (leaver ditched rudely).
     ConversationLeft {
         leaver: Entity,
-        tick: u64,
         conversation_id: u64,
     },
 
@@ -247,14 +272,12 @@ pub enum SimEvent {
     ConversationAbandoned {
         abandoner: Entity,
         abandoned: Entity,
-        tick: u64,
     },
 
     /// A relationship dimension changed between two agents.
     RelationshipChanged {
         agent: Entity,
         other: Entity,
-        tick: u64,
         dimension: RelationshipDimension,
         old_value: f32,
         new_value: f32,
@@ -263,71 +286,44 @@ pub enum SimEvent {
     /// An emotion was triggered or reinforced.
     EmotionTriggered {
         agent: Entity,
-        tick: u64,
         emotion: EmotionType,
         intensity: f32,
     },
 
     /// An agent died.
-    Death {
-        agent: Entity,
-        tick: u64,
-        cause: String,
-    },
+    Death { agent: Entity, cause: String },
 
     /// An agent perceived a new entity (wasn't visible last tick).
-    EntityPerceived {
-        agent: Entity,
-        tick: u64,
-        target: Entity,
-    },
+    EntityPerceived { agent: Entity, target: Entity },
 
     /// An agent recognized a stranger (first encounter).
-    StrangerDetected {
-        agent: Entity,
-        tick: u64,
-        stranger: Entity,
-    },
+    StrangerDetected { agent: Entity, stranger: Entity },
 
     /// Two agents acknowledged each other in passing (wave, nod, brief
     /// greeting). Not a conversation — no turns, no state machine. Just a
     /// social signal that bumps companionship and relationship warmth.
-    SocialAcknowledgment {
-        actor: Entity,
-        target: Entity,
-        tick: u64,
-    },
+    SocialAcknowledgment { actor: Entity, target: Entity },
 
     /// Knowledge was shared between agents.
     KnowledgeShared {
         speaker: Entity,
         listener: Entity,
-        tick: u64,
         triple_count: usize,
     },
 
     /// An agent contributed one labor-tick to a construction site.
     /// Emitted once per active constructor per simulation tick by
     /// `labor_accumulation_system`.
-    LaborContributed {
-        agent: Entity,
-        tick: u64,
-        site: Entity,
-    },
+    LaborContributed { agent: Entity, site: Entity },
 
     /// An agent felt warmth from a heat source (temperature sense).
-    WarmthPerceived {
-        agent: Entity,
-        tick: u64,
-        source: Entity,
-    },
+    WarmthPerceived { agent: Entity, source: Entity },
 
     /// An agent's thermal comfort crossed a named threshold (comfort /
     /// urgent / critical). Emitted by the warmth drain/recovery system so
     /// decision traces and tooling can see the warmth-drive pipeline fire.
     WarmthChanged {
         agent: Entity,
-        tick: u64,
         /// Warmth satisfaction before the change (0..1, high = comfortable).
         old_value: f32,
         /// Warmth satisfaction after the change (0..1).
@@ -337,7 +333,6 @@ pub enum SimEvent {
     /// An agent heard a sound (hearing sense).
     SoundPerceived {
         agent: Entity,
-        tick: u64,
         source: Entity,
         kind: crate::world::sense_sources::SoundKind,
     },
@@ -347,7 +342,6 @@ pub enum SimEvent {
     TheoryOfMindUpdated {
         agent: Entity,
         about: Entity,
-        tick: u64,
         /// How the belief was formed
         source: TheoryOfMindSource,
         /// Number of beliefs updated in this batch
@@ -362,7 +356,6 @@ pub enum SimEvent {
     /// not necessarily a thinking agent.
     ItemSpoiled {
         agent: Entity,
-        tick: u64,
         from: Concept,
         to: Concept,
     },
@@ -371,7 +364,6 @@ pub enum SimEvent {
     /// Emitted once per agent per emitter per tick when the agent is in range.
     EffectApplied {
         agent: Entity,
-        tick: u64,
         /// The entity that emitted the effect (campfire, hostile zone, etc.)
         source: Entity,
     },
@@ -380,7 +372,6 @@ pub enum SimEvent {
     /// or disuse decay. Fired once per meaningful delta.
     SkillChanged {
         agent: Entity,
-        tick: u64,
         skill: crate::agent::skills::SkillKind,
         old_value: f32,
         new_value: f32,
@@ -392,7 +383,6 @@ pub enum SimEvent {
     CombatHit {
         attacker: Entity,
         defender: Entity,
-        tick: u64,
         part_kind: crate::agent::biology::body::BodyNodeKind,
         damage: f32,
         injury_type: crate::agent::biology::body::InjuryType,
@@ -401,18 +391,13 @@ pub enum SimEvent {
     /// A dodge roll succeeded — the defender evaded the attacker's swing.
     /// Feeds the event log without forcing ActionFailed semantics on the
     /// action (the Attack itself still "completed", the hit just didn't).
-    CombatMissed {
-        attacker: Entity,
-        defender: Entity,
-        tick: u64,
-    },
+    CombatMissed { attacker: Entity, defender: Entity },
 
     /// A body part was severed — its HP hit zero and it was non-vital, so
     /// it fell off the owner and spawned a `SeveredPart` world entity.
     /// Covers limbs, jaws, ears, mouths — anything non-vital.
     PartSevered {
         entity: Entity,
-        tick: u64,
         part_kind: crate::agent::biology::body::BodyNodeKind,
     },
 
@@ -423,7 +408,6 @@ pub enum SimEvent {
     /// inspection without querying the Phenotype component.
     PhenotypeDeveloped {
         agent: Entity,
-        tick: u64,
         phenotype: crate::agent::body::genetics::phenotype::Phenotype,
     },
 
@@ -432,7 +416,6 @@ pub enum SimEvent {
     /// and the patterns that remained unsatisfied (if any).
     GoapSearchTelemetry {
         agent: Entity,
-        tick: u64,
         /// Debug-formatted goal conditions.
         goal_description: String,
         iterations: usize,
@@ -445,7 +428,6 @@ pub enum SimEvent {
     /// A GOAP plan was generated and inserted into PlanMemory.
     PlanGenerated {
         agent: Entity,
-        tick: u64,
         plan_id: u64,
         driving_urgency: crate::agent::nervous_system::urgency::UrgencySource,
         step_count: usize,
@@ -458,7 +440,6 @@ pub enum SimEvent {
     /// Emitted once per surviving (action, target) pair from `collect_planning_actions`.
     TargetEnumerated {
         agent: Entity,
-        tick: u64,
         action_name: String,
         /// Debug-formatted target (entity id, tile coords, or "None").
         target_description: String,
@@ -471,7 +452,6 @@ pub enum SimEvent {
     /// style questions.
     PatternRejected {
         agent: Entity,
-        tick: u64,
         /// Debug-formatted goal conditions that the planner was trying to satisfy.
         goal_description: String,
         /// Debug-formatted patterns that remained unmet after the full search.
@@ -482,7 +462,6 @@ pub enum SimEvent {
     /// Emitted in bulk by `drain_mindgraph_mutations` — one event per mutation.
     MindGraphMutation {
         agent: Entity,
-        tick: u64,
         /// "Add" or "Remove".
         op: String,
         /// Debug-formatted subject node.
@@ -497,7 +476,6 @@ pub enum SimEvent {
     /// two runs with different seeds pinpoints the exact tick of divergence.
     AgentStateHash {
         agent: Entity,
-        tick: u64,
         /// FxHash of (position_tile_x, position_tile_y, urgency_sources_sorted, plan_ids_sorted).
         hash: u64,
     },

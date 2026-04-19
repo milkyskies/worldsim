@@ -4,7 +4,7 @@
 use bevy::prelude::*;
 use worldsim::agent::actions::ActionType;
 use worldsim::agent::actions::registry::{ActionState, ActiveActions};
-use worldsim::agent::events::{FailureReason, SimEvent};
+use worldsim::agent::events::{FailureReason, SimEvent, SimEventKind};
 use worldsim::testing::{AgentConfig, TestWorld};
 
 #[test]
@@ -58,8 +58,11 @@ fn despawned_target_cancels_running_action() {
     let got_target_gone = world.sim_events().all().iter().any(|e| {
         matches!(
             e,
-            SimEvent::ActionFailed {
-                reason: FailureReason::TargetGone,
+            SimEvent {
+                kind: SimEventKind::ActionFailed {
+                    reason: FailureReason::TargetGone,
+                    ..
+                },
                 ..
             }
         )

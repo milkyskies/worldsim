@@ -11,7 +11,7 @@ use bevy::prelude::*;
 
 use crate::agent::Agent;
 use crate::agent::body::needs::PhysicalNeeds;
-use crate::agent::events::SimEvent;
+use crate::agent::events::{SimEvent, SimEventKind};
 use crate::constants::brains::warmth::{
     BASELINE_DRAIN_PER_SEC, COMFORT_THRESHOLD, CRITICAL_THRESHOLD, EXPOSURE_DRAIN_PER_SEC,
     HEAT_RECOVERY_PER_SEC, SHELTER_RECOVERY_PER_SEC, URGENT_THRESHOLD,
@@ -89,12 +89,15 @@ pub fn tick_warmth(
         let new = physical.warmth.value;
 
         if crossed_named_threshold(old, new) {
-            sim_events.write(SimEvent::WarmthChanged {
-                agent: agent_entity,
-                tick: current_tick,
-                old_value: old,
-                new_value: new,
-            });
+            sim_events.write(SimEvent::single(
+                current_tick,
+                agent_entity,
+                SimEventKind::WarmthChanged {
+                    agent: agent_entity,
+                    old_value: old,
+                    new_value: new,
+                },
+            ));
         }
     }
 }

@@ -2,7 +2,7 @@
 
 use bevy::math::Vec2;
 use worldsim::agent::body::needs::PhysicalNeeds;
-use worldsim::agent::events::SimEvent;
+use worldsim::agent::events::{SimEvent, SimEventKind};
 use worldsim::testing::{AgentConfig, TestWorld};
 use worldsim::world::map::TileType;
 
@@ -51,11 +51,7 @@ fn thirsty_agent_near_water_plans_to_drink() {
     let drank = events.all().iter().any(|e| {
         matches!(
             e,
-            SimEvent::ActionCompleted {
-                agent: a,
-                action: worldsim::agent::actions::ActionType::Drink,
-                ..
-            } if *a == agent
+            SimEvent { kind: SimEventKind::ActionCompleted { agent: a, action: worldsim::agent::actions::ActionType::Drink, .. }, .. } if *a == agent
         )
     });
 

@@ -17,7 +17,7 @@ use bevy::math::Vec2;
 use worldsim::agent::actions::ActionType;
 use worldsim::agent::body::metabolism::Metabolism;
 use worldsim::agent::body::needs::PhysicalNeeds;
-use worldsim::agent::events::SimEvent;
+use worldsim::agent::events::{SimEvent, SimEventKind};
 use worldsim::agent::item_slots::ItemSlots;
 use worldsim::agent::mind::knowledge::Concept;
 use worldsim::testing::TestWorld;
@@ -73,11 +73,7 @@ fn eat_completions_match_berries_consumed_in_dead_zone() {
         .filter(|e| {
             matches!(
                 e,
-                SimEvent::ActionCompleted {
-                    agent,
-                    action: ActionType::Eat,
-                    ..
-                } if *agent == alice
+                SimEvent { kind: SimEventKind::ActionCompleted { agent, action: ActionType::Eat, .. }, .. } if *agent == alice
             )
         })
         .count() as u32;
@@ -132,11 +128,7 @@ fn harvest_eat_cycle_drains_bush_and_raises_stomach() {
         .filter(|e| {
             matches!(
                 e,
-                SimEvent::ActionCompleted {
-                    agent,
-                    action: ActionType::Harvest,
-                    ..
-                } if *agent == alice
+                SimEvent { kind: SimEventKind::ActionCompleted { agent, action: ActionType::Harvest, .. }, .. } if *agent == alice
             )
         })
         .count();
@@ -147,11 +139,7 @@ fn harvest_eat_cycle_drains_bush_and_raises_stomach() {
         .filter(|e| {
             matches!(
                 e,
-                SimEvent::ActionCompleted {
-                    agent,
-                    action: ActionType::Eat,
-                    ..
-                } if *agent == alice
+                SimEvent { kind: SimEventKind::ActionCompleted { agent, action: ActionType::Eat, .. }, .. } if *agent == alice
             )
         })
         .count();

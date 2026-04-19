@@ -9,7 +9,7 @@
 
 use bevy::prelude::*;
 use worldsim::agent::body::metabolism::Metabolism;
-use worldsim::agent::events::SimEvent;
+use worldsim::agent::events::{SimEvent, SimEventKind};
 use worldsim::agent::mind::knowledge::{
     Concept, Metadata, Node as MindNode, Predicate, Triple, Value,
 };
@@ -68,12 +68,16 @@ fn plan_generated_event_fires_with_full_template_shape() {
     let plan_generated: Vec<_> = events
         .iter()
         .filter_map(|e| match e {
-            SimEvent::PlanGenerated {
-                agent: a,
-                plan_id,
-                driving_urgency,
-                step_count,
-                goal_description,
+            SimEvent {
+                kind:
+                    SimEventKind::PlanGenerated {
+                        agent: a,
+                        plan_id,
+                        driving_urgency,
+                        step_count,
+                        goal_description,
+                        ..
+                    },
                 ..
             } if *a == agent => Some((
                 *plan_id,
@@ -111,9 +115,13 @@ fn target_enumerated_event_captures_inclusion_reason() {
     let target_enumerated: Vec<_> = events
         .iter()
         .filter_map(|e| match e {
-            SimEvent::TargetEnumerated {
-                agent: a,
-                inclusion_reason,
+            SimEvent {
+                kind:
+                    SimEventKind::TargetEnumerated {
+                        agent: a,
+                        inclusion_reason,
+                        ..
+                    },
                 ..
             } if *a == agent => Some(inclusion_reason.clone()),
             _ => None,
@@ -146,10 +154,14 @@ fn action_started_carries_plan_context() {
     let starts: Vec<(Option<u64>, Option<usize>)> = events
         .iter()
         .filter_map(|e| match e {
-            SimEvent::ActionStarted {
-                agent: a,
-                plan_id,
-                plan_step,
+            SimEvent {
+                kind:
+                    SimEventKind::ActionStarted {
+                        agent: a,
+                        plan_id,
+                        plan_step,
+                        ..
+                    },
                 ..
             } if *a == agent => Some((*plan_id, *plan_step)),
             _ => None,
@@ -189,10 +201,14 @@ fn pattern_rejected_event_captures_rejection_reason() {
     let rejected: Vec<_> = events
         .iter()
         .filter_map(|e| match e {
-            SimEvent::PatternRejected {
-                agent: a,
-                unmet_patterns,
-                goal_description,
+            SimEvent {
+                kind:
+                    SimEventKind::PatternRejected {
+                        agent: a,
+                        unmet_patterns,
+                        goal_description,
+                        ..
+                    },
                 ..
             } if *a == agent => Some((goal_description.clone(), unmet_patterns.clone())),
             _ => None,
@@ -224,9 +240,10 @@ fn mindgraph_mutation_log_captures_add_and_remove() {
     let adds: Vec<_> = events
         .iter()
         .filter_map(|e| match e {
-            SimEvent::MindGraphMutation { agent: a, op, .. } if *a == agent && op == "Add" => {
-                Some(op.clone())
-            }
+            SimEvent {
+                kind: SimEventKind::MindGraphMutation { agent: a, op, .. },
+                ..
+            } if *a == agent && op == "Add" => Some(op.clone()),
             _ => None,
         })
         .collect();
@@ -262,9 +279,10 @@ fn mindgraph_mutation_log_captures_add_and_remove() {
     let removes: Vec<_> = events
         .iter()
         .filter_map(|e| match e {
-            SimEvent::MindGraphMutation { agent: a, op, .. } if *a == agent && op == "Remove" => {
-                Some(op.clone())
-            }
+            SimEvent {
+                kind: SimEventKind::MindGraphMutation { agent: a, op, .. },
+                ..
+            } if *a == agent && op == "Remove" => Some(op.clone()),
             _ => None,
         })
         .collect();
@@ -291,12 +309,16 @@ fn mindgraph_state_reconstructible_from_mutations_at_arbitrary_tick() {
     use std::collections::HashSet;
     let mut reconstructed: HashSet<(String, String, String)> = HashSet::new();
     for e in events {
-        if let SimEvent::MindGraphMutation {
-            agent: a,
-            op,
-            subject,
-            predicate,
-            object,
+        if let SimEvent {
+            kind:
+                SimEventKind::MindGraphMutation {
+                    agent: a,
+                    op,
+                    subject,
+                    predicate,
+                    object,
+                    ..
+                },
             ..
         } = e
         {
@@ -335,10 +357,10 @@ fn state_hash_diverges_at_expected_tick_for_two_different_seeds() {
             .all()
             .iter()
             .filter_map(|e| match e {
-                SimEvent::AgentStateHash {
-                    agent: a,
+                SimEvent {
                     tick,
-                    hash,
+                    kind: SimEventKind::AgentStateHash { agent: a, hash, .. },
+                    ..
                 } if *a == agent => Some((*tick, *hash)),
                 _ => None,
             })
@@ -389,9 +411,13 @@ fn decision_event_includes_urgency_contributors() {
     let with_urgencies: Vec<_> = events
         .iter()
         .filter_map(|e| match e {
-            SimEvent::Decision {
-                agent: a,
-                urgencies,
+            SimEvent {
+                kind:
+                    SimEventKind::Decision {
+                        agent: a,
+                        urgencies,
+                        ..
+                    },
                 ..
             } if *a == agent && !urgencies.is_empty() => Some(urgencies.clone()),
             _ => None,
@@ -431,10 +457,14 @@ fn goap_telemetry_events_emitted_for_search() {
     let telemetry: Vec<_> = events
         .iter()
         .filter_map(|e| match e {
-            SimEvent::GoapSearchTelemetry {
-                agent: a,
-                iterations,
-                goal_description,
+            SimEvent {
+                kind:
+                    SimEventKind::GoapSearchTelemetry {
+                        agent: a,
+                        iterations,
+                        goal_description,
+                        ..
+                    },
                 ..
             } if *a == agent => Some((*iterations, goal_description.clone())),
             _ => None,

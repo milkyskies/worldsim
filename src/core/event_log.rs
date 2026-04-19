@@ -11,7 +11,7 @@ use bevy::prelude::*;
 use serde_json::Value;
 
 use crate::agent::Agent;
-use crate::agent::events::SimEvent;
+use crate::agent::events::{SimEvent, SimEventKind};
 
 // ─── Config ──────────────────────────────────────────────────────────────────
 
@@ -171,7 +171,7 @@ pub fn collect_event_log(
 /// entities); ids are always the stable Entity debug format so filters can
 /// target a specific individual even after death.
 fn event_meta<'a>(
-    event: &SimEvent,
+    event: &'a SimEvent,
     agent_resolve: &impl Fn(Entity) -> String,
     resolve: &impl Fn(Entity) -> String,
 ) -> (&'a str, u64, Vec<String>, Vec<String>) {
@@ -192,115 +192,208 @@ fn event_meta<'a>(
             vec![entity_id_str(a), entity_id_str(b)],
         )
     };
+    let ty = event.kind.as_ref();
     match event {
-        SimEvent::Decision { agent, tick, .. } => one("Decision", *tick, *agent, true),
-        SimEvent::ActionStarted { agent, tick, .. } => one("ActionStarted", *tick, *agent, true),
-        SimEvent::ActionCompleted { agent, tick, .. } => {
-            one("ActionCompleted", *tick, *agent, true)
-        }
-        SimEvent::ActionPreempted { agent, tick, .. } => {
-            one("ActionPreempted", *tick, *agent, true)
-        }
-        SimEvent::ActionFailed { agent, tick, .. } => one("ActionFailed", *tick, *agent, true),
-        SimEvent::PlanAbandoned { agent, tick, .. } => one("PlanAbandoned", *tick, *agent, true),
-        SimEvent::ConversationStarted {
-            participants, tick, ..
+        SimEvent {
+            tick,
+            kind: SimEventKind::Decision { agent, .. },
+            ..
+        } => one(ty, *tick, *agent, true),
+        SimEvent {
+            tick,
+            kind: SimEventKind::ActionStarted { agent, .. },
+            ..
+        } => one(ty, *tick, *agent, true),
+        SimEvent {
+            tick,
+            kind: SimEventKind::ActionCompleted { agent, .. },
+            ..
+        } => one(ty, *tick, *agent, true),
+        SimEvent {
+            tick,
+            kind: SimEventKind::ActionPreempted { agent, .. },
+            ..
+        } => one(ty, *tick, *agent, true),
+        SimEvent {
+            tick,
+            kind: SimEventKind::ActionFailed { agent, .. },
+            ..
+        } => one(ty, *tick, *agent, true),
+        SimEvent {
+            tick,
+            kind: SimEventKind::PlanAbandoned { agent, .. },
+            ..
+        } => one(ty, *tick, *agent, true),
+        SimEvent {
+            tick,
+            kind: SimEventKind::ConversationStarted { participants, .. },
+            ..
         } => {
             let names = participants.iter().map(|e| resolve(*e)).collect();
             let ids = participants.iter().map(|e| entity_id_str(*e)).collect();
-            ("ConversationStarted", *tick, names, ids)
+            (ty, *tick, names, ids)
         }
-        SimEvent::ConversationEnded {
-            participants, tick, ..
+        SimEvent {
+            tick,
+            kind: SimEventKind::ConversationEnded { participants, .. },
+            ..
         } => {
             let names = participants.iter().map(|e| resolve(*e)).collect();
             let ids = participants.iter().map(|e| entity_id_str(*e)).collect();
-            ("ConversationEnded", *tick, names, ids)
+            (ty, *tick, names, ids)
         }
-        SimEvent::ConversationJoined { joiner, tick, .. } => {
-            one("ConversationJoined", *tick, *joiner, false)
-        }
-        SimEvent::ConversationLeft { leaver, tick, .. } => {
-            one("ConversationLeft", *tick, *leaver, false)
-        }
-        SimEvent::ConversationAbandoned {
-            abandoner,
-            abandoned,
+        SimEvent {
             tick,
-        } => two(
-            "ConversationAbandoned",
-            *tick,
-            *abandoner,
-            *abandoned,
-            false,
-        ),
-        SimEvent::RelationshipChanged {
-            agent, other, tick, ..
-        } => two("RelationshipChanged", *tick, *agent, *other, true),
-        SimEvent::EmotionTriggered { agent, tick, .. } => {
-            one("EmotionTriggered", *tick, *agent, true)
-        }
-        SimEvent::Death { agent, tick, .. } => one("Death", *tick, *agent, true),
-        SimEvent::EntityPerceived { agent, tick, .. } => {
-            one("EntityPerceived", *tick, *agent, true)
-        }
-        SimEvent::StrangerDetected { agent, tick, .. } => {
-            one("StrangerDetected", *tick, *agent, true)
-        }
-        SimEvent::KnowledgeShared {
-            speaker,
-            listener,
-            tick,
+            kind: SimEventKind::ConversationJoined { joiner, .. },
             ..
-        } => two("KnowledgeShared", *tick, *speaker, *listener, true),
-        SimEvent::WarmthPerceived { agent, tick, .. } => {
-            one("WarmthPerceived", *tick, *agent, true)
-        }
-        SimEvent::WarmthChanged { agent, tick, .. } => one("WarmthChanged", *tick, *agent, true),
-        SimEvent::SoundPerceived { agent, tick, .. } => one("SoundPerceived", *tick, *agent, true),
-        SimEvent::TheoryOfMindUpdated {
-            agent, about, tick, ..
-        } => two("TheoryOfMindUpdated", *tick, *agent, *about, true),
-        SimEvent::ItemSpoiled { agent, tick, .. } => one("ItemSpoiled", *tick, *agent, true),
-        SimEvent::EffectApplied { agent, tick, .. } => one("EffectApplied", *tick, *agent, true),
-        SimEvent::LaborContributed { agent, tick, .. } => {
-            one("LaborContributed", *tick, *agent, true)
-        }
-        SimEvent::SkillChanged { agent, tick, .. } => one("SkillChanged", *tick, *agent, true),
-        SimEvent::CombatHit {
-            attacker,
-            defender,
+        } => one(ty, *tick, *joiner, false),
+        SimEvent {
             tick,
+            kind: SimEventKind::ConversationLeft { leaver, .. },
             ..
-        } => two("CombatHit", *tick, *attacker, *defender, true),
-        SimEvent::CombatMissed {
-            attacker,
-            defender,
+        } => one(ty, *tick, *leaver, false),
+        SimEvent {
             tick,
-        } => two("CombatMissed", *tick, *attacker, *defender, true),
-        SimEvent::PartSevered { entity, tick, .. } => one("PartSevered", *tick, *entity, true),
-        SimEvent::PhenotypeDeveloped { agent, tick, .. } => {
-            one("PhenotypeDeveloped", *tick, *agent, true)
-        }
-        SimEvent::SocialAcknowledgment {
-            actor,
-            target,
+            kind:
+                SimEventKind::ConversationAbandoned {
+                    abandoner,
+                    abandoned,
+                    ..
+                },
+            ..
+        } => two(ty, *tick, *abandoner, *abandoned, false),
+        SimEvent {
             tick,
-        } => two("SocialAcknowledgment", *tick, *actor, *target, true),
-        SimEvent::GoapSearchTelemetry { agent, tick, .. } => {
-            one("GoapSearchTelemetry", *tick, *agent, true)
-        }
-        SimEvent::PlanGenerated { agent, tick, .. } => one("PlanGenerated", *tick, *agent, true),
-        SimEvent::TargetEnumerated { agent, tick, .. } => {
-            one("TargetEnumerated", *tick, *agent, true)
-        }
-        SimEvent::PatternRejected { agent, tick, .. } => {
-            one("PatternRejected", *tick, *agent, true)
-        }
-        SimEvent::MindGraphMutation { agent, tick, .. } => {
-            one("MindGraphMutation", *tick, *agent, true)
-        }
-        SimEvent::AgentStateHash { agent, tick, .. } => one("AgentStateHash", *tick, *agent, true),
+            kind: SimEventKind::RelationshipChanged { agent, other, .. },
+            ..
+        } => two(ty, *tick, *agent, *other, true),
+        SimEvent {
+            tick,
+            kind: SimEventKind::EmotionTriggered { agent, .. },
+            ..
+        } => one(ty, *tick, *agent, true),
+        SimEvent {
+            tick,
+            kind: SimEventKind::Death { agent, .. },
+            ..
+        } => one(ty, *tick, *agent, true),
+        SimEvent {
+            tick,
+            kind: SimEventKind::EntityPerceived { agent, .. },
+            ..
+        } => one(ty, *tick, *agent, true),
+        SimEvent {
+            tick,
+            kind: SimEventKind::StrangerDetected { agent, .. },
+            ..
+        } => one(ty, *tick, *agent, true),
+        SimEvent {
+            tick,
+            kind:
+                SimEventKind::KnowledgeShared {
+                    speaker, listener, ..
+                },
+            ..
+        } => two(ty, *tick, *speaker, *listener, true),
+        SimEvent {
+            tick,
+            kind: SimEventKind::WarmthPerceived { agent, .. },
+            ..
+        } => one(ty, *tick, *agent, true),
+        SimEvent {
+            tick,
+            kind: SimEventKind::WarmthChanged { agent, .. },
+            ..
+        } => one(ty, *tick, *agent, true),
+        SimEvent {
+            tick,
+            kind: SimEventKind::SoundPerceived { agent, .. },
+            ..
+        } => one(ty, *tick, *agent, true),
+        SimEvent {
+            tick,
+            kind: SimEventKind::TheoryOfMindUpdated { agent, about, .. },
+            ..
+        } => two(ty, *tick, *agent, *about, true),
+        SimEvent {
+            tick,
+            kind: SimEventKind::ItemSpoiled { agent, .. },
+            ..
+        } => one(ty, *tick, *agent, true),
+        SimEvent {
+            tick,
+            kind: SimEventKind::EffectApplied { agent, .. },
+            ..
+        } => one(ty, *tick, *agent, true),
+        SimEvent {
+            tick,
+            kind: SimEventKind::LaborContributed { agent, .. },
+            ..
+        } => one(ty, *tick, *agent, true),
+        SimEvent {
+            tick,
+            kind: SimEventKind::SkillChanged { agent, .. },
+            ..
+        } => one(ty, *tick, *agent, true),
+        SimEvent {
+            tick,
+            kind: SimEventKind::CombatHit {
+                attacker, defender, ..
+            },
+            ..
+        } => two(ty, *tick, *attacker, *defender, true),
+        SimEvent {
+            tick,
+            kind: SimEventKind::CombatMissed {
+                attacker, defender, ..
+            },
+            ..
+        } => two(ty, *tick, *attacker, *defender, true),
+        SimEvent {
+            tick,
+            kind: SimEventKind::PartSevered { entity, .. },
+            ..
+        } => one(ty, *tick, *entity, true),
+        SimEvent {
+            tick,
+            kind: SimEventKind::PhenotypeDeveloped { agent, .. },
+            ..
+        } => one(ty, *tick, *agent, true),
+        SimEvent {
+            tick,
+            kind: SimEventKind::SocialAcknowledgment { actor, target, .. },
+            ..
+        } => two(ty, *tick, *actor, *target, true),
+        SimEvent {
+            tick,
+            kind: SimEventKind::GoapSearchTelemetry { agent, .. },
+            ..
+        } => one(ty, *tick, *agent, true),
+        SimEvent {
+            tick,
+            kind: SimEventKind::PlanGenerated { agent, .. },
+            ..
+        } => one(ty, *tick, *agent, true),
+        SimEvent {
+            tick,
+            kind: SimEventKind::TargetEnumerated { agent, .. },
+            ..
+        } => one(ty, *tick, *agent, true),
+        SimEvent {
+            tick,
+            kind: SimEventKind::PatternRejected { agent, .. },
+            ..
+        } => one(ty, *tick, *agent, true),
+        SimEvent {
+            tick,
+            kind: SimEventKind::MindGraphMutation { agent, .. },
+            ..
+        } => one(ty, *tick, *agent, true),
+        SimEvent {
+            tick,
+            kind: SimEventKind::AgentStateHash { agent, .. },
+            ..
+        } => one(ty, *tick, *agent, true),
     }
 }
 
@@ -311,13 +404,17 @@ fn event_to_json(
     resolve: &impl Fn(Entity) -> String,
 ) -> Value {
     match event {
-        SimEvent::Decision {
-            agent,
-            winner,
-            chosen_actions,
-            powers,
-            proposals,
-            urgencies,
+        SimEvent {
+            kind:
+                SimEventKind::Decision {
+                    agent,
+                    winner,
+                    chosen_actions,
+                    powers,
+                    proposals,
+                    urgencies,
+                    ..
+                },
             ..
         } => {
             let proposals_json: Vec<Value> = proposals
@@ -356,12 +453,16 @@ fn event_to_json(
                 "urgencies": urgencies_json,
             })
         }
-        SimEvent::ActionStarted {
-            agent,
-            action,
-            target,
-            plan_id,
-            plan_step,
+        SimEvent {
+            kind:
+                SimEventKind::ActionStarted {
+                    agent,
+                    action,
+                    target,
+                    plan_id,
+                    plan_step,
+                    ..
+                },
             ..
         } => {
             serde_json::json!({
@@ -376,7 +477,10 @@ fn event_to_json(
                 "plan_step": plan_step,
             })
         }
-        SimEvent::ActionCompleted { agent, action, .. } => {
+        SimEvent {
+            kind: SimEventKind::ActionCompleted { agent, action, .. },
+            ..
+        } => {
             serde_json::json!({
                 "tick": tick,
                 "type": event_type,
@@ -385,9 +489,13 @@ fn event_to_json(
                 "action": format!("{action:?}"),
             })
         }
-        SimEvent::ActionPreempted {
-            agent,
-            preempted_action,
+        SimEvent {
+            kind:
+                SimEventKind::ActionPreempted {
+                    agent,
+                    preempted_action,
+                    ..
+                },
             ..
         } => {
             serde_json::json!({
@@ -398,10 +506,14 @@ fn event_to_json(
                 "preempted": format!("{preempted_action:?}"),
             })
         }
-        SimEvent::ActionFailed {
-            agent,
-            action,
-            reason,
+        SimEvent {
+            kind:
+                SimEventKind::ActionFailed {
+                    agent,
+                    action,
+                    reason,
+                    ..
+                },
             ..
         } => {
             serde_json::json!({
@@ -413,10 +525,14 @@ fn event_to_json(
                 "reason": format!("{reason:?}"),
             })
         }
-        SimEvent::PlanAbandoned {
-            agent,
-            action,
-            intent,
+        SimEvent {
+            kind:
+                SimEventKind::PlanAbandoned {
+                    agent,
+                    action,
+                    intent,
+                    ..
+                },
             ..
         } => {
             serde_json::json!({
@@ -428,9 +544,13 @@ fn event_to_json(
                 "intent": format!("{intent:?}"),
             })
         }
-        SimEvent::ConversationStarted {
-            participants,
-            conversation_id,
+        SimEvent {
+            kind:
+                SimEventKind::ConversationStarted {
+                    participants,
+                    conversation_id,
+                    ..
+                },
             ..
         } => {
             serde_json::json!({
@@ -441,9 +561,13 @@ fn event_to_json(
                 "conversation_id": conversation_id,
             })
         }
-        SimEvent::ConversationEnded {
-            participants,
-            conversation_id,
+        SimEvent {
+            kind:
+                SimEventKind::ConversationEnded {
+                    participants,
+                    conversation_id,
+                    ..
+                },
             ..
         } => {
             serde_json::json!({
@@ -454,9 +578,13 @@ fn event_to_json(
                 "conversation_id": conversation_id,
             })
         }
-        SimEvent::ConversationJoined {
-            joiner,
-            conversation_id,
+        SimEvent {
+            kind:
+                SimEventKind::ConversationJoined {
+                    joiner,
+                    conversation_id,
+                    ..
+                },
             ..
         } => {
             serde_json::json!({
@@ -467,9 +595,13 @@ fn event_to_json(
                 "conversation_id": conversation_id,
             })
         }
-        SimEvent::ConversationLeft {
-            leaver,
-            conversation_id,
+        SimEvent {
+            kind:
+                SimEventKind::ConversationLeft {
+                    leaver,
+                    conversation_id,
+                    ..
+                },
             ..
         } => {
             serde_json::json!({
@@ -480,9 +612,13 @@ fn event_to_json(
                 "conversation_id": conversation_id,
             })
         }
-        SimEvent::ConversationAbandoned {
-            abandoner,
-            abandoned,
+        SimEvent {
+            kind:
+                SimEventKind::ConversationAbandoned {
+                    abandoner,
+                    abandoned,
+                    ..
+                },
             ..
         } => {
             serde_json::json!({
@@ -494,12 +630,16 @@ fn event_to_json(
                 "abandoned_id": entity_id_str(*abandoned),
             })
         }
-        SimEvent::RelationshipChanged {
-            agent,
-            other,
-            dimension,
-            old_value,
-            new_value,
+        SimEvent {
+            kind:
+                SimEventKind::RelationshipChanged {
+                    agent,
+                    other,
+                    dimension,
+                    old_value,
+                    new_value,
+                    ..
+                },
             ..
         } => {
             serde_json::json!({
@@ -514,10 +654,14 @@ fn event_to_json(
                 "new": new_value,
             })
         }
-        SimEvent::EmotionTriggered {
-            agent,
-            emotion,
-            intensity,
+        SimEvent {
+            kind:
+                SimEventKind::EmotionTriggered {
+                    agent,
+                    emotion,
+                    intensity,
+                    ..
+                },
             ..
         } => {
             serde_json::json!({
@@ -529,7 +673,10 @@ fn event_to_json(
                 "intensity": intensity,
             })
         }
-        SimEvent::Death { agent, cause, .. } => {
+        SimEvent {
+            kind: SimEventKind::Death { agent, cause, .. },
+            ..
+        } => {
             serde_json::json!({
                 "tick": tick,
                 "type": event_type,
@@ -538,7 +685,10 @@ fn event_to_json(
                 "cause": cause,
             })
         }
-        SimEvent::EntityPerceived { agent, target, .. } => {
+        SimEvent {
+            kind: SimEventKind::EntityPerceived { agent, target, .. },
+            ..
+        } => {
             serde_json::json!({
                 "tick": tick,
                 "type": event_type,
@@ -548,8 +698,11 @@ fn event_to_json(
                 "target_id": entity_id_str(*target),
             })
         }
-        SimEvent::StrangerDetected {
-            agent, stranger, ..
+        SimEvent {
+            kind: SimEventKind::StrangerDetected {
+                agent, stranger, ..
+            },
+            ..
         } => {
             serde_json::json!({
                 "tick": tick,
@@ -560,10 +713,14 @@ fn event_to_json(
                 "stranger_id": entity_id_str(*stranger),
             })
         }
-        SimEvent::KnowledgeShared {
-            speaker,
-            listener,
-            triple_count,
+        SimEvent {
+            kind:
+                SimEventKind::KnowledgeShared {
+                    speaker,
+                    listener,
+                    triple_count,
+                    ..
+                },
             ..
         } => {
             serde_json::json!({
@@ -576,7 +733,10 @@ fn event_to_json(
                 "triple_count": triple_count,
             })
         }
-        SimEvent::WarmthPerceived { agent, source, .. } => {
+        SimEvent {
+            kind: SimEventKind::WarmthPerceived { agent, source, .. },
+            ..
+        } => {
             serde_json::json!({
                 "tick": tick,
                 "type": event_type,
@@ -586,10 +746,14 @@ fn event_to_json(
                 "source_id": entity_id_str(*source),
             })
         }
-        SimEvent::WarmthChanged {
-            agent,
-            old_value,
-            new_value,
+        SimEvent {
+            kind:
+                SimEventKind::WarmthChanged {
+                    agent,
+                    old_value,
+                    new_value,
+                    ..
+                },
             ..
         } => {
             serde_json::json!({
@@ -601,10 +765,14 @@ fn event_to_json(
                 "new_value": new_value,
             })
         }
-        SimEvent::SoundPerceived {
-            agent,
-            source,
-            kind,
+        SimEvent {
+            kind:
+                SimEventKind::SoundPerceived {
+                    agent,
+                    source,
+                    kind,
+                    ..
+                },
             ..
         } => {
             serde_json::json!({
@@ -617,11 +785,15 @@ fn event_to_json(
                 "kind": format!("{kind:?}"),
             })
         }
-        SimEvent::TheoryOfMindUpdated {
-            agent,
-            about,
-            source,
-            belief_count,
+        SimEvent {
+            kind:
+                SimEventKind::TheoryOfMindUpdated {
+                    agent,
+                    about,
+                    source,
+                    belief_count,
+                    ..
+                },
             ..
         } => {
             serde_json::json!({
@@ -635,8 +807,11 @@ fn event_to_json(
                 "belief_count": belief_count,
             })
         }
-        SimEvent::ItemSpoiled {
-            agent, from, to, ..
+        SimEvent {
+            kind: SimEventKind::ItemSpoiled {
+                agent, from, to, ..
+            },
+            ..
         } => {
             serde_json::json!({
                 "tick": tick,
@@ -647,7 +822,10 @@ fn event_to_json(
                 "to": format!("{to:?}"),
             })
         }
-        SimEvent::EffectApplied { agent, source, .. } => {
+        SimEvent {
+            kind: SimEventKind::EffectApplied { agent, source, .. },
+            ..
+        } => {
             serde_json::json!({
                 "tick": tick,
                 "type": event_type,
@@ -657,7 +835,10 @@ fn event_to_json(
                 "source_id": entity_id_str(*source),
             })
         }
-        SimEvent::LaborContributed { agent, site, .. } => {
+        SimEvent {
+            kind: SimEventKind::LaborContributed { agent, site, .. },
+            ..
+        } => {
             serde_json::json!({
                 "tick": tick,
                 "type": event_type,
@@ -667,11 +848,15 @@ fn event_to_json(
                 "site_id": entity_id_str(*site),
             })
         }
-        SimEvent::SkillChanged {
-            agent,
-            skill,
-            old_value,
-            new_value,
+        SimEvent {
+            kind:
+                SimEventKind::SkillChanged {
+                    agent,
+                    skill,
+                    old_value,
+                    new_value,
+                    ..
+                },
             ..
         } => {
             serde_json::json!({
@@ -684,12 +869,16 @@ fn event_to_json(
                 "new": new_value,
             })
         }
-        SimEvent::CombatHit {
-            attacker,
-            defender,
-            part_kind,
-            damage,
-            injury_type,
+        SimEvent {
+            kind:
+                SimEventKind::CombatHit {
+                    attacker,
+                    defender,
+                    part_kind,
+                    damage,
+                    injury_type,
+                    ..
+                },
             ..
         } => {
             serde_json::json!({
@@ -702,8 +891,11 @@ fn event_to_json(
                 "injury_type": format!("{injury_type:?}"),
             })
         }
-        SimEvent::CombatMissed {
-            attacker, defender, ..
+        SimEvent {
+            kind: SimEventKind::CombatMissed {
+                attacker, defender, ..
+            },
+            ..
         } => {
             serde_json::json!({
                 "tick": tick,
@@ -712,8 +904,11 @@ fn event_to_json(
                 "defender": resolve(*defender),
             })
         }
-        SimEvent::PartSevered {
-            entity, part_kind, ..
+        SimEvent {
+            kind: SimEventKind::PartSevered {
+                entity, part_kind, ..
+            },
+            ..
         } => {
             serde_json::json!({
                 "tick": tick,
@@ -722,8 +917,12 @@ fn event_to_json(
                 "part": part_kind.display_name(),
             })
         }
-        SimEvent::PhenotypeDeveloped {
-            agent, phenotype, ..
+        SimEvent {
+            kind:
+                SimEventKind::PhenotypeDeveloped {
+                    agent, phenotype, ..
+                },
+            ..
         } => {
             serde_json::json!({
                 "tick": tick,
@@ -738,7 +937,10 @@ fn event_to_json(
                 "anaerobic_capacity": phenotype.anaerobic_capacity,
             })
         }
-        SimEvent::SocialAcknowledgment { actor, target, .. } => {
+        SimEvent {
+            kind: SimEventKind::SocialAcknowledgment { actor, target, .. },
+            ..
+        } => {
             serde_json::json!({
                 "tick": tick,
                 "type": event_type,
@@ -748,12 +950,16 @@ fn event_to_json(
                 "target_id": entity_id_str(*target),
             })
         }
-        SimEvent::GoapSearchTelemetry {
-            agent,
-            goal_description,
-            iterations,
-            exhausted,
-            best_unmet_goals,
+        SimEvent {
+            kind:
+                SimEventKind::GoapSearchTelemetry {
+                    agent,
+                    goal_description,
+                    iterations,
+                    exhausted,
+                    best_unmet_goals,
+                    ..
+                },
             ..
         } => {
             serde_json::json!({
@@ -767,13 +973,17 @@ fn event_to_json(
                 "best_unmet_goals": best_unmet_goals,
             })
         }
-        SimEvent::PlanGenerated {
-            agent,
-            plan_id,
-            driving_urgency,
-            step_count,
-            subjective_cost,
-            goal_description,
+        SimEvent {
+            kind:
+                SimEventKind::PlanGenerated {
+                    agent,
+                    plan_id,
+                    driving_urgency,
+                    step_count,
+                    subjective_cost,
+                    goal_description,
+                    ..
+                },
             ..
         } => {
             serde_json::json!({
@@ -788,11 +998,15 @@ fn event_to_json(
                 "goal": goal_description,
             })
         }
-        SimEvent::TargetEnumerated {
-            agent,
-            action_name,
-            target_description,
-            inclusion_reason,
+        SimEvent {
+            kind:
+                SimEventKind::TargetEnumerated {
+                    agent,
+                    action_name,
+                    target_description,
+                    inclusion_reason,
+                    ..
+                },
             ..
         } => {
             serde_json::json!({
@@ -805,10 +1019,14 @@ fn event_to_json(
                 "inclusion_reason": inclusion_reason,
             })
         }
-        SimEvent::PatternRejected {
-            agent,
-            goal_description,
-            unmet_patterns,
+        SimEvent {
+            kind:
+                SimEventKind::PatternRejected {
+                    agent,
+                    goal_description,
+                    unmet_patterns,
+                    ..
+                },
             ..
         } => {
             serde_json::json!({
@@ -820,12 +1038,16 @@ fn event_to_json(
                 "unmet_patterns": unmet_patterns,
             })
         }
-        SimEvent::MindGraphMutation {
-            agent,
-            op,
-            subject,
-            predicate,
-            object,
+        SimEvent {
+            kind:
+                SimEventKind::MindGraphMutation {
+                    agent,
+                    op,
+                    subject,
+                    predicate,
+                    object,
+                    ..
+                },
             ..
         } => {
             serde_json::json!({
@@ -839,7 +1061,10 @@ fn event_to_json(
                 "object": object,
             })
         }
-        SimEvent::AgentStateHash { agent, hash, .. } => {
+        SimEvent {
+            kind: SimEventKind::AgentStateHash { agent, hash, .. },
+            ..
+        } => {
             serde_json::json!({
                 "tick": tick,
                 "type": event_type,

@@ -51,47 +51,24 @@ impl UrgencySource {
     }
 
     /// How much this urgency source contributes to survival brain power.
-    /// Every variant must be listed explicitly — adding a new one causes
-    /// a compile error until someone assigns a weight.
+    /// Reads the drive registry — unregistered sources return 0.0.
     ///
     /// Higher weight = stronger survival brain takeover when this drive
     /// is active. Zero = not a survival drive (emotional/rational handles it).
     pub fn survival_weight(self) -> f32 {
-        match self {
-            Self::Hunger => 100.0,
-            Self::Thirst => 100.0,
-            Self::Pain => 100.0,
-            Self::Warmth => 90.0,
-            Self::Stamina => 80.0,
-            Self::Sleepiness => 80.0,
-            Self::Fear => 50.0,
-            Self::Social => 0.0,
-            Self::Fun => 0.0,
-            Self::Curiosity => 0.0,
-            Self::Territoriality => 0.0,
-            Self::Commitment => 0.0,
-        }
+        crate::agent::drive_registry::by_urgency(self)
+            .map(|e| e.survival_weight)
+            .unwrap_or(0.0)
     }
 
     /// Whether this urgency source contributes to the deprivation penalty
     /// that impairs rational thought. Only physical deficits (hunger,
-    /// thirst, pain) count — fatigue and sleepiness don't cloud thinking
-    /// the same way starvation does.
+    /// thirst, pain, warmth) count — fatigue and sleepiness don't cloud
+    /// thinking the same way starvation does.
     pub fn is_deprivation(self) -> bool {
-        match self {
-            Self::Hunger => true,
-            Self::Thirst => true,
-            Self::Pain => true,
-            Self::Warmth => true,
-            Self::Stamina => false,
-            Self::Sleepiness => false,
-            Self::Fear => false,
-            Self::Social => false,
-            Self::Fun => false,
-            Self::Curiosity => false,
-            Self::Territoriality => false,
-            Self::Commitment => false,
-        }
+        crate::agent::drive_registry::by_urgency(self)
+            .map(|e| e.is_deprivation)
+            .unwrap_or(false)
     }
 }
 

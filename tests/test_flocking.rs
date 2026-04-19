@@ -15,7 +15,7 @@
 use bevy::prelude::*;
 use worldsim::agent::actions::ActionType;
 use worldsim::agent::body::needs::PsychologicalDrives;
-use worldsim::agent::events::SimEvent;
+use worldsim::agent::events::{SimEvent, SimEventKind};
 use worldsim::agent::mind::knowledge::MindGraph;
 use worldsim::agent::mind::recognition::initialize_relationship_with_affection;
 use worldsim::testing::TestWorld;
@@ -139,12 +139,7 @@ fn lonely_deer_with_visible_kin_walks_toward_them() {
     let started_walk_for_lonely = world.sim_events().all().iter().any(|ev| {
         matches!(
             ev,
-            SimEvent::ActionStarted {
-                agent,
-                action: ActionType::Walk,
-                target: Some(_),
-                ..
-            } if *agent == lonely
+            SimEvent { kind: SimEventKind::ActionStarted { agent, action: ActionType::Walk, target: Some(_), .. }, .. } if *agent == lonely
         )
     });
 
@@ -184,12 +179,7 @@ fn lonely_deer_alone_does_not_flock_walk() {
     let started_targeted_walk = world.sim_events().all().iter().any(|ev| {
         matches!(
             ev,
-            SimEvent::ActionStarted {
-                agent,
-                action: ActionType::Walk,
-                target: Some(_),
-                ..
-            } if *agent == alone
+            SimEvent { kind: SimEventKind::ActionStarted { agent, action: ActionType::Walk, target: Some(_), .. }, .. } if *agent == alone
         )
     });
 

@@ -23,7 +23,7 @@ use bevy::prelude::*;
 use crate::agent::Agent;
 use crate::agent::actions::ActionType;
 use crate::agent::actions::registry::ActiveActions;
-use crate::agent::events::SimEvent;
+use crate::agent::events::{SimEvent, SimEventKind};
 use crate::agent::item_slots::{ItemSlots, SlotRole};
 use crate::agent::mind::knowledge::{Concept, Metadata, MindGraph, Node, Predicate, Triple, Value};
 use crate::core::tick::TickCount;
@@ -306,11 +306,14 @@ pub fn labor_accumulation_system(
 
     // Emit one event per active constructor so the structured log can trace progress.
     for (agent_entity, site_entity) in constructor_pairs {
-        events.write(SimEvent::LaborContributed {
-            agent: agent_entity,
-            tick: tick.current,
-            site: site_entity,
-        });
+        events.write(SimEvent::single(
+            tick.current,
+            agent_entity,
+            SimEventKind::LaborContributed {
+                agent: agent_entity,
+                site: site_entity,
+            },
+        ));
     }
 }
 

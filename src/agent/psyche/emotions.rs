@@ -6,6 +6,7 @@
 //! Downstream: brains::arbitration (mood/stress influence), nervous_system::urgency
 
 use crate::agent::actions::ActionType;
+use crate::agent::events::SimEventKind;
 use bevy::prelude::*;
 
 #[derive(Debug, Clone, Copy, PartialEq, Reflect)]
@@ -408,12 +409,15 @@ pub fn add_emotion_with_event(
     tick: u64,
     emotion: Emotion,
 ) {
-    sim_events.write(crate::agent::events::SimEvent::EmotionTriggered {
-        agent,
+    sim_events.write(crate::agent::events::SimEvent::single(
         tick,
-        emotion: emotion.emotion_type,
-        intensity: emotion.intensity,
-    });
+        agent,
+        SimEventKind::EmotionTriggered {
+            agent,
+            emotion: emotion.emotion_type,
+            intensity: emotion.intensity,
+        },
+    ));
     state.add_emotion(emotion);
 }
 
@@ -725,15 +729,8 @@ mod tests {
 
     fn calm_needs() -> crate::agent::body::needs::PhysicalNeeds {
         use crate::agent::body::metabolism::Metabolism;
-        use crate::agent::body::need::Need;
-        use crate::agent::body::needs::{PhysicalNeeds, Stamina};
-        PhysicalNeeds {
-            metabolism: Metabolism::well_fed(),
-            hydration: Need::full(),
-            stamina: Stamina::default(),
-            wakefulness: Need::full(),
-            warmth: Need::full(),
-        }
+        use crate::agent::body::needs::PhysicalNeeds;
+        PhysicalNeeds::full().with_metabolism(Metabolism::well_fed())
     }
 
     #[test]

@@ -15,7 +15,7 @@
 use bevy::math::Vec2;
 use worldsim::agent::actions::ActionType;
 use worldsim::agent::body::needs::PsychologicalDrives;
-use worldsim::agent::events::SimEvent;
+use worldsim::agent::events::{SimEvent, SimEventKind};
 use worldsim::agent::mind::conversation::{ConversationManager, Intent};
 use worldsim::agent::mind::knowledge::{
     Concept, MemoryType, Metadata, MindGraph, Node, Predicate, Source, Triple, Value,
@@ -96,7 +96,10 @@ fn initiation_emits_conversation_started_sim_event() {
         .all()
         .iter()
         .find_map(|e| match e {
-            SimEvent::ConversationStarted { participants, .. } => Some(participants.clone()),
+            SimEvent {
+                kind: SimEventKind::ConversationStarted { participants, .. },
+                ..
+            } => Some(participants.clone()),
             _ => None,
         })
         .expect("CommunicationPlugin must emit SimEvent::ConversationStarted");
@@ -130,11 +133,15 @@ fn out_of_vision_agents_do_not_start_conversation() {
     assert!(!world.in_conversation(agents["bob"]));
     assert_eq!(world.active_conversation_count(), 0);
 
-    let started = world
-        .sim_events()
-        .all()
-        .iter()
-        .any(|e| matches!(e, SimEvent::ConversationStarted { .. }));
+    let started = world.sim_events().all().iter().any(|e| {
+        matches!(
+            e,
+            SimEvent {
+                kind: SimEventKind::ConversationStarted { .. },
+                ..
+            }
+        )
+    });
     assert!(
         !started,
         "no ConversationStarted event should fire for agents that never perceive each other"
@@ -223,13 +230,29 @@ fn conversations_can_end_gracefully_after_enough_turns() {
         .sim_events()
         .all()
         .iter()
-        .filter(|e| matches!(e, SimEvent::ConversationStarted { .. }))
+        .filter(|e| {
+            matches!(
+                e,
+                SimEvent {
+                    kind: SimEventKind::ConversationStarted { .. },
+                    ..
+                }
+            )
+        })
         .count();
     let ended_count = world
         .sim_events()
         .all()
         .iter()
-        .filter(|e| matches!(e, SimEvent::ConversationEnded { .. }))
+        .filter(|e| {
+            matches!(
+                e,
+                SimEvent {
+                    kind: SimEventKind::ConversationEnded { .. },
+                    ..
+                }
+            )
+        })
         .count();
 
     assert!(
@@ -341,11 +364,15 @@ fn agent_warns_partner_about_personally_observed_danger() {
     let bob = agents["bob"];
 
     // Verify a conversation occurred — it may have ended by tick 200.
-    let had_conversation = world
-        .sim_events()
-        .all()
-        .iter()
-        .any(|e| matches!(e, SimEvent::ConversationStarted { .. }));
+    let had_conversation = world.sim_events().all().iter().any(|e| {
+        matches!(
+            e,
+            SimEvent {
+                kind: SimEventKind::ConversationStarted { .. },
+                ..
+            }
+        )
+    });
     if !had_conversation {
         world.print_agent_state(alice);
         world.print_recent_events(200);
@@ -454,11 +481,15 @@ fn third_agent_joining_emits_conversation_joined_event() {
     fast_brains(&mut world);
     world.tick(TICKS_TO_INITIATE);
 
-    let joined = world
-        .sim_events()
-        .all()
-        .iter()
-        .any(|e| matches!(e, SimEvent::ConversationJoined { .. }));
+    let joined = world.sim_events().all().iter().any(|e| {
+        matches!(
+            e,
+            SimEvent {
+                kind: SimEventKind::ConversationJoined { .. },
+                ..
+            }
+        )
+    });
     assert!(
         joined,
         "ConversationJoined should fire when a third agent joins an active conversation"
@@ -637,12 +668,24 @@ fn conversation_reaches_active_state() {
     // for proof that a conversation started and ended (which means it
     // progressed through the state machine).
     let events = world.sim_events().all();
-    let had_conversation = events
-        .iter()
-        .any(|e| matches!(e, SimEvent::ConversationStarted { .. }));
-    let ended_cleanly = events
-        .iter()
-        .any(|e| matches!(e, SimEvent::ConversationEnded { .. }));
+    let had_conversation = events.iter().any(|e| {
+        matches!(
+            e,
+            SimEvent {
+                kind: SimEventKind::ConversationStarted { .. },
+                ..
+            }
+        )
+    });
+    let ended_cleanly = events.iter().any(|e| {
+        matches!(
+            e,
+            SimEvent {
+                kind: SimEventKind::ConversationEnded { .. },
+                ..
+            }
+        )
+    });
 
     if !had_conversation {
         world.print_conversation(agents["alice"]);
@@ -735,11 +778,27 @@ fn abandon_ratio_below_threshold() {
     let events = world.sim_events().all();
     let ended = events
         .iter()
-        .filter(|e| matches!(e, SimEvent::ConversationEnded { .. }))
+        .filter(|e| {
+            matches!(
+                e,
+                SimEvent {
+                    kind: SimEventKind::ConversationEnded { .. },
+                    ..
+                }
+            )
+        })
         .count();
     let abandoned = events
         .iter()
-        .filter(|e| matches!(e, SimEvent::ConversationAbandoned { .. }))
+        .filter(|e| {
+            matches!(
+                e,
+                SimEvent {
+                    kind: SimEventKind::ConversationAbandoned { .. },
+                    ..
+                }
+            )
+        })
         .count();
 
     assert!(

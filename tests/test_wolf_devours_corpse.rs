@@ -12,7 +12,7 @@ use worldsim::agent::actions::ActionType;
 use worldsim::agent::biology::body::{Body, BodyNodeKind};
 use worldsim::agent::body::metabolism::Metabolism;
 use worldsim::agent::body::needs::PhysicalNeeds;
-use worldsim::agent::events::SimEvent;
+use worldsim::agent::events::{SimEvent, SimEventKind};
 use worldsim::agent::inventory::EntityType;
 use worldsim::agent::item_slots::ItemSlots;
 use worldsim::agent::mind::knowledge::Concept;
@@ -78,12 +78,7 @@ fn hungry_wolf_devours_meat_from_nearby_corpse() {
         .filter(|e| {
             matches!(
                 e,
-                SimEvent::ActionCompleted {
-                    agent,
-                    action,
-                    tick,
-                    ..
-                } if *agent == wolf && *action == ActionType::Devour && *tick >= devour_arming_tick
+                SimEvent { tick, kind: SimEventKind::ActionCompleted { agent, action, .. }, .. } if *agent == wolf && *action == ActionType::Devour && *tick >= devour_arming_tick
             )
         })
         .count() as u32;

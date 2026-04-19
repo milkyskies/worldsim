@@ -12,7 +12,7 @@ use worldsim::agent::actions::ActionType;
 use worldsim::agent::biology::body::{Body, BodyNodeKind};
 use worldsim::agent::body::metabolism::Metabolism;
 use worldsim::agent::body::needs::PhysicalNeeds;
-use worldsim::agent::events::SimEvent;
+use worldsim::agent::events::{SimEvent, SimEventKind};
 use worldsim::agent::inventory::EntityType;
 use worldsim::agent::mind::knowledge::Concept;
 use worldsim::testing::TestWorld;
@@ -75,11 +75,15 @@ fn wolf_does_not_bite_freshly_killed_deer_corpse() {
         .all()
         .iter()
         .filter_map(|e| match e {
-            SimEvent::ActionStarted {
-                agent,
-                action,
-                target,
+            SimEvent {
                 tick,
+                kind:
+                    SimEventKind::ActionStarted {
+                        agent,
+                        action,
+                        target,
+                        ..
+                    },
                 ..
             } if *agent == wolf
                 && *action == ActionType::Bite

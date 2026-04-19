@@ -30,16 +30,12 @@ fn spawn_agent(app: &mut App, pos: Vec2, stress: f32, aerobic: f32) -> Entity {
         .spawn((
             Agent,
             Transform::from_xyz(pos.x, pos.y, 0.0),
-            PhysicalNeeds {
-                stamina: worldsim::agent::body::needs::Stamina {
+            PhysicalNeeds::full()
+                .with_metabolism(worldsim::agent::body::metabolism::Metabolism::well_fed())
+                .with_stamina(worldsim::agent::body::needs::Stamina {
                     aerobic,
                     ..Default::default()
-                },
-                metabolism: worldsim::agent::body::metabolism::Metabolism::well_fed(),
-                hydration: worldsim::agent::body::need::Need::full(),
-                wakefulness: worldsim::agent::body::need::Need::full(),
-                warmth: worldsim::agent::body::need::Need::full(),
-            },
+                }),
             EmotionalState {
                 stress_level: stress,
                 ..Default::default()

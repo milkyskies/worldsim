@@ -5,7 +5,7 @@
 
 use bevy::math::Vec2;
 use worldsim::agent::body::needs::PsychologicalDrives;
-use worldsim::agent::events::SimEvent;
+use worldsim::agent::events::{SimEvent, SimEventKind};
 use worldsim::agent::nervous_system::config::NervousSystemConfig;
 use worldsim::testing::TestWorld;
 
@@ -47,7 +47,7 @@ fn greeting_cooldown_prevents_spam() {
         .filter(|e| {
             matches!(
                 e,
-                SimEvent::SocialAcknowledgment { actor, target, .. }
+                SimEvent { kind: SimEventKind::SocialAcknowledgment { actor, target, .. }, .. }
                     if (*actor == alice && *target == bob) || (*actor == bob && *target == alice)
             )
         })
@@ -82,7 +82,15 @@ fn strangers_do_not_greet() {
         .sim_events()
         .all()
         .iter()
-        .filter(|e| matches!(e, SimEvent::SocialAcknowledgment { .. }))
+        .filter(|e| {
+            matches!(
+                e,
+                SimEvent {
+                    kind: SimEventKind::SocialAcknowledgment { .. },
+                    ..
+                }
+            )
+        })
         .count();
 
     assert_eq!(

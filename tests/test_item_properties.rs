@@ -7,6 +7,7 @@
 //! - Properties are preserved through deposit/take transfers
 
 use bevy::prelude::Vec2;
+use worldsim::agent::events::SimEventKind;
 use worldsim::agent::item_slots::{
     Access, ItemSlots, Slot, SlotFilter, SlotRole, Thing, ThingProperties, perishable_decay_rate,
 };
@@ -111,9 +112,12 @@ fn freshness_reaches_zero_and_converts_to_rotten_apple() {
         .filter(|e| {
             matches!(
                 e,
-                worldsim::agent::events::SimEvent::ItemSpoiled {
-                    from: Concept::Apple,
-                    to: Concept::RottenApple,
+                worldsim::agent::events::SimEvent {
+                    kind: SimEventKind::ItemSpoiled {
+                        from: Concept::Apple,
+                        to: Concept::RottenApple,
+                        ..
+                    },
                     ..
                 }
             )

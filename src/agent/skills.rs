@@ -30,7 +30,7 @@ use bevy::prelude::*;
 use crate::agent::Agent;
 use crate::agent::actions::ActionType;
 use crate::agent::actions::registry::ActiveActions;
-use crate::agent::events::SimEvent;
+use crate::agent::events::{SimEvent, SimEventKind};
 use crate::agent::psyche::personality::Personality;
 use crate::core::tick::TickCount;
 use crate::core::time::GameTime;
@@ -310,7 +310,10 @@ pub fn skill_progression_system(
         .p0()
         .read()
         .filter_map(|event| match event {
-            SimEvent::ActionCompleted { agent, action, .. } => Some((*agent, *action)),
+            SimEvent {
+                kind: SimEventKind::ActionCompleted { agent, action, .. },
+                ..
+            } => Some((*agent, *action)),
             _ => None,
         })
         .filter(|(_, action)| skill_for_action(*action).is_some())
@@ -375,13 +378,16 @@ pub fn skill_progression_system(
     if !emitted.is_empty() {
         let mut writer = sim_events.p1();
         for (agent, skill, old, new) in emitted {
-            writer.write(SimEvent::SkillChanged {
+            writer.write(SimEvent::single(
+                current_tick,
                 agent,
-                tick: current_tick,
-                skill,
-                old_value: old,
-                new_value: new,
-            });
+                SimEventKind::SkillChanged {
+                    agent,
+                    skill,
+                    old_value: old,
+                    new_value: new,
+                },
+            ));
         }
     }
 }

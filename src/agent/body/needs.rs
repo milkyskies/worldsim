@@ -206,6 +206,37 @@ impl PhysicalNeeds {
             warmth: Need::full(),
         }
     }
+
+    /// All pools full. Alias for `Default::default()` — use at the start
+    /// of a fluent builder chain so the intent is explicit.
+    pub fn full() -> Self {
+        Self::default()
+    }
+
+    pub fn with_metabolism(mut self, m: Metabolism) -> Self {
+        self.metabolism = m;
+        self
+    }
+
+    pub fn with_hydration(mut self, value: f32) -> Self {
+        self.hydration = Need::new(value);
+        self
+    }
+
+    pub fn with_stamina(mut self, s: Stamina) -> Self {
+        self.stamina = s;
+        self
+    }
+
+    pub fn with_wakefulness(mut self, value: f32) -> Self {
+        self.wakefulness = Need::new(value);
+        self
+    }
+
+    pub fn with_warmth(mut self, value: f32) -> Self {
+        self.warmth = Need::new(value);
+        self
+    }
 }
 
 /// Consciousness state - alertness and awareness

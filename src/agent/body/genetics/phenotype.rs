@@ -15,7 +15,7 @@ use crate::agent::body::genetics::genome::{
 };
 use crate::agent::body::needs::{PsychologicalDrives, SocialDriveOverride};
 use crate::agent::body::species::SpeciesProfile;
-use crate::agent::events::SimEvent;
+use crate::agent::events::{SimEvent, SimEventKind};
 use crate::agent::mind::perception::Vision;
 use crate::agent::psyche::personality::{Personality, PersonalityTraits};
 use crate::core::tick::TickCount;
@@ -304,11 +304,14 @@ pub fn develop_phenotype_system(
             drives.companionship.set(1.0 - *v);
         }
 
-        sim_events.write(SimEvent::PhenotypeDeveloped {
-            agent: entity,
-            tick: tick.current,
-            phenotype: phenotype.clone(),
-        });
+        sim_events.write(SimEvent::single(
+            tick.current,
+            entity,
+            SimEventKind::PhenotypeDeveloped {
+                agent: entity,
+                phenotype: phenotype.clone(),
+            },
+        ));
 
         commands.entity(entity).insert((
             phenotype,

@@ -7,7 +7,7 @@
 //! 4. Novelty scoring uses ToM instead of direct mind queries
 
 use bevy::math::Vec2;
-use worldsim::agent::events::SimEvent;
+use worldsim::agent::events::{SimEvent, SimEventKind};
 use worldsim::agent::mind::knowledge::{
     Concept, MemoryType, Metadata, Node, Predicate, Source, Triple, Value,
 };
@@ -107,7 +107,15 @@ fn theory_of_mind_sim_event_fires_during_conversation() {
     let tom_events: Vec<_> = events
         .all()
         .iter()
-        .filter(|e| matches!(e, SimEvent::TheoryOfMindUpdated { .. }))
+        .filter(|e| {
+            matches!(
+                e,
+                SimEvent {
+                    kind: SimEventKind::TheoryOfMindUpdated { .. },
+                    ..
+                }
+            )
+        })
         .collect();
 
     assert!(

@@ -82,4 +82,87 @@ impl AgentConfig {
             ..Self::default()
         }
     }
+
+    pub fn named(mut self, name: impl Into<String>) -> Self {
+        self.name = Some(name.into());
+        self
+    }
+
+    pub fn with_metabolism(mut self, m: Metabolism) -> Self {
+        self.metabolism = m;
+        self
+    }
+
+    pub fn with_hydration(mut self, value: f32) -> Self {
+        self.hydration = value;
+        self
+    }
+
+    pub fn with_stamina(mut self, value: f32) -> Self {
+        self.stamina = value;
+        self
+    }
+
+    pub fn with_wakefulness(mut self, value: f32) -> Self {
+        self.wakefulness = value;
+        self
+    }
+
+    pub fn with_warmth(mut self, value: f32) -> Self {
+        self.warmth = value;
+        self
+    }
+
+    pub fn with_social_drive(mut self, value: f32) -> Self {
+        self.social_drive = Some(value);
+        self
+    }
+
+    pub fn with_genome(mut self, genome: Genome) -> Self {
+        self.genome = genome;
+        self
+    }
+
+    pub fn with_culture(mut self, culture: Culture) -> Self {
+        self.culture = culture;
+        self
+    }
+
+    pub fn with_knowledge(mut self, knowledge: Vec<Triple>) -> Self {
+        self.knowledge = knowledge;
+        self
+    }
+
+    /// Starve the agent: empty stomach and depleted blood glucose so
+    /// Hunger urgency dominates. Equivalent to `with_metabolism(Metabolism::empty())`.
+    pub fn hungry(self) -> Self {
+        self.with_metabolism(Metabolism::empty())
+    }
+
+    /// Parch the agent (hydration 0.1). Thirst urgency dominates.
+    pub fn thirsty(self) -> Self {
+        self.with_hydration(0.1)
+    }
+
+    /// Exhaust the agent (stamina 10). Stamina urgency dominates and
+    /// Rest wins arbitration.
+    pub fn exhausted(self) -> Self {
+        self.with_stamina(10.0)
+    }
+
+    /// Drop wakefulness to 0.15 — well below the sleep gate.
+    pub fn sleepy(self) -> Self {
+        self.with_wakefulness(0.15)
+    }
+
+    /// Drop warmth to 0.2 — cold enough to trigger WarmUp proposals.
+    pub fn cold(self) -> Self {
+        self.with_warmth(0.2)
+    }
+
+    /// Lonely: force companionship satisfaction to 0.0 regardless of
+    /// genome-derived baseline.
+    pub fn lonely(self) -> Self {
+        self.with_social_drive(0.0)
+    }
 }

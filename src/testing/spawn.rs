@@ -66,16 +66,15 @@ pub(super) fn spawn_test_person(
             name: display_name,
             position: config.pos,
             genome: config.genome,
-            physical_needs: PhysicalNeeds {
-                metabolism: config.metabolism.clone(),
-                hydration: crate::agent::body::need::Need::new(config.hydration),
-                stamina: crate::agent::body::needs::Stamina {
+            physical_needs: PhysicalNeeds::full()
+                .with_metabolism(config.metabolism.clone())
+                .with_hydration(config.hydration)
+                .with_stamina(crate::agent::body::needs::Stamina {
                     aerobic: config.stamina,
                     ..Default::default()
-                },
-                wakefulness: crate::agent::body::need::Need::new(config.wakefulness),
-                warmth: crate::agent::body::need::Need::new(config.warmth),
-            },
+                })
+                .with_wakefulness(config.wakefulness)
+                .with_warmth(config.warmth),
             cultural_knowledge,
             extra_knowledge,
         },

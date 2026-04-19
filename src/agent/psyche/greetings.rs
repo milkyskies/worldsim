@@ -16,7 +16,7 @@ use bevy::prelude::*;
 use crate::agent::Agent;
 use crate::agent::actions::ActionType;
 use crate::agent::body::needs::PsychologicalDrives;
-use crate::agent::events::{GameEvent, SimEvent};
+use crate::agent::events::{GameEvent, SimEvent, SimEventKind};
 use crate::agent::mind::conversation::InConversation;
 use crate::agent::mind::knowledge::{MindGraph, Node, Predicate};
 use crate::agent::mind::perception::VisibleObjects;
@@ -144,10 +144,11 @@ pub fn social_acknowledgments(
             valence: GREETING_VALENCE,
         });
 
-        sim_events.write(SimEvent::SocialAcknowledgment {
+        sim_events.write(SimEvent::pair(
+            now,
             actor,
             target,
-            tick: now,
-        });
+            SimEventKind::SocialAcknowledgment { actor, target },
+        ));
     }
 }

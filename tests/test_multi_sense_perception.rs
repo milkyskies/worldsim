@@ -4,7 +4,7 @@
 //! triples with correct source_sense metadata, and that SoundSource is transient.
 
 use bevy::prelude::*;
-use worldsim::agent::events::SimEvent;
+use worldsim::agent::events::{SimEvent, SimEventKind};
 use worldsim::agent::mind::knowledge::{Concept, MindGraph, Node, Predicate, Sense, Value};
 use worldsim::testing::{AgentConfig, TestWorld};
 use worldsim::world::sense_sources::{SoundKind, SoundSource};
@@ -266,7 +266,7 @@ fn warmth_perceived_event_emitted() {
     let warmth_events: Vec<_> = log
         .all()
         .iter()
-        .filter(|e| matches!(e, SimEvent::WarmthPerceived { agent: a, .. } if *a == agent))
+        .filter(|e| matches!(e, SimEvent { kind: SimEventKind::WarmthPerceived { agent: a, .. }, .. } if *a == agent))
         .collect();
 
     assert!(
@@ -290,7 +290,7 @@ fn sound_perceived_event_emitted() {
     let sound_events: Vec<_> = log
         .all()
         .iter()
-        .filter(|e| matches!(e, SimEvent::SoundPerceived { agent: a, .. } if *a == agent))
+        .filter(|e| matches!(e, SimEvent { kind: SimEventKind::SoundPerceived { agent: a, .. }, .. } if *a == agent))
         .collect();
 
     assert!(

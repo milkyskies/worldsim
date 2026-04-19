@@ -6,6 +6,7 @@
 //! Downstream: brain_system (reads VisibleObjects), knowledge (MindGraph updated with percepts), SimEvent consumers
 
 use crate::agent::Agent;
+use crate::agent::events::SimEventKind;
 use crate::agent::mind::knowledge::{
     CardinalDirection, Concept, Metadata, MindGraph, Node, Predicate, Quantity, Sense, Triple,
     Value,
@@ -75,11 +76,14 @@ pub fn update_visual_perception(
         // Emit EntityPerceived for newly visible entities
         for &entity in &visible_objects.entities {
             if !previous.contains(&entity) {
-                sim_events.write(crate::agent::events::SimEvent::EntityPerceived {
-                    agent: agent_entity,
-                    tick: tick.current,
-                    target: entity,
-                });
+                sim_events.write(crate::agent::events::SimEvent::single(
+                    tick.current,
+                    agent_entity,
+                    SimEventKind::EntityPerceived {
+                        agent: agent_entity,
+                        target: entity,
+                    },
+                ));
             }
         }
     }
@@ -647,11 +651,14 @@ pub fn perceive_temperature(
                 );
             }
 
-            sim_events.write(crate::agent::events::SimEvent::WarmthPerceived {
-                agent: agent_entity,
-                tick: current_time,
-                source: source_entity,
-            });
+            sim_events.write(crate::agent::events::SimEvent::single(
+                current_time,
+                agent_entity,
+                SimEventKind::WarmthPerceived {
+                    agent: agent_entity,
+                    source: source_entity,
+                },
+            ));
         }
     }
 }
@@ -733,12 +740,15 @@ pub fn perceive_hearing(
                 );
             }
 
-            sim_events.write(crate::agent::events::SimEvent::SoundPerceived {
-                agent: agent_entity,
-                tick: current_time,
-                source: source_entity,
-                kind: sound.kind,
-            });
+            sim_events.write(crate::agent::events::SimEvent::single(
+                current_time,
+                agent_entity,
+                SimEventKind::SoundPerceived {
+                    agent: agent_entity,
+                    source: source_entity,
+                    kind: sound.kind,
+                },
+            ));
         }
     }
 }
@@ -756,18 +766,13 @@ pub fn cleanup_sound_sources(mut commands: Commands, sources: Query<Entity, With
 #[cfg(test)]
 mod threat_tests {
     use super::*;
-    use crate::agent::body::needs::{PhysicalNeeds, Stamina};
+    use crate::agent::body::needs::PhysicalNeeds;
     use crate::agent::item_slots::ItemSlots;
     use crate::agent::psyche::personality::{Personality, PersonalityTraits};
 
     fn default_needs() -> PhysicalNeeds {
-        PhysicalNeeds {
-            metabolism: crate::agent::body::metabolism::Metabolism::well_fed(),
-            hydration: crate::agent::body::need::Need::full(),
-            stamina: Stamina::default(),
-            wakefulness: crate::agent::body::need::Need::full(),
-            warmth: crate::agent::body::need::Need::full(),
-        }
+        PhysicalNeeds::full()
+            .with_metabolism(crate::agent::body::metabolism::Metabolism::well_fed())
     }
 
     fn personality_with_neuroticism(neuroticism: f32) -> Personality {
@@ -842,10 +847,8 @@ mod threat_tests {
         let calm_full = assess_threat(&personality, &default_needs(), 1.0, None);
         let starving = assess_threat(
             &personality,
-            &PhysicalNeeds {
-                metabolism: crate::agent::body::metabolism::Metabolism::at_urgency(0.95),
-                ..default_needs()
-            },
+            &default_needs()
+                .with_metabolism(crate::agent::body::metabolism::Metabolism::at_urgency(0.95)),
             1.0,
             None,
         );

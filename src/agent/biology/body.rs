@@ -15,6 +15,7 @@
 use crate::agent::actions::channel::Channel;
 use crate::agent::body::needs::PhysicalNeeds;
 use crate::agent::body::species::Species;
+use crate::agent::events::SimEventKind;
 use crate::agent::mind::knowledge::Concept;
 use crate::agent::{Alive, Dead};
 use crate::core::GameLog;
@@ -941,11 +942,14 @@ pub fn die(
     let cause = cause.into();
     let name_str = name.map(|n| n.as_str()).unwrap_or("Unknown Entity");
     game_log.event(&format!("{} died of {}!", name_str, cause));
-    sim_events.write(crate::agent::events::SimEvent::Death {
-        agent: entity,
-        tick: current_tick,
-        cause: cause.clone(),
-    });
+    sim_events.write(crate::agent::events::SimEvent::single(
+        current_tick,
+        entity,
+        SimEventKind::Death {
+            agent: entity,
+            cause: cause.clone(),
+        },
+    ));
     commands
         .entity(entity)
         .remove::<Alive>()
