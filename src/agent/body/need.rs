@@ -147,7 +147,7 @@ impl Default for Need {
 ///
 /// Everything downstream — urgency inversion, satiation gates, telemetry —
 /// picks the new variant up automatically.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect, serde::Serialize)]
 pub enum NeedKind {
     // Physical pools
     Hunger,

@@ -11,7 +11,7 @@
 use bevy::prelude::*;
 
 /// What kind of sound an entity is producing.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect, serde::Serialize)]
 pub enum SoundKind {
     /// Wolf territorial/pack call
     Howl,

@@ -9,7 +9,7 @@ use bevy::prelude::*;
 
 /// Defines the objective "verbs" agents can perform.
 /// This separates Intent (Action) from Occurrence (Event).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect, Default, serde::Serialize)]
 pub enum ActionType {
     // Survival / Biological
     Eat,

@@ -15,7 +15,7 @@ use bevy::prelude::*;
 /// propose actions targeting the same drive (e.g. Walk-to-apple-tree and
 /// Explore-for-food both satisfy Hunger), only the highest-scoring one
 /// survives. This prevents parallel conflicting strategies for the same need.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect, Default, serde::Serialize)]
 pub enum Intent {
     SatisfyHunger,
     SatisfyThirst,
@@ -53,7 +53,7 @@ impl Intent {
 }
 
 /// Which brain is making a proposal
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect, serde::Serialize)]
 pub enum BrainType {
     Survival,  // Reactive, immediate responses
     Emotional, // Association-driven behavior
@@ -97,7 +97,7 @@ pub struct BrainProposal {
 }
 
 /// Brain power calculations for arbitration
-#[derive(Debug, Clone, Copy, Reflect, Default)]
+#[derive(Debug, Clone, Copy, Reflect, Default, serde::Serialize)]
 pub struct BrainPowers {
     pub survival: f32,
     pub emotional: f32,

@@ -89,32 +89,32 @@ cargo run --release -- --headless --ticks 5000 --seed 42 --log events.parquet \
   --log-filter tick:1000-2000
 ```
 
-Every event carries both `agent` (display name, e.g. `"alice"`) and `agent_id` (stable Entity debug string, e.g. `"0v0"`). Filter by whichever you have — `agent_id` is safer when names repeat or the agent dies and gets despawned.
+Every Entity field serializes as a nested object `{"name": "alice", "id": "0v0"}`. In queries, pull the name with `$.agent.name` and the stable id with `$.agent.id`. Same shape for other Entity fields (`$.target.name`, `$.other.id`, etc.). Filter by whichever you have — `.id` is safer when names repeat or the agent dies and gets despawned.
 
 **DuckDB patterns** (against a Parquet log, or JSONL via `read_json_auto`):
 
 ```sql
 -- All decisions for one agent
-SELECT * FROM events WHERE agent = 'alice' AND type = 'Decision' ORDER BY tick;
+SELECT * FROM events WHERE json_extract_string(payload, '$.agent.name') = 'alice' AND type = 'Decision' ORDER BY tick;
 
 -- Event type distribution
 SELECT type, COUNT(*) AS n FROM events GROUP BY type ORDER BY n DESC;
 
 -- Timeline of an agent's actions
 SELECT tick, json_extract_string(payload, '$.action') AS action
-FROM events WHERE type = 'ActionStarted' AND agent = 'alice' ORDER BY tick;
+FROM events WHERE type = 'ActionStarted' AND json_extract_string(payload, '$.agent.name') = 'alice' ORDER BY tick;
 
 -- Join decisions with the plan that drove them (canned view)
-SELECT * FROM decisions_with_plans WHERE agent = 'alice' AND tick BETWEEN 4500 AND 4600;
+SELECT * FROM decisions_with_plans WHERE json_extract_string(payload, '$.agent.name') = 'alice' AND tick BETWEEN 4500 AND 4600;
 
 -- Why did alice take action X at tick Z? One query.
 SELECT d.tick, d.winner, d.actions, p.plan_id, p.goal, p.driving_urgency,
        array_agg(u.source || '=' || u.value) AS urgencies
 FROM events d
-LEFT JOIN events p ON p.type = 'PlanGenerated' AND p.agent = d.agent AND p.tick <= d.tick
+LEFT JOIN events p ON p.type = 'PlanGenerated' AND json_extract_string(p.payload, '$.agent.name') = json_extract_string(d.payload, '$.agent.name') AND p.tick <= d.tick
 LEFT JOIN (SELECT tick, agent, unnest(urgencies) AS u_rec FROM events WHERE type = 'Decision') u
-  ON u.tick = d.tick AND u.agent = d.agent
-WHERE d.type = 'Decision' AND d.agent = 'alice' AND d.tick = 4521
+  ON u.tick = d.tick AND json_extract_string(u.payload, '$.agent.name') = json_extract_string(d.payload, '$.agent.name')
+WHERE d.type = 'Decision' AND json_extract_string(d.payload, '$.agent.name') = 'alice' AND d.tick = 4521
 GROUP BY d.tick, d.winner, d.actions, p.plan_id, p.goal, p.driving_urgency;
 ```
 
@@ -122,13 +122,13 @@ GROUP BY d.tick, d.winner, d.actions, p.plan_id, p.goal, p.driving_urgency;
 
 ```bash
 # All decisions for one agent
-cat events.jsonl | jq 'select(.agent == "alice" and .type == "Decision")'
+cat events.jsonl | jq 'select(.agent.name == "alice" and .type == "Decision")'
 
 # Count events by type
 cat events.jsonl | jq -r .type | sort | uniq -c | sort -rn
 
 # Timeline of an agent's actions
-cat events.jsonl | jq -r 'select(.agent == "alice" and .type == "ActionStarted") | "\(.tick)\t\(.action)"'
+cat events.jsonl | jq -r 'select(.agent.name == "alice" and .type == "ActionStarted") | "\(.tick)\t\(.action)"'
 ```
 
 **Key event types** (see `src/agent/events.rs` for the canonical list):
@@ -455,20 +455,20 @@ Inside DuckDB:
 
 ```sql
 -- The decision itself: winner, admitted actions, urgencies
-SELECT * FROM events WHERE type = 'Decision' AND agent = 'alice' AND tick = 4521;
+SELECT * FROM events WHERE type = 'Decision' AND json_extract_string(payload, '$.agent.name') = 'alice' AND tick = 4521;
 
 -- The plan that drove it (joins Decision → PlanGenerated on agent, plan_id)
-SELECT * FROM decisions_with_plans WHERE agent = 'alice' AND tick = 4521;
+SELECT * FROM decisions_with_plans WHERE json_extract_string(payload, '$.agent.name') = 'alice' AND tick = 4521;
 
 -- What targets the brain considered during planning that tick
-SELECT * FROM events WHERE type = 'TargetEnumerated' AND agent = 'alice' AND tick = 4521;
+SELECT * FROM events WHERE type = 'TargetEnumerated' AND json_extract_string(payload, '$.agent.name') = 'alice' AND tick = 4521;
 
 -- Why the planner failed (if no plan was produced)
-SELECT * FROM events WHERE type = 'PatternRejected' AND agent = 'alice' AND tick BETWEEN 4500 AND 4521;
+SELECT * FROM events WHERE type = 'PatternRejected' AND json_extract_string(payload, '$.agent.name') = 'alice' AND tick BETWEEN 4500 AND 4521;
 
 -- The GOAP search's own report card
 SELECT tick, iterations, exhausted, best_unmet_goals
-FROM events WHERE type = 'GoapSearchTelemetry' AND agent = 'alice' AND tick BETWEEN 4500 AND 4521;
+FROM events WHERE type = 'GoapSearchTelemetry' AND json_extract_string(payload, '$.agent.name') = 'alice' AND tick BETWEEN 4500 AND 4521;
 ```
 
 For anything the events don't cover, fall back to `--trace agent:alice` and `--dump-mind agent:alice --at-tick 4521`.
@@ -492,7 +492,7 @@ Flaky tests are non-determinism, period. Don't add retries.
 2. Capture `AgentStateHash` from two runs with different seeds and diff them in DuckDB to find the first tick that diverges:
    ```sql
    -- After attaching two run dirs as `events_a` and `events_b`:
-   SELECT a.tick, a.agent, a.hash AS hash_a, b.hash AS hash_b
+   SELECT a.tick, json_extract_string(a.payload, '$.agent.name'), a.hash AS hash_a, b.hash AS hash_b
    FROM events_a a JOIN events_b b USING (tick, agent)
    WHERE a.type = 'AgentStateHash' AND b.type = 'AgentStateHash' AND a.hash != b.hash
    ORDER BY a.tick LIMIT 1;
@@ -514,7 +514,7 @@ cargo run --release -- --headless --ticks N --seed S --log debug/run/events.parq
 cargo run --release -q -- --debug debug/run > debug/run/setup.sql
 duckdb -init debug/run/setup.sql -c "
   SELECT tick, payload FROM events
-  WHERE type = 'RelationshipChanged' AND agent = 'alice'
+  WHERE type = 'RelationshipChanged' AND json_extract_string(payload, '$.agent.name') = 'alice'
     AND json_extract_string(payload, '\$.other') = 'bob'
   ORDER BY tick;
 "
@@ -538,7 +538,7 @@ WITH mutations AS (
          json_extract_string(payload, '$.subject')   AS subject,
          json_extract_string(payload, '$.predicate') AS predicate,
          json_extract_string(payload, '$.object')    AS object
-  FROM events WHERE type = 'MindGraphMutation' AND agent = 'alice' AND tick <= 5000
+  FROM events WHERE type = 'MindGraphMutation' AND json_extract_string(payload, '$.agent.name') = 'alice' AND tick <= 5000
 ),
 ranked AS (
   SELECT *, ROW_NUMBER() OVER (PARTITION BY subject, predicate, object ORDER BY tick DESC) AS rn
@@ -597,7 +597,7 @@ WITH field_buckets AS (
 action_buckets AS (
   SELECT CAST(FLOOR((tick - 1.0) / 1200.0) AS INTEGER) AS bucket,
          json_extract_string(payload, '$.action') AS action, COUNT(*) AS n
-  FROM events WHERE event_type = 'ActionStarted' AND agent = 'Alice'
+  FROM events WHERE event_type = 'ActionStarted' AND json_extract_string(payload, '$.agent.name') = 'Alice'
   GROUP BY 1, 2
 ),
 action_str AS (

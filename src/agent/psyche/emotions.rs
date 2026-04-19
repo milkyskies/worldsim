@@ -9,7 +9,7 @@ use crate::agent::actions::ActionType;
 use crate::agent::events::SimEventKind;
 use bevy::prelude::*;
 
-#[derive(Debug, Clone, Copy, PartialEq, Reflect)]
+#[derive(Debug, Clone, Copy, PartialEq, Reflect, serde::Serialize)]
 pub enum EmotionType {
     Joy,
     Sadness,

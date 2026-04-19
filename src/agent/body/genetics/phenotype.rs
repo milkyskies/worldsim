@@ -42,7 +42,7 @@ const H2_PERSONALITY: f32 = 0.5;
 ///
 /// Computed once at spawn by [`develop_phenotype_system`] and never modified
 /// until reproduction wires in inheritance (issue #311).
-#[derive(Component, Clone, Reflect, Debug)]
+#[derive(Component, Clone, Reflect, Debug, serde::Serialize)]
 #[reflect(Component)]
 pub struct Phenotype {
     // Physical multipliers (1.0 = species baseline)

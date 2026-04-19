@@ -1,6 +1,7 @@
 use bevy::prelude::*;
 
 pub mod diagnostics;
+pub mod entity_serde;
 pub mod event_log;
 pub mod field_logger;
 pub mod log;
