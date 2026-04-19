@@ -6,11 +6,15 @@
 
 use bevy::prelude::*;
 use worldsim::agent::actions::ActionType;
-use worldsim::agent::brains::plan_memory::{HeldPlan, PlanMemory, PlanSource, PlanState};
+use worldsim::agent::brains::plan_memory::{
+    HeldPlan, PlanAbandonReason, PlanMemory, PlanSource, PlanState,
+};
 use worldsim::agent::brains::proposal::{BrainPowers, BrainState, BrainType};
 use worldsim::agent::brains::thinking::{ActionTemplate, Goal, TriplePattern};
+use worldsim::agent::events::SimEventKind;
 use worldsim::agent::mind::knowledge::{Node, Predicate};
 use worldsim::agent::nervous_system::config::NervousSystemConfig;
+use worldsim::agent::nervous_system::urgency::UrgencySource;
 use worldsim::testing::{AgentConfig, TestWorld};
 
 fn failing_harvest_template() -> ActionTemplate {
@@ -147,5 +151,107 @@ fn plan_invalidation_clears_stale_chosen_actions_immediately() {
         plan_cleared,
         "the broken Executing plan should be removed from PlanMemory \
          after precondition failure"
+    );
+
+    let abandoned = world.sim_events().all().iter().any(|e| {
+        matches!(
+            &e.kind,
+            SimEventKind::PlanAbandoned {
+                reason: PlanAbandonReason::PreconditionsUnmet,
+                ..
+            }
+        )
+    });
+
+    assert!(
+        abandoned,
+        "PlanAbandoned with PreconditionsUnmet must fire when the verify \
+         pass drops a plan whose current step's preconditions broke"
+    );
+}
+
+/// Stale-plan sweep must emit PlanAbandoned(DrivingUrgencyStale) when a
+/// plan's driving urgency has decayed below the relative-fraction cutoff
+/// but the plan has not yet made progress (so the looser engaged cutoff
+/// does not apply).
+#[test]
+fn retain_sweep_emits_plan_abandoned_for_stale_urgency() {
+    let mut world = TestWorld::with_seed(7);
+    let agent = world.spawn_agent(AgentConfig::default());
+
+    world
+        .app_mut()
+        .world_mut()
+        .resource_mut::<NervousSystemConfig>()
+        .thinking_interval = 1;
+
+    world.tick(1);
+
+    // Inject an Executing Rational plan whose driving_urgency is
+    // `Thirst` and whose `created_at_urgency` is a high value the CNS
+    // never reports (Thirst is not spawned at 0.9 by default). That
+    // mismatch triggers the relative-decay drop path.
+    {
+        let world_mut = world.app_mut().world_mut();
+        let mut memory = world_mut
+            .get_mut::<PlanMemory>(agent)
+            .expect("agent should have PlanMemory");
+        let id = memory.mint_plan_id();
+        memory.insert(HeldPlan {
+            id,
+            goal: Goal {
+                conditions: Vec::new(),
+                priority: 1.0,
+            },
+            // One harmless step — an action the agent will not be chosen to
+            // execute. The plan just needs to survive until the retain
+            // sweep runs.
+            steps: vec![ActionTemplate {
+                name: "Idle".into(),
+                action_type: ActionType::Idle,
+                behavior: Default::default(),
+                target_entity: None,
+                target_position: None,
+                preconditions: vec![],
+                effects: vec![],
+                consumes: vec![],
+                base_cost: 0.0,
+                locomotion_intensity: 0.0,
+                estimated_duration_ticks: None,
+                search_filter: None,
+            }],
+            state: PlanState::Executing,
+            commitment: 1.0,
+            subjective_cost: 0.0,
+            source: PlanSource::Brain(BrainType::Rational),
+            driving_urgency: UrgencySource::Thirst,
+            // Creation-time urgency much higher than current CNS value,
+            // so the relative rule drops the plan immediately.
+            created_at_urgency: 0.9,
+            created_at: 0,
+            last_touched: 0,
+            current_step: 0,
+        });
+    }
+
+    world.tick(2);
+
+    let abandoned_stale = world.sim_events().all().iter().any(|e| {
+        matches!(
+            &e.kind,
+            SimEventKind::PlanAbandoned {
+                driving_urgency: UrgencySource::Thirst,
+                reason: PlanAbandonReason::DrivingUrgencyStale
+                    | PlanAbandonReason::DrivingUrgencyMissing,
+                ..
+            }
+        )
+    });
+
+    assert!(
+        abandoned_stale,
+        "retain sweep must emit PlanAbandoned with a urgency-based \
+         reason when a Rational plan's driving urgency drops below the \
+         relative cutoff"
     );
 }
