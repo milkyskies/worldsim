@@ -7,7 +7,7 @@
 
 use bevy::prelude::*;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect, Default, serde::Serialize)]
 pub enum UrgencySource {
     #[default]
     Hunger,
@@ -72,7 +72,7 @@ impl UrgencySource {
     }
 }
 
-#[derive(Debug, Clone, Reflect)]
+#[derive(Debug, Clone, Reflect, serde::Serialize)]
 pub struct Urgency {
     pub source: UrgencySource,
     pub value: f32, // 0.0 to 1.0 (or higher if extreme)

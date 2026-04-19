@@ -45,7 +45,7 @@ use crate::world::map::TILE_SIZE;
 /// train `Combat`. Split further when a domain grows specialised enough to
 /// justify it (e.g. split `Combat` into `Melee`/`Ranged` once ranged weapons
 /// exist).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect, serde::Serialize)]
 pub enum SkillKind {
     /// Trained by Attack and Bite. Scales hit rolls, damage output, and
     /// (future) ability to disarm or grapple.

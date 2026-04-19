@@ -352,7 +352,7 @@ fn torso_organs() -> Vec<BodyNode> {
 
 /// Typed identifier for every anatomical node any species can carry.
 /// Merges the former `BodyPartKind` (structural) and `OrganKind` (internal).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect, serde::Serialize)]
 pub enum BodyNodeKind {
     // Structural
     Head,
@@ -573,7 +573,7 @@ impl TagChannelMapping {
 
 // ─── Injury ────────────────────────────────────────────────────────────────
 
-#[derive(Debug, Clone, Copy, PartialEq, Reflect)]
+#[derive(Debug, Clone, Copy, PartialEq, Reflect, serde::Serialize)]
 pub enum InjuryType {
     Cut,
     Bruise,

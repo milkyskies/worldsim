@@ -93,7 +93,7 @@ pub enum Node {
 // CONCEPTS — Unified enum for all describable things
 // ═══════════════════════════════════════════════════════════════════════════
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect, Default, serde::Serialize)]
 pub enum Concept {
     // ─── Base categories ───
     #[default]

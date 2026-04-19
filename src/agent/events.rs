@@ -97,7 +97,7 @@ pub enum ActionOutcome {
 }
 
 /// Why an action failed
-#[derive(Debug, Clone, Reflect, PartialEq)]
+#[derive(Debug, Clone, Reflect, PartialEq, serde::Serialize)]
 pub enum FailureReason {
     /// Target no longer exists or is invalid
     TargetGone,
@@ -185,15 +185,17 @@ impl SimEvent {
     }
 }
 
-#[derive(Debug, Clone, strum::AsRefStr)]
+#[derive(Debug, Clone, strum::AsRefStr, serde::Serialize)]
 pub enum SimEventKind {
     /// A brain decision was made: the arbitration system selected actions.
     Decision {
+        #[serde(serialize_with = "crate::core::entity_serde::serialize_entity")]
         agent: Entity,
         winner: Option<BrainType>,
         chosen_actions: Vec<ActionType>,
         powers: BrainPowers,
 
+        #[serde(serialize_with = "crate::core::entity_serde::serialize_brain_proposals")]
         proposals: Arc<Vec<BrainProposal>>,
         /// Per-drive urgency values at the moment of the decision.
         urgencies: Vec<Urgency>,
@@ -201,8 +203,10 @@ pub enum SimEventKind {
 
     /// An action was admitted into the running set.
     ActionStarted {
+        #[serde(serialize_with = "crate::core::entity_serde::serialize_entity")]
         agent: Entity,
         action: ActionType,
+        #[serde(serialize_with = "crate::core::entity_serde::serialize_entity_opt")]
         target: Option<Entity>,
         /// Plan id from PlanMemory if this action was driven by the rational brain.
         plan_id: Option<u64>,
@@ -212,23 +216,27 @@ pub enum SimEventKind {
 
     /// An action completed normally.
     ActionCompleted {
+        #[serde(serialize_with = "crate::core::entity_serde::serialize_entity")]
         agent: Entity,
         action: ActionType,
         /// The entity this action was running against, if any. Carried
         /// here so downstream systems (combat resolution, perception
         /// reactions) can find the target after `ActiveActions` has
         /// already dropped the completed action state.
+        #[serde(serialize_with = "crate::core::entity_serde::serialize_entity_opt")]
         target: Option<Entity>,
     },
 
     /// An action was preempted to make room for a higher-priority action.
     ActionPreempted {
+        #[serde(serialize_with = "crate::core::entity_serde::serialize_entity")]
         agent: Entity,
         preempted_action: ActionType,
     },
 
     /// An action failed its can_start check.
     ActionFailed {
+        #[serde(serialize_with = "crate::core::entity_serde::serialize_entity")]
         agent: Entity,
         action: ActionType,
         reason: FailureReason,
@@ -236,6 +244,7 @@ pub enum SimEventKind {
 
     /// An active plan was abandoned (stalled out or replaced by a better proposal).
     PlanAbandoned {
+        #[serde(serialize_with = "crate::core::entity_serde::serialize_entity")]
         agent: Entity,
         action: ActionType,
         intent: Intent,
@@ -243,12 +252,14 @@ pub enum SimEventKind {
 
     /// A conversation was started between participants.
     ConversationStarted {
+        #[serde(serialize_with = "crate::core::entity_serde::serialize_entity_vec")]
         participants: Vec<Entity>,
         conversation_id: u64,
     },
 
     /// A conversation ended.
     ConversationEnded {
+        #[serde(serialize_with = "crate::core::entity_serde::serialize_entity_vec")]
         participants: Vec<Entity>,
         conversation_id: u64,
     },
@@ -256,6 +267,7 @@ pub enum SimEventKind {
     /// A new agent joined an existing conversation as an additional
     /// participant (group grew from N to N+1).
     ConversationJoined {
+        #[serde(serialize_with = "crate::core::entity_serde::serialize_entity")]
         joiner: Entity,
         conversation_id: u64,
     },
@@ -264,19 +276,24 @@ pub enum SimEventKind {
     /// the rest kept talking. Distinct from `ConversationEnded` (whole
     /// group broke up) and `ConversationAbandoned` (leaver ditched rudely).
     ConversationLeft {
+        #[serde(serialize_with = "crate::core::entity_serde::serialize_entity")]
         leaver: Entity,
         conversation_id: u64,
     },
 
     /// A conversation was abandoned rudely (no farewell).
     ConversationAbandoned {
+        #[serde(serialize_with = "crate::core::entity_serde::serialize_entity")]
         abandoner: Entity,
+        #[serde(serialize_with = "crate::core::entity_serde::serialize_entity")]
         abandoned: Entity,
     },
 
     /// A relationship dimension changed between two agents.
     RelationshipChanged {
+        #[serde(serialize_with = "crate::core::entity_serde::serialize_entity")]
         agent: Entity,
+        #[serde(serialize_with = "crate::core::entity_serde::serialize_entity")]
         other: Entity,
         dimension: RelationshipDimension,
         old_value: f32,
@@ -285,28 +302,50 @@ pub enum SimEventKind {
 
     /// An emotion was triggered or reinforced.
     EmotionTriggered {
+        #[serde(serialize_with = "crate::core::entity_serde::serialize_entity")]
         agent: Entity,
         emotion: EmotionType,
         intensity: f32,
     },
 
     /// An agent died.
-    Death { agent: Entity, cause: String },
+    Death {
+        #[serde(serialize_with = "crate::core::entity_serde::serialize_entity")]
+        agent: Entity,
+        cause: String,
+    },
 
     /// An agent perceived a new entity (wasn't visible last tick).
-    EntityPerceived { agent: Entity, target: Entity },
+    EntityPerceived {
+        #[serde(serialize_with = "crate::core::entity_serde::serialize_entity")]
+        agent: Entity,
+        #[serde(serialize_with = "crate::core::entity_serde::serialize_entity")]
+        target: Entity,
+    },
 
     /// An agent recognized a stranger (first encounter).
-    StrangerDetected { agent: Entity, stranger: Entity },
+    StrangerDetected {
+        #[serde(serialize_with = "crate::core::entity_serde::serialize_entity")]
+        agent: Entity,
+        #[serde(serialize_with = "crate::core::entity_serde::serialize_entity")]
+        stranger: Entity,
+    },
 
     /// Two agents acknowledged each other in passing (wave, nod, brief
     /// greeting). Not a conversation — no turns, no state machine. Just a
     /// social signal that bumps companionship and relationship warmth.
-    SocialAcknowledgment { actor: Entity, target: Entity },
+    SocialAcknowledgment {
+        #[serde(serialize_with = "crate::core::entity_serde::serialize_entity")]
+        actor: Entity,
+        #[serde(serialize_with = "crate::core::entity_serde::serialize_entity")]
+        target: Entity,
+    },
 
     /// Knowledge was shared between agents.
     KnowledgeShared {
+        #[serde(serialize_with = "crate::core::entity_serde::serialize_entity")]
         speaker: Entity,
+        #[serde(serialize_with = "crate::core::entity_serde::serialize_entity")]
         listener: Entity,
         triple_count: usize,
     },
@@ -314,15 +353,26 @@ pub enum SimEventKind {
     /// An agent contributed one labor-tick to a construction site.
     /// Emitted once per active constructor per simulation tick by
     /// `labor_accumulation_system`.
-    LaborContributed { agent: Entity, site: Entity },
+    LaborContributed {
+        #[serde(serialize_with = "crate::core::entity_serde::serialize_entity")]
+        agent: Entity,
+        #[serde(serialize_with = "crate::core::entity_serde::serialize_entity")]
+        site: Entity,
+    },
 
     /// An agent felt warmth from a heat source (temperature sense).
-    WarmthPerceived { agent: Entity, source: Entity },
+    WarmthPerceived {
+        #[serde(serialize_with = "crate::core::entity_serde::serialize_entity")]
+        agent: Entity,
+        #[serde(serialize_with = "crate::core::entity_serde::serialize_entity")]
+        source: Entity,
+    },
 
     /// An agent's thermal comfort crossed a named threshold (comfort /
     /// urgent / critical). Emitted by the warmth drain/recovery system so
     /// decision traces and tooling can see the warmth-drive pipeline fire.
     WarmthChanged {
+        #[serde(serialize_with = "crate::core::entity_serde::serialize_entity")]
         agent: Entity,
         /// Warmth satisfaction before the change (0..1, high = comfortable).
         old_value: f32,
@@ -332,7 +382,9 @@ pub enum SimEventKind {
 
     /// An agent heard a sound (hearing sense).
     SoundPerceived {
+        #[serde(serialize_with = "crate::core::entity_serde::serialize_entity")]
         agent: Entity,
+        #[serde(serialize_with = "crate::core::entity_serde::serialize_entity")]
         source: Entity,
         kind: crate::world::sense_sources::SoundKind,
     },
@@ -340,7 +392,9 @@ pub enum SimEventKind {
     /// An agent's theory of mind was updated — they changed their belief
     /// about what another agent knows.
     TheoryOfMindUpdated {
+        #[serde(serialize_with = "crate::core::entity_serde::serialize_entity")]
         agent: Entity,
+        #[serde(serialize_with = "crate::core::entity_serde::serialize_entity")]
         about: Entity,
         /// How the belief was formed
         source: TheoryOfMindSource,
@@ -355,6 +409,7 @@ pub enum SimEventKind {
     /// `agent` is the entity holding the item (agent inventory, chest, etc.);
     /// not necessarily a thinking agent.
     ItemSpoiled {
+        #[serde(serialize_with = "crate::core::entity_serde::serialize_entity")]
         agent: Entity,
         from: Concept,
         to: Concept,
@@ -363,14 +418,17 @@ pub enum SimEventKind {
     /// An environmental effect (aura, zone, emitter) was applied to an agent.
     /// Emitted once per agent per emitter per tick when the agent is in range.
     EffectApplied {
+        #[serde(serialize_with = "crate::core::entity_serde::serialize_entity")]
         agent: Entity,
         /// The entity that emitted the effect (campfire, hostile zone, etc.)
+        #[serde(serialize_with = "crate::core::entity_serde::serialize_entity")]
         source: Entity,
     },
 
     /// An agent's proficiency in a skill changed — practice, mentorship,
     /// or disuse decay. Fired once per meaningful delta.
     SkillChanged {
+        #[serde(serialize_with = "crate::core::entity_serde::serialize_entity")]
         agent: Entity,
         skill: crate::agent::skills::SkillKind,
         old_value: f32,
@@ -381,7 +439,9 @@ pub enum SimEventKind {
     /// kind, damage magnitude, and the applied injury type so the JSONL
     /// log and debug tooling can reconstruct the fight blow by blow.
     CombatHit {
+        #[serde(serialize_with = "crate::core::entity_serde::serialize_entity")]
         attacker: Entity,
+        #[serde(serialize_with = "crate::core::entity_serde::serialize_entity")]
         defender: Entity,
         part_kind: crate::agent::biology::body::BodyNodeKind,
         damage: f32,
@@ -391,12 +451,18 @@ pub enum SimEventKind {
     /// A dodge roll succeeded — the defender evaded the attacker's swing.
     /// Feeds the event log without forcing ActionFailed semantics on the
     /// action (the Attack itself still "completed", the hit just didn't).
-    CombatMissed { attacker: Entity, defender: Entity },
+    CombatMissed {
+        #[serde(serialize_with = "crate::core::entity_serde::serialize_entity")]
+        attacker: Entity,
+        #[serde(serialize_with = "crate::core::entity_serde::serialize_entity")]
+        defender: Entity,
+    },
 
     /// A body part was severed — its HP hit zero and it was non-vital, so
     /// it fell off the owner and spawned a `SeveredPart` world entity.
     /// Covers limbs, jaws, ears, mouths — anything non-vital.
     PartSevered {
+        #[serde(serialize_with = "crate::core::entity_serde::serialize_entity")]
         entity: Entity,
         part_kind: crate::agent::biology::body::BodyNodeKind,
     },
@@ -407,6 +473,7 @@ pub enum SimEventKind {
     /// the genome is added. Carries the physical multipliers for quick
     /// inspection without querying the Phenotype component.
     PhenotypeDeveloped {
+        #[serde(serialize_with = "crate::core::entity_serde::serialize_entity")]
         agent: Entity,
         phenotype: crate::agent::body::genetics::phenotype::Phenotype,
     },
@@ -415,6 +482,7 @@ pub enum SimEventKind {
     /// telemetry: iteration count, whether the search exhausted its budget,
     /// and the patterns that remained unsatisfied (if any).
     GoapSearchTelemetry {
+        #[serde(serialize_with = "crate::core::entity_serde::serialize_entity")]
         agent: Entity,
         /// Debug-formatted goal conditions.
         goal_description: String,
@@ -427,6 +495,7 @@ pub enum SimEventKind {
 
     /// A GOAP plan was generated and inserted into PlanMemory.
     PlanGenerated {
+        #[serde(serialize_with = "crate::core::entity_serde::serialize_entity")]
         agent: Entity,
         plan_id: u64,
         driving_urgency: crate::agent::nervous_system::urgency::UrgencySource,
@@ -439,6 +508,7 @@ pub enum SimEventKind {
     /// An action candidate was included (or considered) during target enumeration.
     /// Emitted once per surviving (action, target) pair from `collect_planning_actions`.
     TargetEnumerated {
+        #[serde(serialize_with = "crate::core::entity_serde::serialize_entity")]
         agent: Entity,
         action_name: String,
         /// Debug-formatted target (entity id, tile coords, or "None").
@@ -451,6 +521,7 @@ pub enum SimEventKind {
     /// that couldn't be satisfied, enabling diagnosis of "why can't I eat?"
     /// style questions.
     PatternRejected {
+        #[serde(serialize_with = "crate::core::entity_serde::serialize_entity")]
         agent: Entity,
         /// Debug-formatted goal conditions that the planner was trying to satisfy.
         goal_description: String,
@@ -461,6 +532,7 @@ pub enum SimEventKind {
     /// A triple was added to or removed from an agent's MindGraph.
     /// Emitted in bulk by `drain_mindgraph_mutations` — one event per mutation.
     MindGraphMutation {
+        #[serde(serialize_with = "crate::core::entity_serde::serialize_entity")]
         agent: Entity,
         /// "Add" or "Remove".
         op: String,
@@ -475,6 +547,7 @@ pub enum SimEventKind {
     /// Per-tick hash of an agent's observable state. Comparing hashes across
     /// two runs with different seeds pinpoints the exact tick of divergence.
     AgentStateHash {
+        #[serde(serialize_with = "crate::core::entity_serde::serialize_entity")]
         agent: Entity,
         /// FxHash of (position_tile_x, position_tile_y, urgency_sources_sorted, plan_ids_sorted).
         hash: u64,
@@ -482,14 +555,14 @@ pub enum SimEventKind {
 }
 
 /// Which relationship dimension changed.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Reflect)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Reflect, serde::Serialize)]
 pub enum RelationshipDimension {
     Trust,
     Affection,
 }
 
 /// How a theory of mind belief was formed.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Reflect)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Reflect, serde::Serialize)]
 pub enum TheoryOfMindSource {
     /// "I told them this" — speaker recording what they shared
     Communicated,
