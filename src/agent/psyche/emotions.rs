@@ -725,15 +725,8 @@ mod tests {
 
     fn calm_needs() -> crate::agent::body::needs::PhysicalNeeds {
         use crate::agent::body::metabolism::Metabolism;
-        use crate::agent::body::need::Need;
-        use crate::agent::body::needs::{PhysicalNeeds, Stamina};
-        PhysicalNeeds {
-            metabolism: Metabolism::well_fed(),
-            hydration: Need::full(),
-            stamina: Stamina::default(),
-            wakefulness: Need::full(),
-            warmth: Need::full(),
-        }
+        use crate::agent::body::needs::PhysicalNeeds;
+        PhysicalNeeds::full().with_metabolism(Metabolism::well_fed())
     }
 
     #[test]

@@ -176,27 +176,11 @@ pub enum NeedKind {
 }
 
 impl NeedKind {
-    /// The action that directly satisfies this need, if one exists. Returns
-    /// `None` for needs that have no single satisfier action — Fear and Pain
-    /// are resolved indirectly (flee the threat, heal the injury), and the
-    /// Maslow drives (Safety, Esteem, Autonomy) are event-driven with no
-    /// obvious "top-up" verb.
+    /// The action that directly satisfies this need, if one exists.
+    /// Reads the drive registry; unregistered needs (Safety/Esteem/Autonomy)
+    /// return `None`.
     pub fn satisfier(&self) -> Option<ActionType> {
-        match self {
-            NeedKind::Hunger => Some(ActionType::Eat),
-            NeedKind::Thirst => Some(ActionType::Drink),
-            NeedKind::Sleep => Some(ActionType::Sleep),
-            NeedKind::Stamina => Some(ActionType::Rest),
-            NeedKind::Warmth => Some(ActionType::WarmUp),
-            NeedKind::Social => Some(ActionType::InitiateConversation),
-            NeedKind::Fun | NeedKind::Curiosity => Some(ActionType::Explore),
-            NeedKind::Territory
-            | NeedKind::Pain
-            | NeedKind::Fear
-            | NeedKind::Safety
-            | NeedKind::Esteem
-            | NeedKind::Autonomy => None,
-        }
+        crate::agent::drive_registry::by_need(*self).and_then(|e| e.satisfier)
     }
 
     /// The fullness threshold at which the satisfier action refuses to start
@@ -205,25 +189,13 @@ impl NeedKind {
     /// for hunger, ADH and hypothalamic osmoreceptors for thirst) so meals
     /// and drinks emerge as bursts that end naturally.
     ///
-    /// Returned as a `0..1` satisfaction threshold; `Need::is_satisfied`
-    /// consumes it directly. Needs without a satisfier return `1.0` so a
-    /// naïve caller always gets "not satisfied" (the action still declines
-    /// to start via its normal precondition chain).
+    /// Reads the drive registry; unregistered needs return `1.0` so naïve
+    /// callers always see "not satisfied" (the action still declines to
+    /// start via its normal precondition chain).
     pub fn satiation_threshold(&self) -> f32 {
-        match self {
-            NeedKind::Hunger => 0.8,
-            NeedKind::Thirst => 0.95,
-            NeedKind::Sleep => 0.95,
-            NeedKind::Stamina => 0.95,
-            NeedKind::Warmth => 0.95,
-            NeedKind::Social | NeedKind::Fun | NeedKind::Curiosity => 0.9,
-            NeedKind::Territory
-            | NeedKind::Pain
-            | NeedKind::Fear
-            | NeedKind::Safety
-            | NeedKind::Esteem
-            | NeedKind::Autonomy => 1.0,
-        }
+        crate::agent::drive_registry::by_need(*self)
+            .map(|e| e.satiation_threshold)
+            .unwrap_or(1.0)
     }
 }
 

@@ -756,18 +756,13 @@ pub fn cleanup_sound_sources(mut commands: Commands, sources: Query<Entity, With
 #[cfg(test)]
 mod threat_tests {
     use super::*;
-    use crate::agent::body::needs::{PhysicalNeeds, Stamina};
+    use crate::agent::body::needs::PhysicalNeeds;
     use crate::agent::item_slots::ItemSlots;
     use crate::agent::psyche::personality::{Personality, PersonalityTraits};
 
     fn default_needs() -> PhysicalNeeds {
-        PhysicalNeeds {
-            metabolism: crate::agent::body::metabolism::Metabolism::well_fed(),
-            hydration: crate::agent::body::need::Need::full(),
-            stamina: Stamina::default(),
-            wakefulness: crate::agent::body::need::Need::full(),
-            warmth: crate::agent::body::need::Need::full(),
-        }
+        PhysicalNeeds::full()
+            .with_metabolism(crate::agent::body::metabolism::Metabolism::well_fed())
     }
 
     fn personality_with_neuroticism(neuroticism: f32) -> Personality {
@@ -842,10 +837,8 @@ mod threat_tests {
         let calm_full = assess_threat(&personality, &default_needs(), 1.0, None);
         let starving = assess_threat(
             &personality,
-            &PhysicalNeeds {
-                metabolism: crate::agent::body::metabolism::Metabolism::at_urgency(0.95),
-                ..default_needs()
-            },
+            &default_needs()
+                .with_metabolism(crate::agent::body::metabolism::Metabolism::at_urgency(0.95)),
             1.0,
             None,
         );

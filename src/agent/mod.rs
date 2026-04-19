@@ -5,6 +5,7 @@ pub mod body;
 pub mod brains;
 pub mod communication;
 pub mod culture;
+pub mod drive_registry;
 pub mod events;
 pub mod invariants;
 pub mod inventory;

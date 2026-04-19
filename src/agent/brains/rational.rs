@@ -106,30 +106,19 @@ pub fn goal_for_urgency(
     plan_memory: &PlanMemory,
     mind: &MindGraph,
 ) -> Option<Goal> {
-    let zero = Value::Quantity(Quantity::Exact(0.0));
-    let full = Value::Quantity(Quantity::Exact(100.0));
-    let conditions = match source {
-        UrgencySource::Hunger => {
-            vec![TriplePattern::self_has(Predicate::Hunger, zero.clone())]
+    use crate::agent::drive_registry::{self, GoalPattern, GoalTarget};
+
+    let pattern = drive_registry::by_urgency(source).and_then(|e| e.goal_pattern)?;
+    let conditions = match pattern {
+        GoalPattern::SelfHas { predicate, target } => {
+            let target_value = match target {
+                GoalTarget::Zero => Value::Quantity(Quantity::Exact(0.0)),
+                GoalTarget::Full => Value::Quantity(Quantity::Exact(100.0)),
+            };
+            vec![TriplePattern::self_has(predicate, target_value)]
         }
-        UrgencySource::Stamina => {
-            vec![TriplePattern::self_has(Predicate::Stamina, full.clone())]
-        }
-        UrgencySource::Social => vec![TriplePattern::self_has(
-            Predicate::SocialDrive,
-            zero.clone(),
-        )],
-        UrgencySource::Pain => {
-            vec![TriplePattern::self_has(Predicate::Pain, zero.clone())]
-        }
-        UrgencySource::Thirst => {
-            vec![TriplePattern::self_has(Predicate::Thirst, zero)]
-        }
-        UrgencySource::Warmth => {
-            vec![TriplePattern::self_has(Predicate::Warmth, full)]
-        }
-        UrgencySource::Commitment => {
-            // Use the conditions from the highest-commitment verbal
+        GoalPattern::HighestCommitmentPlan => {
+            // Reuse the conditions of the highest-commitment verbal
             // plan currently held. No verbal plans → no commitment
             // goal to plan for.
             let plan = plan_memory
@@ -143,11 +132,6 @@ pub fn goal_for_urgency(
                 })?;
             plan.goal.conditions.clone()
         }
-        UrgencySource::Fun
-        | UrgencySource::Curiosity
-        | UrgencySource::Fear
-        | UrgencySource::Territoriality
-        | UrgencySource::Sleepiness => return None,
     };
 
     let mut goal = Goal {

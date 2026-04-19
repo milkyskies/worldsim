@@ -42,21 +42,13 @@ pub enum Intent {
 }
 
 impl Intent {
-    /// Map a nervous-system urgency source to the intent that satisfies it.
+    /// Map a nervous-system urgency source to the intent that satisfies
+    /// it. Reads the drive registry; unregistered sources fall back to
+    /// `Intent::None`.
     pub fn from_urgency_source(source: UrgencySource) -> Self {
-        match source {
-            UrgencySource::Hunger => Intent::SatisfyHunger,
-            UrgencySource::Thirst => Intent::SatisfyThirst,
-            UrgencySource::Stamina => Intent::SatisfyStamina,
-            UrgencySource::Social => Intent::SatisfySocial,
-            UrgencySource::Fear => Intent::SatisfySafety,
-            UrgencySource::Pain => Intent::SatisfyPainRelief,
-            UrgencySource::Territoriality => Intent::SatisfyTerritoriality,
-            UrgencySource::Fun | UrgencySource::Curiosity => Intent::SatisfyCuriosity,
-            UrgencySource::Sleepiness => Intent::SatisfySleepiness,
-            UrgencySource::Warmth => Intent::SatisfyWarmth,
-            UrgencySource::Commitment => Intent::FulfillCommitment,
-        }
+        crate::agent::drive_registry::by_urgency(source)
+            .map(|e| e.intent)
+            .unwrap_or(Intent::None)
     }
 }
 
