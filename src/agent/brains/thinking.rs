@@ -264,18 +264,18 @@ pub struct Goal {
 
 impl Goal {
     /// Extract the concept-level target of a resource-acquisition goal.
-    /// Returns the first `Item` concept referenced by any condition — this
-    /// is the thing the agent is pursuing (Apple, Campfire, ...). Drive-based
-    /// goals (hunger, thirst, ...) have no concept target and return `None`.
+    /// Returns the first `Item` or bare `Concept` object referenced by any
+    /// condition — the thing the agent is pursuing (Apple, Campfire, ...).
+    /// Drive-based goals (hunger, thirst, ...) have no concept target and
+    /// return `None`.
     pub fn target_concept(&self) -> Option<crate::agent::mind::knowledge::Concept> {
         use crate::agent::mind::knowledge::Value;
-        self.conditions.iter().find_map(|pattern| {
-            if let Some(Value::Item(concept, _)) = pattern.object {
-                Some(concept)
-            } else {
-                None
-            }
-        })
+        self.conditions
+            .iter()
+            .find_map(|pattern| match pattern.object {
+                Some(Value::Item(concept, _)) | Some(Value::Concept(concept)) => Some(concept),
+                _ => None,
+            })
     }
 }
 
