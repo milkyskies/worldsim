@@ -564,7 +564,7 @@ mod tests {
         let visible = VisibleObjects::default();
 
         let mut registry = crate::agent::actions::ActionRegistry::default();
-        registry.register(crate::agent::actions::action::FleeAction);
+        registry.register_def(&crate::agent::actions::action::FLEE_DEF);
 
         let proposal = emotional_brain_propose(
             &state,
@@ -601,7 +601,7 @@ mod tests {
         visible.entities.push(entity);
 
         let mut registry = crate::agent::actions::ActionRegistry::default();
-        registry.register(crate::agent::actions::action::FleeAction);
+        registry.register_def(&crate::agent::actions::action::FLEE_DEF);
 
         let proposal = emotional_brain_propose(
             &state,
@@ -636,7 +636,7 @@ mod tests {
         visible.entities.push(entity);
 
         let mut registry = crate::agent::actions::ActionRegistry::default();
-        registry.register(crate::agent::actions::action::WalkAction);
+        registry.register_def(&crate::agent::actions::action::WALK_DEF);
 
         let proposal = emotional_brain_propose(
             &state,
@@ -686,7 +686,7 @@ mod tests {
         let visible = VisibleObjects::default();
 
         let mut registry = crate::agent::actions::ActionRegistry::default();
-        registry.register(crate::agent::actions::action::FleeAction);
+        registry.register_def(&crate::agent::actions::action::FLEE_DEF);
 
         let proposal = emotional_brain_propose(
             &state,

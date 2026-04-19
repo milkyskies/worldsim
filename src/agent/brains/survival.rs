@@ -335,7 +335,7 @@ mod tests {
         let active = ActiveActions::default();
 
         let mut registry = crate::agent::actions::ActionRegistry::default();
-        registry.register(crate::agent::actions::action::EatAction);
+        registry.register_def(&crate::agent::actions::action::EAT_DEF);
 
         let proposals = survival_brain_propose(context, &inventory, &active, &ontology, &registry);
         assert!(find_proposal(&proposals, ActionType::Eat).is_some());
@@ -369,7 +369,7 @@ mod tests {
         let active = ActiveActions::default();
 
         let mut registry = crate::agent::actions::ActionRegistry::default();
-        registry.register(crate::agent::actions::action::EatAction);
+        registry.register_def(&crate::agent::actions::action::EAT_DEF);
 
         let proposals = survival_brain_propose(context, &inventory, &active, &ontology, &registry);
         assert!(
@@ -396,7 +396,7 @@ mod tests {
         let active = ActiveActions::default();
 
         let mut registry = crate::agent::actions::ActionRegistry::default();
-        registry.register(crate::agent::actions::action::DrinkAction);
+        registry.register_def(&crate::agent::actions::action::DRINK_DEF);
 
         let proposals = survival_brain_propose(context, &inventory, &active, &ontology, &registry);
         assert!(
@@ -419,7 +419,7 @@ mod tests {
         let active = ActiveActions::default();
 
         let mut registry = crate::agent::actions::ActionRegistry::default();
-        registry.register(crate::agent::actions::action::RestAction);
+        registry.register_def(&crate::agent::actions::action::REST_DEF);
 
         let proposals = survival_brain_propose(context, &inventory, &active, &ontology, &registry);
         assert!(
@@ -440,8 +440,8 @@ mod tests {
         let active = ActiveActions::default();
 
         let mut registry = crate::agent::actions::ActionRegistry::default();
-        registry.register(crate::agent::actions::action::ExploreAction);
-        registry.register(crate::agent::actions::action::EatAction);
+        registry.register_def(&crate::agent::actions::action::EXPLORE_DEF);
+        registry.register_def(&crate::agent::actions::action::EAT_DEF);
 
         let proposals = survival_brain_propose(context, &inventory, &active, &ontology, &registry);
         assert!(
@@ -460,8 +460,8 @@ mod tests {
         let map = no_water_map();
 
         let mut registry = crate::agent::actions::ActionRegistry::default();
-        registry.register(crate::agent::actions::action::RestAction);
-        registry.register(crate::agent::actions::action::SleepAction);
+        registry.register_def(&crate::agent::actions::action::REST_DEF);
+        registry.register_def(&crate::agent::actions::action::SLEEP_DEF);
 
         // Mild fatigue -> Rest
         let cns = cns_with_top(UrgencySource::Stamina, 0.4);
@@ -520,7 +520,7 @@ mod tests {
 
         let active = ActiveActions::default();
         let mut registry = crate::agent::actions::ActionRegistry::default();
-        registry.register(crate::agent::actions::action::EatAction);
+        registry.register_def(&crate::agent::actions::action::EAT_DEF);
 
         let mut inventory = crate::agent::item_slots::ItemSlots::agent_carry();
         inventory.add(crate::agent::mind::knowledge::Concept::Apple, 1);
@@ -563,8 +563,8 @@ mod tests {
 
     fn sleeping_agent_registry() -> crate::agent::actions::ActionRegistry {
         let mut registry = crate::agent::actions::ActionRegistry::default();
-        registry.register(crate::agent::actions::action::SleepAction);
-        registry.register(crate::agent::actions::action::WakeUpAction);
+        registry.register_def(&crate::agent::actions::action::SLEEP_DEF);
+        registry.register_def(&crate::agent::actions::action::WAKE_UP_DEF);
         registry
     }
 
@@ -679,7 +679,7 @@ mod tests {
         let active = ActiveActions::default();
 
         let mut registry = crate::agent::actions::ActionRegistry::default();
-        registry.register(crate::agent::actions::action::EatAction);
+        registry.register_def(&crate::agent::actions::action::EAT_DEF);
 
         let proposals = survival_brain_propose(context, &inventory, &active, &ontology, &registry);
         let proposal = find_proposal(&proposals, ActionType::Eat).expect("should propose Eat");
@@ -719,7 +719,7 @@ mod tests {
         let active = ActiveActions::default();
 
         let mut registry = crate::agent::actions::ActionRegistry::default();
-        registry.register(crate::agent::actions::action::FleeAction);
+        registry.register_def(&crate::agent::actions::action::FLEE_DEF);
 
         let proposals = survival_brain_propose(context, &inventory, &active, &ontology, &registry);
         let proposal = find_proposal(&proposals, ActionType::Flee).expect("should propose Flee");
@@ -745,7 +745,7 @@ mod tests {
         let active = ActiveActions::default();
 
         let mut registry = crate::agent::actions::ActionRegistry::default();
-        registry.register(crate::agent::actions::action::DrinkAction);
+        registry.register_def(&crate::agent::actions::action::DRINK_DEF);
 
         let proposals = survival_brain_propose(context, &inventory, &active, &ontology, &registry);
         let proposal = find_proposal(&proposals, ActionType::Drink)
@@ -772,7 +772,7 @@ mod tests {
         let active = ActiveActions::default();
 
         let mut registry = crate::agent::actions::ActionRegistry::default();
-        registry.register(crate::agent::actions::action::DrinkAction);
+        registry.register_def(&crate::agent::actions::action::DRINK_DEF);
 
         let proposals = survival_brain_propose(context, &inventory, &active, &ontology, &registry);
         assert!(
@@ -794,7 +794,7 @@ mod tests {
         let active = ActiveActions::default();
 
         let mut registry = crate::agent::actions::ActionRegistry::default();
-        registry.register(crate::agent::actions::action::DrinkAction);
+        registry.register_def(&crate::agent::actions::action::DRINK_DEF);
 
         let proposals = survival_brain_propose(context, &inventory, &active, &ontology, &registry);
         assert!(

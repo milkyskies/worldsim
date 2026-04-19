@@ -1,102 +1,55 @@
 //! Rest action — sit-and-recover. Milder than Sleep, gentler than Idle.
 //!
-//! Rest is the behaviour a mildly tired agent chooses when they need some
-//! stamina back but don't want to lose consciousness.
-//!
-//! Compared to Sleep:
-//! - Rest keeps alertness roughly flat (actually gains slightly), so the
-//!   agent stays reactive to threats and conversation.
-//! - Rest recovers stamina slower than Sleep but faster than Idle.
-//!
-//! Compared to Idle:
-//! - Idle is the true "standing still" default; Rest is active recovery.
-//!
-//! Mapping: Survival brain proposes Rest for mild Stamina urgency where
-//! Sleep would be overkill (#386).
+//! Rest keeps alertness roughly flat, stays reactive to threats, and
+//! recovers stamina slower than Sleep but faster than Idle. The Survival
+//! brain proposes Rest for mild Stamina urgency where Sleep would be overkill.
 
 use crate::agent::actions::ActionType;
-use crate::agent::actions::channel::{ChannelSlices, ChannelUsage, Posture};
-use crate::agent::actions::motor::{
-    ActionPrimitive, Behavior, IntensityPolicy, Intent, TargetSelector,
+use crate::agent::actions::channel::{ChannelSlices, Posture};
+use crate::agent::actions::definition::{
+    ActionDefinition, CompletionPredicate, EffectTemplate, Hooks, PlanValidity, SatiationGate,
+    TargetEffects,
 };
-use crate::agent::actions::registry::{Action, ActionKind};
-use crate::agent::body::needs::PhysicalNeeds;
-use crate::agent::mind::knowledge::{Node, Predicate, Quantity, Triple, Value};
+use crate::agent::actions::motor::{ActionPrimitive, IntensityPolicy, Intent, TargetSelector};
+use crate::agent::actions::registry::{ActionKind, TargetSource};
+use crate::agent::mind::knowledge::Predicate;
+use crate::constants::actions::rest::COMPLETE_AEROBIC_FRACTION;
 
-pub struct RestAction;
-
-impl Action for RestAction {
-    fn action_type(&self) -> ActionType {
-        ActionType::Rest
-    }
-
-    fn name(&self) -> &'static str {
-        "Rest"
-    }
-
-    fn default_behavior(&self) -> Behavior {
-        Behavior::new(
-            ActionPrimitive::Rest,
-            TargetSelector::InPlace,
-            IntensityPolicy::Fixed(0.4),
-            Intent::Fatigue,
-        )
-    }
-
-    fn kind(&self) -> ActionKind {
-        // Indefinite: the brain replaces Rest with something else once
-        // stamina recovers or a stronger drive takes priority.
-        ActionKind::Timed {
-            duration_ticks: u32::MAX,
-        }
-    }
-
-    fn plan_effects(&self) -> Vec<Triple> {
-        vec![Triple::new(
-            Node::Self_,
-            Predicate::Stamina,
-            Value::Quantity(Quantity::Exact(100.0)),
-        )]
-    }
-
-    fn cost(&self) -> f32 {
-        0.2
-    }
-
-    fn body_channels(&self) -> &'static [ChannelUsage] {
-        // Rest claims no body part — the legs-planted stance is expressed
-        // through `posture()`. Focus, Awareness, and Vocalization stay free so a
-        // resting agent can still watch the world or hold a conversation.
-        ChannelSlices::NONE
-    }
-
-    fn should_complete(&self, physical: &PhysicalNeeds) -> bool {
-        physical.stamina.aerobic_fraction()
-            >= crate::constants::actions::rest::COMPLETE_AEROBIC_FRACTION
-    }
-
-    fn posture(&self) -> Option<Posture> {
-        // Legs planted, recovering. The posture gate rejects Walk /
-        // Wander / Flee admission while Rest is active, which is what
-        // prevents the "resting + patrolling" nonsense from #386.
-        Some(Posture::Stationary)
-    }
-
-    fn start_log(&self) -> Option<&'static str> {
-        Some("sitting to rest")
-    }
-
-    /// Block Rest when aerobic stamina is already at the completion fraction.
-    /// Mirrors should_complete: a Rest that would instantly complete shouldn't
-    /// start in the first place.
-    fn satiation(
-        &self,
-        physical: Option<&crate::agent::body::needs::PhysicalNeeds>,
-        _inventory: Option<&crate::agent::item_slots::ItemSlots>,
-    ) -> Option<(crate::agent::body::need::NeedKind, f32)> {
-        Some((
-            crate::agent::body::need::NeedKind::Stamina,
-            physical?.stamina.aerobic_fraction(),
-        ))
-    }
-}
+pub static REST_DEF: ActionDefinition = ActionDefinition {
+    action_type: ActionType::Rest,
+    name: "Rest",
+    // Indefinite: the brain replaces Rest with something else once stamina
+    // recovers or a stronger drive takes priority.
+    kind: ActionKind::Timed {
+        duration_ticks: u32::MAX,
+    },
+    target_source: TargetSource::None,
+    base_cost: 0.2,
+    primitive: ActionPrimitive::Rest,
+    target_selector: TargetSelector::InPlace,
+    intensity: IntensityPolicy::Fixed(0.4),
+    intent: Intent::Fatigue,
+    // Legs planted. Focus/Awareness/Vocalization stay free so the resting
+    // agent can still watch the world or hold a conversation.
+    body_channels: ChannelSlices::NONE,
+    posture: Some(Posture::Stationary),
+    interruptible: true,
+    start_log: Some("sitting to rest"),
+    complete_log: None,
+    joy_per_sec: 0.0,
+    stomach_carbs_per_sec: 0.0,
+    preconditions: &[],
+    plan_effects: &[EffectTemplate::SelfNeedExact {
+        predicate: Predicate::Stamina,
+        value: 100.0,
+    }],
+    plan_consumes: &[],
+    target_effects: TargetEffects::Static,
+    plan_validity: PlanValidity::Always,
+    gates: &[],
+    satiation: Some(SatiationGate::StaminaAerobic),
+    completion: CompletionPredicate::AerobicAtLeast(COMPLETE_AEROBIC_FRACTION),
+    on_complete_ops: &[],
+    hooks: Hooks::EMPTY,
+    recipe: None,
+};

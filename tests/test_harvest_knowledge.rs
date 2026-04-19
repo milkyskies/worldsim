@@ -3,7 +3,8 @@ mod tests {
     use bevy::prelude::*;
     use std::collections::HashMap;
     use std::sync::Arc;
-    use worldsim::agent::actions::action::harvest::HarvestAction;
+    use worldsim::agent::actions::GenericAction;
+    use worldsim::agent::actions::action::HARVEST_DEF;
     use worldsim::agent::actions::registry::{Action, TargetCandidate};
     use worldsim::agent::mind::knowledge::{
         Concept, MindGraph, Node, Ontology, Predicate, Triple, Value,
@@ -84,7 +85,7 @@ mod tests {
         ));
         // Deer fails to know AppleTree produces Apple
 
-        let harvest = HarvestAction;
+        let harvest = GenericAction::new(&HARVEST_DEF);
 
         // Test Human
         assert!(

@@ -1011,10 +1011,10 @@ mod tests {
 
     fn test_registry() -> ActionRegistry {
         let mut r = ActionRegistry::default();
-        r.register(crate::agent::actions::action::WanderAction);
-        r.register(crate::agent::actions::action::ExploreAction);
-        r.register(crate::agent::actions::action::LookForAction);
-        r.register(crate::agent::actions::action::EatAction);
+        r.register_def(&crate::agent::actions::action::WANDER_DEF);
+        r.register_def(&crate::agent::actions::action::EXPLORE_DEF);
+        r.register_def(&crate::agent::actions::action::LOOK_FOR_DEF);
+        r.register_def(&crate::agent::actions::action::EAT_DEF);
         r
     }
 
@@ -1363,36 +1363,34 @@ mod tests {
     /// while Bite was never considered — agent ended up idle.
     #[test]
     fn anatomical_feasibility_rejects_attack_for_wolf() {
-        use crate::agent::actions::action::{AttackAction, BiteAction};
-        use crate::agent::actions::registry::Action;
+        use crate::agent::actions::action::{ATTACK_DEF, BITE_DEF};
         use crate::agent::biology::body::Body;
 
         let m = TagChannelMapping::default();
         let wolf_caps = ChannelCapacities::compute(Some(&Body::wolf()), None, None, &m);
         assert!(
-            !action_is_anatomically_feasible(AttackAction.body_channels(), &wolf_caps),
+            !action_is_anatomically_feasible(ATTACK_DEF.body_channels, &wolf_caps),
             "wolf's Manipulation 0.4 should hard-conflict with Attack's 0.9"
         );
         assert!(
-            action_is_anatomically_feasible(BiteAction.body_channels(), &wolf_caps),
+            action_is_anatomically_feasible(BITE_DEF.body_channels, &wolf_caps),
             "wolf's jaws (Bite 1.0) should comfortably run Bite"
         );
     }
 
     #[test]
     fn anatomical_feasibility_rejects_bite_for_human() {
-        use crate::agent::actions::action::{AttackAction, BiteAction};
-        use crate::agent::actions::registry::Action;
+        use crate::agent::actions::action::{ATTACK_DEF, BITE_DEF};
         use crate::agent::biology::body::Body;
 
         let m = TagChannelMapping::default();
         let human_caps = ChannelCapacities::compute(Some(&Body::human()), None, None, &m);
         assert!(
-            action_is_anatomically_feasible(AttackAction.body_channels(), &human_caps),
+            action_is_anatomically_feasible(ATTACK_DEF.body_channels, &human_caps),
             "human's two arms (Manipulation 1.0) should fit Attack's 0.9"
         );
         assert!(
-            !action_is_anatomically_feasible(BiteAction.body_channels(), &human_caps),
+            !action_is_anatomically_feasible(BITE_DEF.body_channels, &human_caps),
             "human has no Bite channel; Bite must be rejected"
         );
     }
