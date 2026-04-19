@@ -545,6 +545,35 @@ impl Value {
             _ => None,
         }
     }
+
+    /// Returns `true` when `self` (a stored/concrete value) satisfies the
+    /// `pattern` value in a query or precondition. For `Value::Item(c, n)`
+    /// on both sides the rule is at-least: same concept AND `stored_n >=
+    /// pattern_n`. Every other `Value` variant falls back to strict
+    /// equality.
+    ///
+    /// Used by `MindGraph::query`'s matcher and the planner's
+    /// `pattern_matches_triple` so both layers agree: a precondition
+    /// `Contains, Item(Wood, 1)` is satisfied by a stored
+    /// `Contains, Item(Wood, 3)` triple.
+    pub fn satisfies_pattern(&self, pattern: &Value) -> bool {
+        match (self, pattern) {
+            (Value::Item(sc, sn), Value::Item(pc, pn)) => sc == pc && sn >= pn,
+            _ => self == pattern,
+        }
+    }
+
+    /// Returns `true` when two pattern values could match a common concrete
+    /// triple. For `Value::Item` pairs with the same concept, quantities are
+    /// irrelevant — the backward-planner's consume tracking cares about "is
+    /// this resource type depletable," not exact unit counts. Every other
+    /// variant falls back to strict equality.
+    pub fn overlaps_pattern(&self, other: &Value) -> bool {
+        match (self, other) {
+            (Value::Item(ca, _), Value::Item(cb, _)) => ca == cb,
+            _ => self == other,
+        }
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1242,7 +1271,7 @@ impl MindGraph {
         let matcher = |t: &Triple| {
             subject.is_none_or(|s| t.subject == *s)
                 && predicate.is_none_or(|p| t.predicate == p)
-                && object.is_none_or(|o| t.object == *o)
+                && object.is_none_or(|o| t.object.satisfies_pattern(o))
         };
 
         // Pick the tightest index for LOCAL triples.

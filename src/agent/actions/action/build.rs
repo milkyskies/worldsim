@@ -52,17 +52,16 @@ impl Action for BuildAction {
         Some(Posture::Stationary)
     }
 
-    /// Planning: precondition is having wood in inventory. Uses the
-    /// wildcard-object + `isa_filter` pattern (same as Eat's
-    /// `self_contains_food`) so the runtime check matches any positive
-    /// wood quantity. A hardcoded `Item(Wood, 1)` would fail against an
-    /// agent carrying `Item(Wood, 3)` because the mindgraph and
-    /// `mind.query` use exact-equality on the Item's quantity.
+    /// Planning: precondition is having the required wood in inventory.
+    /// The planner's at-least Item matching + partial-satisfaction
+    /// backward search (see `action_contribution_to_goal`) chains
+    /// enough Harvest + Pickup steps to accumulate the full quantity.
     fn preconditions(&self) -> Vec<TriplePattern> {
-        vec![TriplePattern {
-            isa_filter: Some(Concept::Wood),
-            ..TriplePattern::new(Some(Node::Self_), Some(Predicate::Contains), None)
-        }]
+        vec![TriplePattern::new(
+            Some(Node::Self_),
+            Some(Predicate::Contains),
+            Some(Value::Item(Concept::Wood, CAMPFIRE_WOOD_REQUIRED)),
+        )]
     }
 
     /// Planning: Build spawns a construction site at the agent's current
@@ -79,12 +78,14 @@ impl Action for BuildAction {
         )]
     }
 
-    /// Planning: consuming wood from self prevents double-planning against the same stock.
+    /// Planning: consuming wood from self prevents double-planning against
+    /// the same stock. Matches `CAMPFIRE_WOOD_REQUIRED` so the planner
+    /// tracks the actual consumption amount.
     fn plan_consumes(&self) -> Vec<TriplePattern> {
         vec![TriplePattern::new(
             Some(Node::Self_),
             Some(Predicate::Contains),
-            Some(Value::Item(Concept::Wood, 1)),
+            Some(Value::Item(Concept::Wood, CAMPFIRE_WOOD_REQUIRED)),
         )]
     }
 
