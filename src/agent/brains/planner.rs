@@ -1126,20 +1126,6 @@ fn mind_satisfies_pattern(mind: &MindGraph, pattern: &TriplePattern) -> bool {
     })
 }
 
-fn action_satisfies_pattern(
-    action: &ActionTemplate,
-    pattern: &TriplePattern,
-    ontology: &Ontology,
-) -> bool {
-    // Action satisfies pattern if one of its effects matches the pattern
-    for effect in &action.effects {
-        if pattern_matches_triple(pattern, effect, Some(ontology)) {
-            return true;
-        }
-    }
-    false
-}
-
 fn reconstruct_regressive_path(
     mut came_from: HashMap<RegressiveState, (ActionTemplate, RegressiveState)>,
     mut current: RegressiveState,
