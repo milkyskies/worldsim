@@ -171,7 +171,6 @@ fn warmth_need_clamps_at_zero() {
 /// fire forever instead of making one.
 #[test]
 fn cold_agent_with_wood_plans_build_for_warmth_goal() {
-    use bevy::prelude::Entity;
     use worldsim::agent::actions::{ActionRegistry, ActionType, TargetCandidate};
     use worldsim::agent::brains::planner::{PlanCostContext, regressive_plan};
     use worldsim::agent::brains::thinking::TriplePattern;
@@ -194,12 +193,8 @@ fn cold_agent_with_wood_plans_build_for_warmth_goal() {
         Value::Tile((0, 0)),
     ));
 
-    // Agent is carrying wood. Note: the planner matches Value::Item
-    // exactly (quantity included), and Build's precondition is
-    // `Item(Wood, 1)` — one unit of wood per planner step, regardless
-    // of CAMPFIRE_WOOD_REQUIRED. Setting Item(Wood, 1) matches the
-    // planner's worldview; real agents carry Item(Wood, 3) post-harvest
-    // but that's a mindgraph representation detail handled elsewhere.
+    // Item(Wood, 1) matches Build's precondition exactly — the planner
+    // uses unit-quantity matching (see #607 for the quantity-aware fix).
     mind.assert(Triple::new(
         Node::Self_,
         Predicate::Contains,
@@ -228,10 +223,12 @@ fn cold_agent_with_wood_plans_build_for_warmth_goal() {
     };
 
     let (plan, stats) = regressive_plan(&mind, &goal, &available, &PlanCostContext::neutral());
-    let plan = plan.expect(&format!(
-        "Planner must close warmth goal via WarmUp + Build chain; unmet: {:?}",
-        stats.best_unmet_goals
-    ));
+    let plan = plan.unwrap_or_else(|| {
+        panic!(
+            "Planner must close warmth goal via WarmUp + Build chain; unmet: {:?}",
+            stats.best_unmet_goals
+        )
+    });
 
     assert!(
         plan.iter().any(|a| a.action_type == ActionType::Build),
@@ -260,9 +257,6 @@ fn cold_agent_with_wood_plans_build_for_warmth_goal() {
         build_idx < warm_up_idx,
         "Build must execute before WarmUp (build_idx={build_idx}, warm_up_idx={warm_up_idx})",
     );
-
-    // Suppress unused warning if Entity gets imported only for future use.
-    let _ = Entity::from_bits(1);
 }
 
 /// Complement to the above: when a campfire IS already known and on the

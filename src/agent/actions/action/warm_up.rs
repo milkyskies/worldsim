@@ -1,17 +1,16 @@
 //! WarmUp action — stay beside a heat source to restore warmth.
 //!
-//! Reads: ItemSlots (satiation gate), PhysicalNeeds.warmth (satiation gate)
-//! Writes: nothing directly; runtime effects top up `PhysicalNeeds.warmth`
-//! Upstream: ActionRegistry (registered there), temperature perception
-//!           (seeds `Tile HasTrait Warmth` and exposes heat-source entities)
+//! Reads: PhysicalNeeds.warmth (satiation gate), MindGraph (runtime proximity)
+//! Writes: runtime effects top up `PhysicalNeeds.warmth` via `on_complete`
+//! Upstream: ActionRegistry, temperature perception (writes heat-source
+//!           entities into mindgraph with `IsA` + `LocatedAt`)
 //! Downstream: warmth drain/recovery system (reads active WarmUp for momentum)
 //!
-//! Declares `TargetSource::EntityWithTrait(Concept::HeatEmitting)` so the
-//! rational brain enumerates one WarmUp candidate per known heat source
-//! (campfires, braziers, future ovens). The default `to_template_for_target`
-//! implementation auto-injects a `self_at(tile)` precondition, and the
-//! regressive planner chains `Walk → WarmUp` via the tile walk generator.
-//! No manual preconditions or `to_template` override needed.
+//! Uses `TargetSource::None` with an explicit `(Self, Near, Campfire)`
+//! precondition. The concept-near walk generator grounds the precondition
+//! into a specific tile when an entity is known, and Build's `Near` effect
+//! closes it when no heat source exists yet. Execution narrows "near some
+//! campfire" to a concrete entity via the `can_start` proximity check.
 
 use crate::agent::actions::ActionType;
 use crate::agent::actions::channel::{Channel, ChannelUsage, Posture};
@@ -53,33 +52,18 @@ impl Action for WarmUpAction {
     }
 
     fn body_channels(&self) -> &'static [ChannelUsage] {
-        // Focus only — warming up is attentive idleness. Leaves
-        // Consumption / Manipulation free so the agent can still eat
-        // or tend the fire while warming.
         const CHANNELS: &[ChannelUsage] = &[ChannelUsage::new(Channel::Focus, 0.3)];
         CHANNELS
     }
 
     fn posture(&self) -> Option<Posture> {
-        // Legs planted beside the fire — stationary until the cycle
-        // completes or the agent is preempted.
         Some(Posture::Stationary)
     }
 
-    /// WarmUp has no concrete target at plan time — its concept-level
-    /// `(Self, Near, Campfire)` precondition resolves into a specific
-    /// heat source via the planner's concept-near walk generator (if an
-    /// entity is known) or via Build's `(Self, Near, Campfire)` effect
-    /// (if the agent has to produce one). Runtime picks the specific
-    /// source via the `can_start` proximity check.
     fn target_source(&self) -> TargetSource {
         TargetSource::None
     }
 
-    /// Planning: require proximity to a campfire at the concept level.
-    /// The concept-near generator grounds this into a walk-to-known-entity
-    /// when one exists; Build's effect satisfies it directly when no
-    /// heat source is known yet. Either way the planner closes the chain.
     fn preconditions(&self) -> Vec<TriplePattern> {
         vec![TriplePattern::new(
             Some(Node::Self_),
@@ -88,9 +72,6 @@ impl Action for WarmUpAction {
         )]
     }
 
-    /// Planning: a completed WarmUp cycle tops warmth up to full. The
-    /// exact value asserted here matches the `goal_for_urgency` side
-    /// of the Warmth drive so the regressive planner closes cleanly.
     fn plan_effects(&self) -> Vec<Triple> {
         vec![Triple::new(
             Node::Self_,
@@ -99,10 +80,6 @@ impl Action for WarmUpAction {
         )]
     }
 
-    /// Block new WarmUp starts once warmth is already ≥ 0.95. Without
-    /// this the rational brain can chain-fire WarmUp every duration
-    /// cycle while the agent stands next to a lit campfire — the same
-    /// guard Drink / Eat / Sleep use.
     fn satiation(
         &self,
         physical: Option<&crate::agent::body::needs::PhysicalNeeds>,
@@ -114,11 +91,6 @@ impl Action for WarmUpAction {
         ))
     }
 
-    /// Runtime check: the agent must actually be within some lit
-    /// HeatSource's radius. Planner closed the `Near, Campfire`
-    /// precondition conceptually; execution narrows it to the concrete
-    /// entity by proximity check. Fails with `TargetGone` if no heat
-    /// source overlaps (fire went out, someone else took it).
     fn can_start(&self, ctx: &ActionContext) -> Result<(), FailureReason> {
         if is_near_any_heat_source(ctx) {
             Ok(())
@@ -141,10 +113,8 @@ impl Action for WarmUpAction {
     }
 }
 
-/// Runtime proximity check: does the agent's mindgraph place any known
-/// heat-emitting entity on the same tile as self? Mirrors the
-/// `(Self, Near, Campfire)` planner relation — keeps runtime and planner
-/// semantics aligned.
+/// Runtime mirror of the planner's `(Self, Near, HeatEmitting)` relation:
+/// true when a known heat-emitting entity sits on self's current tile.
 fn is_near_any_heat_source(ctx: &ActionContext) -> bool {
     let Some(Value::Tile(self_tile)) = ctx.mind.get(&Node::Self_, Predicate::LocatedAt).cloned()
     else {
@@ -172,11 +142,6 @@ mod tests {
 
     #[test]
     fn warm_up_declares_near_campfire_precondition() {
-        // WarmUp has no concrete target at plan time — the concept-level
-        // `(Self, Near, Campfire)` precondition is what drives the chain.
-        // The concept-near walk generator grounds it into a walk when an
-        // entity is known, and Build's `(Self, Near, Campfire)` effect
-        // closes it when no heat source is known yet.
         let action = WarmUpAction;
         assert!(matches!(
             action.target_source(),
@@ -205,15 +170,9 @@ mod tests {
     }
 
     #[test]
-    fn warm_up_satiation_blocks_when_warmth_full() {
-        // Mirrors the Drink / Eat satiation gate: once warmth is above
-        // the NeedKind::Warmth threshold (0.95), new WarmUp starts are
-        // refused to avoid chain-firing beside a campfire.
+    fn warm_up_satiation_returns_none_without_physical_state() {
         let action = WarmUpAction;
-        let satiation = action.satiation(None, None);
-        // With no physical state we return None (action gate tolerates
-        // missing state; this just confirms the wiring reaches the helper).
-        assert!(satiation.is_none());
+        assert!(action.satiation(None, None).is_none());
     }
 
     #[test]
@@ -224,9 +183,6 @@ mod tests {
 
     #[test]
     fn warm_up_need_kind_maps_to_warm_up_action() {
-        // `NeedKind::Warmth.satisfier()` is the pipeline entry that lets
-        // the rational brain know which action closes a warmth goal.
-        // Breaking this mapping breaks the whole drive chain.
         assert_eq!(
             NeedKind::Warmth.satisfier(),
             Some(crate::agent::actions::ActionType::WarmUp),

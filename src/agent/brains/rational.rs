@@ -390,16 +390,12 @@ pub fn update_rational_planning(
                     invalid_ids.push(plan.id);
                     continue;
                 }
-                // Only invalidate on unmet preconditions when the step has
-                // been current for more than one tick. The tick a step
-                // *just* advanced onto a new action, perception can't yet
-                // have seen the world changes the previous step produced
-                // (e.g. Build spawns a campfire; WarmUp's Near precondition
-                // requires perceiving that campfire). Without this grace
-                // tick, every multi-step plan that produces a world artifact
-                // is dropped the instant it advances past the producing
-                // step — the bug caught during #409 warmth-drive validation
-                // where Build completed but WarmUp never fired.
+                // Grace tick on step advance: perception hasn't yet seen
+                // the world changes the previous step produced (e.g. Build
+                // spawns a campfire; WarmUp's Near precondition needs that
+                // campfire perceived). Invalidating on unmet preconditions
+                // the same tick the step advanced drops every multi-step
+                // plan that produces an artifact.
                 if !step_just_advanced
                     && let Some(action) = plan.current()
                     && !are_preconditions_met(action, mind)

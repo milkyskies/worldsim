@@ -8,9 +8,11 @@ use worldsim::agent::mind::knowledge::{
     setup_ontology,
 };
 
-/// All cultures know the campfire recipe: Wood(3) → Campfire.
+/// All cultures know the campfire recipe.
 #[test]
 fn all_cultures_know_campfire_recipe() {
+    use worldsim::constants::actions::build::CAMPFIRE_WOOD_REQUIRED;
+
     for culture in [
         Culture::Nomad,
         Culture::Farmer,
@@ -21,11 +23,11 @@ fn all_cultures_know_campfire_recipe() {
         let knows_requires = knowledge.iter().any(|t| {
             t.subject == MindNode::Concept(Concept::Campfire)
                 && t.predicate == Predicate::Requires
-                && t.object == Value::Item(Concept::Wood, 3)
+                && t.object == Value::Item(Concept::Wood, CAMPFIRE_WOOD_REQUIRED)
         });
         assert!(
             knows_requires,
-            "{culture:?} should know Campfire requires Wood(3)"
+            "{culture:?} should know Campfire requires Wood({CAMPFIRE_WOOD_REQUIRED})"
         );
     }
 }
@@ -140,9 +142,6 @@ fn goap_plans_harvest_then_build() {
 
     let available = vec![build_template, harvest_template];
 
-    // Goal: self is near a Campfire (what Build's effect produces after
-    // spawning a site at the agent's tile). This is the honest planner
-    // predicate — no `Contains` fiction for built artifacts.
     let goal = Goal {
         conditions: vec![TriplePattern::new(
             Some(MindNode::Self_),
@@ -184,6 +183,7 @@ fn build_action_consumes_wood() {
     use worldsim::agent::actions::registry::{ActionContext, CompletionContext, SpawnRequest};
     use worldsim::agent::body::needs::PhysicalNeeds;
     use worldsim::agent::item_slots::ItemSlots;
+    use worldsim::constants::actions::build::CAMPFIRE_WOOD_REQUIRED;
     use worldsim::world::map::{WORLD_HEIGHT, WORLD_WIDTH, WorldMap};
 
     let ontology = setup_ontology();
@@ -192,7 +192,7 @@ fn build_action_consumes_wood() {
     let build_action = registry.get(ActionType::Build).unwrap();
 
     let mut inventory = ItemSlots::agent_carry();
-    inventory.add(Concept::Wood, 3);
+    inventory.add(Concept::Wood, CAMPFIRE_WOOD_REQUIRED);
 
     let mut physical = PhysicalNeeds::default();
     let mut spawn_requests: Vec<SpawnRequest> = Vec::new();
@@ -211,7 +211,7 @@ fn build_action_consumes_wood() {
 
     assert!(
         build_action.can_start(&can_start_ctx).is_ok(),
-        "Build must be startable when agent has Wood(3)"
+        "Build must be startable when agent has the required wood"
     );
 
     let mut ctx = CompletionContext {

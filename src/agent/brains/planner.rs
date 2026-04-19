@@ -1472,17 +1472,10 @@ fn generate_implicit_walk(
     Some((walk_action, next_state, new_cost))
 }
 
-/// Grounds a concept-level `(Self_, Near, Concept(X))` goal into one candidate
-/// walk per known entity of concept `X`. The walk template's effect includes
-/// both `(Self_, LocatedAt, Tile(t))` (so the downstream tile-walk logic sees
-/// the chain closed) and `(Self_, Near, Concept(X))` (so this generator's
-/// candidate directly satisfies the source goal). Dedupes by target tile so
-/// two campfires on the same tile produce one candidate.
-///
-/// Returns the empty vec when the planner's mind has no entity of the target
-/// concept with a known `LocatedAt` — the caller then falls through to any
-/// explicit action whose effect matches, which is how Build chains in when no
-/// heat source is known yet.
+/// Grounds `(Self_, Near, Concept(X))` into one walk candidate per known
+/// entity of concept `X`, deduped by target tile. Returns empty when no
+/// matching entity has a known `LocatedAt` — callers fall through to
+/// explicit actions whose effect matches `Near` (Build, Construct).
 fn generate_concept_near_walks(
     target_goal: &TriplePattern,
     remaining_goals: &[TriplePattern],
@@ -1540,7 +1533,6 @@ fn generate_concept_near_walks(
         );
 
         let mut walk_action = build_walk_template(world_pos, tile);
-        walk_action.name = format!("WalkNear({:?})", target_concept);
         walk_action.effects.push(Triple::new(
             MindNode::Self_,
             Predicate::Near,

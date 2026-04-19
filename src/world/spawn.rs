@@ -18,9 +18,8 @@ use bevy::prelude::*;
 ///
 /// Campfires use the sprited spawner so Build-produced campfires are visible
 /// in the windowed game — matching pre-placed ones from world init. Color-based
-/// sprites (no textures) are inert in headless, so tests don't regress. The
-/// aspirational "visual variants layered on by visual world systems" plan
-/// (see follow-up issue) would unify sprite attachment across all artifacts.
+/// sprites (no textures) are inert in headless, so tests don't regress. A
+/// unified visual-layering system for all artifacts is tracked in #608.
 pub fn spawn_concept_entity(
     commands: &mut Commands,
     concept: Concept,
