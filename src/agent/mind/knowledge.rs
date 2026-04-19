@@ -164,6 +164,7 @@ pub enum Concept {
     Drinkable, // Tiles/items that can provide water (ShallowWater, Water)
     Grazable,  // Tiles that can be grazed on (Grass) — drifting herbivore forage
     Prey,      // Creatures that can be hunted (Deer, Rabbit) → yields Meat
+    Carrion,   // Dead flesh — corpses with meat. Predators/scavengers feed in place.
     Territory, // A tile the agent claims as its own (marked intrinsically at spawn)
     Dangerous,
     Safe,
@@ -1698,6 +1699,14 @@ pub fn setup_ontology() -> Ontology {
     // derive_ontology_harvestable_component (they are not Plants).
     add(c(Plant), HasTrait, v(Harvestable));
 
+    // Corpses are carrion. Predators (wolves) and future scavengers find
+    // them via `TargetSource::DeadEntityWithTrait(Carrion)` and feed in
+    // place via Devour, decrementing the corpse's ItemSlots directly
+    // instead of harvesting meat into a personal inventory. Pack feeding
+    // emerges naturally — multiple wolves run Devour against the same
+    // corpse on the same tick.
+    add(c(Corpse), HasTrait, v(Carrion));
+
     // ─── Universal production facts (all agents know these) ───
     add(c(WoodLog), Produces, Value::Item(Wood, 1));
     add(c(StoneNode), Produces, Value::Item(Stone, 1));
@@ -1713,6 +1722,7 @@ pub fn setup_ontology() -> Ontology {
     add(act(ActionType::Bite), IsA, val_act(ViolentAction));
     add(act(ActionType::Flee), IsA, val_act(ViolentAction));
     add(act(ActionType::Eat), IsA, val_act(SurvivalAction));
+    add(act(ActionType::Devour), IsA, val_act(SurvivalAction));
     add(act(ActionType::Sleep), IsA, val_act(SurvivalAction));
     add(act(ActionType::Walk), IsA, val_act(MovementAction));
     add(act(ActionType::Wander), IsA, val_act(MovementAction));

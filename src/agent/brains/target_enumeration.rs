@@ -13,6 +13,7 @@
 
 use bevy::prelude::*;
 
+use crate::agent::Dead;
 use crate::agent::actions::{ActionType, TargetCandidate, TargetSource};
 use crate::agent::affordance::Affordance;
 use crate::agent::mind::knowledge::{Concept, MindGraph, Node, Predicate, Value};
@@ -37,7 +38,7 @@ pub fn enumerate_targets(
     source: &TargetSource,
     action_type: ActionType,
     mind: &MindGraph,
-    affordances: &Query<(&GlobalTransform, Option<&Affordance>)>,
+    affordances: &Query<(&GlobalTransform, Option<&Affordance>, Option<&Dead>)>,
 ) -> Vec<TargetCandidate> {
     match source {
         TargetSource::None => vec![TargetCandidate::None],
@@ -46,7 +47,10 @@ pub fn enumerate_targets(
             enumerate_entities_with_affordance(action_type, mind, affordances)
         }
         TargetSource::EntityWithTrait(concept) => {
-            enumerate_entities_with_trait(*concept, mind, affordances)
+            enumerate_entities_with_trait(*concept, mind, affordances, AliveOnly::Yes)
+        }
+        TargetSource::DeadEntityWithTrait(concept) => {
+            enumerate_entities_with_trait(*concept, mind, affordances, AliveOnly::No)
         }
         TargetSource::TileWithTrait(concept) => enumerate_tiles_with_trait(*concept, mind),
     }
@@ -68,7 +72,7 @@ pub fn enumerate_targets(
 fn enumerate_entities_with_affordance(
     action_type: ActionType,
     mind: &MindGraph,
-    affordances: &Query<(&GlobalTransform, Option<&Affordance>)>,
+    affordances: &Query<(&GlobalTransform, Option<&Affordance>, Option<&Dead>)>,
 ) -> Vec<TargetCandidate> {
     let mut candidates = Vec::new();
     let mut seen = std::collections::HashSet::new();
@@ -79,7 +83,7 @@ fn enumerate_entities_with_affordance(
         if !seen.insert(entity) {
             return;
         }
-        let Ok((transform, Some(affordance))) = affordances.get(entity) else {
+        let Ok((transform, Some(affordance), _dead)) = affordances.get(entity) else {
             return;
         };
         if affordance.action_type != action_type {
@@ -106,6 +110,16 @@ fn enumerate_entities_with_affordance(
     candidates
 }
 
+/// Whether a trait-based enumerator should keep dead entities. Bite/Attack
+/// pass `Yes` (corpses are filtered out — a dead deer is not exhibiting
+/// Prey-hood). Devour passes `No` (corpses are exactly the targets — Carrion
+/// implies dead).
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum AliveOnly {
+    Yes,
+    No,
+}
+
 /// Iterate every perceived entity (anything the mind has an `IsA` belief
 /// about) and keep the ones whose ontology trait inheritance includes
 /// `trait_concept`.
@@ -114,10 +128,17 @@ fn enumerate_entities_with_affordance(
 /// `(deer_42, IsA, Concept::Deer)` for every visible deer, and
 /// `mind.has_trait` walks the IsA chain to discover that
 /// `(Deer, HasTrait, Prey)` lives in cultural/intrinsic knowledge.
+///
+/// `alive_only` controls the Dead-marker filter. Most trait-based actions
+/// want living targets — a corpse still carries `IsA Deer` in observer
+/// minds until belief invalidation (#524) lands, but a dead deer is not
+/// exhibiting Prey-hood in any actionable sense. Devour and other carrion-
+/// targeting actions invert this and want dead entities specifically.
 fn enumerate_entities_with_trait(
     trait_concept: Concept,
     mind: &MindGraph,
-    affordances: &Query<(&GlobalTransform, Option<&Affordance>)>,
+    affordances: &Query<(&GlobalTransform, Option<&Affordance>, Option<&Dead>)>,
+    alive_only: AliveOnly,
 ) -> Vec<TargetCandidate> {
     let mut candidates = Vec::new();
     let mut seen = std::collections::HashSet::new();
@@ -133,9 +154,14 @@ fn enumerate_entities_with_trait(
             continue;
         }
 
-        let Ok((transform, _)) = affordances.get(entity) else {
+        let Ok((transform, _, dead)) = affordances.get(entity) else {
             continue;
         };
+        match alive_only {
+            AliveOnly::Yes if dead.is_some() => continue,
+            AliveOnly::No if dead.is_none() => continue,
+            _ => {}
+        }
         candidates.push(TargetCandidate::Entity {
             entity,
             pos: transform.translation().truncate(),

@@ -69,6 +69,12 @@ pub enum TargetSource {
     /// an inventory or world `Affordance` component, since prey-ness lives
     /// in the agent's beliefs about the entity type, not on the entity itself.
     EntityWithTrait(Concept),
+    /// Like `EntityWithTrait`, but enumerates *dead* entities (corpses)
+    /// instead of filtering them out. The default `EntityWithTrait` path
+    /// drops anything carrying the `Dead` marker so Bite/Attack can't
+    /// chase a corpse — actions that explicitly want carrion (Devour,
+    /// future Mourn / Cremate) declare this variant instead.
+    DeadEntityWithTrait(Concept),
     /// Iterate tiles matching `Tile(?) HasTrait <concept>` in the MindGraph.
     /// The tile-based mirror of `EntityWithTrait`. Drink uses this with
     /// `Concept::Drinkable` so the planner can chain `Walk → Drink` against
@@ -843,10 +849,10 @@ impl ActiveActions {
 // ============================================================================
 
 use super::action::{
-    BuildAction, ConstructAction, ConverseAction, DepositAction, DrinkAction, EatAction,
-    ExploreAction, FleeAction, GrazeAction, HarvestAction, IdleAction, InitiateConversationAction,
-    LookForAction, ObserveAction, RestAction, SleepAction, TakeAction, WakeUpAction, WalkAction,
-    WanderAction, WarmUpAction,
+    BuildAction, ConstructAction, ConverseAction, DepositAction, DevourAction, DrinkAction,
+    EatAction, ExploreAction, FleeAction, GrazeAction, HarvestAction, IdleAction,
+    InitiateConversationAction, LookForAction, ObserveAction, RestAction, SleepAction, TakeAction,
+    WakeUpAction, WalkAction, WanderAction, WarmUpAction,
 };
 
 #[derive(Resource, Default)]
@@ -862,6 +868,7 @@ impl ActionRegistry {
         registry.register(SleepAction);
         registry.register(WakeUpAction);
         registry.register(EatAction);
+        registry.register(DevourAction);
         registry.register(DrinkAction);
         registry.register(GrazeAction);
         registry.register(WalkAction);

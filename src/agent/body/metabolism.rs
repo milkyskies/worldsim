@@ -173,6 +173,14 @@ impl Default for OrganMods {
     }
 }
 
+/// Fallback macros for edible items that are classified as `IsA Food` in
+/// the ontology but don't yet have an entry in `food_macros`. 30 carbs +
+/// 10 fat is a medium meal that digests into a full glucose top-up plus a
+/// small reserve contribution. Both Eat and Devour use it so a planner
+/// chain that fires on a not-yet-registered Food still produces real
+/// satiety instead of silently doing nothing (#416).
+pub const FALLBACK_MEAL: FoodMacros = FoodMacros::new(30.0, 10.0);
+
 /// Map an edible `Concept` to its macro breakdown. Returns `None` for
 /// anything not currently modeled as food. New food items get added here.
 pub fn food_macros(concept: Concept) -> Option<FoodMacros> {

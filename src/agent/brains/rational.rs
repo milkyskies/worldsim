@@ -286,6 +286,7 @@ pub fn update_rational_planning(
     affordances: Query<(
         &GlobalTransform,
         Option<&crate::agent::affordance::Affordance>,
+        Option<&crate::agent::Dead>,
     )>,
     agents: Query<(), With<Agent>>,
     mut sim_events_params: ParamSet<(
@@ -871,6 +872,7 @@ fn collect_planning_actions(
     affordances: &Query<(
         &GlobalTransform,
         Option<&crate::agent::affordance::Affordance>,
+        Option<&crate::agent::Dead>,
     )>,
     mode: PlanningMode,
     capacities: &ChannelCapacities,
