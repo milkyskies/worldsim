@@ -9,7 +9,7 @@ use bevy::prelude::*;
 
 use crate::agent::Agent;
 use crate::agent::body::needs::PhysicalNeeds;
-use crate::agent::events::SimEvent;
+use crate::agent::events::{SimEvent, SimEventKind};
 use crate::agent::psyche::emotions::{Emotion, EmotionType, EmotionalState};
 use crate::core::tick::TickCount;
 
@@ -124,11 +124,14 @@ pub fn emits_effect_system(
             if emitter_pos.distance(agent_pos) <= emits.radius {
                 apply_effect(&emits.effect, dt, &mut physical, &mut emotional);
                 if let Some(ref mut events) = sim_events {
-                    events.write(SimEvent::EffectApplied {
-                        agent: agent_entity,
-                        tick: tick.current,
-                        source: emitter_entity,
-                    });
+                    events.write(SimEvent::single(
+                        tick.current,
+                        agent_entity,
+                        SimEventKind::EffectApplied {
+                            agent: agent_entity,
+                            source: emitter_entity,
+                        },
+                    ));
                 }
             }
         }

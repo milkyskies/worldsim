@@ -106,7 +106,7 @@ fn hungry_deer_on_grass_grazes_and_reduces_hunger() {
 /// could pass on any hunger-reducing action in the registry.
 #[test]
 fn hungry_deer_on_grass_enters_graze_action() {
-    use worldsim::agent::events::SimEvent;
+    use worldsim::agent::events::{SimEvent, SimEventKind};
 
     let mut world = TestWorld::with_seed(42);
     let deer = world.spawn_deer(Vec2::new(200.0, 200.0));
@@ -121,11 +121,7 @@ fn hungry_deer_on_grass_enters_graze_action() {
     let started_graze = world.sim_events().all().iter().any(|ev| {
         matches!(
             ev,
-            SimEvent::ActionStarted {
-                agent,
-                action: ActionType::Graze,
-                ..
-            } if *agent == deer
+            SimEvent { kind: SimEventKind::ActionStarted { agent, action: ActionType::Graze, .. }, .. } if *agent == deer
         )
     });
 

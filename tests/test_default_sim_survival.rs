@@ -25,7 +25,7 @@
 
 use bevy::math::Vec2;
 use worldsim::agent::actions::ActionType;
-use worldsim::agent::events::SimEvent;
+use worldsim::agent::events::{SimEvent, SimEventKind};
 use worldsim::agent::nervous_system::config::NervousSystemConfig;
 use worldsim::testing::TestWorld;
 use worldsim::world::map::TileType;
@@ -50,7 +50,7 @@ fn action_started_count(world: &TestWorld, agent: bevy::prelude::Entity, at: Act
         .filter(|e| {
             matches!(
                 e,
-                SimEvent::ActionStarted { agent: a, action, .. }
+                SimEvent { kind: SimEventKind::ActionStarted { agent: a, action, .. }, .. }
                     if *a == agent && *action == at
             )
         })
@@ -239,7 +239,7 @@ fn empty_harvest_emits_resource_depleted() {
     use worldsim::agent::actions::ActionType;
     use worldsim::agent::actions::ActiveActions;
     use worldsim::agent::actions::registry::ActionState;
-    use worldsim::agent::events::{FailureReason, SimEvent};
+    use worldsim::agent::events::{FailureReason, SimEvent, SimEventKind};
 
     let bush_pos = Vec2::new(100.0, 100.0);
     let (mut world, agents) = TestWorld::scenario(42)
@@ -281,12 +281,7 @@ fn empty_harvest_emits_resource_depleted() {
         .filter(|e| {
             matches!(
                 e,
-                SimEvent::ActionFailed {
-                    agent: a,
-                    action: ActionType::Harvest,
-                    reason: FailureReason::ResourceDepleted,
-                    ..
-                } if *a == alice
+                SimEvent { kind: SimEventKind::ActionFailed { agent: a, action: ActionType::Harvest, reason: FailureReason::ResourceDepleted, .. }, .. } if *a == alice
             )
         })
         .count();
@@ -297,11 +292,7 @@ fn empty_harvest_emits_resource_depleted() {
         .filter(|e| {
             matches!(
                 e,
-                SimEvent::ActionCompleted {
-                    agent: a,
-                    action: ActionType::Harvest,
-                    ..
-                } if *a == alice
+                SimEvent { kind: SimEventKind::ActionCompleted { agent: a, action: ActionType::Harvest, .. }, .. } if *a == alice
             )
         })
         .count();
@@ -399,7 +390,15 @@ fn assert_humans_survive_default_sim(ticks: u64) {
         .sim_events()
         .all()
         .iter()
-        .filter(|e| matches!(e, SimEvent::Death { .. }))
+        .filter(|e| {
+            matches!(
+                e,
+                SimEvent {
+                    kind: SimEventKind::Death { .. },
+                    ..
+                }
+            )
+        })
         .cloned()
         .collect();
 
@@ -414,7 +413,12 @@ fn assert_humans_survive_default_sim(ticks: u64) {
             initial_humans
         );
         for e in &deaths {
-            if let SimEvent::Death { agent, tick, cause } = e {
+            if let SimEvent {
+                tick,
+                kind: SimEventKind::Death { agent, cause, .. },
+                ..
+            } = e
+            {
                 eprintln!("  death: {agent:?} @ tick {tick} ({cause})");
             }
         }

@@ -15,7 +15,7 @@ use crate::agent::actions::{ActionRegistry, ActionType, ActiveActions};
 use crate::agent::biology::body::Body;
 use crate::agent::body::needs::{Consciousness, PhysicalNeeds, PsychologicalDrives};
 use crate::agent::brains::proposal::BrainState;
-use crate::agent::events::SimEvent;
+use crate::agent::events::{SimEvent, SimEventKind};
 use crate::agent::mind::conversation::{ConversationManager, InConversation};
 use crate::agent::mind::knowledge::{
     Concept, MindGraph, Node as MindNode, Ontology, Predicate, Value, setup_ontology,
@@ -62,9 +62,7 @@ impl SimEventLog {
         last_n_ticks: u64,
     ) -> impl Iterator<Item = &SimEvent> {
         let cutoff = current_tick.saturating_sub(last_n_ticks);
-        self.events
-            .iter()
-            .filter(move |e| sim_event_tick(e) >= cutoff)
+        self.events.iter().filter(move |e| e.tick >= cutoff)
     }
 
     /// Read-only access to all collected events. Tests use this to assert
@@ -83,122 +81,19 @@ fn collect_sim_events_into_log(mut reader: MessageReader<SimEvent>, mut log: Res
 
 // ─── Formatting helpers ────────────────────────────────────────────────────
 
-/// Extract the primary tick from any SimEvent variant.
-fn sim_event_tick(event: &SimEvent) -> u64 {
-    match event {
-        SimEvent::Decision { tick, .. }
-        | SimEvent::ActionStarted { tick, .. }
-        | SimEvent::ActionCompleted { tick, .. }
-        | SimEvent::ActionPreempted { tick, .. }
-        | SimEvent::ActionFailed { tick, .. }
-        | SimEvent::PlanAbandoned { tick, .. }
-        | SimEvent::ConversationStarted { tick, .. }
-        | SimEvent::ConversationEnded { tick, .. }
-        | SimEvent::ConversationJoined { tick, .. }
-        | SimEvent::ConversationLeft { tick, .. }
-        | SimEvent::ConversationAbandoned { tick, .. }
-        | SimEvent::RelationshipChanged { tick, .. }
-        | SimEvent::EmotionTriggered { tick, .. }
-        | SimEvent::Death { tick, .. }
-        | SimEvent::EntityPerceived { tick, .. }
-        | SimEvent::StrangerDetected { tick, .. }
-        | SimEvent::KnowledgeShared { tick, .. }
-        | SimEvent::WarmthPerceived { tick, .. }
-        | SimEvent::WarmthChanged { tick, .. }
-        | SimEvent::SoundPerceived { tick, .. }
-        | SimEvent::TheoryOfMindUpdated { tick, .. }
-        | SimEvent::ItemSpoiled { tick, .. }
-        | SimEvent::EffectApplied { tick, .. }
-        | SimEvent::LaborContributed { tick, .. }
-        | SimEvent::SkillChanged { tick, .. }
-        | SimEvent::CombatHit { tick, .. }
-        | SimEvent::CombatMissed { tick, .. }
-        | SimEvent::PartSevered { tick, .. }
-        | SimEvent::PhenotypeDeveloped { tick, .. }
-        | SimEvent::SocialAcknowledgment { tick, .. }
-        | SimEvent::GoapSearchTelemetry { tick, .. }
-        | SimEvent::PlanGenerated { tick, .. }
-        | SimEvent::TargetEnumerated { tick, .. }
-        | SimEvent::PatternRejected { tick, .. }
-        | SimEvent::MindGraphMutation { tick, .. }
-        | SimEvent::AgentStateHash { tick, .. } => *tick,
-    }
-}
-
-/// Returns true if this SimEvent involves the given entity as a primary participant.
-fn sim_event_involves(event: &SimEvent, agent: Entity) -> bool {
-    match event {
-        SimEvent::Decision { agent: a, .. }
-        | SimEvent::ActionStarted { agent: a, .. }
-        | SimEvent::ActionCompleted { agent: a, .. }
-        | SimEvent::ActionPreempted { agent: a, .. }
-        | SimEvent::ActionFailed { agent: a, .. }
-        | SimEvent::PlanAbandoned { agent: a, .. }
-        | SimEvent::EmotionTriggered { agent: a, .. }
-        | SimEvent::Death { agent: a, .. }
-        | SimEvent::EntityPerceived { agent: a, .. }
-        | SimEvent::StrangerDetected { agent: a, .. } => *a == agent,
-
-        SimEvent::RelationshipChanged {
-            agent: a, other, ..
-        } => *a == agent || *other == agent,
-
-        SimEvent::KnowledgeShared {
-            speaker, listener, ..
-        } => *speaker == agent || *listener == agent,
-
-        SimEvent::ConversationStarted { participants, .. }
-        | SimEvent::ConversationEnded { participants, .. } => participants.contains(&agent),
-
-        SimEvent::ConversationJoined { joiner, .. } => *joiner == agent,
-        SimEvent::ConversationLeft { leaver, .. } => *leaver == agent,
-
-        SimEvent::ConversationAbandoned {
-            abandoner,
-            abandoned,
-            ..
-        } => *abandoner == agent || *abandoned == agent,
-
-        SimEvent::WarmthPerceived { agent: a, .. }
-        | SimEvent::WarmthChanged { agent: a, .. }
-        | SimEvent::SoundPerceived { agent: a, .. } => *a == agent,
-
-        SimEvent::TheoryOfMindUpdated {
-            agent: a, about, ..
-        } => *a == agent || *about == agent,
-
-        SimEvent::ItemSpoiled { agent: a, .. }
-        | SimEvent::EffectApplied { agent: a, .. }
-        | SimEvent::LaborContributed { agent: a, .. }
-        | SimEvent::SkillChanged { agent: a, .. }
-        | SimEvent::PhenotypeDeveloped { agent: a, .. }
-        | SimEvent::GoapSearchTelemetry { agent: a, .. }
-        | SimEvent::PlanGenerated { agent: a, .. }
-        | SimEvent::TargetEnumerated { agent: a, .. }
-        | SimEvent::PatternRejected { agent: a, .. }
-        | SimEvent::MindGraphMutation { agent: a, .. }
-        | SimEvent::AgentStateHash { agent: a, .. } => *a == agent,
-
-        SimEvent::CombatHit {
-            attacker, defender, ..
-        } => *attacker == agent || *defender == agent,
-        SimEvent::CombatMissed {
-            attacker, defender, ..
-        } => *attacker == agent || *defender == agent,
-        SimEvent::PartSevered { entity, .. } => *entity == agent,
-        SimEvent::SocialAcknowledgment { actor, target, .. } => *actor == agent || *target == agent,
-    }
-}
-
 /// One-line description of a SimEvent for terminal output.
 fn format_sim_event(event: &SimEvent) -> String {
     match event {
-        SimEvent::Decision {
-            agent,
+        SimEvent {
             tick,
-            winner,
-            chosen_actions,
-            powers,
+            kind:
+                SimEventKind::Decision {
+                    agent,
+                    winner,
+                    chosen_actions,
+                    powers,
+                    ..
+                },
             ..
         } => format!(
             "[t{tick}] Decision  agent={agent:?} winner={winner:?} actions={chosen_actions:?} \
@@ -206,12 +101,16 @@ fn format_sim_event(event: &SimEvent) -> String {
             powers.survival, powers.emotional, powers.rational
         ),
 
-        SimEvent::ActionStarted {
-            agent,
+        SimEvent {
             tick,
-            action,
-            target,
-            plan_id,
+            kind:
+                SimEventKind::ActionStarted {
+                    agent,
+                    action,
+                    target,
+                    plan_id,
+                    ..
+                },
             ..
         } => {
             if let Some(t) = target {
@@ -226,107 +125,162 @@ fn format_sim_event(event: &SimEvent) -> String {
             }
         }
 
-        SimEvent::ActionCompleted {
-            agent,
+        SimEvent {
             tick,
-            action,
-            target,
+            kind:
+                SimEventKind::ActionCompleted {
+                    agent,
+                    action,
+                    target,
+                    ..
+                },
+            ..
         } => {
             let tgt = target.map(|t| format!(" target={t:?}")).unwrap_or_default();
             format!("[t{tick}] ActionCompleted agent={agent:?} action={action:?}{tgt}")
         }
 
-        SimEvent::ActionPreempted {
-            agent,
+        SimEvent {
             tick,
-            preempted_action,
+            kind:
+                SimEventKind::ActionPreempted {
+                    agent,
+                    preempted_action,
+                    ..
+                },
+            ..
         } => {
             format!("[t{tick}] ActionPreempted agent={agent:?} preempted={preempted_action:?}")
         }
 
-        SimEvent::ActionFailed {
-            agent,
+        SimEvent {
             tick,
-            action,
-            reason,
+            kind:
+                SimEventKind::ActionFailed {
+                    agent,
+                    action,
+                    reason,
+                    ..
+                },
+            ..
         } => {
             format!("[t{tick}] ActionFailed    agent={agent:?} action={action:?} reason={reason:?}")
         }
 
-        SimEvent::PlanAbandoned {
-            agent,
+        SimEvent {
             tick,
-            action,
-            intent,
+            kind:
+                SimEventKind::PlanAbandoned {
+                    agent,
+                    action,
+                    intent,
+                    ..
+                },
+            ..
         } => {
             format!(
                 "[t{tick}] PlanAbandoned    agent={agent:?} action={action:?} intent={intent:?}"
             )
         }
 
-        SimEvent::ConversationStarted {
-            participants,
+        SimEvent {
             tick,
-            conversation_id,
+            kind:
+                SimEventKind::ConversationStarted {
+                    participants,
+                    conversation_id,
+                    ..
+                },
+            ..
         } => {
             format!(
                 "[t{tick}] ConversationStarted  id={conversation_id} participants={participants:?}"
             )
         }
 
-        SimEvent::ConversationEnded {
-            participants,
+        SimEvent {
             tick,
-            conversation_id,
+            kind:
+                SimEventKind::ConversationEnded {
+                    participants,
+                    conversation_id,
+                    ..
+                },
+            ..
         } => {
             format!(
                 "[t{tick}] ConversationEnded    id={conversation_id} participants={participants:?}"
             )
         }
 
-        SimEvent::ConversationJoined {
-            joiner,
+        SimEvent {
             tick,
-            conversation_id,
+            kind:
+                SimEventKind::ConversationJoined {
+                    joiner,
+                    conversation_id,
+                    ..
+                },
+            ..
         } => {
             format!("[t{tick}] ConversationJoined   id={conversation_id} joiner={joiner:?}")
         }
 
-        SimEvent::ConversationLeft {
-            leaver,
+        SimEvent {
             tick,
-            conversation_id,
+            kind:
+                SimEventKind::ConversationLeft {
+                    leaver,
+                    conversation_id,
+                    ..
+                },
+            ..
         } => {
             format!("[t{tick}] ConversationLeft     id={conversation_id} leaver={leaver:?}")
         }
 
-        SimEvent::ConversationAbandoned {
-            abandoner,
-            abandoned,
+        SimEvent {
             tick,
+            kind:
+                SimEventKind::ConversationAbandoned {
+                    abandoner,
+                    abandoned,
+                    ..
+                },
+            ..
         } => {
             format!(
                 "[t{tick}] ConversationAbandoned abandoner={abandoner:?} abandoned={abandoned:?}"
             )
         }
 
-        SimEvent::RelationshipChanged {
-            agent,
-            other,
+        SimEvent {
             tick,
-            dimension,
-            old_value,
-            new_value,
+            kind:
+                SimEventKind::RelationshipChanged {
+                    agent,
+                    other,
+                    dimension,
+                    old_value,
+                    new_value,
+                    ..
+                },
+            ..
         } => format!(
             "[t{tick}] RelationshipChanged agent={agent:?} other={other:?} \
              dim={dimension:?} {old_value:.3}->{new_value:.3}"
         ),
 
-        SimEvent::EmotionTriggered {
-            agent,
+        SimEvent {
             tick,
-            emotion,
-            intensity,
+            kind:
+                SimEventKind::EmotionTriggered {
+                    agent,
+                    emotion,
+                    intensity,
+                    ..
+                },
+            ..
         } => {
             format!(
                 "[t{tick}] EmotionTriggered   agent={agent:?} emotion={emotion:?} \
@@ -334,31 +288,42 @@ fn format_sim_event(event: &SimEvent) -> String {
             )
         }
 
-        SimEvent::Death { agent, tick, cause } => {
+        SimEvent {
+            tick,
+            kind: SimEventKind::Death { agent, cause, .. },
+            ..
+        } => {
             format!("[t{tick}] Death             agent={agent:?} cause={cause}")
         }
 
-        SimEvent::EntityPerceived {
-            agent,
+        SimEvent {
             tick,
-            target,
+            kind: SimEventKind::EntityPerceived { agent, target, .. },
+            ..
         } => {
             format!("[t{tick}] EntityPerceived   agent={agent:?} target={target:?}")
         }
 
-        SimEvent::StrangerDetected {
-            agent,
+        SimEvent {
             tick,
-            stranger,
+            kind: SimEventKind::StrangerDetected {
+                agent, stranger, ..
+            },
+            ..
         } => {
             format!("[t{tick}] StrangerDetected  agent={agent:?} stranger={stranger:?}")
         }
 
-        SimEvent::KnowledgeShared {
-            speaker,
-            listener,
+        SimEvent {
             tick,
-            triple_count,
+            kind:
+                SimEventKind::KnowledgeShared {
+                    speaker,
+                    listener,
+                    triple_count,
+                    ..
+                },
+            ..
         } => {
             format!(
                 "[t{tick}] KnowledgeShared   speaker={speaker:?} listener={listener:?} \
@@ -366,38 +331,53 @@ fn format_sim_event(event: &SimEvent) -> String {
             )
         }
 
-        SimEvent::WarmthPerceived {
-            agent,
+        SimEvent {
             tick,
-            source,
+            kind: SimEventKind::WarmthPerceived { agent, source, .. },
+            ..
         } => {
             format!("[t{tick}] WarmthPerceived  agent={agent:?} source={source:?}")
         }
 
-        SimEvent::WarmthChanged {
-            agent,
+        SimEvent {
             tick,
-            old_value,
-            new_value,
+            kind:
+                SimEventKind::WarmthChanged {
+                    agent,
+                    old_value,
+                    new_value,
+                    ..
+                },
+            ..
         } => {
             format!("[t{tick}] WarmthChanged    agent={agent:?} {old_value:.2} -> {new_value:.2}")
         }
 
-        SimEvent::SoundPerceived {
-            agent,
+        SimEvent {
             tick,
-            source,
-            kind,
+            kind:
+                SimEventKind::SoundPerceived {
+                    agent,
+                    source,
+                    kind,
+                    ..
+                },
+            ..
         } => {
             format!("[t{tick}] SoundPerceived   agent={agent:?} source={source:?} kind={kind:?}")
         }
 
-        SimEvent::TheoryOfMindUpdated {
-            agent,
-            about,
+        SimEvent {
             tick,
-            source,
-            belief_count,
+            kind:
+                SimEventKind::TheoryOfMindUpdated {
+                    agent,
+                    about,
+                    source,
+                    belief_count,
+                    ..
+                },
+            ..
         } => {
             format!(
                 "[t{tick}] TheoryOfMindUpdated agent={agent:?} about={about:?} \
@@ -405,33 +385,43 @@ fn format_sim_event(event: &SimEvent) -> String {
             )
         }
 
-        SimEvent::ItemSpoiled {
-            agent,
+        SimEvent {
             tick,
-            from,
-            to,
+            kind: SimEventKind::ItemSpoiled {
+                agent, from, to, ..
+            },
+            ..
         } => {
             format!("[t{tick}] ItemSpoiled    agent={agent:?} {from:?} -> {to:?}")
         }
 
-        SimEvent::EffectApplied {
-            agent,
+        SimEvent {
             tick,
-            source,
+            kind: SimEventKind::EffectApplied { agent, source, .. },
+            ..
         } => {
             format!("[t{tick}] EffectApplied     agent={agent:?} source={source:?}")
         }
 
-        SimEvent::LaborContributed { agent, tick, site } => {
+        SimEvent {
+            tick,
+            kind: SimEventKind::LaborContributed { agent, site, .. },
+            ..
+        } => {
             format!("[t{tick}] LaborContributed  agent={agent:?} site={site:?}")
         }
 
-        SimEvent::SkillChanged {
-            agent,
+        SimEvent {
             tick,
-            skill,
-            old_value,
-            new_value,
+            kind:
+                SimEventKind::SkillChanged {
+                    agent,
+                    skill,
+                    old_value,
+                    new_value,
+                    ..
+                },
+            ..
         } => {
             format!(
                 "[t{tick}] SkillChanged      agent={agent:?} skill={skill:?} \
@@ -439,13 +429,18 @@ fn format_sim_event(event: &SimEvent) -> String {
             )
         }
 
-        SimEvent::CombatHit {
-            attacker,
-            defender,
+        SimEvent {
             tick,
-            part_kind,
-            damage,
-            injury_type,
+            kind:
+                SimEventKind::CombatHit {
+                    attacker,
+                    defender,
+                    part_kind,
+                    damage,
+                    injury_type,
+                    ..
+                },
+            ..
         } => {
             format!(
                 "[t{tick}] CombatHit         {attacker:?} -> {defender:?} \
@@ -454,18 +449,22 @@ fn format_sim_event(event: &SimEvent) -> String {
             )
         }
 
-        SimEvent::CombatMissed {
-            attacker,
-            defender,
+        SimEvent {
             tick,
+            kind: SimEventKind::CombatMissed {
+                attacker, defender, ..
+            },
+            ..
         } => {
             format!("[t{tick}] CombatMissed      {attacker:?} -> {defender:?} (dodged)")
         }
 
-        SimEvent::PartSevered {
-            entity,
+        SimEvent {
             tick,
-            part_kind,
+            kind: SimEventKind::PartSevered {
+                entity, part_kind, ..
+            },
+            ..
         } => {
             format!(
                 "[t{tick}] PartSevered       {entity:?} lost {}",
@@ -473,10 +472,13 @@ fn format_sim_event(event: &SimEvent) -> String {
             )
         }
 
-        SimEvent::PhenotypeDeveloped {
-            agent,
+        SimEvent {
             tick,
-            phenotype,
+            kind:
+                SimEventKind::PhenotypeDeveloped {
+                    agent, phenotype, ..
+                },
+            ..
         } => {
             format!(
                 "[t{tick}] PhenotypeDeveloped agent={agent:?} speed={:.3} \
@@ -484,19 +486,23 @@ fn format_sim_event(event: &SimEvent) -> String {
                 phenotype.speed, phenotype.vision, phenotype.bmr, phenotype.aerobic_capacity,
             )
         }
-        SimEvent::SocialAcknowledgment {
-            actor,
-            target,
+        SimEvent {
             tick,
+            kind: SimEventKind::SocialAcknowledgment { actor, target, .. },
+            ..
         } => {
             format!("[t{tick}] SocialAcknowledgment {actor:?} greeted {target:?}")
         }
-        SimEvent::GoapSearchTelemetry {
-            agent,
+        SimEvent {
             tick,
-            goal_description,
-            iterations,
-            exhausted,
+            kind:
+                SimEventKind::GoapSearchTelemetry {
+                    agent,
+                    goal_description,
+                    iterations,
+                    exhausted,
+                    ..
+                },
             ..
         } => {
             format!(
@@ -504,12 +510,16 @@ fn format_sim_event(event: &SimEvent) -> String {
                  iters={iterations} exhausted={exhausted}"
             )
         }
-        SimEvent::PlanGenerated {
-            agent,
+        SimEvent {
             tick,
-            plan_id,
-            driving_urgency,
-            step_count,
+            kind:
+                SimEventKind::PlanGenerated {
+                    agent,
+                    plan_id,
+                    driving_urgency,
+                    step_count,
+                    ..
+                },
             ..
         } => {
             format!(
@@ -517,42 +527,61 @@ fn format_sim_event(event: &SimEvent) -> String {
                  urgency={driving_urgency:?} steps={step_count}"
             )
         }
-        SimEvent::TargetEnumerated {
-            agent,
+        SimEvent {
             tick,
-            action_name,
-            target_description,
-            inclusion_reason,
+            kind:
+                SimEventKind::TargetEnumerated {
+                    agent,
+                    action_name,
+                    target_description,
+                    inclusion_reason,
+                    ..
+                },
+            ..
         } => {
             format!(
                 "[t{tick}] TargetEnumerated agent={agent:?} action={action_name} \
                  target={target_description} reason={inclusion_reason}"
             )
         }
-        SimEvent::PatternRejected {
-            agent,
+        SimEvent {
             tick,
-            goal_description,
-            unmet_patterns,
+            kind:
+                SimEventKind::PatternRejected {
+                    agent,
+                    goal_description,
+                    unmet_patterns,
+                    ..
+                },
+            ..
         } => {
             format!(
                 "[t{tick}] PatternRejected agent={agent:?} goal={goal_description} \
                  unmet={unmet_patterns:?}"
             )
         }
-        SimEvent::MindGraphMutation {
-            agent,
+        SimEvent {
             tick,
-            op,
-            subject,
-            predicate,
-            object,
+            kind:
+                SimEventKind::MindGraphMutation {
+                    agent,
+                    op,
+                    subject,
+                    predicate,
+                    object,
+                    ..
+                },
+            ..
         } => {
             format!(
                 "[t{tick}] MindGraphMutation agent={agent:?} {op} {subject} {predicate} {object}"
             )
         }
-        SimEvent::AgentStateHash { agent, tick, hash } => {
+        SimEvent {
+            tick,
+            kind: SimEventKind::AgentStateHash { agent, hash, .. },
+            ..
+        } => {
             format!("[t{tick}] AgentStateHash agent={agent:?} hash={hash}")
         }
     }
@@ -1482,10 +1511,14 @@ impl TestWorld {
             let mut last_eat_tick: Option<u64> = None;
             let mut last_harvest_tick: Option<u64> = None;
             for event in log.all() {
-                let event_tick = sim_event_tick(event);
+                let event_tick = event.tick;
                 match event {
-                    SimEvent::ActionStarted {
-                        agent: a, action, ..
+                    SimEvent {
+                        kind:
+                            SimEventKind::ActionStarted {
+                                agent: a, action, ..
+                            },
+                        ..
                     } if *a == agent => {
                         if event_tick >= cutoff {
                             *started.entry(format!("{action:?}")).or_insert(0) += 1;
@@ -1500,8 +1533,12 @@ impl TestWorld {
                             _ => {}
                         }
                     }
-                    SimEvent::ActionFailed {
-                        agent: a, action, ..
+                    SimEvent {
+                        kind:
+                            SimEventKind::ActionFailed {
+                                agent: a, action, ..
+                            },
+                        ..
                     } if *a == agent && event_tick >= cutoff => {
                         *failed.entry(format!("{action:?}")).or_insert(0) += 1;
                     }
@@ -1639,10 +1676,14 @@ impl TestWorld {
             let mut blocked: std::collections::HashMap<(i32, i32), usize> =
                 std::collections::HashMap::new();
             for event in log.all() {
-                if let SimEvent::ActionFailed {
-                    agent: a,
+                if let SimEvent {
                     tick: et,
-                    reason: crate::agent::events::FailureReason::PathBlocked { target_tile },
+                    kind:
+                        SimEventKind::ActionFailed {
+                            agent: a,
+                            reason: crate::agent::events::FailureReason::PathBlocked { target_tile },
+                            ..
+                        },
                     ..
                 } = event
                     && *a == agent
@@ -2224,7 +2265,7 @@ impl TestWorld {
         let log = world.resource::<SimEventLog>();
         let events: Vec<_> = log
             .events_since(tick, last_n_ticks)
-            .filter(|e| sim_event_involves(e, agent))
+            .filter(|e| e.involves(agent))
             .collect();
 
         eprintln!("══════════════════════════════════════════════════");

@@ -20,7 +20,7 @@ use bevy::prelude::*;
 use worldsim::agent::actions::ActionType;
 use worldsim::agent::body::needs::PhysicalNeeds;
 use worldsim::agent::culture::{Culture, create_cultural_knowledge};
-use worldsim::agent::events::SimEvent;
+use worldsim::agent::events::{SimEvent, SimEventKind};
 use worldsim::agent::inventory::EntityType;
 use worldsim::agent::item_slots::ItemSlots;
 use worldsim::agent::mind::knowledge::Concept;
@@ -54,7 +54,7 @@ fn agent_started_action(world: &TestWorld, agent: Entity, action_type: ActionTyp
     world.sim_events().all().iter().any(|e| {
         matches!(
             e,
-            SimEvent::ActionStarted { agent: a, action, .. }
+            SimEvent { kind: SimEventKind::ActionStarted { agent: a, action, .. }, .. }
                 if *a == agent && *action == action_type
         )
     })

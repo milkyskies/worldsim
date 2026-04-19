@@ -5,6 +5,7 @@
 //! Upstream: action execution systems (deposit/extract on success), world entity spawning
 //! Downstream: brain_system (slots influence action choices), belief_updater (syncs MindGraph beliefs)
 
+use crate::agent::events::SimEventKind;
 use crate::agent::mind::knowledge::{Concept, Ontology};
 use bevy::prelude::*;
 
@@ -529,12 +530,15 @@ pub fn freshness_decay_system(
                     let from = thing.concept;
                     thing.concept = rotten;
                     thing.properties.freshness = None;
-                    sim_events.write(crate::agent::events::SimEvent::ItemSpoiled {
-                        agent: owner,
-                        tick: tick.current,
-                        from,
-                        to: rotten,
-                    });
+                    sim_events.write(crate::agent::events::SimEvent::single(
+                        tick.current,
+                        owner,
+                        SimEventKind::ItemSpoiled {
+                            agent: owner,
+                            from,
+                            to: rotten,
+                        },
+                    ));
                 }
             }
         }

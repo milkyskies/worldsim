@@ -8,7 +8,7 @@
 
 use bevy::math::Vec2;
 use worldsim::agent::body::needs::PhysicalNeeds;
-use worldsim::agent::events::SimEvent;
+use worldsim::agent::events::{SimEvent, SimEventKind};
 use worldsim::testing::TestWorld;
 
 /// A rested, moderately hungry agent with food nearby must start eating
@@ -44,10 +44,14 @@ fn agent_eats_before_stomach_empties() {
         .all()
         .iter()
         .filter_map(|e| match e {
-            SimEvent::ActionStarted {
-                agent,
+            SimEvent {
                 tick,
-                action: worldsim::agent::actions::ActionType::Eat,
+                kind:
+                    SimEventKind::ActionStarted {
+                        agent,
+                        action: worldsim::agent::actions::ActionType::Eat,
+                        ..
+                    },
                 ..
             } if *agent == alice => Some(*tick),
             _ => None,

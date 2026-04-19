@@ -16,6 +16,7 @@
 use std::collections::{HashMap, VecDeque};
 
 use crate::agent::Agent;
+use crate::agent::events::SimEventKind;
 use crate::agent::events::{ConversationTopic, GameEvent};
 use crate::agent::mind::knowledge::{
     Metadata, MindGraph, Node, Predicate, Quantity, Triple, Value,
@@ -264,24 +265,32 @@ pub fn update_relationships(
 
                     // Emit SimEvents for relationship changes
                     if (new_trust - current_trust).abs() > f32::EPSILON {
-                        sim_events.write(crate::agent::events::SimEvent::RelationshipChanged {
-                            agent: *target,
-                            other: *actor,
-                            tick: current_time,
-                            dimension: crate::agent::events::RelationshipDimension::Trust,
-                            old_value: current_trust,
-                            new_value: new_trust,
-                        });
+                        sim_events.write(crate::agent::events::SimEvent::pair(
+                            current_time,
+                            *target,
+                            *actor,
+                            SimEventKind::RelationshipChanged {
+                                agent: *target,
+                                other: *actor,
+                                dimension: crate::agent::events::RelationshipDimension::Trust,
+                                old_value: current_trust,
+                                new_value: new_trust,
+                            },
+                        ));
                     }
                     if (new_affection - current_affection).abs() > f32::EPSILON {
-                        sim_events.write(crate::agent::events::SimEvent::RelationshipChanged {
-                            agent: *target,
-                            other: *actor,
-                            tick: current_time,
-                            dimension: crate::agent::events::RelationshipDimension::Affection,
-                            old_value: current_affection,
-                            new_value: new_affection,
-                        });
+                        sim_events.write(crate::agent::events::SimEvent::pair(
+                            current_time,
+                            *target,
+                            *actor,
+                            SimEventKind::RelationshipChanged {
+                                agent: *target,
+                                other: *actor,
+                                dimension: crate::agent::events::RelationshipDimension::Affection,
+                                old_value: current_affection,
+                                new_value: new_affection,
+                            },
+                        ));
                     }
                 }
             }

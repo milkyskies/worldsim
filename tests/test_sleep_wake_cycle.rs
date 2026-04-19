@@ -10,7 +10,7 @@ use bevy::math::Vec2;
 use worldsim::agent::actions::{ActionType, ActiveActions};
 use worldsim::agent::biology::body::{Body, Injury, InjuryType};
 use worldsim::agent::body::needs::PhysicalNeeds;
-use worldsim::agent::events::SimEvent;
+use worldsim::agent::events::{SimEvent, SimEventKind};
 use worldsim::agent::nervous_system::cns::CentralNervousSystem;
 use worldsim::agent::nervous_system::urgency::UrgencySource;
 use worldsim::testing::TestWorld;
@@ -254,27 +254,44 @@ fn sleep_start_always_has_matching_terminator() {
         .all()
         .iter()
         .filter_map(|e| match e {
-            SimEvent::ActionStarted {
-                agent,
+            SimEvent {
                 tick,
-                action: ActionType::Sleep,
+                kind:
+                    SimEventKind::ActionStarted {
+                        agent,
+                        action: ActionType::Sleep,
+                        ..
+                    },
                 ..
             } if *agent == sleeper => Some(("Started", *tick)),
-            SimEvent::ActionPreempted {
-                agent,
+            SimEvent {
                 tick,
-                preempted_action: ActionType::Sleep,
+                kind:
+                    SimEventKind::ActionPreempted {
+                        agent,
+                        preempted_action: ActionType::Sleep,
+                        ..
+                    },
+                ..
             } if *agent == sleeper => Some(("Preempted", *tick)),
-            SimEvent::ActionCompleted {
-                agent,
+            SimEvent {
                 tick,
-                action: ActionType::Sleep,
+                kind:
+                    SimEventKind::ActionCompleted {
+                        agent,
+                        action: ActionType::Sleep,
+                        ..
+                    },
                 ..
             } if *agent == sleeper => Some(("Completed", *tick)),
-            SimEvent::ActionFailed {
-                agent,
+            SimEvent {
                 tick,
-                action: ActionType::Sleep,
+                kind:
+                    SimEventKind::ActionFailed {
+                        agent,
+                        action: ActionType::Sleep,
+                        ..
+                    },
                 ..
             } if *agent == sleeper => Some(("Failed", *tick)),
             _ => None,

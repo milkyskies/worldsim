@@ -4,7 +4,7 @@
 //! and that systems don't panic when no SimEvent consumer is present.
 
 use bevy::prelude::*;
-use worldsim::agent::events::SimEvent;
+use worldsim::agent::events::{SimEvent, SimEventKind};
 use worldsim::agent::item_slots::ItemSlots;
 use worldsim::agent::mind::knowledge::Concept;
 use worldsim::testing::{AgentConfig, TestWorld};
@@ -61,7 +61,15 @@ fn entity_perceived_events_emitted_when_agents_see_new_entities() {
     let perceived: Vec<_> = collector
         .events
         .iter()
-        .filter(|e| matches!(e, SimEvent::EntityPerceived { .. }))
+        .filter(|e| {
+            matches!(
+                e,
+                SimEvent {
+                    kind: SimEventKind::EntityPerceived { .. },
+                    ..
+                }
+            )
+        })
         .collect();
     assert!(
         !perceived.is_empty(),
@@ -87,7 +95,15 @@ fn stranger_detected_when_two_agents_meet() {
     let strangers: Vec<_> = collector
         .events
         .iter()
-        .filter(|e| matches!(e, SimEvent::StrangerDetected { .. }))
+        .filter(|e| {
+            matches!(
+                e,
+                SimEvent {
+                    kind: SimEventKind::StrangerDetected { .. },
+                    ..
+                }
+            )
+        })
         .collect();
     assert!(
         !strangers.is_empty(),
@@ -118,18 +134,33 @@ fn brain_and_action_lifecycle_events_emitted() {
 
     let collector = world.app().world().resource::<SimEventCollector>();
 
-    let has_decision = collector
-        .events
-        .iter()
-        .any(|e| matches!(e, SimEvent::Decision { .. }));
-    let has_action_started = collector
-        .events
-        .iter()
-        .any(|e| matches!(e, SimEvent::ActionStarted { .. }));
-    let has_action_completed = collector
-        .events
-        .iter()
-        .any(|e| matches!(e, SimEvent::ActionCompleted { .. }));
+    let has_decision = collector.events.iter().any(|e| {
+        matches!(
+            e,
+            SimEvent {
+                kind: SimEventKind::Decision { .. },
+                ..
+            }
+        )
+    });
+    let has_action_started = collector.events.iter().any(|e| {
+        matches!(
+            e,
+            SimEvent {
+                kind: SimEventKind::ActionStarted { .. },
+                ..
+            }
+        )
+    });
+    let has_action_completed = collector.events.iter().any(|e| {
+        matches!(
+            e,
+            SimEvent {
+                kind: SimEventKind::ActionCompleted { .. },
+                ..
+            }
+        )
+    });
 
     assert!(has_decision, "expected Decision events after 300 ticks");
     assert!(

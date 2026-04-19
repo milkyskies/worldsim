@@ -12,7 +12,7 @@ use bevy::prelude::*;
 use serde::Serialize;
 
 use crate::agent::Agent;
-use crate::agent::events::SimEvent;
+use crate::agent::events::{SimEvent, SimEventKind};
 
 // ─── Config ──────────────────────────────────────────────────────────────────
 
@@ -262,13 +262,17 @@ pub fn update_decision_trace(
 
     for event in sim_events.read() {
         match event {
-            SimEvent::Decision {
-                agent,
+            SimEvent {
                 tick,
-                winner,
-                chosen_actions,
-                powers,
-                proposals,
+                kind:
+                    SimEventKind::Decision {
+                        agent,
+                        winner,
+                        chosen_actions,
+                        powers,
+                        proposals,
+                        ..
+                    },
                 ..
             } => {
                 if !config.in_tick_range(*tick) {
@@ -314,10 +318,9 @@ pub fn update_decision_trace(
                 }
             }
 
-            SimEvent::ActionStarted {
-                agent,
+            SimEvent {
                 tick,
-                action,
+                kind: SimEventKind::ActionStarted { agent, action, .. },
                 ..
             } => {
                 if !config.in_tick_range(*tick) {
@@ -338,10 +341,9 @@ pub fn update_decision_trace(
                 );
             }
 
-            SimEvent::ActionCompleted {
-                agent,
+            SimEvent {
                 tick,
-                action,
+                kind: SimEventKind::ActionCompleted { agent, action, .. },
                 ..
             } => {
                 if !config.in_tick_range(*tick) {
@@ -362,10 +364,15 @@ pub fn update_decision_trace(
                 );
             }
 
-            SimEvent::ActionPreempted {
-                agent,
+            SimEvent {
                 tick,
-                preempted_action,
+                kind:
+                    SimEventKind::ActionPreempted {
+                        agent,
+                        preempted_action,
+                        ..
+                    },
+                ..
             } => {
                 if !config.in_tick_range(*tick) {
                     continue;
@@ -385,11 +392,16 @@ pub fn update_decision_trace(
                 );
             }
 
-            SimEvent::ActionFailed {
-                agent,
+            SimEvent {
                 tick,
-                action,
-                reason,
+                kind:
+                    SimEventKind::ActionFailed {
+                        agent,
+                        action,
+                        reason,
+                        ..
+                    },
+                ..
             } => {
                 if !config.in_tick_range(*tick) {
                     continue;
@@ -410,11 +422,16 @@ pub fn update_decision_trace(
                 );
             }
 
-            SimEvent::EmotionTriggered {
-                agent,
+            SimEvent {
                 tick,
-                emotion,
-                intensity,
+                kind:
+                    SimEventKind::EmotionTriggered {
+                        agent,
+                        emotion,
+                        intensity,
+                        ..
+                    },
+                ..
             } => {
                 if !config.in_tick_range(*tick) {
                     continue;
@@ -435,10 +452,10 @@ pub fn update_decision_trace(
                 );
             }
 
-            SimEvent::EntityPerceived {
-                agent,
+            SimEvent {
                 tick,
-                target,
+                kind: SimEventKind::EntityPerceived { agent, target, .. },
+                ..
             } => {
                 if !config.in_tick_range(*tick) {
                     continue;

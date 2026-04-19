@@ -16,7 +16,8 @@ use crate::agent::brains::plan_memory::{
 use crate::agent::brains::proposal::{BrainProposal, BrainType, Intent};
 use crate::agent::brains::target_enumeration::enumerate_targets;
 use crate::agent::brains::thinking::{ActionTemplate, Goal, TriplePattern, derive_search_concept};
-use crate::agent::mind::knowledge::{MindGraph, Predicate, Quantity, Value};
+use crate::agent::events::SimEventKind;
+use crate::agent::mind::knowledge::{MindGraph, Quantity, Value};
 use crate::agent::mind::perception::VisibleObjects;
 use crate::agent::nervous_system::urgency::UrgencySource;
 use crate::constants::brains::rational::{
@@ -316,13 +317,19 @@ pub fn update_rational_planning(
         let mut completed_actions = sim_events_params.p0();
         for event in completed_actions.read() {
             match event {
-                crate::agent::events::SimEvent::ActionCompleted { agent, action, .. } => {
+                crate::agent::events::SimEvent {
+                    kind: SimEventKind::ActionCompleted { agent, action, .. },
+                    ..
+                } => {
                     completed_this_tick
                         .entry(*agent)
                         .or_default()
                         .insert(*action);
                 }
-                crate::agent::events::SimEvent::ActionFailed { agent, action, .. } => {
+                crate::agent::events::SimEvent {
+                    kind: SimEventKind::ActionFailed { agent, action, .. },
+                    ..
+                } => {
                     failed_this_tick.entry(*agent).or_default().insert(*action);
                 }
                 _ => {}
@@ -569,13 +576,16 @@ pub fn update_rational_planning(
                     .map(|e| format!("{e:?}"))
                     .or_else(|| template.target_position.map(|p| format!("{p:?}")))
                     .unwrap_or_else(|| "None".to_string());
-                sim_events.write(crate::agent::events::SimEvent::TargetEnumerated {
-                    agent: entity,
-                    tick: current_tick,
-                    action_name: template.name.clone(),
-                    target_description: target_desc,
-                    inclusion_reason: reason.as_str(),
-                });
+                sim_events.write(crate::agent::events::SimEvent::single(
+                    current_tick,
+                    entity,
+                    SimEventKind::TargetEnumerated {
+                        agent: entity,
+                        action_name: template.name.clone(),
+                        target_description: target_desc,
+                        inclusion_reason: reason.as_str(),
+                    },
+                ));
             }
 
             let actions: Vec<crate::agent::brains::thinking::ActionTemplate> =
@@ -618,14 +628,17 @@ pub fn update_rational_planning(
                 crate::agent::brains::planner::regressive_plan(mind, &goal, &actions, &cost_ctx);
 
             // Emit GOAP search telemetry.
-            sim_events.write(crate::agent::events::SimEvent::GoapSearchTelemetry {
-                agent: entity,
-                tick: current_tick,
-                goal_description: goal_desc.clone(),
-                iterations: search_stats.iterations,
-                exhausted: search_stats.exhausted,
-                best_unmet_goals: search_stats.best_unmet_goals.clone(),
-            });
+            sim_events.write(crate::agent::events::SimEvent::single(
+                current_tick,
+                entity,
+                SimEventKind::GoapSearchTelemetry {
+                    agent: entity,
+                    goal_description: goal_desc.clone(),
+                    iterations: search_stats.iterations,
+                    exhausted: search_stats.exhausted,
+                    best_unmet_goals: search_stats.best_unmet_goals.clone(),
+                },
+            ));
 
             if let Some(steps) = plan_result {
                 let agent_pos = transform.translation.truncate();
@@ -665,24 +678,30 @@ pub fn update_rational_planning(
                 });
 
                 // Emit PlanGenerated.
-                sim_events.write(crate::agent::events::SimEvent::PlanGenerated {
-                    agent: entity,
-                    tick: current_tick,
-                    plan_id: id.0,
-                    driving_urgency: source,
-                    step_count: steps.len(),
-                    subjective_cost: cost,
-                    goal_description: goal_desc.clone(),
-                });
+                sim_events.write(crate::agent::events::SimEvent::single(
+                    current_tick,
+                    entity,
+                    SimEventKind::PlanGenerated {
+                        agent: entity,
+                        plan_id: id.0,
+                        driving_urgency: source,
+                        step_count: steps.len(),
+                        subjective_cost: cost,
+                        goal_description: goal_desc.clone(),
+                    },
+                ));
             } else {
                 // No plan found — emit PatternRejected if there were unmet goals.
                 if !search_stats.best_unmet_goals.is_empty() {
-                    sim_events.write(crate::agent::events::SimEvent::PatternRejected {
-                        agent: entity,
-                        tick: current_tick,
-                        goal_description: goal_desc,
-                        unmet_patterns: search_stats.best_unmet_goals,
-                    });
+                    sim_events.write(crate::agent::events::SimEvent::single(
+                        current_tick,
+                        entity,
+                        SimEventKind::PatternRejected {
+                            agent: entity,
+                            goal_description: goal_desc,
+                            unmet_patterns: search_stats.best_unmet_goals,
+                        },
+                    ));
                 }
             }
         }
@@ -914,7 +933,7 @@ mod tests {
     use crate::agent::actions::ActionRegistry;
     use crate::agent::brains::plan_memory::PlanId;
     use crate::agent::brains::thinking::{Goal, SearchFilter};
-    use crate::agent::mind::knowledge::{Concept, Node as MindNode, Value};
+    use crate::agent::mind::knowledge::{Concept, Node as MindNode, Predicate, Value};
     use crate::agent::nervous_system::cns::CentralNervousSystem;
     use crate::agent::nervous_system::urgency::{Urgency, UrgencySource};
 

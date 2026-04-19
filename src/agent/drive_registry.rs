@@ -250,9 +250,7 @@ pub fn by_urgency(source: UrgencySource) -> Option<&'static DriveEntry> {
 }
 
 pub fn by_need(kind: NeedKind) -> Option<&'static DriveEntry> {
-    DRIVE_REGISTRY
-        .iter()
-        .find(|e| e.need_kind == Some(kind))
+    DRIVE_REGISTRY.iter().find(|e| e.need_kind == Some(kind))
 }
 
 #[cfg(test)]

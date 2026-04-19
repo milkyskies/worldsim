@@ -8,7 +8,7 @@
 use bevy::math::Vec2;
 use worldsim::agent::actions::{ActionType, ActiveActions};
 use worldsim::agent::body::needs::PhysicalNeeds;
-use worldsim::agent::events::SimEvent;
+use worldsim::agent::events::{SimEvent, SimEventKind};
 use worldsim::testing::TestWorld;
 
 /// Rest must self-complete (ActionCompleted) when aerobic crosses the 0.95
@@ -46,7 +46,7 @@ fn rest_self_completes_when_aerobic_recovers() {
         .sim_events()
         .all()
         .iter()
-        .any(|e| matches!(e, SimEvent::ActionCompleted { agent, action: ActionType::Rest, .. } if *agent == rester));
+        .any(|e| matches!(e, SimEvent { kind: SimEventKind::ActionCompleted { agent, action: ActionType::Rest, .. }, .. } if *agent == rester));
 
     assert!(
         completed,
@@ -93,7 +93,7 @@ fn rest_stays_active_while_aerobic_is_low() {
         .sim_events()
         .all()
         .iter()
-        .any(|e| matches!(e, SimEvent::ActionCompleted { agent, action: ActionType::Rest, .. } if *agent == rester));
+        .any(|e| matches!(e, SimEvent { kind: SimEventKind::ActionCompleted { agent, action: ActionType::Rest, .. }, .. } if *agent == rester));
 
     assert!(
         !completed,

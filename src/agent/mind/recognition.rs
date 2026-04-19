@@ -10,6 +10,7 @@
 use std::collections::VecDeque;
 
 use crate::agent::Agent;
+use crate::agent::events::SimEventKind;
 use crate::agent::mind::knowledge::{
     Concept, Metadata, MindGraph, Node, Predicate, Quantity, Triple, Value,
 };
@@ -70,11 +71,14 @@ pub fn check_recognition(
             if knows_triples.is_empty() {
                 // This is a stranger! Mark them as such
                 // The social brain will see this and propose introduction
-                sim_events.write(crate::agent::events::SimEvent::StrangerDetected {
-                    agent: observer_entity,
-                    tick: current_time,
-                    stranger: visible_entity,
-                });
+                sim_events.write(crate::agent::events::SimEvent::single(
+                    current_time,
+                    observer_entity,
+                    SimEventKind::StrangerDetected {
+                        agent: observer_entity,
+                        stranger: visible_entity,
+                    },
+                ));
                 mind.assert(Triple::with_meta(
                     target_node.clone(),
                     Predicate::IsA,

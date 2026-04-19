@@ -6,6 +6,7 @@
 //! Downstream: brain_system (reads VisibleObjects), knowledge (MindGraph updated with percepts), SimEvent consumers
 
 use crate::agent::Agent;
+use crate::agent::events::SimEventKind;
 use crate::agent::mind::knowledge::{
     CardinalDirection, Concept, Metadata, MindGraph, Node, Predicate, Quantity, Sense, Triple,
     Value,
@@ -75,11 +76,14 @@ pub fn update_visual_perception(
         // Emit EntityPerceived for newly visible entities
         for &entity in &visible_objects.entities {
             if !previous.contains(&entity) {
-                sim_events.write(crate::agent::events::SimEvent::EntityPerceived {
-                    agent: agent_entity,
-                    tick: tick.current,
-                    target: entity,
-                });
+                sim_events.write(crate::agent::events::SimEvent::single(
+                    tick.current,
+                    agent_entity,
+                    SimEventKind::EntityPerceived {
+                        agent: agent_entity,
+                        target: entity,
+                    },
+                ));
             }
         }
     }
@@ -647,11 +651,14 @@ pub fn perceive_temperature(
                 );
             }
 
-            sim_events.write(crate::agent::events::SimEvent::WarmthPerceived {
-                agent: agent_entity,
-                tick: current_time,
-                source: source_entity,
-            });
+            sim_events.write(crate::agent::events::SimEvent::single(
+                current_time,
+                agent_entity,
+                SimEventKind::WarmthPerceived {
+                    agent: agent_entity,
+                    source: source_entity,
+                },
+            ));
         }
     }
 }
@@ -733,12 +740,15 @@ pub fn perceive_hearing(
                 );
             }
 
-            sim_events.write(crate::agent::events::SimEvent::SoundPerceived {
-                agent: agent_entity,
-                tick: current_time,
-                source: source_entity,
-                kind: sound.kind,
-            });
+            sim_events.write(crate::agent::events::SimEvent::single(
+                current_time,
+                agent_entity,
+                SimEventKind::SoundPerceived {
+                    agent: agent_entity,
+                    source: source_entity,
+                    kind: sound.kind,
+                },
+            ));
         }
     }
 }

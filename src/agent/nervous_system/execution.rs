@@ -18,6 +18,7 @@ use crate::agent::body::needs::{Consciousness, PhysicalNeeds};
 use crate::agent::body::species::SpeciesProfile;
 use crate::agent::brains::plan_memory::{PlanMemory, PlanState};
 use crate::agent::brains::proposal::BrainState;
+use crate::agent::events::SimEventKind;
 use crate::agent::events::{ActionOutcome, ActionOutcomeEvent, NeedSatisfaction};
 use crate::agent::item_slots::ItemSlots;
 use crate::agent::mind::knowledge::MindGraph;
@@ -156,12 +157,15 @@ pub fn start_actions(
                     wanted_action,
                     reason
                 ));
-                sim_events.write(crate::agent::events::SimEvent::ActionFailed {
-                    agent: entity,
-                    tick: tick.current,
-                    action: wanted_action,
-                    reason: reason.clone(),
-                });
+                sim_events.write(crate::agent::events::SimEvent::single(
+                    tick.current,
+                    entity,
+                    SimEventKind::ActionFailed {
+                        agent: entity,
+                        action: wanted_action,
+                        reason: reason.clone(),
+                    },
+                ));
                 outcome_events.write(ActionOutcomeEvent {
                     actor: entity,
                     outcome: ActionOutcome::Failed {
@@ -218,11 +222,14 @@ pub fn start_actions(
             // Emit preemption events for any actions that were removed.
             for preempted in &before_preempt {
                 if !active.contains(*preempted) {
-                    sim_events.write(crate::agent::events::SimEvent::ActionPreempted {
-                        agent: entity,
-                        tick: tick.current,
-                        preempted_action: *preempted,
-                    });
+                    sim_events.write(crate::agent::events::SimEvent::single(
+                        tick.current,
+                        entity,
+                        SimEventKind::ActionPreempted {
+                            agent: entity,
+                            preempted_action: *preempted,
+                        },
+                    ));
                 }
             }
 
@@ -342,14 +349,17 @@ pub fn start_actions(
                     })
                     .map(|p| (p.id.0, p.current_step))
             });
-            sim_events.write(crate::agent::events::SimEvent::ActionStarted {
-                agent: entity,
-                tick: tick.current,
-                action: wanted_action,
-                target: action_template.target_entity,
-                plan_id: plan_context.map(|(id, _)| id),
-                plan_step: plan_context.map(|(_, step)| step),
-            });
+            sim_events.write(crate::agent::events::SimEvent::single(
+                tick.current,
+                entity,
+                SimEventKind::ActionStarted {
+                    agent: entity,
+                    action: wanted_action,
+                    target: action_template.target_entity,
+                    plan_id: plan_context.map(|(id, _)| id),
+                    plan_step: plan_context.map(|(_, step)| step),
+                },
+            ));
 
             active.insert(new_state);
 
@@ -764,12 +774,15 @@ pub fn tick_actions(
                     && snapshot.target_entity.is_some();
 
             if acquisition_yielded_nothing {
-                sim_events.write(crate::agent::events::SimEvent::ActionFailed {
-                    agent: entity,
-                    tick: current_tick,
-                    action: *action_type,
-                    reason: crate::agent::events::FailureReason::ResourceDepleted,
-                });
+                sim_events.write(crate::agent::events::SimEvent::single(
+                    current_tick,
+                    entity,
+                    SimEventKind::ActionFailed {
+                        agent: entity,
+                        action: *action_type,
+                        reason: crate::agent::events::FailureReason::ResourceDepleted,
+                    },
+                ));
                 outcome_events.write(ActionOutcomeEvent {
                     actor: entity,
                     outcome: ActionOutcome::Failed {
@@ -809,12 +822,15 @@ pub fn tick_actions(
                 });
             }
 
-            sim_events.write(crate::agent::events::SimEvent::ActionCompleted {
-                agent: entity,
-                tick: current_tick,
-                action: *action_type,
-                target: snapshot.target_entity,
-            });
+            sim_events.write(crate::agent::events::SimEvent::single(
+                current_tick,
+                entity,
+                SimEventKind::ActionCompleted {
+                    agent: entity,
+                    action: *action_type,
+                    target: snapshot.target_entity,
+                },
+            ));
 
             if let Some(msg) = action_def.complete_log() {
                 game_log.action(name.as_str(), msg, None, Some(entity));
@@ -826,12 +842,15 @@ pub fn tick_actions(
             let snapshot = active.get(*action_type).cloned();
             active.remove(*action_type);
             let target = snapshot.and_then(|s| s.target_entity);
-            sim_events.write(crate::agent::events::SimEvent::ActionFailed {
-                agent: entity,
-                tick: current_tick,
-                action: *action_type,
-                reason: crate::agent::events::FailureReason::TargetGone,
-            });
+            sim_events.write(crate::agent::events::SimEvent::single(
+                current_tick,
+                entity,
+                SimEventKind::ActionFailed {
+                    agent: entity,
+                    action: *action_type,
+                    reason: crate::agent::events::FailureReason::TargetGone,
+                },
+            ));
             outcome_events.write(ActionOutcomeEvent {
                 actor: entity,
                 outcome: ActionOutcome::Failed {
@@ -853,12 +872,15 @@ pub fn tick_actions(
             let reason = crate::agent::events::FailureReason::PathBlocked {
                 target_tile: *target_tile,
             };
-            sim_events.write(crate::agent::events::SimEvent::ActionFailed {
-                agent: entity,
-                tick: current_tick,
-                action: *action_type,
-                reason: reason.clone(),
-            });
+            sim_events.write(crate::agent::events::SimEvent::single(
+                current_tick,
+                entity,
+                SimEventKind::ActionFailed {
+                    agent: entity,
+                    action: *action_type,
+                    reason: reason.clone(),
+                },
+            ));
             outcome_events.write(ActionOutcomeEvent {
                 actor: entity,
                 outcome: ActionOutcome::Failed {

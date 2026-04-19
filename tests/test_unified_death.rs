@@ -20,7 +20,7 @@ use bevy::prelude::With;
 use worldsim::agent::biology::body::{Body, BodyNodeKind};
 use worldsim::agent::body::metabolism::Metabolism;
 use worldsim::agent::body::needs::PhysicalNeeds;
-use worldsim::agent::events::SimEvent;
+use worldsim::agent::events::{SimEvent, SimEventKind};
 use worldsim::agent::inventory::EntityType;
 use worldsim::agent::mind::knowledge::Concept;
 use worldsim::agent::{Alive, Dead};
@@ -122,7 +122,7 @@ fn corpse_emits_death_event_exactly_once() {
         .sim_events()
         .all()
         .iter()
-        .filter(|e| matches!(e, SimEvent::Death { agent: a, .. } if *a == agent))
+        .filter(|e| matches!(e, SimEvent { kind: SimEventKind::Death { agent: a, .. }, .. } if *a == agent))
         .count();
 
     assert_eq!(

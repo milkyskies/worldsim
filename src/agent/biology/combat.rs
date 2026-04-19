@@ -35,7 +35,7 @@ use crate::agent::actions::ActionType;
 use crate::agent::actions::channel::Channel;
 use crate::agent::biology::body::{Body, BodyNodeKind, Injury, InjuryType, TagChannelMapping};
 use crate::agent::body::needs::Consciousness;
-use crate::agent::events::SimEvent;
+use crate::agent::events::{SimEvent, SimEventKind};
 use crate::agent::item_slots::ItemSlots;
 use crate::agent::mind::knowledge::{Concept, MindGraph, Node, Predicate, Value};
 use crate::agent::skills::{SkillKind, Skills};
@@ -341,10 +341,14 @@ pub fn resolve_combat_hits(
         .p0()
         .read()
         .filter_map(|event| match event {
-            SimEvent::ActionCompleted {
-                agent,
-                action,
-                target: Some(target),
+            SimEvent {
+                kind:
+                    SimEventKind::ActionCompleted {
+                        agent,
+                        action,
+                        target: Some(target),
+                        ..
+                    },
                 ..
             } if matches!(*action, ActionType::Attack | ActionType::Bite) => {
                 Some((*agent, *action, *target))
@@ -445,11 +449,15 @@ pub fn resolve_combat_hits(
         match effect.outcome {
             CombatOutcome::Dodged => {
                 game_log.event(&format!("{attacker_name} missed {defender_name}"));
-                emitted.push(SimEvent::CombatMissed {
-                    attacker: effect.attacker,
-                    defender: effect.defender,
-                    tick: tick.current,
-                });
+                emitted.push(SimEvent::pair(
+                    tick.current,
+                    effect.attacker,
+                    effect.defender,
+                    SimEventKind::CombatMissed {
+                        attacker: effect.attacker,
+                        defender: effect.defender,
+                    },
+                ));
             }
             CombatOutcome::Hit {
                 part_kind,
@@ -462,14 +470,18 @@ pub fn resolve_combat_hits(
                     "{attacker_name} struck {defender_name} ({}) for {damage:.0} {injury_type:?}",
                     part_kind.display_name()
                 ));
-                emitted.push(SimEvent::CombatHit {
-                    attacker: effect.attacker,
-                    defender: effect.defender,
-                    tick: tick.current,
-                    part_kind,
-                    damage,
-                    injury_type,
-                });
+                emitted.push(SimEvent::pair(
+                    tick.current,
+                    effect.attacker,
+                    effect.defender,
+                    SimEventKind::CombatHit {
+                        attacker: effect.attacker,
+                        defender: effect.defender,
+                        part_kind,
+                        damage,
+                        injury_type,
+                    },
+                ));
 
                 // Blood splash proportional to bleed coefficient.
                 let amount = damage * bleed_coefficient(injury_type) * 0.5;
@@ -519,11 +531,14 @@ pub fn resolve_combat_hits(
                         None => "combat (bleed/incapacitation)".to_string(),
                     };
                     game_log.event(&format!("{defender_name} died of {cause}"));
-                    emitted.push(SimEvent::Death {
-                        agent: effect.defender,
-                        tick: tick.current,
-                        cause,
-                    });
+                    emitted.push(SimEvent::single(
+                        tick.current,
+                        effect.defender,
+                        SimEventKind::Death {
+                            agent: effect.defender,
+                            cause,
+                        },
+                    ));
                 }
             }
         }
@@ -635,11 +650,14 @@ pub fn severance_system(
             15.0,
             tick.current,
         );
-        sim_events.write(SimEvent::PartSevered {
-            entity: owner,
-            tick: tick.current,
-            part_kind: kind,
-        });
+        sim_events.write(SimEvent::single(
+            tick.current,
+            owner,
+            SimEventKind::PartSevered {
+                entity: owner,
+                part_kind: kind,
+            },
+        ));
     }
 }
 

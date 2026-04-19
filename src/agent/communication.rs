@@ -44,7 +44,7 @@ use crate::agent::body::needs::{Consciousness, PsychologicalDrives};
 use crate::agent::brains::plan_memory::{HeldPlan, PlanMemory, PlanSource, PlanState};
 use crate::agent::brains::proposal::Intent as BrainIntent;
 use crate::agent::brains::thinking::{Goal, TriplePattern};
-use crate::agent::events::{ConversationTopic, FailureReason, GameEvent, SimEvent};
+use crate::agent::events::{ConversationTopic, FailureReason, GameEvent, SimEvent, SimEventKind};
 use crate::agent::mind::conversation::{
     Conversation, ConversationAbandoned, ConversationManager, ConversationState, InConversation,
     Intent, MAX_GROUP_SIZE, Topic, Turn,
@@ -357,17 +357,23 @@ pub fn process_initiate_conversation(
         }
 
         if is_new {
-            sim_events.write(SimEvent::ConversationStarted {
-                participants: vec![initiator, partner],
-                tick: now,
-                conversation_id,
-            });
+            sim_events.write(SimEvent::new(
+                now,
+                vec![initiator, partner].clone(),
+                SimEventKind::ConversationStarted {
+                    participants: vec![initiator, partner],
+                    conversation_id,
+                },
+            ));
         } else {
-            sim_events.write(SimEvent::ConversationJoined {
-                joiner: initiator,
-                tick: now,
-                conversation_id,
-            });
+            sim_events.write(SimEvent::single(
+                now,
+                initiator,
+                SimEventKind::ConversationJoined {
+                    joiner: initiator,
+                    conversation_id,
+                },
+            ));
         }
     }
 }
@@ -423,26 +429,35 @@ fn drop_stale_initiate(
 
     match kind {
         DropKind::Complete => {
-            sim_events.write(SimEvent::ActionCompleted {
-                agent: initiator,
+            sim_events.write(SimEvent::single(
                 tick,
-                action: ActionType::InitiateConversation,
-                target: None,
-            });
+                initiator,
+                SimEventKind::ActionCompleted {
+                    agent: initiator,
+                    action: ActionType::InitiateConversation,
+                    target: None,
+                },
+            ));
         }
         DropKind::Abandon { reason } => {
-            sim_events.write(SimEvent::ActionFailed {
-                agent: initiator,
+            sim_events.write(SimEvent::single(
                 tick,
-                action: ActionType::InitiateConversation,
-                reason,
-            });
-            sim_events.write(SimEvent::PlanAbandoned {
-                agent: initiator,
+                initiator,
+                SimEventKind::ActionFailed {
+                    agent: initiator,
+                    action: ActionType::InitiateConversation,
+                    reason,
+                },
+            ));
+            sim_events.write(SimEvent::single(
                 tick,
-                action: ActionType::InitiateConversation,
-                intent: BrainIntent::SatisfySocial,
-            });
+                initiator,
+                SimEventKind::PlanAbandoned {
+                    agent: initiator,
+                    action: ActionType::InitiateConversation,
+                    intent: BrainIntent::SatisfySocial,
+                },
+            ));
         }
     }
 }
@@ -1018,13 +1033,16 @@ pub fn update_speaker_theory_of_mind(
                 theory_of_mind::COMMUNICATED_BELIEF_CONFIDENCE,
                 tick.current,
             );
-            sim_events.write(SimEvent::TheoryOfMindUpdated {
-                agent: speaker,
-                about: listener,
-                tick: tick.current,
-                source: crate::agent::events::TheoryOfMindSource::Communicated,
-                belief_count: count,
-            });
+            sim_events.write(SimEvent::single(
+                tick.current,
+                speaker,
+                SimEventKind::TheoryOfMindUpdated {
+                    agent: speaker,
+                    about: listener,
+                    source: crate::agent::events::TheoryOfMindSource::Communicated,
+                    belief_count: count,
+                },
+            ));
         }
     }
 }
@@ -1091,13 +1109,16 @@ pub fn process_received_communication(
                     theory_of_mind::COMMUNICATED_BELIEF_CONFIDENCE,
                     tick.current,
                 );
-                sim_events.write(SimEvent::TheoryOfMindUpdated {
-                    agent: listener,
-                    about: turn.speaker,
-                    tick: tick.current,
-                    source: crate::agent::events::TheoryOfMindSource::Received,
-                    belief_count: count,
-                });
+                sim_events.write(SimEvent::single(
+                    tick.current,
+                    listener,
+                    SimEventKind::TheoryOfMindUpdated {
+                        agent: listener,
+                        about: turn.speaker,
+                        source: crate::agent::events::TheoryOfMindSource::Received,
+                        belief_count: count,
+                    },
+                ));
             }
         }
     }
@@ -1333,11 +1354,14 @@ pub fn evaluate_conversation_continuation(
                 .collect();
 
             if *graceful {
-                sim_events.write(SimEvent::ConversationLeft {
-                    leaver: *leaver,
-                    tick: tick.current,
-                    conversation_id: *id,
-                });
+                sim_events.write(SimEvent::single(
+                    tick.current,
+                    *leaver,
+                    SimEventKind::ConversationLeft {
+                        leaver: *leaver,
+                        conversation_id: *id,
+                    },
+                ));
             } else {
                 for other in &counterparties {
                     events.write(ConversationAbandoned {
@@ -1345,11 +1369,15 @@ pub fn evaluate_conversation_continuation(
                         abandoned: *other,
                         conversation_state: conv.state,
                     });
-                    sim_events.write(SimEvent::ConversationAbandoned {
-                        abandoner: *leaver,
-                        abandoned: *other,
-                        tick: tick.current,
-                    });
+                    sim_events.write(SimEvent::pair(
+                        tick.current,
+                        *leaver,
+                        *other,
+                        SimEventKind::ConversationAbandoned {
+                            abandoner: *leaver,
+                            abandoned: *other,
+                        },
+                    ));
                     game_events.write(GameEvent::SocialInteraction {
                         actor: *leaver,
                         target: *other,
@@ -1375,11 +1403,14 @@ pub fn evaluate_conversation_continuation(
     // entry from the manager so it doesn't grow unbounded.
     for id in to_finalize {
         if let Some(conv) = manager.conversations.get(&id) {
-            sim_events.write(SimEvent::ConversationEnded {
-                participants: conv.participants.clone(),
-                tick: tick.current,
-                conversation_id: id,
-            });
+            sim_events.write(SimEvent::new(
+                tick.current,
+                conv.participants.clone().clone(),
+                SimEventKind::ConversationEnded {
+                    participants: conv.participants.clone(),
+                    conversation_id: id,
+                },
+            ));
             for entity in &conv.participants {
                 commands.entity(*entity).remove::<InConversation>();
                 commands.entity(*entity).queue(RemoveConverseMarker);

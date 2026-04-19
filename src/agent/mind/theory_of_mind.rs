@@ -19,6 +19,7 @@ use bevy::prelude::*;
 use std::collections::{HashMap, HashSet};
 
 use super::knowledge::{Node, Predicate, Triple, Value};
+use crate::agent::events::SimEventKind;
 
 /// Maximum number of triples stored per modeled agent.
 /// Keeps memory bounded — oldest entries are evicted when full.
@@ -284,13 +285,16 @@ pub fn update_shared_experience_tom(
                 }
 
                 if count > 0 {
-                    sim_events.write(crate::agent::events::SimEvent::TheoryOfMindUpdated {
-                        agent: *observer,
-                        about: *partner,
-                        tick: tick.current,
-                        source: crate::agent::events::TheoryOfMindSource::SharedExperience,
-                        belief_count: count,
-                    });
+                    sim_events.write(crate::agent::events::SimEvent::single(
+                        tick.current,
+                        *observer,
+                        SimEventKind::TheoryOfMindUpdated {
+                            agent: *observer,
+                            about: *partner,
+                            source: crate::agent::events::TheoryOfMindSource::SharedExperience,
+                            belief_count: count,
+                        },
+                    ));
                 }
             }
         }
