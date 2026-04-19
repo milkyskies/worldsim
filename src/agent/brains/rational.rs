@@ -107,16 +107,18 @@ pub fn goal_for_urgency(
     plan_memory: &PlanMemory,
     mind: &MindGraph,
 ) -> Option<Goal> {
-    use crate::agent::drive_registry::{self, GoalPattern, GoalTarget};
+    use crate::agent::drive_registry::{self, GoalPattern};
 
     let pattern = drive_registry::by_urgency(source).and_then(|e| e.goal_pattern)?;
     let conditions = match pattern {
-        GoalPattern::SelfHas { predicate, target } => {
-            let target_value = match target {
-                GoalTarget::Zero => Value::Quantity(Quantity::Exact(0.0)),
-                GoalTarget::Full => Value::Quantity(Quantity::Exact(100.0)),
-            };
-            vec![TriplePattern::self_has(predicate, target_value)]
+        GoalPattern::SelfHas {
+            predicate,
+            target_quantity,
+        } => {
+            vec![TriplePattern::self_has(
+                predicate,
+                Value::Quantity(Quantity::Exact(target_quantity)),
+            )]
         }
         GoalPattern::HighestCommitmentPlan => {
             // Reuse the conditions of the highest-commitment verbal

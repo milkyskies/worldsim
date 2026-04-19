@@ -25,37 +25,18 @@ use crate::agent::brains::proposal::Intent;
 use crate::agent::mind::knowledge::Predicate;
 use crate::agent::nervous_system::urgency::UrgencySource;
 
-/// Direction of the underlying pool relative to the urgency scalar.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Polarity {
-    /// High pool value = high urgency. Pain, Hunger, Thirst, Fear.
-    Deficit,
-    /// High pool value = low urgency. Inverted via `1.0 - value` before
-    /// being fed into the urgency curve. Stamina, Sleepiness, Warmth,
-    /// and every psychological drive.
-    Satisfaction,
-}
-
 /// How to construct the GOAP goal triple for this drive. Pattern is
 /// consumed by `goal_for_urgency`; `None` means no rational-brain goal.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum GoalPattern {
     /// `(Self_, predicate, target)` — the seven standard drives fit this shape.
     SelfHas {
         predicate: Predicate,
-        target: GoalTarget,
+        target_quantity: f32,
     },
     /// Commitment: reuse the conditions of the highest-commitment
     /// `PlanSource::VerbalCommitment` plan in PlanMemory.
     HighestCommitmentPlan,
-}
-
-/// The right-hand side of a standard GOAP goal. The planner matches
-/// these against `Quantity::Exact` values in the MindGraph.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum GoalTarget {
-    Zero,
-    Full,
 }
 
 /// One row in the drive registry — every per-drive fact that used to be
@@ -73,7 +54,6 @@ pub struct DriveEntry {
     pub satiation_threshold: f32,
     pub survival_weight: f32,
     pub is_deprivation: bool,
-    pub polarity: Polarity,
     pub goal_pattern: Option<GoalPattern>,
     pub display_name: &'static str,
 }
@@ -89,10 +69,9 @@ pub const DRIVE_REGISTRY: &[DriveEntry] = &[
         satiation_threshold: 0.8,
         survival_weight: 100.0,
         is_deprivation: true,
-        polarity: Polarity::Deficit,
         goal_pattern: Some(GoalPattern::SelfHas {
             predicate: Predicate::Hunger,
-            target: GoalTarget::Zero,
+            target_quantity: 0.0,
         }),
         display_name: "Hunger",
     },
@@ -104,10 +83,9 @@ pub const DRIVE_REGISTRY: &[DriveEntry] = &[
         satiation_threshold: 0.95,
         survival_weight: 100.0,
         is_deprivation: true,
-        polarity: Polarity::Deficit,
         goal_pattern: Some(GoalPattern::SelfHas {
             predicate: Predicate::Thirst,
-            target: GoalTarget::Zero,
+            target_quantity: 0.0,
         }),
         display_name: "Thirst",
     },
@@ -119,10 +97,9 @@ pub const DRIVE_REGISTRY: &[DriveEntry] = &[
         satiation_threshold: 1.0,
         survival_weight: 100.0,
         is_deprivation: true,
-        polarity: Polarity::Deficit,
         goal_pattern: Some(GoalPattern::SelfHas {
             predicate: Predicate::Pain,
-            target: GoalTarget::Zero,
+            target_quantity: 0.0,
         }),
         display_name: "Pain",
     },
@@ -134,10 +111,9 @@ pub const DRIVE_REGISTRY: &[DriveEntry] = &[
         satiation_threshold: 0.95,
         survival_weight: 90.0,
         is_deprivation: true,
-        polarity: Polarity::Satisfaction,
         goal_pattern: Some(GoalPattern::SelfHas {
             predicate: Predicate::Warmth,
-            target: GoalTarget::Full,
+            target_quantity: 100.0,
         }),
         display_name: "Warmth",
     },
@@ -149,10 +125,9 @@ pub const DRIVE_REGISTRY: &[DriveEntry] = &[
         satiation_threshold: 0.95,
         survival_weight: 80.0,
         is_deprivation: false,
-        polarity: Polarity::Satisfaction,
         goal_pattern: Some(GoalPattern::SelfHas {
             predicate: Predicate::Stamina,
-            target: GoalTarget::Full,
+            target_quantity: 100.0,
         }),
         display_name: "Stamina",
     },
@@ -164,7 +139,6 @@ pub const DRIVE_REGISTRY: &[DriveEntry] = &[
         satiation_threshold: 0.95,
         survival_weight: 80.0,
         is_deprivation: false,
-        polarity: Polarity::Satisfaction,
         goal_pattern: None,
         display_name: "Sleepiness",
     },
@@ -176,7 +150,6 @@ pub const DRIVE_REGISTRY: &[DriveEntry] = &[
         satiation_threshold: 1.0,
         survival_weight: 50.0,
         is_deprivation: false,
-        polarity: Polarity::Deficit,
         goal_pattern: None,
         display_name: "Fear",
     },
@@ -188,10 +161,9 @@ pub const DRIVE_REGISTRY: &[DriveEntry] = &[
         satiation_threshold: 0.9,
         survival_weight: 0.0,
         is_deprivation: false,
-        polarity: Polarity::Satisfaction,
         goal_pattern: Some(GoalPattern::SelfHas {
             predicate: Predicate::SocialDrive,
-            target: GoalTarget::Zero,
+            target_quantity: 0.0,
         }),
         display_name: "Social",
     },
@@ -203,7 +175,6 @@ pub const DRIVE_REGISTRY: &[DriveEntry] = &[
         satiation_threshold: 0.9,
         survival_weight: 0.0,
         is_deprivation: false,
-        polarity: Polarity::Satisfaction,
         goal_pattern: None,
         display_name: "Fun",
     },
@@ -215,7 +186,6 @@ pub const DRIVE_REGISTRY: &[DriveEntry] = &[
         satiation_threshold: 0.9,
         survival_weight: 0.0,
         is_deprivation: false,
-        polarity: Polarity::Satisfaction,
         goal_pattern: None,
         display_name: "Curiosity",
     },
@@ -227,7 +197,6 @@ pub const DRIVE_REGISTRY: &[DriveEntry] = &[
         satiation_threshold: 1.0,
         survival_weight: 0.0,
         is_deprivation: false,
-        polarity: Polarity::Satisfaction,
         goal_pattern: None,
         display_name: "Territoriality",
     },
@@ -239,7 +208,6 @@ pub const DRIVE_REGISTRY: &[DriveEntry] = &[
         satiation_threshold: 1.0,
         survival_weight: 0.0,
         is_deprivation: false,
-        polarity: Polarity::Deficit,
         goal_pattern: Some(GoalPattern::HighestCommitmentPlan),
         display_name: "Commitment",
     },

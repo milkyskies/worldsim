@@ -171,7 +171,7 @@ pub fn collect_event_log(
 /// entities); ids are always the stable Entity debug format so filters can
 /// target a specific individual even after death.
 fn event_meta<'a>(
-    event: &SimEvent,
+    event: &'a SimEvent,
     agent_resolve: &impl Fn(Entity) -> String,
     resolve: &impl Fn(Entity) -> String,
 ) -> (&'a str, u64, Vec<String>, Vec<String>) {
@@ -192,37 +192,38 @@ fn event_meta<'a>(
             vec![entity_id_str(a), entity_id_str(b)],
         )
     };
+    let ty = event.kind.as_ref();
     match event {
         SimEvent {
             tick,
             kind: SimEventKind::Decision { agent, .. },
             ..
-        } => one("Decision", *tick, *agent, true),
+        } => one(ty, *tick, *agent, true),
         SimEvent {
             tick,
             kind: SimEventKind::ActionStarted { agent, .. },
             ..
-        } => one("ActionStarted", *tick, *agent, true),
+        } => one(ty, *tick, *agent, true),
         SimEvent {
             tick,
             kind: SimEventKind::ActionCompleted { agent, .. },
             ..
-        } => one("ActionCompleted", *tick, *agent, true),
+        } => one(ty, *tick, *agent, true),
         SimEvent {
             tick,
             kind: SimEventKind::ActionPreempted { agent, .. },
             ..
-        } => one("ActionPreempted", *tick, *agent, true),
+        } => one(ty, *tick, *agent, true),
         SimEvent {
             tick,
             kind: SimEventKind::ActionFailed { agent, .. },
             ..
-        } => one("ActionFailed", *tick, *agent, true),
+        } => one(ty, *tick, *agent, true),
         SimEvent {
             tick,
             kind: SimEventKind::PlanAbandoned { agent, .. },
             ..
-        } => one("PlanAbandoned", *tick, *agent, true),
+        } => one(ty, *tick, *agent, true),
         SimEvent {
             tick,
             kind: SimEventKind::ConversationStarted { participants, .. },
@@ -230,7 +231,7 @@ fn event_meta<'a>(
         } => {
             let names = participants.iter().map(|e| resolve(*e)).collect();
             let ids = participants.iter().map(|e| entity_id_str(*e)).collect();
-            ("ConversationStarted", *tick, names, ids)
+            (ty, *tick, names, ids)
         }
         SimEvent {
             tick,
@@ -239,18 +240,18 @@ fn event_meta<'a>(
         } => {
             let names = participants.iter().map(|e| resolve(*e)).collect();
             let ids = participants.iter().map(|e| entity_id_str(*e)).collect();
-            ("ConversationEnded", *tick, names, ids)
+            (ty, *tick, names, ids)
         }
         SimEvent {
             tick,
             kind: SimEventKind::ConversationJoined { joiner, .. },
             ..
-        } => one("ConversationJoined", *tick, *joiner, false),
+        } => one(ty, *tick, *joiner, false),
         SimEvent {
             tick,
             kind: SimEventKind::ConversationLeft { leaver, .. },
             ..
-        } => one("ConversationLeft", *tick, *leaver, false),
+        } => one(ty, *tick, *leaver, false),
         SimEvent {
             tick,
             kind:
@@ -260,38 +261,32 @@ fn event_meta<'a>(
                     ..
                 },
             ..
-        } => two(
-            "ConversationAbandoned",
-            *tick,
-            *abandoner,
-            *abandoned,
-            false,
-        ),
+        } => two(ty, *tick, *abandoner, *abandoned, false),
         SimEvent {
             tick,
             kind: SimEventKind::RelationshipChanged { agent, other, .. },
             ..
-        } => two("RelationshipChanged", *tick, *agent, *other, true),
+        } => two(ty, *tick, *agent, *other, true),
         SimEvent {
             tick,
             kind: SimEventKind::EmotionTriggered { agent, .. },
             ..
-        } => one("EmotionTriggered", *tick, *agent, true),
+        } => one(ty, *tick, *agent, true),
         SimEvent {
             tick,
             kind: SimEventKind::Death { agent, .. },
             ..
-        } => one("Death", *tick, *agent, true),
+        } => one(ty, *tick, *agent, true),
         SimEvent {
             tick,
             kind: SimEventKind::EntityPerceived { agent, .. },
             ..
-        } => one("EntityPerceived", *tick, *agent, true),
+        } => one(ty, *tick, *agent, true),
         SimEvent {
             tick,
             kind: SimEventKind::StrangerDetected { agent, .. },
             ..
-        } => one("StrangerDetected", *tick, *agent, true),
+        } => one(ty, *tick, *agent, true),
         SimEvent {
             tick,
             kind:
@@ -299,106 +294,106 @@ fn event_meta<'a>(
                     speaker, listener, ..
                 },
             ..
-        } => two("KnowledgeShared", *tick, *speaker, *listener, true),
+        } => two(ty, *tick, *speaker, *listener, true),
         SimEvent {
             tick,
             kind: SimEventKind::WarmthPerceived { agent, .. },
             ..
-        } => one("WarmthPerceived", *tick, *agent, true),
+        } => one(ty, *tick, *agent, true),
         SimEvent {
             tick,
             kind: SimEventKind::WarmthChanged { agent, .. },
             ..
-        } => one("WarmthChanged", *tick, *agent, true),
+        } => one(ty, *tick, *agent, true),
         SimEvent {
             tick,
             kind: SimEventKind::SoundPerceived { agent, .. },
             ..
-        } => one("SoundPerceived", *tick, *agent, true),
+        } => one(ty, *tick, *agent, true),
         SimEvent {
             tick,
             kind: SimEventKind::TheoryOfMindUpdated { agent, about, .. },
             ..
-        } => two("TheoryOfMindUpdated", *tick, *agent, *about, true),
+        } => two(ty, *tick, *agent, *about, true),
         SimEvent {
             tick,
             kind: SimEventKind::ItemSpoiled { agent, .. },
             ..
-        } => one("ItemSpoiled", *tick, *agent, true),
+        } => one(ty, *tick, *agent, true),
         SimEvent {
             tick,
             kind: SimEventKind::EffectApplied { agent, .. },
             ..
-        } => one("EffectApplied", *tick, *agent, true),
+        } => one(ty, *tick, *agent, true),
         SimEvent {
             tick,
             kind: SimEventKind::LaborContributed { agent, .. },
             ..
-        } => one("LaborContributed", *tick, *agent, true),
+        } => one(ty, *tick, *agent, true),
         SimEvent {
             tick,
             kind: SimEventKind::SkillChanged { agent, .. },
             ..
-        } => one("SkillChanged", *tick, *agent, true),
+        } => one(ty, *tick, *agent, true),
         SimEvent {
             tick,
             kind: SimEventKind::CombatHit {
                 attacker, defender, ..
             },
             ..
-        } => two("CombatHit", *tick, *attacker, *defender, true),
+        } => two(ty, *tick, *attacker, *defender, true),
         SimEvent {
             tick,
             kind: SimEventKind::CombatMissed {
                 attacker, defender, ..
             },
             ..
-        } => two("CombatMissed", *tick, *attacker, *defender, true),
+        } => two(ty, *tick, *attacker, *defender, true),
         SimEvent {
             tick,
             kind: SimEventKind::PartSevered { entity, .. },
             ..
-        } => one("PartSevered", *tick, *entity, true),
+        } => one(ty, *tick, *entity, true),
         SimEvent {
             tick,
             kind: SimEventKind::PhenotypeDeveloped { agent, .. },
             ..
-        } => one("PhenotypeDeveloped", *tick, *agent, true),
+        } => one(ty, *tick, *agent, true),
         SimEvent {
             tick,
             kind: SimEventKind::SocialAcknowledgment { actor, target, .. },
             ..
-        } => two("SocialAcknowledgment", *tick, *actor, *target, true),
+        } => two(ty, *tick, *actor, *target, true),
         SimEvent {
             tick,
             kind: SimEventKind::GoapSearchTelemetry { agent, .. },
             ..
-        } => one("GoapSearchTelemetry", *tick, *agent, true),
+        } => one(ty, *tick, *agent, true),
         SimEvent {
             tick,
             kind: SimEventKind::PlanGenerated { agent, .. },
             ..
-        } => one("PlanGenerated", *tick, *agent, true),
+        } => one(ty, *tick, *agent, true),
         SimEvent {
             tick,
             kind: SimEventKind::TargetEnumerated { agent, .. },
             ..
-        } => one("TargetEnumerated", *tick, *agent, true),
+        } => one(ty, *tick, *agent, true),
         SimEvent {
             tick,
             kind: SimEventKind::PatternRejected { agent, .. },
             ..
-        } => one("PatternRejected", *tick, *agent, true),
+        } => one(ty, *tick, *agent, true),
         SimEvent {
             tick,
             kind: SimEventKind::MindGraphMutation { agent, .. },
             ..
-        } => one("MindGraphMutation", *tick, *agent, true),
+        } => one(ty, *tick, *agent, true),
         SimEvent {
             tick,
             kind: SimEventKind::AgentStateHash { agent, .. },
             ..
-        } => one("AgentStateHash", *tick, *agent, true),
+        } => one(ty, *tick, *agent, true),
     }
 }
 
