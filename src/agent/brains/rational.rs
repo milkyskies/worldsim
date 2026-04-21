@@ -938,6 +938,17 @@ fn collect_planning_actions(
                 PlanningMode::Generate => {
                     if action.is_plan_valid(&candidate, mind) {
                         Some(TargetInclusionReason::PlanValid)
+                    } else if candidate
+                        .as_entity()
+                        .is_some_and(|e| mind.is_known_empty(e))
+                    {
+                        // The depleted-`Contains(_, 0)` triple is itself a
+                        // positive match for the wildcard `entity_contains`
+                        // pattern, so the BeliefConfidence fallback below
+                        // can't tell "I know it's empty" from "I think
+                        // there might be something here." First-person
+                        // evidence overrides optimistic confidence.
+                        None
                     } else {
                         let conf = candidate
                             .as_entity()

@@ -384,13 +384,7 @@ fn target_produces_useful(target: &TargetCandidate, mind: &MindGraph) -> bool {
     let Some(entity) = target.as_entity() else {
         return false;
     };
-
-    // Reject known-empty Contains
-    let known_empty = mind
-        .query(Some(&Node::Entity(entity)), Some(Predicate::Contains), None)
-        .iter()
-        .any(|t| matches!(t.object, Value::Item(_, 0)));
-    if known_empty {
+    if mind.is_known_empty(entity) {
         return false;
     }
 

@@ -1455,6 +1455,20 @@ impl MindGraph {
         0.0
     }
 
+    /// True when the agent has explicit first-person evidence that
+    /// `entity`'s inventory is empty — at least one
+    /// `(entity, Contains, Item(_, 0))` triple is held. The zero-quantity
+    /// belief is asserted by `perceive_inventory` when the agent observes
+    /// an entity with stale Contains beliefs but a now-empty live
+    /// inventory, and by `belief_updater` on `ResourceDepleted` failures.
+    /// Callers in the planner and validity checks use this to refuse
+    /// targets the agent already knows are dry.
+    pub fn is_known_empty(&self, entity: Entity) -> bool {
+        self.query(Some(&Node::Entity(entity)), Some(Predicate::Contains), None)
+            .iter()
+            .any(|t| matches!(t.object, Value::Item(_, 0)))
+    }
+
     pub fn perceive_self(&mut self, predicate: Predicate, object: Value, timestamp: u64) {
         self.assert(Triple::with_meta(
             Node::Self_,

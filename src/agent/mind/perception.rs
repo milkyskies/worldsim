@@ -313,15 +313,27 @@ fn perceive_inventory(
         ));
     }
 
-    // 2. Clear what IS NOT there (but used to be)
-    // We query what we *thought* we had and REMOVE any items no longer present
+    // 2. Clear what IS NOT there (but used to be).
+    //
+    // For self-inventory, drop the stale belief — "I no longer have apples"
+    // is cleanly expressed by an absent Contains triple.
+    //
+    // For other entities, replace it with an explicit
+    // `Contains(concept, 0)` zero-quantity belief. The agent saw the entity
+    // *and* saw it didn't have the thing — first-person negative evidence,
+    // not absence of evidence. Without this, the planner's
+    // `is_known_empty` check can't tell "I saw it run dry" apart from
+    // "I haven't perceived its inventory yet," and the type-level
+    // `Produces` fallback re-includes depleted resources every cycle.
     let beliefs = mind.query(Some(&subject_node), Some(Predicate::Contains), None);
     let stale: Vec<_> = beliefs
         .into_iter()
         .filter_map(|t| {
             if let Value::Item(c, q) = t.object {
-                // Item is stale if: we don't see it anymore OR it had qty but now doesn't
-                if !observed_concepts.contains(&c) {
+                // Already-zero beliefs are stable: skipping them avoids a
+                // remove + re-assert loop every perception tick for every
+                // previously-depleted entity in view.
+                if q != 0 && !observed_concepts.contains(&c) {
                     return Some((c, q));
                 }
             }
@@ -330,12 +342,19 @@ fn perceive_inventory(
         .collect();
 
     for (concept, old_qty) in stale {
-        // Remove the stale belief entirely instead of setting qty to 0
         mind.remove(
             &subject_node,
             Predicate::Contains,
             &Value::Item(concept, old_qty),
         );
+        if !is_self {
+            mind.assert(Triple::with_meta(
+                subject_node.clone(),
+                Predicate::Contains,
+                Value::Item(concept, 0),
+                Metadata::semantic(time),
+            ));
+        }
     }
 }
 
