@@ -329,3 +329,82 @@ fn agent_on_known_campfire_plans_warm_up_without_build() {
         plan.iter().map(|a| a.action_type).collect::<Vec<_>>()
     );
 }
+
+// ─── Proximity warming is action-agnostic ────────────────────────────────
+
+/// A cold agent pinned next to a campfire while Sleep is active still
+/// gains warmth — proximity, not the WarmUp action, is the mechanism.
+/// Without this, Sleep blocks WarmUp on the channel and the agent would
+/// wake up just as cold as they went to bed.
+/// Proximity is the warming mechanism, not the action. Pin a cold agent
+/// next to a campfire without ever running WarmUp and assert they still
+/// gain meaningful warmth — the same passive system that makes sleeping
+/// or eating near a fire recoverable.
+#[test]
+fn proximity_warms_regardless_of_action() {
+    let mut world = TestWorld::with_seed(0);
+    world.spawn_campfire(Vec2::new(0.0, 0.0));
+    let agent = world.spawn_agent(AgentConfig {
+        pos: Vec2::new(0.0, 0.0),
+        warmth: 0.2,
+        ..Default::default()
+    });
+
+    let before = world.agent_warmth(agent);
+    for _ in 0..600 {
+        world.get_mut::<bevy::prelude::Transform>(agent).translation =
+            bevy::prelude::Vec3::new(0.0, 0.0, 0.0);
+        world.tick(1);
+    }
+    let after = world.agent_warmth(agent);
+
+    assert!(
+        after > before + 0.1,
+        "cold agent pinned to a campfire for 600 ticks must gain meaningful warmth; \
+         got before={before:.3}, after={after:.3}"
+    );
+}
+
+/// WarmUp completing no longer mutates `physical.warmth` — the action
+/// is an intentional stance now, proximity is the mechanism.
+#[test]
+fn warmup_on_complete_does_not_top_up_warmth() {
+    use worldsim::agent::actions::GenericAction;
+    use worldsim::agent::actions::action::WARM_UP_DEF;
+    use worldsim::agent::actions::registry::{Action, CompletionContext, SpawnRequest};
+    use worldsim::agent::body::metabolism::Metabolism;
+    use worldsim::agent::body::needs::PhysicalNeeds;
+    use worldsim::agent::item_slots::ItemSlots;
+    use worldsim::agent::mind::knowledge::setup_ontology;
+
+    let warm_up = GenericAction::new(&WARM_UP_DEF);
+    let mut physical = PhysicalNeeds {
+        metabolism: Metabolism::empty(),
+        ..Default::default()
+    };
+    physical.warmth = Need::new(0.2);
+    let mut inventory = ItemSlots::agent_carry();
+    let mind = MindGraph::new(setup_ontology());
+    let mut spawn_requests: Vec<SpawnRequest> = Vec::new();
+
+    let before = physical.warmth.value;
+    let mut ctx = CompletionContext {
+        physical: &mut physical,
+        inventory: &mut inventory,
+        drives: None,
+        mind: &mind,
+        skills: None,
+        target_inventory: None,
+        target_entity: None,
+        tick: 0,
+        agent_position: Vec2::ZERO,
+        spawn_requests: &mut spawn_requests,
+    };
+    warm_up.on_complete(&mut ctx);
+
+    assert!(
+        (physical.warmth.value - before).abs() < f32::EPSILON,
+        "WarmUp.on_complete must not mutate warmth; before={before:.3} after={:.3}",
+        physical.warmth.value
+    );
+}
