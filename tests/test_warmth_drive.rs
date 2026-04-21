@@ -425,3 +425,65 @@ fn warmth_completion_predicate_fires_on_threshold() {
     physical.warmth = Need::new(0.95);
     assert!(warm_up.should_complete(&physical));
 }
+
+/// WarmUp injected directly into ActiveActions + pinned next to a campfire
+/// runs to the self-completion threshold — not fixed-duration exit. Pre-fix,
+/// the action would complete every 15 ticks with warmth barely above start;
+/// post-fix, the single stance runs until warmth >= 0.9 and then ends.
+#[test]
+fn warmup_stance_runs_until_warmth_threshold() {
+    use worldsim::agent::actions::ActionType;
+    use worldsim::agent::actions::ActiveActions;
+    use worldsim::agent::actions::registry::ActionState;
+    use worldsim::agent::events::{SimEvent, SimEventKind};
+
+    let mut world = TestWorld::with_seed(0);
+    world.spawn_campfire(Vec2::new(0.0, 0.0));
+    let agent = world.spawn_agent(AgentConfig {
+        pos: Vec2::new(0.0, 0.0),
+        warmth: 0.2,
+        ..Default::default()
+    });
+
+    world
+        .get_mut::<ActiveActions>(agent)
+        .insert(ActionState::new(ActionType::WarmUp, 0));
+
+    for _ in 0..4000 {
+        world.get_mut::<bevy::prelude::Transform>(agent).translation =
+            bevy::prelude::Vec3::new(0.0, 0.0, 0.0);
+        world.tick(1);
+    }
+
+    let completions = world
+        .sim_events()
+        .all()
+        .iter()
+        .filter(|e| {
+            matches!(
+                e,
+                SimEvent {
+                    kind: SimEventKind::ActionCompleted {
+                        action: ActionType::WarmUp,
+                        ..
+                    },
+                    ..
+                } if e.involves(agent)
+            )
+        })
+        .count();
+
+    let final_warmth = world.agent_warmth(agent);
+
+    assert!(
+        final_warmth >= 0.85,
+        "agent should warm up to near-full; got {final_warmth:.3}"
+    );
+    // With fixed 15-tick cycles (pre-fix) we'd expect 100+ completions in
+    // 4000 ticks. With self-completion at warmth >= 0.9 we expect 1 (maybe
+    // 2 if the stance re-enters after drain dips it below threshold).
+    assert!(
+        completions <= 2,
+        "WarmUp should self-complete once warmth crosses 0.9, not fire on a 15-tick loop; got {completions}"
+    );
+}
