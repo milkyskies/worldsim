@@ -198,3 +198,61 @@ fn eat_allows_apple_when_smaller_than_berry_fits() {
         "50 stomach + 31 apple fits; must not trip satiation; got fullness={fullness}"
     );
 }
+
+// ─── is_plan_time_viable — the trait-level wrapper shared by survival and
+//     rational brains — must report the same true/false as the satiation
+//     gate would at runtime. Actions without a satiation gate are always
+//     viable.
+
+#[test]
+fn is_plan_time_viable_false_for_eat_when_stomach_full() {
+    let physical = PhysicalNeeds {
+        metabolism: Metabolism::well_fed(),
+        ..Default::default()
+    };
+    let inv = ItemSlots::agent_carry();
+    let eat = GenericAction::new(&EAT_DEF);
+    assert!(
+        !eat.is_plan_time_viable(Some(&physical), Some(&inv)),
+        "Eat must not be plan-time viable on a full stomach"
+    );
+}
+
+#[test]
+fn is_plan_time_viable_false_for_drink_when_hydrated() {
+    let physical = PhysicalNeeds::default();
+    let inv = ItemSlots::agent_carry();
+    let drink = GenericAction::new(&DRINK_DEF);
+    assert!(!drink.is_plan_time_viable(Some(&physical), Some(&inv)));
+}
+
+#[test]
+fn is_plan_time_viable_false_for_sleep_when_rested() {
+    let physical = PhysicalNeeds::default();
+    let inv = ItemSlots::agent_carry();
+    let sleep = GenericAction::new(&SLEEP_DEF);
+    assert!(!sleep.is_plan_time_viable(Some(&physical), Some(&inv)));
+}
+
+#[test]
+fn is_plan_time_viable_true_for_eat_when_hungry() {
+    use worldsim::agent::mind::knowledge::Concept;
+    // Empty-ish stomach with food in inventory.
+    let physical = physical_with_stomach(10.0);
+    let mut inv = ItemSlots::agent_carry();
+    inv.add(Concept::Apple, 1);
+    let eat = GenericAction::new(&EAT_DEF);
+    assert!(eat.is_plan_time_viable(Some(&physical), Some(&inv)));
+}
+
+#[test]
+fn is_plan_time_viable_true_for_actions_without_satiation_gate() {
+    use worldsim::agent::actions::action::HARVEST_DEF;
+    let physical = PhysicalNeeds::default();
+    let inv = ItemSlots::agent_carry();
+    let harvest = GenericAction::new(&HARVEST_DEF);
+    assert!(
+        harvest.is_plan_time_viable(Some(&physical), Some(&inv)),
+        "actions without a satiation gate are always plan-time viable"
+    );
+}
