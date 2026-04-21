@@ -11,6 +11,7 @@ use bevy::prelude::*;
 
 use crate::agent::Agent;
 use crate::agent::body::needs::PhysicalNeeds;
+use crate::agent::body::species::{Species, SpeciesProfile};
 use crate::agent::events::{SimEvent, SimEventKind};
 use crate::constants::brains::warmth::{
     BASELINE_DRAIN_PER_SEC, COMFORT_THRESHOLD, CRITICAL_THRESHOLD, EXPOSURE_DRAIN_PER_SEC,
@@ -36,13 +37,27 @@ pub fn tick_warmth(
     spatial_index: Res<SpatialIndex>,
     heat_sources: Query<(&Transform, &HeatSource)>,
     shelters: Query<(&Transform, &ShelterProvider)>,
-    mut agents: Query<(Entity, &Transform, &mut PhysicalNeeds), With<Agent>>,
+    mut agents: Query<
+        (
+            Entity,
+            &Transform,
+            &mut PhysicalNeeds,
+            Option<&SpeciesProfile>,
+        ),
+        With<Agent>,
+    >,
     mut sim_events: MessageWriter<SimEvent>,
 ) {
     let dt = tick.dt();
     let current_tick = tick.current;
 
-    for (agent_entity, agent_transform, mut physical) in agents.iter_mut() {
+    for (agent_entity, agent_transform, mut physical, species) in agents.iter_mut() {
+        // Only humans have thermal-comfort needs for now; animal warmth is
+        // out of scope and would otherwise pull wolves / deer toward
+        // campfires every night.
+        if !matches!(species.map(|s| s.species), Some(Species::Human)) {
+            continue;
+        }
         let agent_pos = agent_transform.translation.truncate();
         let old = physical.warmth.value;
 
