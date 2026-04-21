@@ -419,8 +419,10 @@ fn warmth_completion_predicate_fires_on_threshold() {
     use worldsim::agent::body::needs::PhysicalNeeds;
 
     let warm_up = GenericAction::new(&WARM_UP_DEF);
-    let mut physical = PhysicalNeeds::default();
-    physical.warmth = Need::new(0.5);
+    let mut physical = PhysicalNeeds {
+        warmth: Need::new(0.5),
+        ..Default::default()
+    };
     assert!(!warm_up.should_complete(&physical));
     physical.warmth = Need::new(0.95);
     assert!(warm_up.should_complete(&physical));
