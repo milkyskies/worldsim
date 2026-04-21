@@ -13,14 +13,14 @@ use crate::agent::actions::definition::{
 use crate::agent::actions::motor::{ActionPrimitive, IntensityPolicy, Intent, TargetSelector};
 use crate::agent::actions::registry::{ActionKind, TargetSource};
 use crate::agent::mind::knowledge::{Concept, Predicate};
-use crate::constants::actions::warm_up::{DURATION_TICKS, STAMINA_GAIN};
+use crate::constants::actions::warm_up::{COMPLETE_WARMTH_FRACTION, STAMINA_GAIN};
 
 const CHANNELS: &[ChannelUsage] = &[ChannelUsage::new(Channel::Focus, 0.3)];
 
 pub static WARM_UP_DEF: ActionDefinition = ActionDefinition {
     action_type: ActionType::WarmUp,
     kind: ActionKind::Timed {
-        duration_ticks: DURATION_TICKS,
+        duration_ticks: u32::MAX,
     },
     target_source: TargetSource::None,
     base_cost: 1.0,
@@ -45,7 +45,7 @@ pub static WARM_UP_DEF: ActionDefinition = ActionDefinition {
     plan_validity: PlanValidity::Always,
     gates: &[Gate::NearHeatEmitter],
     satiation: Some(SatiationGate::WarmthValue),
-    completion: CompletionPredicate::Never,
+    completion: CompletionPredicate::WarmthAtLeast(COMPLETE_WARMTH_FRACTION),
     on_complete_ops: &[RuntimeOp::AdjustAerobic(STAMINA_GAIN)],
     hooks: Hooks::EMPTY,
     recipe: None,

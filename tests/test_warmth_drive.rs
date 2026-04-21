@@ -408,3 +408,20 @@ fn warmup_on_complete_does_not_top_up_warmth() {
         physical.warmth.value
     );
 }
+
+/// `WarmthAtLeast` predicate reads `physical.warmth.value` directly —
+/// true once the agent crosses the threshold, false below.
+#[test]
+fn warmth_completion_predicate_fires_on_threshold() {
+    use worldsim::agent::actions::GenericAction;
+    use worldsim::agent::actions::action::WARM_UP_DEF;
+    use worldsim::agent::actions::registry::Action;
+    use worldsim::agent::body::needs::PhysicalNeeds;
+
+    let warm_up = GenericAction::new(&WARM_UP_DEF);
+    let mut physical = PhysicalNeeds::default();
+    physical.warmth = Need::new(0.5);
+    assert!(!warm_up.should_complete(&physical));
+    physical.warmth = Need::new(0.95);
+    assert!(warm_up.should_complete(&physical));
+}

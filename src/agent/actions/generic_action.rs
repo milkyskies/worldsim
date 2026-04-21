@@ -582,6 +582,7 @@ impl Action for GenericAction {
             CompletionPredicate::AerobicAtLeast(threshold) => {
                 physical.stamina.aerobic_fraction() >= threshold
             }
+            CompletionPredicate::WarmthAtLeast(threshold) => physical.warmth.value >= threshold,
         }
     }
 

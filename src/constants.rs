@@ -141,8 +141,10 @@ pub mod actions {
     }
 
     pub mod warm_up {
-        /// Ticks per WarmUp cycle. 15 matches Drink's duration.
-        pub const DURATION_TICKS: u32 = 15;
+        /// Warmth at which the stance auto-completes. Just below the 0.95
+        /// satiation gate so a small dip doesn't reject an immediate
+        /// re-entry.
+        pub const COMPLETE_WARMTH_FRACTION: f32 = 0.9;
         /// Small stamina gain from sitting warm — rest-like by-product.
         pub const STAMINA_GAIN: f32 = 5.0;
     }

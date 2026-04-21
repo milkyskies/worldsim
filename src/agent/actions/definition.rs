@@ -210,6 +210,9 @@ pub enum CompletionPredicate {
     /// Complete when `physical.stamina.aerobic_fraction() >= threshold`.
     /// Used by Rest.
     AerobicAtLeast(f32),
+    /// Complete when `physical.warmth.value >= threshold`. Used by WarmUp
+    /// so the stance exits on goal-met, not on a fixed-duration timer.
+    WarmthAtLeast(f32),
 }
 
 // ============================================================================
