@@ -67,23 +67,6 @@ pub fn survival_brain_propose(
     proposals
 }
 
-/// An action is "viable" when its satiation gate would let it start — i.e.
-/// either the action has no gate (Walk, Harvest, Attack) or the targeted
-/// need is below its satiation threshold. Proposing a non-viable action is
-/// a bug because it would win arbitration, fail at the execution gate, and
-/// starve every other proposal while digestion (or hydration, or sleep
-/// pressure) catches up.
-fn is_action_viable(
-    action: &dyn crate::agent::actions::registry::Action,
-    physical: &PhysicalNeeds,
-    inventory: &ItemSlots,
-) -> bool {
-    match action.satiation(Some(physical), Some(inventory)) {
-        Some((kind, fullness)) => fullness < kind.satiation_threshold(),
-        None => true,
-    }
-}
-
 fn propose_for_source(
     source: UrgencySource,
     value: f32,
@@ -107,7 +90,7 @@ fn propose_for_source(
         UrgencySource::Hunger => {
             if inventory.has_edible(ontology)
                 && let Some(action) = action_registry.get(ActionType::Eat)
-                && is_action_viable(action, context.physical, inventory)
+                && action.is_plan_time_viable(Some(context.physical), Some(inventory))
             {
                 return Some(BrainProposal {
                     brain: BrainType::Survival,
@@ -121,7 +104,7 @@ fn propose_for_source(
         UrgencySource::Thirst => {
             if is_adjacent_to_water(context.pos, context.world_map)
                 && let Some(action) = action_registry.get(ActionType::Drink)
-                && is_action_viable(action, context.physical, inventory)
+                && action.is_plan_time_viable(Some(context.physical), Some(inventory))
             {
                 return Some(BrainProposal {
                     brain: BrainType::Survival,
@@ -134,7 +117,7 @@ fn propose_for_source(
         }
         UrgencySource::Stamina => {
             if let Some(action) = action_registry.get(ActionType::Rest)
-                && is_action_viable(action, context.physical, inventory)
+                && action.is_plan_time_viable(Some(context.physical), Some(inventory))
             {
                 return Some(BrainProposal {
                     brain: BrainType::Survival,
@@ -169,7 +152,7 @@ fn propose_for_source(
         }
         UrgencySource::Sleepiness => {
             if let Some(action) = action_registry.get(ActionType::Sleep)
-                && is_action_viable(action, context.physical, inventory)
+                && action.is_plan_time_viable(Some(context.physical), Some(inventory))
             {
                 return Some(BrainProposal {
                     brain: BrainType::Survival,

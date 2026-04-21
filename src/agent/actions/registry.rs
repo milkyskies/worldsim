@@ -410,6 +410,29 @@ pub trait Action: Send + Sync + 'static {
         None
     }
 
+    /// True when this action's satiation gate would allow it to start right
+    /// now. Actions without a satiation gate (Walk, Harvest, Attack) are
+    /// always viable. Callers that need to avoid emitting plans or proposals
+    /// whose terminal step would deterministically bounce off the execution
+    /// gate — survival-brain proposers, rational-brain plan generation —
+    /// route through this.
+    ///
+    /// Satiation is the only gate that is plan-time invariant: fullness,
+    /// hydration, wakefulness, etc. depend on the agent's body and cannot
+    /// be changed by intermediate plan steps. Position- or inventory-based
+    /// gates are deliberately not part of this check — plan steps can
+    /// satisfy them by the time the gated action runs.
+    fn is_plan_time_viable(
+        &self,
+        physical: Option<&crate::agent::body::needs::PhysicalNeeds>,
+        inventory: Option<&ItemSlots>,
+    ) -> bool {
+        match self.satiation(physical, inventory) {
+            Some((kind, fullness)) => fullness < kind.satiation_threshold(),
+            None => true,
+        }
+    }
+
     /// Planning check - is this action valid for this target/context?
     /// Validates if the agent *knows* enough to attempt this.
     /// Takes a `TargetCandidate` so tile-targeted actions can also gate.

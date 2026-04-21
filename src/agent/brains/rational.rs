@@ -257,6 +257,7 @@ pub fn update_rational_planning(
             &MindGraph,
             Option<&Body>,
             &PhysicalNeeds,
+            &crate::agent::item_slots::ItemSlots,
             &crate::agent::psyche::personality::Personality,
             Option<&crate::agent::body::species::SpeciesProfile>,
         ),
@@ -347,6 +348,7 @@ pub fn update_rational_planning(
         mind,
         body,
         physical,
+        inventory,
         personality,
         species,
     ) in query.iter_mut()
@@ -580,6 +582,8 @@ pub fn update_rational_planning(
                 &affordances,
                 PlanningMode::Generate,
                 &capacities,
+                physical,
+                inventory,
             );
 
             // Emit TargetEnumerated for each surviving (action, target) pair.
@@ -912,12 +916,19 @@ fn collect_planning_actions(
     )>,
     mode: PlanningMode,
     capacities: &ChannelCapacities,
+    physical: &PhysicalNeeds,
+    inventory: &crate::agent::item_slots::ItemSlots,
 ) -> Vec<(ActionTemplate, TargetInclusionReason)> {
     let mut actions = Vec::new();
     let belief_state = crate::agent::mind::belief_state::BeliefState::new(mind);
 
     for action in action_registry.all() {
         if !action_is_anatomically_feasible(action.body_channels(), capacities) {
+            continue;
+        }
+
+        // Plan-time satiation filter — see `Action::is_plan_time_viable`.
+        if !action.is_plan_time_viable(Some(physical), Some(inventory)) {
             continue;
         }
 
