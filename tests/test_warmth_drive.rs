@@ -329,3 +329,163 @@ fn agent_on_known_campfire_plans_warm_up_without_build() {
         plan.iter().map(|a| a.action_type).collect::<Vec<_>>()
     );
 }
+
+// ─── Proximity warming is action-agnostic ────────────────────────────────
+
+/// A cold agent pinned next to a campfire while Sleep is active still
+/// gains warmth — proximity, not the WarmUp action, is the mechanism.
+/// Without this, Sleep blocks WarmUp on the channel and the agent would
+/// wake up just as cold as they went to bed.
+/// Proximity is the warming mechanism, not the action. Pin a cold agent
+/// next to a campfire without ever running WarmUp and assert they still
+/// gain meaningful warmth — the same passive system that makes sleeping
+/// or eating near a fire recoverable.
+#[test]
+fn proximity_warms_regardless_of_action() {
+    let mut world = TestWorld::with_seed(0);
+    world.spawn_campfire(Vec2::new(0.0, 0.0));
+    let agent = world.spawn_agent(AgentConfig {
+        pos: Vec2::new(0.0, 0.0),
+        warmth: 0.2,
+        ..Default::default()
+    });
+
+    let before = world.agent_warmth(agent);
+    for _ in 0..600 {
+        world.get_mut::<bevy::prelude::Transform>(agent).translation =
+            bevy::prelude::Vec3::new(0.0, 0.0, 0.0);
+        world.tick(1);
+    }
+    let after = world.agent_warmth(agent);
+
+    assert!(
+        after > before + 0.1,
+        "cold agent pinned to a campfire for 600 ticks must gain meaningful warmth; \
+         got before={before:.3}, after={after:.3}"
+    );
+}
+
+/// WarmUp completing no longer mutates `physical.warmth` — the action
+/// is an intentional stance now, proximity is the mechanism.
+#[test]
+fn warmup_on_complete_does_not_top_up_warmth() {
+    use worldsim::agent::actions::GenericAction;
+    use worldsim::agent::actions::action::WARM_UP_DEF;
+    use worldsim::agent::actions::registry::{Action, CompletionContext, SpawnRequest};
+    use worldsim::agent::body::metabolism::Metabolism;
+    use worldsim::agent::body::needs::PhysicalNeeds;
+    use worldsim::agent::item_slots::ItemSlots;
+    use worldsim::agent::mind::knowledge::setup_ontology;
+
+    let warm_up = GenericAction::new(&WARM_UP_DEF);
+    let mut physical = PhysicalNeeds {
+        metabolism: Metabolism::empty(),
+        ..Default::default()
+    };
+    physical.warmth = Need::new(0.2);
+    let mut inventory = ItemSlots::agent_carry();
+    let mind = MindGraph::new(setup_ontology());
+    let mut spawn_requests: Vec<SpawnRequest> = Vec::new();
+
+    let before = physical.warmth.value;
+    let mut ctx = CompletionContext {
+        physical: &mut physical,
+        inventory: &mut inventory,
+        drives: None,
+        mind: &mind,
+        skills: None,
+        target_inventory: None,
+        target_entity: None,
+        tick: 0,
+        agent_position: Vec2::ZERO,
+        spawn_requests: &mut spawn_requests,
+    };
+    warm_up.on_complete(&mut ctx);
+
+    assert!(
+        (physical.warmth.value - before).abs() < f32::EPSILON,
+        "WarmUp.on_complete must not mutate warmth; before={before:.3} after={:.3}",
+        physical.warmth.value
+    );
+}
+
+/// `WarmthAtLeast` predicate reads `physical.warmth.value` directly —
+/// true once the agent crosses the threshold, false below.
+#[test]
+fn warmth_completion_predicate_fires_on_threshold() {
+    use worldsim::agent::actions::GenericAction;
+    use worldsim::agent::actions::action::WARM_UP_DEF;
+    use worldsim::agent::actions::registry::Action;
+    use worldsim::agent::body::needs::PhysicalNeeds;
+
+    let warm_up = GenericAction::new(&WARM_UP_DEF);
+    let mut physical = PhysicalNeeds {
+        warmth: Need::new(0.5),
+        ..Default::default()
+    };
+    assert!(!warm_up.should_complete(&physical));
+    physical.warmth = Need::new(0.95);
+    assert!(warm_up.should_complete(&physical));
+}
+
+/// WarmUp injected directly into ActiveActions + pinned next to a campfire
+/// runs to the self-completion threshold — not fixed-duration exit. Pre-fix,
+/// the action would complete every 15 ticks with warmth barely above start;
+/// post-fix, the single stance runs until warmth >= 0.9 and then ends.
+#[test]
+fn warmup_stance_runs_until_warmth_threshold() {
+    use worldsim::agent::actions::ActionType;
+    use worldsim::agent::actions::ActiveActions;
+    use worldsim::agent::actions::registry::ActionState;
+    use worldsim::agent::events::{SimEvent, SimEventKind};
+
+    let mut world = TestWorld::with_seed(0);
+    world.spawn_campfire(Vec2::new(0.0, 0.0));
+    let agent = world.spawn_agent(AgentConfig {
+        pos: Vec2::new(0.0, 0.0),
+        warmth: 0.2,
+        ..Default::default()
+    });
+
+    world
+        .get_mut::<ActiveActions>(agent)
+        .insert(ActionState::new(ActionType::WarmUp, 0));
+
+    for _ in 0..4000 {
+        world.get_mut::<bevy::prelude::Transform>(agent).translation =
+            bevy::prelude::Vec3::new(0.0, 0.0, 0.0);
+        world.tick(1);
+    }
+
+    let completions = world
+        .sim_events()
+        .all()
+        .iter()
+        .filter(|e| {
+            matches!(
+                e,
+                SimEvent {
+                    kind: SimEventKind::ActionCompleted {
+                        action: ActionType::WarmUp,
+                        ..
+                    },
+                    ..
+                } if e.involves(agent)
+            )
+        })
+        .count();
+
+    let final_warmth = world.agent_warmth(agent);
+
+    assert!(
+        final_warmth >= 0.85,
+        "agent should warm up to near-full; got {final_warmth:.3}"
+    );
+    // With fixed 15-tick cycles (pre-fix) we'd expect 100+ completions in
+    // 4000 ticks. With self-completion at warmth >= 0.9 we expect 1 (maybe
+    // 2 if the stance re-enters after drain dips it below threshold).
+    assert!(
+        completions <= 2,
+        "WarmUp should self-complete once warmth crosses 0.9, not fire on a 15-tick loop; got {completions}"
+    );
+}

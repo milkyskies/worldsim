@@ -1,6 +1,9 @@
 use crate::core::GameTime;
 use crate::world::property::LightSource;
+use bevy::asset::RenderAssetUsages;
+use bevy::image::Image;
 use bevy::prelude::*;
+use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 
 pub struct EnvironmentPlugin;
 
@@ -13,20 +16,71 @@ impl Plugin for EnvironmentPlugin {
             .register_type::<CampfireGlowSprite>()
             .init_resource::<LightLevel>()
             .init_resource::<ColorTint>()
-            // Game-logic: derive LightLevel/ColorTint from GameTime. Runs in
-            // FixedUpdate so headless tests (which skip Update) see light shift
-            // between day and night, and so urgency generation reads a stable
-            // LightLevel each tick.
+            .add_systems(Startup, init_campfire_glow_texture)
             .add_systems(FixedUpdate, update_light_level)
-            // Visual-only: write sprite/clear-color from LightLevel/ColorTint.
             .add_systems(
                 Update,
                 (
                     apply_visual_lighting,
-                    (apply_sprite_lighting, apply_campfire_glow_lighting),
+                    (
+                        apply_sprite_lighting,
+                        apply_campfire_glow_texture,
+                        apply_campfire_glow_lighting,
+                    ),
                 )
                     .chain(),
             );
+    }
+}
+
+/// Handle for the procedurally generated radial-gradient campfire glow.
+/// Shared across every campfire's glow sprite so the night halo renders as
+/// a soft circle, not a 160-px square.
+#[derive(Resource)]
+pub struct CampfireGlowTexture(pub Handle<Image>);
+
+fn init_campfire_glow_texture(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
+    let size: u32 = 128;
+    let center = size as f32 / 2.0;
+    let mut data = vec![0u8; (size * size * 4) as usize];
+    for y in 0..size {
+        for x in 0..size {
+            let dx = x as f32 - center;
+            let dy = y as f32 - center;
+            let d = (dx * dx + dy * dy).sqrt();
+            let t = (1.0 - d / center).clamp(0.0, 1.0);
+            // Quadratic falloff makes the edge feel soft; r/g/b hold the warm
+            // campfire tint so the dynamic alpha in `apply_campfire_glow_lighting`
+            // controls visibility alone.
+            let alpha = (t * t * 255.0) as u8;
+            let idx = ((y * size + x) * 4) as usize;
+            data[idx] = 255;
+            data[idx + 1] = 153;
+            data[idx + 2] = 51;
+            data[idx + 3] = alpha;
+        }
+    }
+    let image = Image::new(
+        Extent3d {
+            width: size,
+            height: size,
+            depth_or_array_layers: 1,
+        },
+        TextureDimension::D2,
+        data,
+        TextureFormat::Rgba8UnormSrgb,
+        RenderAssetUsages::RENDER_WORLD,
+    );
+    commands.insert_resource(CampfireGlowTexture(images.add(image)));
+}
+
+fn apply_campfire_glow_texture(
+    texture: Option<Res<CampfireGlowTexture>>,
+    mut glows: Query<&mut Sprite, Added<CampfireGlowSprite>>,
+) {
+    let Some(texture) = texture else { return };
+    for mut sprite in &mut glows {
+        sprite.image = texture.0.clone();
     }
 }
 

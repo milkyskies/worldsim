@@ -606,6 +606,6 @@ mod tests {
         assert_eq!(json["agent"]["id"], "7v0");
         // Payload fields are flat, not nested under a "Decision" key.
         assert!(json["winner"].is_string());
-        assert!(!json.get("Decision").is_some());
+        assert!(json.get("Decision").is_none());
     }
 }

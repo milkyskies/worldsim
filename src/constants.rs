@@ -141,15 +141,10 @@ pub mod actions {
     }
 
     pub mod warm_up {
-        /// Ticks per WarmUp cycle. One cycle restores a chunk of warmth —
-        /// a chain of WarmUp cycles runs until the satiation gate
-        /// (warmth >= 0.95) blocks further starts. 15 ticks matches
-        /// Drink's duration so the two needs feel equally responsive.
-        pub const DURATION_TICKS: u32 = 15;
-        /// Warmth satisfaction (0..1) restored per completed WarmUp cycle.
-        /// 0.5 mirrors Drink's `THIRST_REDUCTION` (also 0.5) — two cycles
-        /// (30 ticks / 0.5 real-second) take an agent from cold to warm.
-        pub const WARMTH_RECOVERY: f32 = 0.5;
+        /// Warmth at which the stance auto-completes. Just below the 0.95
+        /// satiation gate so a small dip doesn't reject an immediate
+        /// re-entry.
+        pub const COMPLETE_WARMTH_FRACTION: f32 = 0.9;
         /// Small stamina gain from sitting warm — rest-like by-product.
         pub const STAMINA_GAIN: f32 = 5.0;
     }
@@ -211,9 +206,9 @@ pub mod brains {
         /// into the urgent band (warmth < 0.3) in roughly 5 game minutes.
         pub const EXPOSURE_DRAIN_PER_SEC: f32 = 0.0028;
         /// Satisfaction gain per rate-second when within a lit HeatSource
-        /// radius. A full recovery from hypothermic (0.0) to comfortable
-        /// (1.0) takes ~3 game minutes of continuous exposure.
-        pub const HEAT_RECOVERY_PER_SEC: f32 = 0.0055;
+        /// radius. Passive: applies regardless of action. Target ~60
+        /// game-seconds cold-to-warm.
+        pub const HEAT_RECOVERY_PER_SEC: f32 = 0.017;
         /// Satisfaction gain per rate-second when inside a ShelterProvider
         /// (but no heat source). Smaller than HEAT_RECOVERY — shelter
         /// insulates but doesn't actively warm.

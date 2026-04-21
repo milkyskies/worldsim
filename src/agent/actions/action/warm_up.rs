@@ -1,10 +1,8 @@
-//! WarmUp action — stay beside a heat source to restore warmth.
+//! WarmUp action — stance of sitting by a heat source.
 //!
-//! Declares `(Self, Near, Campfire)` as a planner precondition — the
-//! concept-near walk generator grounds this to a specific tile when a heat
-//! source is known, and Build's `Near` effect closes it when no heat
-//! source exists yet. Execution narrows "near some campfire" to a concrete
-//! entity via the [`Gate::NearHeatEmitter`] runtime check.
+//! Does not itself restore warmth; recovery is the proximity effect in
+//! `agent::body::warmth::tick_warmth`. Any action near a heat emitter
+//! benefits from the same passive rate.
 
 use crate::agent::actions::ActionType;
 use crate::agent::actions::channel::{Channel, ChannelUsage, Posture};
@@ -15,14 +13,14 @@ use crate::agent::actions::definition::{
 use crate::agent::actions::motor::{ActionPrimitive, IntensityPolicy, Intent, TargetSelector};
 use crate::agent::actions::registry::{ActionKind, TargetSource};
 use crate::agent::mind::knowledge::{Concept, Predicate};
-use crate::constants::actions::warm_up::{DURATION_TICKS, STAMINA_GAIN, WARMTH_RECOVERY};
+use crate::constants::actions::warm_up::{COMPLETE_WARMTH_FRACTION, STAMINA_GAIN};
 
 const CHANNELS: &[ChannelUsage] = &[ChannelUsage::new(Channel::Focus, 0.3)];
 
 pub static WARM_UP_DEF: ActionDefinition = ActionDefinition {
     action_type: ActionType::WarmUp,
     kind: ActionKind::Timed {
-        duration_ticks: DURATION_TICKS,
+        duration_ticks: u32::MAX,
     },
     target_source: TargetSource::None,
     base_cost: 1.0,
@@ -47,11 +45,8 @@ pub static WARM_UP_DEF: ActionDefinition = ActionDefinition {
     plan_validity: PlanValidity::Always,
     gates: &[Gate::NearHeatEmitter],
     satiation: Some(SatiationGate::WarmthValue),
-    completion: CompletionPredicate::Never,
-    on_complete_ops: &[
-        RuntimeOp::TopUpWarmth(WARMTH_RECOVERY),
-        RuntimeOp::AdjustAerobic(STAMINA_GAIN),
-    ],
+    completion: CompletionPredicate::WarmthAtLeast(COMPLETE_WARMTH_FRACTION),
+    on_complete_ops: &[RuntimeOp::AdjustAerobic(STAMINA_GAIN)],
     hooks: Hooks::EMPTY,
     recipe: None,
 };
