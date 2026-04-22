@@ -10,13 +10,17 @@
 /// `DAY_AMBIENT` swing the baseline as light level moves between its
 /// night floor (0.3) and day ceiling (1.0).
 pub mod thermal {
-    /// Ambient temperature at full night (light level = 0.3). Picked for
-    /// "exposed agent in the open gets uncomfortable but isn't freezing
-    /// to death in minutes" — temperate-forest night, not tundra.
-    pub const NIGHT_AMBIENT_C: f32 = 5.0;
-    /// Ambient temperature at full day (light level = 1.0). Room-temp
-    /// comfort; unexposed agents don't need a fire.
-    pub const DAY_AMBIENT_C: f32 = 22.0;
+    /// Ambient temperature at full night (light level = 0.3). Deliberately
+    /// below freezing so exposed agents feel real cold by bedtime and
+    /// prioritize building/relighting fires. Temperate late-autumn
+    /// feel, not tundra.
+    pub const NIGHT_AMBIENT_C: f32 = -2.0;
+    /// Ambient temperature at full day (light level = 1.0). Below the
+    /// `COMFORT_MIN_C = 18°C` threshold on purpose — daytime is cool
+    /// enough that agents lose warmth gently throughout the day, so
+    /// by evening they're already looking for a fire instead of
+    /// waiting for it to become an emergency.
+    pub const DAY_AMBIENT_C: f32 = 12.0;
 
     /// Light-level floor (from `compute_light_level`) below which ambient
     /// stays pinned at `NIGHT_AMBIENT_C`. Matches the 0.3 floor used in
@@ -35,10 +39,10 @@ pub mod thermal {
     /// full-intensity (intensity = 1.0) emitter. Scales linearly with
     /// `HeatSource::intensity` and falls off linearly to zero at the
     /// emitter's `radius`. Paired with `AMBIENT_RELAXATION_PER_SEC` so
-    /// steady-state at source equals `RATE / RELAX` ≈ 40°C above
-    /// ambient — enough to put the source tile comfortably into the
-    /// full-recovery band.
-    pub const INJECTION_RATE_AT_SOURCE_C_PER_SEC: f32 = 14.0;
+    /// steady-state at source equals `RATE / RELAX` ≈ 57°C above
+    /// ambient — putting the source tile above `FULL_RECOVERY_C` even
+    /// at full-intensity 0.8 campfires on a sub-freezing night.
+    pub const INJECTION_RATE_AT_SOURCE_C_PER_SEC: f32 = 20.0;
 
     /// Fraction of a cell's delta lost per rate-second to ambient. 0.35
     /// = 35%/sec, half-life ≈ 2 game-seconds. Fast enough that cells
