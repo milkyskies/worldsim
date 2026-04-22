@@ -6,7 +6,7 @@ use crate::world::map::TILE_SIZE;
 use crate::world::spatial_index::world_pos_to_tile;
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
-use bevy_egui::{EguiContext, egui};
+use bevy_egui::{EguiContext, EguiPrimaryContextPass, PrimaryEguiContext, egui};
 
 pub struct OverlayPlugin;
 
@@ -14,14 +14,11 @@ impl Plugin for OverlayPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<OverlayState>()
             .register_type::<OverlayState>()
-            .add_systems(
-                Update,
-                (
-                    draw_overlays,
-                    draw_temperature_overlay,
-                    temperature_hover_tooltip,
-                ),
-            );
+            .add_systems(Update, (draw_overlays, draw_temperature_overlay))
+            // Tooltip has to draw in the egui primary pass; running it
+            // in Update silently drops the call because no egui
+            // context is active there.
+            .add_systems(EguiPrimaryContextPass, temperature_hover_tooltip);
     }
 }
 
@@ -40,20 +37,18 @@ pub struct OverlayState {
 struct TemperatureOverlayCell;
 
 /// Delta magnitude (°C) that saturates the overlay's color intensity.
-/// Cells at this delta read as fully saturated red/blue; cells beyond
-/// get no additional visual intensity.
-const OVERLAY_SATURATION_DELTA_C: f32 = 40.0;
-/// Max alpha for a saturated-delta cell. Kept translucent so the
-/// world underneath stays readable.
-const OVERLAY_MAX_ALPHA: f32 = 0.5;
-/// Delta magnitude (°C) below which a cell is considered ambient
-/// enough to skip rendering — avoids drawing thousands of barely-above-
-/// zero cells during a diffusion ripple.
-const OVERLAY_SKIP_THRESHOLD_C: f32 = 0.5;
-/// Z depth for overlay sprites — must sit above the tile layer but
-/// below UI chrome. The existing overlay gizmos draw at 0.0; 100.0 gives
-/// us clear headroom above world entities.
-const OVERLAY_Z: f32 = 100.0;
+const OVERLAY_SATURATION_DELTA_C: f32 = 20.0;
+/// Max alpha for a saturated-delta cell. Kept translucent so the world
+/// underneath stays readable, but high enough to actually notice.
+const OVERLAY_MAX_ALPHA: f32 = 0.75;
+/// Minimum alpha applied to any rendered cell so faint perturbations
+/// are still visible (otherwise sub-saturation cells would be all but
+/// invisible, making the overlay seem broken).
+const OVERLAY_MIN_ALPHA: f32 = 0.25;
+/// Delta magnitude (°C) below which a cell is skipped entirely.
+const OVERLAY_SKIP_THRESHOLD_C: f32 = 0.1;
+/// Z depth for overlay sprites — above tiles and entities.
+const OVERLAY_Z: f32 = 50.0;
 
 fn draw_overlays(
     mut gizmos: Gizmos,
@@ -138,6 +133,9 @@ fn draw_temperature_overlay(
                         ..default()
                     },
                     Transform::from_translation(Vec3::new(center.x, center.y, OVERLAY_Z)),
+                    Visibility::default(),
+                    InheritedVisibility::default(),
+                    ViewVisibility::default(),
                 ));
             }
         }
@@ -145,10 +143,11 @@ fn draw_temperature_overlay(
 }
 
 /// Map a cell delta (°C above/below ambient) to an RGBA tint. Hot
-/// cells go red, cold cells blue, alpha scales with magnitude.
+/// cells go red, cold cells blue, alpha scales with magnitude but
+/// stays above a visible floor so faint cells don't disappear.
 fn heat_color(delta_c: f32) -> Color {
     let intensity = (delta_c.abs() / OVERLAY_SATURATION_DELTA_C).clamp(0.0, 1.0);
-    let alpha = intensity * OVERLAY_MAX_ALPHA;
+    let alpha = OVERLAY_MIN_ALPHA + intensity * (OVERLAY_MAX_ALPHA - OVERLAY_MIN_ALPHA);
     if delta_c >= 0.0 {
         Color::srgba(1.0, 0.35, 0.1, alpha)
     } else {
@@ -167,7 +166,7 @@ fn temperature_hover_tooltip(
     fields: Res<FieldGrids>,
     windows: Query<&Window, With<PrimaryWindow>>,
     cameras: Query<(&Camera, &GlobalTransform)>,
-    mut egui_contexts: Query<&mut EguiContext, With<PrimaryWindow>>,
+    mut egui_contexts: Query<&mut EguiContext, With<PrimaryEguiContext>>,
 ) {
     if !overlay_state.show_temperature {
         return;
