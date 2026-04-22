@@ -114,15 +114,22 @@ fn harvest_target_consumes(target: &TargetCandidate, mind: &MindGraph) -> Vec<Tr
     let Some(entity) = target.as_entity() else {
         return vec![];
     };
-    let has_contains = mind
-        .query(Some(&Node::Entity(entity)), Some(Predicate::Contains), None)
+    // One unit per Harvest call, keyed by concept, so the planner's
+    // quantity-aware consume tracking lets multiple Harvests chain on the
+    // same entity while respecting its stored quantity. Without the
+    // concept key every Harvest would overlap every previous one and the
+    // chain would break after one step.
+    mind.query(Some(&Node::Entity(entity)), Some(Predicate::Contains), None)
         .iter()
-        .any(|t| matches!(t.object, Value::Item(_, qty) if qty > 0));
-    if has_contains {
-        vec![TriplePattern::entity_contains(entity)]
-    } else {
-        vec![]
-    }
+        .filter_map(|t| match &t.object {
+            Value::Item(concept, qty) if *qty > 0 => Some(TriplePattern::new(
+                Some(Node::Entity(entity)),
+                Some(Predicate::Contains),
+                Some(Value::Item(*concept, 1)),
+            )),
+            _ => None,
+        })
+        .collect()
 }
 
 fn harvest_on_complete(ctx: &mut CompletionContext) {

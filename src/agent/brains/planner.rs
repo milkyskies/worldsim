@@ -783,15 +783,15 @@ impl RegressiveState {
         s
     }
 
-    /// Canonicalize for stable hashing: sort then dedup so semantically-equal
-    /// states collapse to the same A* closed-set entry instead of being re-explored.
+    /// Canonicalize for stable hashing: sort for a canonical order. Dedup
+    /// is only safe for `unmet_goals` — multiple identical `consumed`
+    /// entries are meaningful (three Harvests against the same log take
+    /// three units of wood, not one).
     fn normalize(&mut self) {
         self.unmet_goals.sort_by(compare_patterns);
         self.unmet_goals
             .dedup_by(|a, b| compare_patterns(a, b).is_eq());
         self.consumed.sort_by(compare_patterns);
-        self.consumed
-            .dedup_by(|a, b| compare_patterns(a, b).is_eq());
     }
 }
 
@@ -1307,7 +1307,7 @@ fn find_explicit_actions_for_goal(
             // A precondition is unmet if:
             // 1. It isn't satisfied in the live world, OR
             // 2. It would be satisfied in the live world but a later action consumes it
-            let consumed_by_later = current_consumed.iter().any(|c| patterns_overlap(c, pre));
+            let consumed_by_later = precondition_blocked_by_consumed(pre, current_consumed, mind);
             if !mind_satisfies_pattern(mind, pre) || consumed_by_later {
                 new_unmet.push(pre.clone());
             }
@@ -1323,6 +1323,84 @@ fn find_explicit_actions_for_goal(
     }
 
     candidates
+}
+
+/// A precondition is blocked by later-scheduled consumers if the resources
+/// it depends on will be gone by the time it runs. For Item-shaped
+/// `Contains` patterns we accumulate consumed quantity per
+/// `(subject, concept)` and compare against the MindGraph's stored
+/// quantity — a single log with `Item(Wood, 3)` supports three chained
+/// Harvests, not one. Non-Item shapes fall back to the original
+/// overlap check.
+fn precondition_blocked_by_consumed(
+    pre: &TriplePattern,
+    current_consumed: &[TriplePattern],
+    mind: &MindGraph,
+) -> bool {
+    let (Some(subject), Some(predicate)) = (pre.subject.as_ref(), pre.predicate) else {
+        return current_consumed.iter().any(|c| patterns_overlap(c, pre));
+    };
+    // Sum consumed Item quantities under the same (subject, predicate).
+    // A wildcard consume at the same key is conservative — we can't
+    // quantify it, so it blocks.
+    let mut consumed_by_concept: std::collections::HashMap<Concept, u32> =
+        std::collections::HashMap::new();
+    for c in current_consumed {
+        if c.subject.as_ref() != Some(subject) || c.predicate != Some(predicate) {
+            if patterns_overlap(c, pre) {
+                return true;
+            }
+            continue;
+        }
+        match &c.object {
+            Some(Value::Item(concept, qty)) => {
+                *consumed_by_concept.entry(*concept).or_insert(0) += qty;
+            }
+            None => return true,
+            _ => {
+                if patterns_overlap(c, pre) {
+                    return true;
+                }
+            }
+        }
+    }
+    if consumed_by_concept.is_empty() {
+        return false;
+    }
+    let stored_qty = |concept: Concept| -> u32 {
+        mind.query(Some(subject), Some(predicate), None)
+            .iter()
+            .filter_map(|t| match &t.object {
+                Value::Item(c, q) if *c == concept => Some(*q),
+                _ => None,
+            })
+            .max()
+            .unwrap_or(0)
+    };
+    match &pre.object {
+        Some(Value::Item(concept, needed)) => {
+            let consumed = consumed_by_concept.get(concept).copied().unwrap_or(0);
+            stored_qty(*concept) < consumed + *needed
+        }
+        None => {
+            // Wildcard precondition: satisfied as long as SOME concept
+            // has stored > consumed.
+            consumed_by_concept
+                .iter()
+                .all(|(c, consumed)| stored_qty(*c) <= *consumed)
+                && !mind
+                    .query(Some(subject), Some(predicate), None)
+                    .iter()
+                    .any(|t| match &t.object {
+                        Value::Item(c, stored) => {
+                            let consumed = consumed_by_concept.get(c).copied().unwrap_or(0);
+                            *stored > consumed
+                        }
+                        _ => false,
+                    })
+        }
+        _ => current_consumed.iter().any(|c| patterns_overlap(c, pre)),
+    }
 }
 
 /// How does `action` contribute to satisfying `target_goal`?
@@ -1649,7 +1727,9 @@ mod tests {
         MindGraph::new(setup_ontology())
     }
 
-    /// An action that gathers `concept` from `target`. Consumes the source's contents.
+    /// An action that gathers `concept` from `target`. Consumes one unit
+    /// of the concept from the source per call — mirrors the quantity-1
+    /// pattern the real Harvest action emits.
     fn gather_template(target: Entity, concept: Concept) -> ActionTemplate {
         ActionTemplate {
             name: format!("Gather({:?})", concept),
@@ -1663,7 +1743,11 @@ mod tests {
                 Predicate::Contains,
                 Value::Item(concept, 1),
             )],
-            consumes: vec![TriplePattern::entity_contains(target)],
+            consumes: vec![TriplePattern::new(
+                Some(MindNode::Entity(target)),
+                Some(Predicate::Contains),
+                Some(Value::Item(concept, 1)),
+            )],
             base_cost: 2.0,
             locomotion_intensity: 0.0,
             estimated_duration_ticks: None,
@@ -3011,6 +3095,161 @@ mod tests {
             3,
             "plan must contain exactly 3 Harvest steps (got {gather_count}): {:?}",
             plan.iter().map(|a| a.name.as_str()).collect::<Vec<_>>()
+        );
+    }
+
+    /// One log holds Item(Wood, 3). The planner must chain three Harvests
+    /// against that single entity rather than demanding three distinct
+    /// logs. Before this fix, `Harvest.consumes = entity_contains(entity)`
+    /// was a wildcard pattern that overlapped with itself during the
+    /// backward search, blocking a second Harvest on the same entity.
+    #[test]
+    fn planner_chains_three_harvests_against_single_log() {
+        let mut mind = test_mind();
+        let log = Entity::from_bits(1);
+        mind.assert(Triple::new(
+            MindNode::Entity(log),
+            Predicate::Contains,
+            Value::Item(Concept::Wood, 3),
+        ));
+        mind.assert(Triple::new(
+            MindNode::Self_,
+            Predicate::LocatedAt,
+            Value::Tile((0, 0)),
+        ));
+
+        let gathers = vec![gather_template(log, Concept::Wood)];
+        let goal = Goal {
+            conditions: vec![TriplePattern::new(
+                Some(MindNode::Self_),
+                Some(Predicate::Contains),
+                Some(Value::Item(Concept::Wood, 3)),
+            )],
+            priority: 1.0,
+        };
+
+        let (plan, stats) = regressive_plan(&mind, &goal, &gathers, &PlanCostContext::neutral());
+        let plan = plan.unwrap_or_else(|| {
+            panic!(
+                "planner must chain three Harvests against the same log; unmet: {:?}",
+                stats.best_unmet_goals
+            )
+        });
+
+        let gather_count = plan
+            .iter()
+            .filter(|a| a.action_type == ActionType::Harvest)
+            .count();
+        assert_eq!(
+            gather_count,
+            3,
+            "expected 3 Harvest steps against the single log; got {gather_count}: {:?}",
+            plan.iter().map(|a| a.name.as_str()).collect::<Vec<_>>()
+        );
+        // Every Harvest step must target the same log — no phantom extra
+        // entities invented by the planner.
+        for action in &plan {
+            if action.action_type == ActionType::Harvest {
+                assert_eq!(action.target_entity, Some(log));
+            }
+        }
+    }
+
+    /// One berry bush holds Item(Berry, 5). Goal Item(Berry, 5) must
+    /// chain five Harvests on that single bush. Same fix as the wood
+    /// case — the quantity-aware consume tracking is concept-agnostic.
+    #[test]
+    fn planner_chains_five_harvests_against_single_berry_bush() {
+        let mut mind = test_mind();
+        let bush = Entity::from_bits(1);
+        mind.assert(Triple::new(
+            MindNode::Entity(bush),
+            Predicate::Contains,
+            Value::Item(Concept::Berry, 5),
+        ));
+        mind.assert(Triple::new(
+            MindNode::Self_,
+            Predicate::LocatedAt,
+            Value::Tile((0, 0)),
+        ));
+
+        let gathers = vec![gather_template(bush, Concept::Berry)];
+        let goal = Goal {
+            conditions: vec![TriplePattern::new(
+                Some(MindNode::Self_),
+                Some(Predicate::Contains),
+                Some(Value::Item(Concept::Berry, 5)),
+            )],
+            priority: 1.0,
+        };
+        let (plan, _) = regressive_plan(&mind, &goal, &gathers, &PlanCostContext::neutral());
+        let plan = plan.expect("planner must chain 5 berry harvests");
+        let count = plan
+            .iter()
+            .filter(|a| a.action_type == ActionType::Harvest)
+            .count();
+        assert_eq!(count, 5, "expected 5 berry harvests; got {count}");
+    }
+
+    /// Two logs, quantities 3 and 2, goal Item(Wood, 5). The planner must
+    /// plan five Harvests mixed across both logs — not five distinct logs.
+    #[test]
+    fn planner_mixes_harvests_across_two_logs_with_different_quantities() {
+        let mut mind = test_mind();
+        let log_a = Entity::from_bits(1);
+        let log_b = Entity::from_bits(2);
+        mind.assert(Triple::new(
+            MindNode::Entity(log_a),
+            Predicate::Contains,
+            Value::Item(Concept::Wood, 3),
+        ));
+        mind.assert(Triple::new(
+            MindNode::Entity(log_b),
+            Predicate::Contains,
+            Value::Item(Concept::Wood, 2),
+        ));
+        mind.assert(Triple::new(
+            MindNode::Self_,
+            Predicate::LocatedAt,
+            Value::Tile((0, 0)),
+        ));
+
+        let gathers = vec![
+            gather_template(log_a, Concept::Wood),
+            gather_template(log_b, Concept::Wood),
+        ];
+        let goal = Goal {
+            conditions: vec![TriplePattern::new(
+                Some(MindNode::Self_),
+                Some(Predicate::Contains),
+                Some(Value::Item(Concept::Wood, 5)),
+            )],
+            priority: 1.0,
+        };
+
+        let (plan, stats) = regressive_plan(&mind, &goal, &gathers, &PlanCostContext::neutral());
+        let plan = plan.unwrap_or_else(|| {
+            panic!(
+                "planner must plan 5 harvests across two logs; unmet: {:?}",
+                stats.best_unmet_goals
+            )
+        });
+        let gather_count = plan
+            .iter()
+            .filter(|a| a.action_type == ActionType::Harvest)
+            .count();
+        assert_eq!(gather_count, 5, "need 5 harvests: {plan:?}");
+        let on_a = plan
+            .iter()
+            .filter(|a| a.action_type == ActionType::Harvest && a.target_entity == Some(log_a))
+            .count();
+        let on_b = plan
+            .iter()
+            .filter(|a| a.action_type == ActionType::Harvest && a.target_entity == Some(log_b))
+            .count();
+        assert!(
+            on_a <= 3 && on_b <= 2 && on_a + on_b == 5,
+            "harvests must respect per-log stored quantity (got {on_a} on A, {on_b} on B)"
         );
     }
 }
