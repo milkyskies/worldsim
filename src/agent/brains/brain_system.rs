@@ -123,6 +123,7 @@ pub fn arbitrate_every_tick(
             emotions,
             mind,
             visible,
+            physical,
             drives,
             in_conversation,
             self_entity_type.map(|t| t.0),

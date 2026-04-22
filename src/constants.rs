@@ -277,6 +277,18 @@ pub mod brains {
         /// Multiplier applied to social drive to score the urgency of
         /// initiating a conversation.
         pub const SOCIAL_SEEK_URGENCY_MULTIPLIER: f32 = 40.0;
+
+        /// Warmth deficit above which the emotional brain proposes a Walk
+        /// toward a visible heat source. Set at the same point as
+        /// `SOCIAL_SEEK_THRESHOLD` so "drift toward comfort" fires at
+        /// parallel thresholds across drives — cold enough to care, not
+        /// yet cold enough to be a survival emergency.
+        pub const WARMTH_SEEK_THRESHOLD: f32 = 0.35;
+        /// Multiplier applied to warmth deficit to score the urgency of
+        /// walking toward a heat source. Matches the social-seek
+        /// multiplier so the arbitrator weighs the two comfort-drifts
+        /// on the same scale.
+        pub const WARMTH_SEEK_URGENCY_MULTIPLIER: f32 = 40.0;
     }
 
     /// Rational brain planning urgency scores and thresholds
