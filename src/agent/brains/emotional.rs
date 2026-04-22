@@ -346,10 +346,8 @@ fn seek_flock_proximity(
 }
 
 /// Propose `Walk` toward a visible heat-emitting entity when warmth is
-/// deficient. Matches on the `HeatEmitting` trait rather than a specific
-/// concept so future heat sources (torches, hearths) need no parallel
-/// seeker. A remembered-emitter fallback will come in with the generic
-/// `seek_emitter` pass that absorbs this and `seek_flock_proximity`.
+/// deficient. Matches on the `HeatEmitting` trait so any future heat
+/// source (torch, hearth) works without a parallel seeker.
 fn seek_warmth_proximity(
     warmth_deficit: f32,
     visible: &VisibleObjects,
@@ -366,11 +364,8 @@ fn seek_warmth_proximity(
         return None;
     }
 
+    let target = find_visible_with_trait(visible, mind, Concept::HeatEmitting)?;
     let action = action_registry.get(ActionType::Walk)?;
-    let &target = visible
-        .entities
-        .iter()
-        .find(|&&e| mind.has_trait(&Node::Entity(e), Concept::HeatEmitting))?;
 
     Some(BrainProposal {
         brain: BrainType::Emotional,
@@ -444,19 +439,26 @@ fn seek_social_initiation(
     None
 }
 
-/// Returns the first visible entity that the mind knows is `Dangerous`.
-///
-/// Perception writes `(entity, IsA, Concept::Wolf)` triples; `has_trait` walks
-/// the IsA chain to find `(Wolf, HasTrait, Dangerous)` in the agent's knowledge.
-pub(crate) fn find_most_feared_visible_entity(
+/// Returns the first visible entity whose mind-known type chain carries
+/// the given trait. Shared between warmth drift (`HeatEmitting`), fear
+/// targeting (`Dangerous`), and future trait-based perceptual scans.
+fn find_visible_with_trait(
     visible: &VisibleObjects,
     mind: &MindGraph,
+    trait_: Concept,
 ) -> Option<Entity> {
     visible
         .entities
         .iter()
-        .find(|&&e| mind.has_trait(&Node::Entity(e), Concept::Dangerous))
+        .find(|&&e| mind.has_trait(&Node::Entity(e), trait_))
         .copied()
+}
+
+pub(crate) fn find_most_feared_visible_entity(
+    visible: &VisibleObjects,
+    mind: &MindGraph,
+) -> Option<Entity> {
+    find_visible_with_trait(visible, mind, Concept::Dangerous)
 }
 
 /// Returns (fear, joy, anger) intensities from direct and inherited associations.
