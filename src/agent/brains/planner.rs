@@ -1367,38 +1367,24 @@ fn precondition_blocked_by_consumed(
     if consumed_by_concept.is_empty() {
         return false;
     }
-    let stored_qty = |concept: Concept| -> u32 {
-        mind.query(Some(subject), Some(predicate), None)
-            .iter()
-            .filter_map(|t| match &t.object {
-                Value::Item(c, q) if *c == concept => Some(*q),
-                _ => None,
-            })
-            .max()
-            .unwrap_or(0)
-    };
+    // Item quantities live on `Contains` triples; every live call site
+    // uses Predicate::Contains, so count_of is safe to reach for.
+    debug_assert_eq!(predicate, Predicate::Contains);
     match &pre.object {
         Some(Value::Item(concept, needed)) => {
             let consumed = consumed_by_concept.get(concept).copied().unwrap_or(0);
-            stored_qty(*concept) < consumed + *needed
+            mind.count_of(subject, *concept) < consumed + *needed
         }
-        None => {
-            // Wildcard precondition: satisfied as long as SOME concept
-            // has stored > consumed.
-            consumed_by_concept
-                .iter()
-                .all(|(c, consumed)| stored_qty(*c) <= *consumed)
-                && !mind
-                    .query(Some(subject), Some(predicate), None)
-                    .iter()
-                    .any(|t| match &t.object {
-                        Value::Item(c, stored) => {
-                            let consumed = consumed_by_concept.get(c).copied().unwrap_or(0);
-                            *stored > consumed
-                        }
-                        _ => false,
-                    })
-        }
+        None => !mind
+            .query(Some(subject), Some(predicate), None)
+            .iter()
+            .any(|t| match &t.object {
+                Value::Item(c, stored) => {
+                    let consumed = consumed_by_concept.get(c).copied().unwrap_or(0);
+                    *stored > consumed
+                }
+                _ => false,
+            }),
         _ => current_consumed.iter().any(|c| patterns_overlap(c, pre)),
     }
 }
@@ -3100,9 +3086,7 @@ mod tests {
 
     /// One log holds Item(Wood, 3). The planner must chain three Harvests
     /// against that single entity rather than demanding three distinct
-    /// logs. Before this fix, `Harvest.consumes = entity_contains(entity)`
-    /// was a wildcard pattern that overlapped with itself during the
-    /// backward search, blocking a second Harvest on the same entity.
+    /// logs.
     #[test]
     fn planner_chains_three_harvests_against_single_log() {
         let mut mind = test_mind();
