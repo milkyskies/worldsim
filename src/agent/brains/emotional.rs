@@ -13,7 +13,7 @@
 
 use super::proposal::{BrainProposal, BrainType, Intent};
 use crate::agent::actions::ActionType;
-use crate::agent::body::needs::PsychologicalDrives;
+use crate::agent::body::needs::{PhysicalNeeds, PsychologicalDrives};
 use crate::agent::mind::conversation::InConversation;
 use crate::agent::mind::knowledge::{Concept, MindGraph, Node, Predicate, Value};
 use crate::agent::mind::perception::VisibleObjects;
@@ -22,7 +22,7 @@ use crate::constants::brains::emotional::{
     ANGER_ENTITY_THRESHOLD, ANGER_ENTITY_URGENCY_MULTIPLIER, FEAR_ENTITY_THRESHOLD,
     FEAR_ENTITY_URGENCY_MULTIPLIER, FEAR_GENERAL_THRESHOLD, FEAR_GENERAL_URGENCY_MULTIPLIER,
     JOY_ENTITY_THRESHOLD, JOY_ENTITY_URGENCY_MULTIPLIER, SOCIAL_SEEK_THRESHOLD,
-    SOCIAL_SEEK_URGENCY_MULTIPLIER,
+    SOCIAL_SEEK_URGENCY_MULTIPLIER, WARMTH_SEEK_THRESHOLD, WARMTH_SEEK_URGENCY_MULTIPLIER,
 };
 use bevy::prelude::*;
 
@@ -30,6 +30,7 @@ pub fn emotional_brain_propose(
     emotions: &EmotionalState,
     mind: &MindGraph,
     visible: &VisibleObjects,
+    physical: &PhysicalNeeds,
     drives: Option<&PsychologicalDrives>,
     in_conversation: Option<&InConversation>,
     self_concept: Option<Concept>,
@@ -80,6 +81,19 @@ pub fn emotional_brain_propose(
         && let Some(proposal) = seek_flock_proximity(
             d.companionship.deficit(),
             self_concept,
+            visible,
+            mind,
+            action_registry,
+            best_urgency,
+        )
+    {
+        best_urgency = proposal.urgency;
+        best = Some(proposal);
+    }
+
+    if in_conversation.is_none()
+        && let Some(proposal) = seek_warmth_proximity(
+            physical.warmth.deficit(),
             visible,
             mind,
             action_registry,
@@ -331,6 +345,44 @@ fn seek_flock_proximity(
     })
 }
 
+/// Propose `Walk` toward a visible heat-emitting entity when warmth is
+/// deficient. Matches on the `HeatEmitting` trait rather than a specific
+/// concept so future heat sources (torches, hearths) need no parallel
+/// seeker. A remembered-emitter fallback will come in with the generic
+/// `seek_emitter` pass that absorbs this and `seek_flock_proximity`.
+fn seek_warmth_proximity(
+    warmth_deficit: f32,
+    visible: &VisibleObjects,
+    mind: &MindGraph,
+    action_registry: &crate::agent::actions::ActionRegistry,
+    min_urgency: f32,
+) -> Option<BrainProposal> {
+    if warmth_deficit <= WARMTH_SEEK_THRESHOLD {
+        return None;
+    }
+
+    let urgency = warmth_deficit * WARMTH_SEEK_URGENCY_MULTIPLIER;
+    if urgency <= min_urgency {
+        return None;
+    }
+
+    let action = action_registry.get(ActionType::Walk)?;
+    let &target = visible
+        .entities
+        .iter()
+        .find(|&&e| mind.has_trait(&Node::Entity(e), Concept::HeatEmitting))?;
+
+    Some(BrainProposal {
+        brain: BrainType::Emotional,
+        action: action.to_template(Some(target)),
+        urgency,
+        intent: Intent::SatisfyWarmth,
+        reasoning: format!(
+            "Cold — walking toward {target:?} (warmth deficit: {warmth_deficit:.2})"
+        ),
+    })
+}
+
 fn is_conspecific(mind: &MindGraph, entity: Entity, self_concept: Concept) -> bool {
     !mind
         .query(
@@ -570,6 +622,7 @@ mod tests {
             &state,
             &mind,
             &visible,
+            &PhysicalNeeds::default(),
             None,
             None,
             None,
@@ -607,6 +660,7 @@ mod tests {
             &state,
             &mind,
             &visible,
+            &PhysicalNeeds::default(),
             None,
             None,
             None,
@@ -642,6 +696,7 @@ mod tests {
             &state,
             &mind,
             &visible,
+            &PhysicalNeeds::default(),
             None,
             None,
             None,
@@ -665,6 +720,7 @@ mod tests {
             &state,
             &mind,
             &visible,
+            &PhysicalNeeds::default(),
             None,
             None,
             None,
@@ -692,6 +748,7 @@ mod tests {
             &state,
             &mind,
             &visible,
+            &PhysicalNeeds::default(),
             None,
             None,
             None,
