@@ -7,6 +7,8 @@ pub mod corpse;
 pub mod deer;
 pub mod emits_effect;
 pub mod environment;
+pub mod field_grid;
+pub mod field_grid_plugin;
 pub mod human;
 pub mod liquid;
 pub mod map;
@@ -38,6 +40,7 @@ impl Plugin for WorldPlugin {
             .add_plugins(spatial_index::SpatialIndexPlugin)
             .add_plugins(spawner::SpawnerPlugin)
             .add_plugins(property::OntologyDerivationPlugin)
+            .add_plugins(field_grid_plugin::FieldGridPlugin)
             .add_plugins(liquid::LiquidPlugin)
             .add_plugins(severed_part::SeveredPartPlugin);
     }

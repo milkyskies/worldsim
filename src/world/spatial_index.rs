@@ -103,11 +103,18 @@ impl SpatialIndex {
 // Internal helpers
 // ───────────────────────────────────────────────────────────────────────────
 
+/// Convert a world position to a signed tile coordinate.
+pub fn world_pos_to_tile(pos: Vec2) -> IVec2 {
+    IVec2::new(
+        (pos.x / TILE_SIZE).floor() as i32,
+        (pos.y / TILE_SIZE).floor() as i32,
+    )
+}
+
 /// Convert a world position to a chunk coordinate using the same math as `WorldMap`.
 pub fn world_pos_to_chunk(pos: Vec2) -> IVec2 {
-    let tile_x = (pos.x / TILE_SIZE).floor() as i32;
-    let tile_y = (pos.y / TILE_SIZE).floor() as i32;
-    IVec2::new(tile_x / CHUNK_SIZE as i32, tile_y / CHUNK_SIZE as i32)
+    let tile = world_pos_to_tile(pos);
+    IVec2::new(tile.x / CHUNK_SIZE as i32, tile.y / CHUNK_SIZE as i32)
 }
 
 /// How many chunks outward we need to check to cover a circle of `radius` world units.

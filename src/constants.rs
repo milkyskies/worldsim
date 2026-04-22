@@ -3,6 +3,72 @@
 //! Organized by domain. Import the relevant submodule where needed:
 //! `use crate::constants::movement::BASE_SPEED_PER_TICK;`
 
+/// World ambient thermodynamics and heat-field tuning (Celsius).
+///
+/// Units are real Celsius so values stay readable (`22.0` means 22°C).
+/// The temperature grid stores deltas above ambient; `NIGHT_AMBIENT` and
+/// `DAY_AMBIENT` swing the baseline as light level moves between its
+/// night floor (0.3) and day ceiling (1.0).
+pub mod thermal {
+    /// Ambient temperature at full night (light level = 0.3). Picked for
+    /// "exposed agent in the open gets uncomfortable but isn't freezing
+    /// to death in minutes" — temperate-forest night, not tundra.
+    pub const NIGHT_AMBIENT_C: f32 = 5.0;
+    /// Ambient temperature at full day (light level = 1.0). Room-temp
+    /// comfort; unexposed agents don't need a fire.
+    pub const DAY_AMBIENT_C: f32 = 22.0;
+
+    /// Light-level floor (from `compute_light_level`) below which ambient
+    /// stays pinned at `NIGHT_AMBIENT_C`. Matches the 0.3 floor used in
+    /// `environment::compute_light_level`.
+    pub const LIGHT_AT_NIGHT: f32 = 0.3;
+
+    /// Start of the comfort band: above this cell temperature, a stationary
+    /// agent recovers warmth passively.
+    pub const COMFORT_MIN_C: f32 = 18.0;
+    /// End of the comfort band: above this, an agent is thermoneutral
+    /// (no warmth drain, no recovery beyond baseline). Overheat gameplay
+    /// — drain above this — is a future concern.
+    pub const COMFORT_MAX_C: f32 = 30.0;
+
+    /// Heat injected per rate-second at an emitter's own tile for a
+    /// full-intensity (intensity = 1.0) emitter. Scales linearly with
+    /// `HeatSource::intensity` and falls off linearly to zero at the
+    /// emitter's `radius`. Paired with `AMBIENT_RELAXATION_PER_SEC` so
+    /// steady-state at source equals `RATE / RELAX` ≈ 40°C above
+    /// ambient — enough to put the source tile comfortably into the
+    /// full-recovery band.
+    pub const INJECTION_RATE_AT_SOURCE_C_PER_SEC: f32 = 14.0;
+
+    /// Fraction of a cell's delta lost per rate-second to ambient. 0.35
+    /// = 35%/sec, half-life ≈ 2 game-seconds. Fast enough that cells
+    /// reach steady state inside the wall-clock timescale of
+    /// "agent sits down next to a fire," slow enough that residual
+    /// heat from an extinguished emitter is still visible for a
+    /// several-second window.
+    pub const AMBIENT_RELAXATION_PER_SEC: f32 = 0.35;
+
+    /// How often (in ticks) the spatial-diffusion pass runs. Injection and
+    /// relaxation run every tick; full neighbor-averaging is the expensive
+    /// step and can run less often. 30 ticks = 0.5 game-seconds at 60Hz.
+    pub const DIFFUSION_PERIOD_TICKS: u64 = 30;
+
+    /// How much of a cell's delta mixes with its neighbors per diffusion
+    /// pass. 0.25 means each pass pulls the cell 25% of the way toward
+    /// the 4-neighbor average. Tuning trades sharpness (lower) vs. spread
+    /// speed (higher).
+    pub const DIFFUSION_BLEND: f32 = 0.25;
+
+    /// Cell-delta magnitude below which a chunk may be pruned as
+    /// equilibrated. Picked so sub-threshold numerical noise doesn't keep
+    /// chunks pinned in memory.
+    pub const EQUILIBRIUM_EPSILON_C: f32 = 0.05;
+
+    /// How often (in ticks) equilibrated-chunk pruning runs. Infrequent
+    /// because each pass is O(active cells). Game-minute-ish is fine.
+    pub const PRUNE_PERIOD_TICKS: u64 = 3600;
+}
+
 /// World spawning configuration
 pub mod world {
     pub const HUMAN_SPAWN_COUNT: usize = 6;
@@ -209,10 +275,6 @@ pub mod brains {
         /// radius. Passive: applies regardless of action. Target ~60
         /// game-seconds cold-to-warm.
         pub const HEAT_RECOVERY_PER_SEC: f32 = 0.017;
-        /// Satisfaction gain per rate-second when inside a ShelterProvider
-        /// (but no heat source). Smaller than HEAT_RECOVERY — shelter
-        /// insulates but doesn't actively warm.
-        pub const SHELTER_RECOVERY_PER_SEC: f32 = 0.0012;
         /// Warmth above this value produces near-zero urgency.
         pub const COMFORT_THRESHOLD: f32 = 0.6;
         /// Warmth at or below this value produces urgency rivalling Hunger.
