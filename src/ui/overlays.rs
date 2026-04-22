@@ -157,8 +157,11 @@ fn heat_color(delta_c: f32) -> Color {
 }
 
 /// RimWorld-style hover probe: when the Temperature overlay is on,
-/// show the sampled tile's °C in a tooltip at the cursor. Disabled
-/// when the pointer is over any egui panel.
+/// render a small floating popup near the cursor with the sampled
+/// tile's °C. Uses `egui::Area` rather than `show_tooltip_at_pointer`
+/// because the latter requires an associated widget's LayerId — for a
+/// free-floating probe over the game viewport, an Area at a fixed
+/// cursor-relative offset is the right tool.
 fn temperature_hover_tooltip(
     overlay_state: Res<OverlayState>,
     fields: Res<FieldGrids>,
@@ -192,17 +195,19 @@ fn temperature_hover_tooltip(
     let temp = fields.temperature().sample_tile(tile);
     let delta = fields.temperature().delta_at_tile(tile);
 
-    egui::show_tooltip_at_pointer(
-        ctx,
-        egui::LayerId::background(),
-        "temp_probe".into(),
-        |ui| {
-            ui.label(format!("tile ({}, {})", tile.x, tile.y));
-            ui.label(format!("{:.1} °C", temp));
-            if delta.abs() >= 0.1 {
-                let sign = if delta >= 0.0 { "+" } else { "" };
-                ui.label(format!("{sign}{:.1} from ambient", delta));
-            }
-        },
-    );
+    let cursor_egui_pos = egui::pos2(cursor_position.x, cursor_position.y);
+    egui::Area::new("temp_probe".into())
+        .order(egui::Order::Tooltip)
+        .fixed_pos(cursor_egui_pos + egui::vec2(14.0, 14.0))
+        .interactable(false)
+        .show(ctx, |ui| {
+            egui::Frame::popup(&ctx.style()).show(ui, |ui| {
+                ui.label(format!("tile ({}, {})", tile.x, tile.y));
+                ui.strong(format!("{:.1} °C", temp));
+                if delta.abs() >= 0.1 {
+                    let sign = if delta >= 0.0 { "+" } else { "" };
+                    ui.label(format!("{sign}{:.1}°C vs ambient", delta));
+                }
+            });
+        });
 }
