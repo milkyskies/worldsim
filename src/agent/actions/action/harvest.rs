@@ -68,17 +68,28 @@ pub static HARVEST_DEF: ActionDefinition = ActionDefinition {
     recipe: None,
 };
 
+/// Concepts the agent believes `entity` currently holds in positive
+/// quantity. Shared by Harvest's precondition and consume hooks so a
+/// single `Contains` query drives both.
+fn entity_positive_contains(
+    entity: bevy::prelude::Entity,
+    mind: &MindGraph,
+) -> Vec<(Concept, u32)> {
+    mind.query(Some(&Node::Entity(entity)), Some(Predicate::Contains), None)
+        .iter()
+        .filter_map(|t| match &t.object {
+            Value::Item(concept, qty) if *qty > 0 => Some((*concept, *qty)),
+            _ => None,
+        })
+        .collect()
+}
+
 fn harvest_target_preconditions(target: &TargetCandidate, mind: &MindGraph) -> Vec<TriplePattern> {
     let Some(entity) = target.as_entity() else {
         return vec![];
     };
 
-    // Fresh Contains belief: require it so the planner tracks consumption
-    // correctly across chained harvests.
-    let has_contains = mind
-        .query(Some(&Node::Entity(entity)), Some(Predicate::Contains), None)
-        .iter()
-        .any(|t| matches!(t.object, Value::Item(_, qty) if qty > 0));
+    let has_contains = !entity_positive_contains(entity, mind).is_empty();
     if has_contains {
         return vec![TriplePattern::entity_contains(entity)];
     }
@@ -114,15 +125,19 @@ fn harvest_target_consumes(target: &TargetCandidate, mind: &MindGraph) -> Vec<Tr
     let Some(entity) = target.as_entity() else {
         return vec![];
     };
-    let has_contains = mind
-        .query(Some(&Node::Entity(entity)), Some(Predicate::Contains), None)
-        .iter()
-        .any(|t| matches!(t.object, Value::Item(_, qty) if qty > 0));
-    if has_contains {
-        vec![TriplePattern::entity_contains(entity)]
-    } else {
-        vec![]
-    }
+    // One unit per Harvest call, keyed by concept so the planner's
+    // quantity-aware consume tracking can chain multiple Harvests on the
+    // same target.
+    entity_positive_contains(entity, mind)
+        .into_iter()
+        .map(|(concept, _)| {
+            TriplePattern::new(
+                Some(Node::Entity(entity)),
+                Some(Predicate::Contains),
+                Some(Value::Item(concept, 1)),
+            )
+        })
+        .collect()
 }
 
 fn harvest_on_complete(ctx: &mut CompletionContext) {
