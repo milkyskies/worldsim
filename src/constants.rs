@@ -355,6 +355,11 @@ pub mod brains {
         /// multiplier so the arbitrator weighs the two comfort-drifts
         /// on the same scale.
         pub const WARMTH_SEEK_URGENCY_MULTIPLIER: f32 = 40.0;
+
+        /// Sleepiness deficit above which Sleep fires in place and skips
+        /// the `location_preference` prep pass. Exhausted agents sleep
+        /// wherever — life beats quality.
+        pub const EMERGENCY_SLEEPINESS: f32 = 0.9;
     }
 
     /// Rational brain planning urgency scores and thresholds

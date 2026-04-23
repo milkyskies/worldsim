@@ -134,7 +134,7 @@ pub fn arbitrate_every_tick(
             })
             .collect();
 
-        let emotional_proposal = emotional_brain_propose(&super::emotional::EmotionalInputs {
+        let emotional_inputs = super::emotional::EmotionalInputs {
             emotions,
             mind,
             visible,
@@ -147,7 +147,8 @@ pub fn arbitrate_every_tick(
             fields: &fields,
             cns,
             action_registry: &action_registry,
-        });
+        };
+        let emotional_proposal = emotional_brain_propose(&emotional_inputs);
 
         // Rational brain now surfaces one proposal per Executing plan in
         // `PlanMemory`, so the output is variable-length and joins the
@@ -178,8 +179,19 @@ pub fn arbitrate_every_tick(
         );
 
         let result = arbitrate_parallel(&proposals, &powers, &capacities, &action_registry);
-        let admitted = result.admitted;
         let rejected = result.rejected;
+
+        // Action-prep pass: for each admitted proposal whose action has
+        // a `location_preference` hook, sample the local tile
+        // neighborhood — if a meaningfully-better tile exists, swap the
+        // proposal for a Walk toward it so the action fires in a good
+        // spot next cycle.
+        let pref_ctx = emotional_inputs.preference_context();
+        let admitted: Vec<super::proposal::BrainProposal> = result
+            .admitted
+            .into_iter()
+            .map(|p| super::drift::apply_location_preference(p, &pref_ctx, &action_registry))
+            .collect();
 
         // 3a. Channel-conflict losers from the rational brain demote
         // their backing Executing plan to Suspended (#338). The plan
