@@ -1,5 +1,7 @@
 use crate::agent::mind::perception::{VisibleObjects, Vision};
 use crate::agent::{Agent, TargetPosition};
+use crate::ui::UiState;
+use crate::ui::camera::cursor_to_world;
 use crate::world::field_grid::FIELD_CHUNK_SIZE;
 use crate::world::field_grid_plugin::FieldGrids;
 use crate::world::map::TILE_SIZE;
@@ -155,6 +157,7 @@ fn temperature_hover_tooltip(
     windows: Query<&Window, With<PrimaryWindow>>,
     cameras: Query<(&Camera, &GlobalTransform)>,
     mut egui_contexts: Query<&mut EguiContext, With<PrimaryEguiContext>>,
+    ui_state: Option<Res<UiState>>,
 ) {
     if !overlay_state.show_temperature {
         return;
@@ -168,14 +171,17 @@ fn temperature_hover_tooltip(
     let Ok(mut egui_context) = egui_contexts.single_mut() else {
         return;
     };
-    let ctx = egui_context.get_mut();
-    if ctx.is_pointer_over_area() {
-        return;
-    }
     let Some((camera, camera_transform)) = cameras.iter().next() else {
         return;
     };
-    let Ok(world_position) = camera.viewport_to_world_2d(camera_transform, cursor_position) else {
+    let ctx = egui_context.get_mut();
+    let Some(world_position) = cursor_to_world(
+        cursor_position,
+        camera,
+        camera_transform,
+        ui_state.as_deref(),
+        ctx,
+    ) else {
         return;
     };
     let tile = world_pos_to_tile(world_position);

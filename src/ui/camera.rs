@@ -12,7 +12,7 @@ use bevy_egui::{EguiContext, PrimaryEguiContext, egui};
 ///    the character sheet), the camera stays out of the way.
 /// 2. If the debug dock is enabled, only the inner game-view rect counts as
 ///    the game viewport. Without the dock, the whole window does.
-fn cursor_in_game_viewport(
+pub fn cursor_in_game_viewport(
     cursor: Vec2,
     ui_state: Option<&UiState>,
     ctx: &mut egui::Context,
@@ -28,6 +28,22 @@ fn cursor_in_game_viewport(
         return true;
     }
     viewport.contains(egui::pos2(cursor.x, cursor.y))
+}
+
+/// Gate by `cursor_in_game_viewport` and project to world coords. Returns
+/// `None` when the cursor is over egui chrome, outside the dock's game rect,
+/// or when the projection fails.
+pub fn cursor_to_world(
+    cursor: Vec2,
+    camera: &Camera,
+    camera_transform: &GlobalTransform,
+    ui_state: Option<&UiState>,
+    ctx: &mut egui::Context,
+) -> Option<Vec2> {
+    if !cursor_in_game_viewport(cursor, ui_state, ctx) {
+        return None;
+    }
+    camera.viewport_to_world_2d(camera_transform, cursor).ok()
 }
 
 pub struct CameraPlugin;
