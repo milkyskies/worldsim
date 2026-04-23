@@ -613,4 +613,12 @@ impl Action for GenericAction {
             LegResult::Complete
         }
     }
+
+    fn location_preference(
+        &self,
+    ) -> Option<
+        fn(&crate::agent::actions::definition::PreferenceContext, &[bevy::math::IVec2]) -> Vec<f32>,
+    > {
+        self.def.hooks.location_preference
+    }
 }

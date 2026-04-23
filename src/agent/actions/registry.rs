@@ -477,6 +477,18 @@ pub trait Action: Send + Sync + 'static {
         LegResult::Complete
     }
 
+    /// Optional per-action batch tile scorer. When `Some`, arbitration
+    /// samples the agent's local neighborhood and pre-empts the action
+    /// with a Walk toward the best-scoring tile if one beats the
+    /// current tile. Default `None` — fire in place.
+    fn location_preference(
+        &self,
+    ) -> Option<
+        fn(&crate::agent::actions::definition::PreferenceContext, &[bevy::math::IVec2]) -> Vec<f32>,
+    > {
+        None
+    }
+
     /// Body channels this action occupies, with intensity 0.0..=1.0 each.
     ///
     /// Returns a `'static` slice so the hot tick loop never allocates.

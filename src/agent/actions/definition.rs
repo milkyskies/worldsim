@@ -21,9 +21,13 @@ use super::registry::{
     TargetSource,
 };
 use crate::agent::body::need::NeedKind;
+use crate::agent::body::needs::{PhysicalNeeds, PsychologicalDrives};
 use crate::agent::brains::thinking::TriplePattern;
 use crate::agent::events::FailureReason;
 use crate::agent::mind::knowledge::{Concept, MindGraph, Predicate, Triple};
+use crate::world::field_grid_plugin::FieldGrids;
+use bevy::math::{IVec2, Vec2};
+use bevy::prelude::Entity;
 
 // ============================================================================
 // TRIPLE PATTERN TEMPLATES
@@ -273,6 +277,20 @@ pub struct Hooks {
     /// don't cover the projection rule. Takes precedence over
     /// `target_effects` when present.
     pub plan_effects_for_target: Option<fn(&TargetCandidate, &MindGraph) -> Vec<Triple>>,
+    /// Batch-score a list of candidate tiles by how well they match this
+    /// action's preferred execution location. Arbitration samples the
+    /// agent's local neighborhood with this scorer; if a meaningfully-
+    /// better tile than the agent's current one exists, the proposal is
+    /// replaced with a Walk toward it. Unset = fire in place regardless.
+    ///
+    /// Batch-over-tiles signature (not per-tile) so the scorer can
+    /// filter perceived entities once, then score 82 tiles against the
+    /// filtered set — instead of re-filtering per tile.
+    ///
+    /// Emergency semantics (e.g. "exhausted agents sleep wherever") are
+    /// expressed by returning uniformly-zero scores; the prep pass's
+    /// hysteresis then blocks any swap.
+    pub location_preference: Option<fn(&PreferenceContext, &[IVec2]) -> Vec<f32>>,
 }
 
 impl Hooks {
@@ -283,7 +301,24 @@ impl Hooks {
         target_preconditions: None,
         target_consumes: None,
         plan_effects_for_target: None,
+        location_preference: None,
     };
+}
+
+/// Inputs a location-preference scorer reads from. Built once per agent
+/// per arbitration tick and passed to each admitted action's preference
+/// scorer. Identical in shape to the drift scorer's context — both
+/// mechanisms read the same per-agent world snapshot.
+pub struct PreferenceContext<'a> {
+    pub agent_pos: Vec2,
+    pub self_concept: Option<Concept>,
+    pub physical: &'a PhysicalNeeds,
+    pub drives: Option<&'a PsychologicalDrives>,
+    pub mind: &'a MindGraph,
+    /// Pre-resolved (entity, world position) pairs for visible entities
+    /// so scorers don't hit the ECS per tile.
+    pub visible: &'a [(Entity, Vec2)],
+    pub fields: &'a FieldGrids,
 }
 
 // ============================================================================

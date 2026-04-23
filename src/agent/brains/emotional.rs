@@ -43,6 +43,23 @@ pub struct EmotionalInputs<'a> {
     pub action_registry: &'a crate::agent::actions::ActionRegistry,
 }
 
+impl<'a> EmotionalInputs<'a> {
+    /// Borrow the subset needed by tile-based scorers (drift, action-prep).
+    /// Seven fields shared with `PreferenceContext`; avoids reconstructing
+    /// them at every call site.
+    pub fn preference_context(&self) -> crate::agent::actions::definition::PreferenceContext<'a> {
+        crate::agent::actions::definition::PreferenceContext {
+            agent_pos: self.agent_pos,
+            self_concept: self.self_concept,
+            physical: self.physical,
+            drives: self.drives,
+            mind: self.mind,
+            visible: self.visible_positions,
+            fields: self.fields,
+        }
+    }
+}
+
 pub fn emotional_brain_propose(inputs: &EmotionalInputs) -> Option<BrainProposal> {
     let mut best: Option<BrainProposal> = None;
     let mut best_urgency = 0.0f32;
