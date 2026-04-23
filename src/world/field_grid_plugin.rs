@@ -142,7 +142,7 @@ fn relax_fields_toward_ambient(tick: Res<TickCount>, mut grids: ResMut<FieldGrid
 /// edge of an active chunk can flow into previously-inactive neighbors
 /// instead of evaporating at the boundary.
 fn diffuse_temperature(tick: Res<TickCount>, mut grids: ResMut<FieldGrids>) {
-    if tick.current % DIFFUSION_PERIOD_TICKS != 0 {
+    if !tick.current.is_multiple_of(DIFFUSION_PERIOD_TICKS) {
         return;
     }
     let grid = grids.temperature_mut();
@@ -185,7 +185,7 @@ fn diffuse_temperature(tick: Res<TickCount>, mut grids: ResMut<FieldGrids>) {
 }
 
 fn prune_equilibrated_chunks(tick: Res<TickCount>, mut grids: ResMut<FieldGrids>) {
-    if tick.current % PRUNE_PERIOD_TICKS != 0 {
+    if !tick.current.is_multiple_of(PRUNE_PERIOD_TICKS) {
         return;
     }
     grids
