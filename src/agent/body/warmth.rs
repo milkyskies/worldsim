@@ -1,11 +1,4 @@
-//! Warmth tick: thermal comfort drains with exposure and recovers near heat.
-//!
-//! Reads: Transform, HeatSource (world), ShelterProvider (world), TickCount,
-//!        SpatialIndex
-//! Writes: PhysicalNeeds.warmth, SimEvent::WarmthChanged
-//! Upstream: world::property (HeatSource, ShelterProvider), core::tick
-//! Downstream: nervous_system::urgency (UrgencySource::Warmth reads the value),
-//!             invariants (`warmth ∈ [0.0, 1.0]`)
+//! Warmth tick: thermal comfort driven by the tile temperature grid.
 
 use bevy::prelude::*;
 
@@ -15,28 +8,25 @@ use crate::agent::body::species::{Species, SpeciesProfile};
 use crate::agent::events::{SimEvent, SimEventKind};
 use crate::constants::brains::warmth::{
     BASELINE_DRAIN_PER_SEC, COMFORT_THRESHOLD, CRITICAL_THRESHOLD, EXPOSURE_DRAIN_PER_SEC,
-    HEAT_RECOVERY_PER_SEC, SHELTER_RECOVERY_PER_SEC, URGENT_THRESHOLD,
+    HEAT_RECOVERY_PER_SEC, URGENT_THRESHOLD,
 };
+use crate::constants::thermal::COMFORT_MIN_C;
 use crate::core::tick::TickCount;
-use crate::world::property::{HeatSource, ShelterProvider};
-use crate::world::spatial_index::SpatialIndex;
+use crate::world::field_grid_plugin::FieldGrids;
+use crate::world::spatial_index::world_pos_to_tile;
 
-/// Maximum scan radius for warmth sources — both heat and shelter. Set
-/// generously so the spatial-index narrow-phase isn't the gate; exact
-/// protection is decided per-source by its declared `radius` / `protection`
-/// field (for heat) or overlap check (for shelter).
-const WARMTH_SCAN_RADIUS: f32 = 128.0;
+const FREEZING_C: f32 = 0.0;
+const COLD_THRESHOLD_C: f32 = 10.0;
+const FULL_RECOVERY_C: f32 = 40.0;
 
-/// Ticks warmth for every agent every tick. Passive recovery when within
-/// a lit `HeatSource` radius or inside a `ShelterProvider`; baseline drain
-/// always applies; exposure drain adds on when neither protection is
-/// present. Emits `SimEvent::WarmthChanged` when the value crosses a
-/// named threshold so tooling can see the drive pipeline fire.
+/// Ticks warmth for every human agent every tick. Reads the temperature
+/// at the agent's tile from the Temperature field grid; maps that to a
+/// per-tick warmth delta (drain when cold, recovery when warm). Emits
+/// `SimEvent::WarmthChanged` when the value crosses a named threshold
+/// so tooling can see the drive pipeline fire.
 pub fn tick_warmth(
     tick: Res<TickCount>,
-    spatial_index: Res<SpatialIndex>,
-    heat_sources: Query<(&Transform, &HeatSource)>,
-    shelters: Query<(&Transform, &ShelterProvider)>,
+    fields: Res<FieldGrids>,
     mut agents: Query<
         (
             Entity,
@@ -50,57 +40,20 @@ pub fn tick_warmth(
 ) {
     let dt = tick.dt();
     let current_tick = tick.current;
+    let grid = fields.temperature();
 
     for (agent_entity, agent_transform, mut physical, species) in agents.iter_mut() {
-        // Only humans have thermal-comfort needs for now; animal warmth is
-        // out of scope and would otherwise pull wolves / deer toward
-        // campfires every night.
+        // Only humans have thermal-comfort needs for now; animal warmth
+        // would need its own tuning (smaller comfort band, fur, etc.).
         if !matches!(species.map(|s| s.species), Some(Species::Human)) {
             continue;
         }
-        let agent_pos = agent_transform.translation.truncate();
+        let tile = world_pos_to_tile(agent_transform.translation.truncate());
+        let cell_temp = grid.sample_tile(tile);
+        let rate_per_sec = cell_temp_to_warmth_rate(cell_temp);
+
         let old = physical.warmth.value;
-
-        // Scan once for protection factors.
-        let mut heat_recovery_rate = 0.0f32;
-        let mut in_shelter = false;
-
-        for candidate in spatial_index.entities_near(agent_pos, WARMTH_SCAN_RADIUS) {
-            if let Ok((source_transform, heat)) = heat_sources.get(candidate) {
-                let source_pos = source_transform.translation.truncate();
-                let distance = agent_pos.distance(source_pos);
-                if distance > heat.radius {
-                    continue;
-                }
-                // Intensity-weighted recovery, tapered with distance. A cold
-                // agent standing right on top of a roaring fire recovers fastest.
-                let proximity = 1.0 - (distance / heat.radius).clamp(0.0, 1.0);
-                let rate = HEAT_RECOVERY_PER_SEC * heat.intensity * proximity;
-                if rate > heat_recovery_rate {
-                    heat_recovery_rate = rate;
-                }
-            }
-            if let Ok((shelter_transform, shelter)) = shelters.get(candidate) {
-                let shelter_pos = shelter_transform.translation.truncate();
-                // Shelter protects anyone within its protection-scaled range.
-                if agent_pos.distance(shelter_pos) <= shelter.protection {
-                    in_shelter = true;
-                }
-            }
-        }
-
-        // Net delta for this tick.
-        let mut delta = -BASELINE_DRAIN_PER_SEC * dt;
-        if heat_recovery_rate > 0.0 {
-            delta += heat_recovery_rate * dt;
-        } else if in_shelter {
-            delta += SHELTER_RECOVERY_PER_SEC * dt;
-        } else {
-            // Exposed: no heat, no shelter. Extra drain on top of baseline.
-            delta -= EXPOSURE_DRAIN_PER_SEC * dt;
-        }
-
-        physical.warmth.apply_delta(delta);
+        physical.warmth.apply_delta(rate_per_sec * dt);
         let new = physical.warmth.value;
 
         if crossed_named_threshold(old, new) {
@@ -117,10 +70,32 @@ pub fn tick_warmth(
     }
 }
 
-/// Returns `true` when `old` and `new` fall on opposite sides of any of the
-/// three named thresholds (comfort / urgent / critical). Keeps the SimEvent
-/// stream sparse — agents that slowly cool produce one event per band-crossing
-/// rather than one per tick.
+/// Translate a tile's Celsius temperature into a warmth delta per rate-
+/// second. Always includes the baseline drain; adds recovery above the
+/// comfort floor and exposure drain below the cold threshold.
+fn cell_temp_to_warmth_rate(temp_c: f32) -> f32 {
+    let recovery = if temp_c >= FULL_RECOVERY_C {
+        HEAT_RECOVERY_PER_SEC
+    } else if temp_c >= COMFORT_MIN_C {
+        let t = (temp_c - COMFORT_MIN_C) / (FULL_RECOVERY_C - COMFORT_MIN_C);
+        HEAT_RECOVERY_PER_SEC * t
+    } else {
+        0.0
+    };
+
+    let exposure = if temp_c < COLD_THRESHOLD_C {
+        let t = ((COLD_THRESHOLD_C - temp_c) / (COLD_THRESHOLD_C - FREEZING_C)).clamp(0.0, 1.0);
+        -EXPOSURE_DRAIN_PER_SEC * t
+    } else {
+        0.0
+    };
+
+    -BASELINE_DRAIN_PER_SEC + recovery + exposure
+}
+
+/// Returns `true` when `old` and `new` fall on opposite sides of any of
+/// the three named warmth thresholds (comfort / urgent / critical).
+/// Keeps the SimEvent stream sparse.
 fn crossed_named_threshold(old: f32, new: f32) -> bool {
     const THRESHOLDS: &[f32] = &[COMFORT_THRESHOLD, URGENT_THRESHOLD, CRITICAL_THRESHOLD];
     THRESHOLDS
@@ -153,5 +128,47 @@ mod tests {
         assert!(!crossed_named_threshold(0.8, 0.75));
         assert!(!crossed_named_threshold(0.5, 0.45));
         assert!(!crossed_named_threshold(0.2, 0.15));
+    }
+
+    /// At freezing, exposure drain is at its floor (full value) and
+    /// recovery is zero — matches the legacy "no heat, no shelter" case.
+    #[test]
+    fn freezing_cell_drains_baseline_plus_full_exposure() {
+        let rate = cell_temp_to_warmth_rate(FREEZING_C);
+        assert!((rate - (-BASELINE_DRAIN_PER_SEC - EXPOSURE_DRAIN_PER_SEC)).abs() < 1e-6);
+    }
+
+    /// In the cool band (between cold threshold and comfort), only the
+    /// baseline drain applies — no exposure, no recovery.
+    #[test]
+    fn cool_band_drains_baseline_only() {
+        let rate = cell_temp_to_warmth_rate(15.0);
+        assert!((rate - (-BASELINE_DRAIN_PER_SEC)).abs() < 1e-6);
+    }
+
+    /// Above comfort, recovery ramps in linearly. At `FULL_RECOVERY_C`,
+    /// it offsets the baseline with the full heat-recovery rate.
+    #[test]
+    fn at_full_recovery_temp_net_rate_is_recovery_minus_baseline() {
+        let rate = cell_temp_to_warmth_rate(FULL_RECOVERY_C);
+        assert!((rate - (HEAT_RECOVERY_PER_SEC - BASELINE_DRAIN_PER_SEC)).abs() < 1e-6);
+    }
+
+    /// Midpoint of the ramp gives half recovery minus baseline.
+    #[test]
+    fn midway_recovery_is_half_heat_minus_baseline() {
+        let mid = (COMFORT_MIN_C + FULL_RECOVERY_C) / 2.0;
+        let rate = cell_temp_to_warmth_rate(mid);
+        let expected = 0.5 * HEAT_RECOVERY_PER_SEC - BASELINE_DRAIN_PER_SEC;
+        assert!((rate - expected).abs() < 1e-6);
+    }
+
+    /// Sanity: sub-zero temperature saturates at the same floor as
+    /// freezing.
+    #[test]
+    fn subzero_does_not_overflow_exposure() {
+        let rate_freezing = cell_temp_to_warmth_rate(FREEZING_C);
+        let rate_subzero = cell_temp_to_warmth_rate(FREEZING_C - 20.0);
+        assert!((rate_freezing - rate_subzero).abs() < 1e-6);
     }
 }

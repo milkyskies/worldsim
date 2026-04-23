@@ -737,6 +737,7 @@ impl TestWorld {
         app.add_systems(FixedUpdate, crate::world::apple_tree::regenerate_resources);
 
         app.add_plugins(crate::world::property::OntologyDerivationPlugin);
+        app.add_plugins(crate::world::field_grid_plugin::FieldGridPlugin);
 
         Self { app, seed }
     }

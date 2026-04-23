@@ -152,8 +152,7 @@ fn controls_panel_system(world: &mut World) {
             // Overlays
             ui.strong("Overlays");
             if let Some(mut overlay_state) = world.get_resource_mut::<OverlayState>() {
-                ui.checkbox(&mut overlay_state.show_vision, "Vision Range");
-                ui.checkbox(&mut overlay_state.show_intent, "Agent Intent");
+                overlays::overlay_checkboxes(ui, &mut overlay_state);
             }
         });
 }
@@ -324,36 +323,23 @@ fn handle_game_click(
     entities: Query<(Entity, &Transform, Option<&Sprite>, Option<&VisualOffset>)>,
 ) {
     if buttons.just_pressed(MouseButton::Left) {
-        // Let egui consume clicks over its panels (bottom bar, floating sheet)
-        if let Ok(mut egui_ctx) = egui_contexts.single_mut()
-            && egui_ctx.get_mut().is_pointer_over_area()
-        {
-            return;
-        }
-
         let Ok(window) = windows.single() else { return };
         let Some(cursor_position) = window.cursor_position() else {
             return;
         };
-
-        // When the debug dock is enabled, only clicks inside the dock's game
-        // viewport rect should pick entities. When disabled, the whole window
-        // is the game view.
-        let viewport = ui_state.viewport_rect;
-        if viewport.width() > 0.0 && viewport.height() > 0.0 {
-            let cursor_egui = egui::pos2(cursor_position.x, cursor_position.y);
-            if !viewport.contains(cursor_egui) {
-                return;
-            }
-        }
-
+        let Ok(mut egui_ctx) = egui_contexts.single_mut() else {
+            return;
+        };
         let Some((camera, camera_transform)) = cameras.iter().next() else {
             return;
         };
-
-        // Convert screen to world coords
-        let Ok(world_position) = camera.viewport_to_world_2d(camera_transform, cursor_position)
-        else {
+        let Some(world_position) = camera::cursor_to_world(
+            cursor_position,
+            camera,
+            camera_transform,
+            Some(&ui_state),
+            egui_ctx.get_mut(),
+        ) else {
             return;
         };
 
@@ -513,8 +499,7 @@ impl<'a> egui_dock::TabViewer for UiViewer<'a> {
             Tab::Settings => {
                 ui.heading("Overlays");
                 if let Some(mut overlay_state) = self.world.get_resource_mut::<OverlayState>() {
-                    ui.checkbox(&mut overlay_state.show_vision, "Show Vision Range");
-                    ui.checkbox(&mut overlay_state.show_intent, "Show Agent Intent");
+                    overlays::overlay_checkboxes(ui, &mut overlay_state);
                 } else {
                     ui.label("OverlayState not found.");
                 }
