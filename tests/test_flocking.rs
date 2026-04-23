@@ -94,9 +94,10 @@ fn visible_kin_decay_social_drive() {
     );
 }
 
-/// A lonely deer with a visible kin should propose a `Walk` action via the
-/// emotional brain. We cap the social drive high and assert at least one
-/// `ActionStarted { action: Walk }` event fires for the lonely deer.
+/// A lonely deer with a visible kin should drift closer to them over
+/// time. Post-#642 the tile-based scorer picks a tile near the kin;
+/// Walk's target is a position, not an entity, so we assert on
+/// end-distance, not on the target_entity field.
 #[test]
 fn lonely_deer_with_visible_kin_walks_toward_them() {
     let mut world = TestWorld::with_seed(42);
@@ -106,7 +107,8 @@ fn lonely_deer_with_visible_kin_walks_toward_them() {
     // (light ≈ 0.65), so effective range is ~52px — put them 20px apart
     // to stay safely in-range all day.
     let lonely = world.spawn_deer(Vec2::new(40.0, 40.0));
-    let friend = world.spawn_deer(Vec2::new(60.0, 40.0));
+    let friend_pos = Vec2::new(60.0, 40.0);
+    let friend = world.spawn_deer(friend_pos);
 
     // Introduce them at high affection so the flock-walk picks the
     // friend over any random deer that might wander in.
@@ -123,29 +125,49 @@ fn lonely_deer_with_visible_kin_walks_toward_them() {
     // mutation below isn't overwritten by the genome→drives pipeline.
     world.tick(1);
 
-    // Pin the lonely deer's social drive high so the urgency dominates
-    // for the duration of the test (otherwise the proximity decay we
-    // just enabled will erase it before the brain even runs).
-    {
-        let mut drives = world.get_mut::<PsychologicalDrives>(lonely);
-        drives.companionship.set(0.0);
+    let start_pos = world
+        .app()
+        .world()
+        .get::<bevy::prelude::Transform>(lonely)
+        .unwrap()
+        .translation
+        .truncate();
+
+    // Pin the lonely deer's social drive low (=deficit high) AND the
+    // friend's social drive high (=no deficit) each tick. Without
+    // pinning the friend, both deer drift toward each other and the
+    // test can't measure one-sided convergence.
+    for _ in 0..200 {
+        {
+            let mut drives = world.get_mut::<PsychologicalDrives>(lonely);
+            drives.companionship.set(0.0);
+        }
+        {
+            let mut drives = world.get_mut::<PsychologicalDrives>(friend);
+            drives.companionship.set(1.0);
+        }
+        // Pin the friend's transform too so even if something else
+        // moves them (wander, rational plan), the measurement baseline
+        // stays fixed.
+        world
+            .get_mut::<bevy::prelude::Transform>(friend)
+            .translation = bevy::prelude::Vec3::new(friend_pos.x, friend_pos.y, 0.0);
+        world.tick(1);
     }
 
-    // Tick enough for: perception (60), thinking interval, action
-    // admission. The thinking interval defaults to ~60 ticks, so 200 is
-    // ample for at least one decision cycle.
-    world.tick(200);
-
-    let started_walk_for_lonely = world.sim_events().all().iter().any(|ev| {
-        matches!(
-            ev,
-            SimEvent { kind: SimEventKind::ActionStarted { agent, action: ActionType::Walk, target: Some(_), .. }, .. } if *agent == lonely
-        )
-    });
+    let end_pos = world
+        .app()
+        .world()
+        .get::<bevy::prelude::Transform>(lonely)
+        .unwrap()
+        .translation
+        .truncate();
+    let start_dist = start_pos.distance(friend_pos);
+    let end_dist = end_pos.distance(friend_pos);
 
     assert!(
-        started_walk_for_lonely,
-        "lonely deer should start a Walk action toward a target (its kin)"
+        end_dist < start_dist - 5.0,
+        "lonely deer should drift toward visible kin; start_dist={start_dist:.1}, end_dist={end_dist:.1}"
     );
 }
 

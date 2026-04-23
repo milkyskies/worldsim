@@ -3,6 +3,7 @@ use bevy::prelude::*;
 pub mod arbitration;
 
 pub mod brain_system;
+pub mod drift;
 pub mod emotional;
 pub mod history;
 pub mod plan_memory;

@@ -78,6 +78,8 @@ pub fn arbitrate_every_tick(
     mut sim_events: MessageWriter<crate::agent::events::SimEvent>,
     mut brain_histories: Query<&mut BrainHistory>,
     mapping: Res<TagChannelMapping>,
+    fields: Res<crate::world::field_grid_plugin::FieldGrids>,
+    all_transforms: Query<&Transform>,
 ) {
     for (
         entity,
@@ -119,17 +121,33 @@ pub fn arbitrate_every_tick(
             &action_registry,
         );
 
-        let emotional_proposal = emotional_brain_propose(
+        // Pre-resolve visible-entity positions so the tile scorer doesn't
+        // hit the Query per tile.
+        let visible_positions: Vec<(Entity, Vec2)> = visible
+            .entities
+            .iter()
+            .filter_map(|&e| {
+                all_transforms
+                    .get(e)
+                    .ok()
+                    .map(|t| (e, t.translation.truncate()))
+            })
+            .collect();
+
+        let emotional_proposal = emotional_brain_propose(&super::emotional::EmotionalInputs {
             emotions,
             mind,
             visible,
+            visible_positions: &visible_positions,
             physical,
             drives,
             in_conversation,
-            self_entity_type.map(|t| t.0),
+            self_concept: self_entity_type.map(|t| t.0),
+            agent_pos: transform.translation.truncate(),
+            fields: &fields,
             cns,
-            &action_registry,
-        );
+            action_registry: &action_registry,
+        });
 
         // Rational brain now surfaces one proposal per Executing plan in
         // `PlanMemory`, so the output is variable-length and joins the

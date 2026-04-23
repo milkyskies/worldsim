@@ -111,6 +111,14 @@ pub fn world_pos_to_tile(pos: Vec2) -> IVec2 {
     )
 }
 
+/// The world-space center of a tile. Complement of `world_pos_to_tile`.
+pub fn tile_center_px(tile: IVec2) -> Vec2 {
+    Vec2::new(
+        (tile.x as f32 + 0.5) * TILE_SIZE,
+        (tile.y as f32 + 0.5) * TILE_SIZE,
+    )
+}
+
 /// Convert a world position to a chunk coordinate using the same math as `WorldMap`.
 pub fn world_pos_to_chunk(pos: Vec2) -> IVec2 {
     let tile = world_pos_to_tile(pos);
