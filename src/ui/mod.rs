@@ -152,9 +152,7 @@ fn controls_panel_system(world: &mut World) {
             // Overlays
             ui.strong("Overlays");
             if let Some(mut overlay_state) = world.get_resource_mut::<OverlayState>() {
-                ui.checkbox(&mut overlay_state.show_vision, "Vision Range");
-                ui.checkbox(&mut overlay_state.show_intent, "Agent Intent");
-                ui.checkbox(&mut overlay_state.show_temperature, "Temperature");
+                overlays::overlay_checkboxes(ui, &mut overlay_state);
             }
         });
 }
@@ -514,9 +512,7 @@ impl<'a> egui_dock::TabViewer for UiViewer<'a> {
             Tab::Settings => {
                 ui.heading("Overlays");
                 if let Some(mut overlay_state) = self.world.get_resource_mut::<OverlayState>() {
-                    ui.checkbox(&mut overlay_state.show_vision, "Show Vision Range");
-                    ui.checkbox(&mut overlay_state.show_intent, "Show Agent Intent");
-                    ui.checkbox(&mut overlay_state.show_temperature, "Show Temperature");
+                    overlays::overlay_checkboxes(ui, &mut overlay_state);
                 } else {
                     ui.label("OverlayState not found.");
                 }

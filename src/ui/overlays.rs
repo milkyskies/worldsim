@@ -15,9 +15,7 @@ impl Plugin for OverlayPlugin {
         app.init_resource::<OverlayState>()
             .register_type::<OverlayState>()
             .add_systems(Update, (draw_overlays, draw_temperature_overlay))
-            // Tooltip has to draw in the egui primary pass; running it
-            // in Update silently drops the call because no egui
-            // context is active there.
+            // Egui draws must run in EguiPrimaryContextPass; Update drops them silently.
             .add_systems(EguiPrimaryContextPass, temperature_hover_tooltip);
     }
 }
@@ -30,24 +28,23 @@ pub struct OverlayState {
     pub show_temperature: bool,
 }
 
-/// Marker for the per-cell sprites drawn by `draw_temperature_overlay`.
-/// Despawned and respawned each frame when the overlay is on — simple
-/// and cheap at the ~hundreds-of-cells scale the grid ever reaches.
+/// Render the overlay toggles. Shared by the left controls panel and the
+/// Settings dock tab so label text doesn't drift between them.
+pub fn overlay_checkboxes(ui: &mut egui::Ui, state: &mut OverlayState) {
+    ui.checkbox(&mut state.show_vision, "Vision Range");
+    ui.checkbox(&mut state.show_intent, "Agent Intent");
+    ui.checkbox(&mut state.show_temperature, "Temperature");
+}
+
 #[derive(Component)]
 struct TemperatureOverlayCell;
 
-/// Delta magnitude (°C) that saturates the overlay's color intensity.
 const OVERLAY_SATURATION_DELTA_C: f32 = 20.0;
-/// Max alpha for a saturated-delta cell. Kept translucent so the world
-/// underneath stays readable, but high enough to actually notice.
+/// Max alpha for a saturated-delta cell — translucent enough to see the world underneath.
 const OVERLAY_MAX_ALPHA: f32 = 0.75;
-/// Minimum alpha applied to any rendered cell so faint perturbations
-/// are still visible (otherwise sub-saturation cells would be all but
-/// invisible, making the overlay seem broken).
+/// Floor so faint perturbations are still visible.
 const OVERLAY_MIN_ALPHA: f32 = 0.25;
-/// Delta magnitude (°C) below which a cell is skipped entirely.
 const OVERLAY_SKIP_THRESHOLD_C: f32 = 0.1;
-/// Z depth for overlay sprites — above tiles and entities.
 const OVERLAY_Z: f32 = 50.0;
 
 fn draw_overlays(
@@ -133,18 +130,12 @@ fn draw_temperature_overlay(
                         ..default()
                     },
                     Transform::from_translation(Vec3::new(center.x, center.y, OVERLAY_Z)),
-                    Visibility::default(),
-                    InheritedVisibility::default(),
-                    ViewVisibility::default(),
                 ));
             }
         }
     }
 }
 
-/// Map a cell delta (°C above/below ambient) to an RGBA tint. Hot
-/// cells go red, cold cells blue, alpha scales with magnitude but
-/// stays above a visible floor so faint cells don't disappear.
 fn heat_color(delta_c: f32) -> Color {
     let intensity = (delta_c.abs() / OVERLAY_SATURATION_DELTA_C).clamp(0.0, 1.0);
     let alpha = OVERLAY_MIN_ALPHA + intensity * (OVERLAY_MAX_ALPHA - OVERLAY_MIN_ALPHA);
@@ -155,12 +146,9 @@ fn heat_color(delta_c: f32) -> Color {
     }
 }
 
-/// RimWorld-style hover probe: when the Temperature overlay is on,
-/// render a small floating popup near the cursor with the sampled
-/// tile's °C. Uses `egui::Area` rather than `show_tooltip_at_pointer`
-/// because the latter requires an associated widget's LayerId — for a
-/// free-floating probe over the game viewport, an Area at a fixed
-/// cursor-relative offset is the right tool.
+/// Uses `egui::Area` rather than `show_tooltip_at_pointer` because the latter
+/// needs an owning widget's LayerId; a free-floating probe over the game
+/// viewport has none.
 fn temperature_hover_tooltip(
     overlay_state: Res<OverlayState>,
     fields: Res<FieldGrids>,
