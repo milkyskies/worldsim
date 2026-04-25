@@ -21,7 +21,8 @@ use crate::agent::brains::proposal::BrainState;
 use crate::agent::events::SimEventKind;
 use crate::agent::events::{ActionOutcome, ActionOutcomeEvent, NeedSatisfaction};
 use crate::agent::item_slots::ItemSlots;
-use crate::agent::mind::knowledge::MindGraph;
+use crate::agent::mind::knowledge::{Concept, MindGraph, Node};
+use crate::agent::mind::perception::VisibleObjects;
 use crate::agent::movement::{
     ARRIVAL_THRESHOLD, MoveResult, calculate_speed, effective_intensity,
     intensity_speed_multiplier, move_toward,
@@ -45,6 +46,7 @@ use rand::Rng;
 /// other body-using action hard-conflicts with it. The preemption pass clears
 /// them out, satisfying the "Sleep clears all slots" acceptance criterion.
 pub fn start_actions(
+    mut commands: Commands,
     registry: Res<ActionRegistry>,
     tick: Res<TickCount>,
     world_map: Res<WorldMap>,
@@ -63,6 +65,8 @@ pub fn start_actions(
         Option<&PhysicalNeeds>,
         Option<&Consciousness>,
         Option<&PlanMemory>,
+        Option<&VisibleObjects>,
+        Option<&crate::agent::FleeMomentum>,
     )>,
     entity_transforms: Query<&GlobalTransform>,
     mut outcome_events: MessageWriter<ActionOutcomeEvent>,
@@ -82,6 +86,8 @@ pub fn start_actions(
         physical,
         consciousness,
         plan_memory,
+        visible,
+        flee_momentum,
     ) in agents.iter_mut()
     {
         // Snapshot capacities once per agent so the channel methods don't
@@ -294,14 +300,37 @@ pub fn start_actions(
                     )
                     .or(action_template.target_position),
                     ActionType::Flee => {
-                        if let Some(threat) = action_template.target_entity
-                            && let Ok(threat_t) = entity_transforms.get(threat)
-                        {
-                            let threat_pos = threat_t.translation().truncate();
-                            let away = (pos - threat_pos).normalize_or_zero();
-                            pick_flee_target(pos, away, &world_map, rng)
-                        } else {
-                            pick_random_walkable_target(pos, &world_map, 30.0..60.0, rng)
+                        let threats = collect_threat_positions(
+                            mind,
+                            visible,
+                            action_template.target_entity,
+                            &entity_transforms,
+                        );
+                        let safety = collect_safety_positions(mind, visible, &entity_transforms);
+                        let momentum = flee_momentum.map(|m| m.direction).unwrap_or(Vec2::ZERO);
+                        match pick_flee_target(pos, &threats, &safety, momentum, &world_map, rng) {
+                            FleeTarget::Found(p) => {
+                                // Refresh momentum so threat micro-wobble doesn't
+                                // pivot the flee vector next tick.
+                                let new_dir = (p - pos).normalize_or_zero();
+                                if new_dir != Vec2::ZERO {
+                                    commands.entity(entity).insert(crate::agent::FleeMomentum {
+                                        direction: new_dir,
+                                        last_tick: tick.current,
+                                    });
+                                }
+                                commands.entity(entity).remove::<crate::agent::Cornered>();
+                                Some(p)
+                            }
+                            FleeTarget::Cornered(fallback) => {
+                                commands.entity(entity).insert(crate::agent::Cornered);
+                                sim_events.write(crate::agent::events::SimEvent::single(
+                                    tick.current,
+                                    entity,
+                                    SimEventKind::Cornered { agent: entity },
+                                ));
+                                fallback
+                            }
                         }
                     }
                     ActionType::Walk => action_template.target_position.or_else(|| {
@@ -1343,66 +1372,216 @@ fn straight_line_is_clear(from: Vec2, to: Vec2, world_map: &WorldMap) -> bool {
     true
 }
 
-/// Pick a flee target along an away-vector cone, preferring directly-away
-/// at maximum distance and widening the angle and shortening the distance
-/// until a walkable tile *with a clear straight-line path* is found.
-/// Without this sampling the straight `pos + away * 50` from Flee would
-/// drive agents into water or off-map whenever the direct retreat path
-/// was blocked — every tick, repeatedly, because Flee is urgency-driven
-/// and regenerates on its own (#376).
+/// Outcome of a flee target search. `Cornered` is signaled when every
+/// candidate cone fails — the caller inserts the `Cornered` marker so
+/// threat appraisal can read it next tick. The randomized fallback is
+/// folded into `Cornered` rather than `Found` so a fleeing agent isn't
+/// silently labeled "fine" while desperately picking random tiles.
+#[derive(Debug)]
+pub enum FleeTarget {
+    /// A clean retreat tile reached by combining repulsion-from-threats
+    /// with attraction-to-safety.
+    Found(Vec2),
+    /// No candidate cleared the cone test. Carries a last-ditch random
+    /// walkable position (or `None` if even that failed) so the agent
+    /// still moves rather than freezing in place.
+    Cornered(Option<Vec2>),
+}
+
+/// Pick a flee tile that simultaneously moves *away* from every visible
+/// threat and *toward* known safety — campfires, packmates, herd. The
+/// agent prefers maximum-distance retreat directly along the combined
+/// repulsion vector, widening the angle and shortening the distance
+/// until a walkable tile with a clear straight-line path is found.
 ///
-/// Destination walkability alone is not enough: the walker moves in a
-/// straight line with no pathfinding, so a candidate whose destination is
-/// walkable but whose path crosses water will still fail as `PathBlocked`
-/// next tick. `straight_line_is_clear` samples the path at tile steps to
-/// reject those cases up front.
+/// Multi-threat aware: a flanked agent reads both flanks and flees
+/// perpendicular instead of into one. Safety-aware: a scared deer with
+/// a herd 20 tiles to the left will bias retreat toward the herd, not
+/// blindly opposite the wolf. Cornered-aware: when every candidate
+/// fails the cone test, returns `FleeTarget::Cornered` so threat
+/// appraisal can flip the agent from flee to fight.
 ///
-/// `away` is expected to be a unit vector pointing away from the threat.
-/// If the caller supplies a zero vector (agent standing on the threat,
-/// `normalize_or_zero` degenerate case) this function falls back to a
-/// random walkable target so the agent at least tries to move.
-fn pick_flee_target(
+/// `threats` and `safety` are world positions, not entities. Caller
+/// resolves the entity → position lookup once and passes the vecs.
+/// Empty `threats` is allowed — falls back to the last-known momentum
+/// direction or a random walkable tile.
+///
+/// `momentum` is the previous flee direction (unit vector). Used to
+/// damp tick-to-tick zigzag when threat positions wobble slightly.
+/// Pass `Vec2::ZERO` when there's no prior direction.
+pub fn pick_flee_target(
     pos: Vec2,
-    away: Vec2,
+    threats: &[Vec2],
+    safety: &[Vec2],
+    momentum: Vec2,
     world_map: &WorldMap,
     rng: &mut impl Rng,
-) -> Option<Vec2> {
-    if away == Vec2::ZERO {
-        return pick_random_walkable_target(pos, world_map, 30.0..60.0, rng);
-    }
+) -> FleeTarget {
+    // Sum inverse-distance repulsion vectors from every threat. Closer
+    // threats dominate; distant ones still nudge.
+    let repulsion = sum_repulsion(pos, threats);
+    // Attraction is a smaller-magnitude pull toward safety. Inverse
+    // distance again so close safety attractors dominate.
+    let attraction = sum_attraction(pos, safety);
 
-    // Distance candidates, longest first — a far flee is more useful than
-    // a short one, so we accept the first distance that works.
+    let combined_raw = repulsion + attraction;
+    let combined = if combined_raw.length_squared() > 1e-6 {
+        combined_raw.normalize()
+    } else {
+        Vec2::ZERO
+    };
+
+    // Momentum smoothing: blend last direction with new vector so a
+    // single-tick threat wobble doesn't pivot the agent. Weighted toward
+    // the new direction so genuine threat shifts still take effect.
+    let direction = if momentum.length_squared() > 1e-6 && combined != Vec2::ZERO {
+        let blended = combined * 0.7 + momentum.normalize() * 0.3;
+        if blended.length_squared() > 1e-6 {
+            blended.normalize()
+        } else {
+            combined
+        }
+    } else if combined != Vec2::ZERO {
+        combined
+    } else if momentum.length_squared() > 1e-6 {
+        momentum.normalize()
+    } else {
+        // Standing on the threat (or no info). Random walkable target
+        // and report not-cornered (agent will pick again next tick when
+        // they've moved enough to compute a real direction).
+        return match pick_random_walkable_target(pos, world_map, 30.0..60.0, rng) {
+            Some(p) => FleeTarget::Found(p),
+            None => FleeTarget::Cornered(None),
+        };
+    };
+
+    // Distance candidates, longest first — a far flee is more useful
+    // than a short one.
     const DIST_STEPS: [f32; 3] = [50.0, 35.0, 20.0];
     // Angular offsets from the pure-away direction. Zero first so the
     // agent flees directly back when possible; widen to ±30° and ±60°
-    // only when the direct line is blocked.
+    // when blocked.
     const ANGLE_OFFSETS_RAD: [f32; 5] = [
         0.0,
-        std::f32::consts::FRAC_PI_6,  //  +30°
-        -std::f32::consts::FRAC_PI_6, //  -30°
-        std::f32::consts::FRAC_PI_3,  //  +60°
-        -std::f32::consts::FRAC_PI_3, //  -60°
+        std::f32::consts::FRAC_PI_6,
+        -std::f32::consts::FRAC_PI_6,
+        std::f32::consts::FRAC_PI_3,
+        -std::f32::consts::FRAC_PI_3,
     ];
 
     for dist in DIST_STEPS {
         for offset in ANGLE_OFFSETS_RAD {
             let (sin, cos) = offset.sin_cos();
-            let rotated = Vec2::new(away.x * cos - away.y * sin, away.x * sin + away.y * cos);
+            let rotated = Vec2::new(
+                direction.x * cos - direction.y * sin,
+                direction.x * sin + direction.y * cos,
+            );
             let test_pos = pos + rotated * dist;
             if world_map.in_bounds(test_pos)
                 && world_map.is_walkable(test_pos)
                 && straight_line_is_clear(pos, test_pos, world_map)
             {
-                return Some(test_pos);
+                return FleeTarget::Found(test_pos);
             }
         }
     }
 
-    // Cornered against an obstacle in every direction we checked. Try a
-    // fully-random walkable tile as a last-resort so the agent doesn't
-    // thrash repeatedly against the same blocked cone.
-    pick_random_walkable_target(pos, world_map, 30.0..60.0, rng)
+    // Cornered against obstacles in every direction. Last-ditch random
+    // walkable so the agent at least tries to move; threat appraisal
+    // will read the Cornered signal next tick and flip to Fight.
+    FleeTarget::Cornered(pick_random_walkable_target(pos, world_map, 30.0..60.0, rng))
+}
+
+/// World positions of all entities the agent currently sees AND
+/// believes carry the `Dangerous` trait (entity-level or via `IsA`).
+/// Falls back to the action's `target_entity` (the brain's chosen
+/// flee-target) when visibility data is unavailable, so the function
+/// degrades gracefully on agents without `VisibleObjects`.
+pub fn collect_threat_positions(
+    mind: &MindGraph,
+    visible: Option<&VisibleObjects>,
+    fallback_target: Option<Entity>,
+    entity_transforms: &Query<&GlobalTransform>,
+) -> Vec<Vec2> {
+    let mut out: Vec<Vec2> = Vec::new();
+    if let Some(visible) = visible {
+        for &e in &visible.entities {
+            let node = Node::Entity(e);
+            if mind.has_trait(&node, Concept::Dangerous)
+                && let Ok(t) = entity_transforms.get(e)
+            {
+                out.push(t.translation().truncate());
+            }
+        }
+    }
+    if out.is_empty()
+        && let Some(target) = fallback_target
+        && let Ok(t) = entity_transforms.get(target)
+    {
+        out.push(t.translation().truncate());
+    }
+    out
+}
+
+/// World positions of visible entities the agent treats as safe — same
+/// detection pattern as `collect_threat_positions` but matching the
+/// Friend / HeatEmitting traits. Fleeing toward these biases retreat
+/// toward known-safe geography (campfires, packmates, herds).
+pub fn collect_safety_positions(
+    mind: &MindGraph,
+    visible: Option<&VisibleObjects>,
+    entity_transforms: &Query<&GlobalTransform>,
+) -> Vec<Vec2> {
+    let mut out: Vec<Vec2> = Vec::new();
+    let Some(visible) = visible else {
+        return out;
+    };
+    for &e in &visible.entities {
+        let node = Node::Entity(e);
+        let is_safe =
+            mind.has_trait(&node, Concept::Friend) || mind.has_trait(&node, Concept::HeatEmitting);
+        if is_safe && let Ok(t) = entity_transforms.get(e) {
+            out.push(t.translation().truncate());
+        }
+    }
+    out
+}
+
+/// Sum of inverse-distance unit vectors pointing away from each threat.
+/// Closer threats contribute more, so a wolf 5 tiles away dominates one
+/// 30 tiles away. Returns `Vec2::ZERO` when threats is empty.
+fn sum_repulsion(pos: Vec2, threats: &[Vec2]) -> Vec2 {
+    let mut acc = Vec2::ZERO;
+    for &threat in threats {
+        let delta = pos - threat;
+        let dist = delta.length();
+        if dist < 0.5 {
+            continue;
+        }
+        // Inverse-distance weighting; capped so a coincident threat
+        // doesn't blow up the sum.
+        let weight = (1.0 / dist).min(1.0);
+        acc += delta.normalize_or_zero() * weight;
+    }
+    acc
+}
+
+/// Sum of inverse-distance unit vectors pointing toward each safety
+/// attractor. Magnitude scaled lower than repulsion so safety biases
+/// the flee direction without overpowering the urge to escape.
+fn sum_attraction(pos: Vec2, safety: &[Vec2]) -> Vec2 {
+    const ATTRACTION_SCALE: f32 = 0.4;
+    let mut acc = Vec2::ZERO;
+    for &target in safety {
+        let delta = target - pos;
+        let dist = delta.length();
+        if dist < 0.5 {
+            continue;
+        }
+        let weight = (1.0 / dist).min(1.0) * ATTRACTION_SCALE;
+        acc += delta.normalize_or_zero() * weight;
+    }
+    acc
 }
 
 /// Pick a nearby grass tile as a drift target. Grazing only happens on grass,
@@ -1881,21 +2060,31 @@ mod tests {
         }
     }
 
+    fn unwrap_found(target: FleeTarget) -> Vec2 {
+        match target {
+            FleeTarget::Found(p) => p,
+            FleeTarget::Cornered(_) => panic!("expected Found, got Cornered"),
+        }
+    }
+
     #[test]
     fn flee_picks_walkable_straight_away_when_path_is_clear() {
-        // Agent at (50, 50), threat east. Away vector points -x. No
-        // obstacles — the function must return a tile directly west, at
-        // the longest candidate distance.
         let map = walkable_test_map();
         let mut rng = StdRng::seed_from_u64(0);
         let pos = Vec2::new(50.0, 50.0);
-        let away = Vec2::new(-1.0, 0.0);
+        // Threat to the east → expected flee direction is -x (west).
+        let threats = vec![Vec2::new(100.0, 50.0)];
 
-        let target = pick_flee_target(pos, away, &map, &mut rng)
-            .expect("clear map must yield a walkable flee target");
+        let target = unwrap_found(pick_flee_target(
+            pos,
+            &threats,
+            &[],
+            Vec2::ZERO,
+            &map,
+            &mut rng,
+        ));
 
-        // Directly west at the maximum distance step (50 px) — the
-        // cone-sampler should hit this on its very first candidate.
+        // Direct-away at the longest distance step.
         assert!(
             (target.x - 0.0).abs() < 1e-3 && (target.y - 50.0).abs() < 1e-3,
             "expected direct-away at 50 px (≈ (0, 50)); got {target:?}",
@@ -1904,53 +2093,31 @@ mod tests {
 
     #[test]
     fn flee_widens_angle_when_straight_retreat_is_blocked() {
-        // Agent at (100, 100), threat east (away = -x). Paint a vertical
-        // water column immediately west of the agent so the 0° candidates
-        // at all three distances hit water. The sampler should deflect to
-        // ±30° (or further) and return a walkable tile.
-        //
-        // Water column at tile x=2 (world x range 32-48). Agent at tile
-        // (6, 6). Direct-away (0° offset) at 50/35/20 px lands at
-        // world x ≈ 50, 65, 80 — *east* of the water wall (walkable).
-        //
-        // To force deflection, place the threat to the WEST so away = +x,
-        // and put the water wall east of the agent.
         let mut map = walkable_test_map();
-        // Water wall east of the agent, blocking the direct-east retreat
-        // across all three distance steps. Tile x=7 is world range
-        // 112-128; the agent at (100, 100) tries (150, 100), (135, 100),
-        // (120, 100). All three land on tile x≥7 which is water.
         fill_rect(&mut map, 7, 0, 3, MAP_CHUNK_SIZE * 4, TileType::Water);
         let mut rng = StdRng::seed_from_u64(0);
         let pos = Vec2::new(100.0, 100.0);
-        let away = Vec2::new(1.0, 0.0); // flee east
+        // Threat west → flee east into the water wall, forcing deflection.
+        let threats = vec![Vec2::new(50.0, 100.0)];
 
-        let target = pick_flee_target(pos, away, &map, &mut rng)
-            .expect("angular offsets should open a viable flee route");
+        let target = unwrap_found(pick_flee_target(
+            pos,
+            &threats,
+            &[],
+            Vec2::ZERO,
+            &map,
+            &mut rng,
+        ));
 
-        // Not in the water column. Must be on a walkable tile.
-        assert!(
-            map.is_walkable(target),
-            "flee target {target:?} must be walkable",
-        );
-        // Must still be moving away from the threat (x >= pos.x), even
-        // after angular deflection — the sampler starts with 0° so it
-        // should never pick something actively moving *toward* the threat.
+        assert!(map.is_walkable(target));
         assert!(
             target.x >= pos.x - 1e-3,
-            "flee target should still be east-ish (not moving back \
-             toward the threat at x < {}); got {target:?}",
-            pos.x,
+            "flee target should still be east-ish; got {target:?}",
         );
     }
 
     #[test]
-    fn flee_falls_back_to_random_when_entire_cone_is_blocked() {
-        // Surround the agent on all sides by water, leaving only the tile
-        // they stand on walkable. Every cone candidate fails, so the
-        // sampler must fall through to `pick_random_walkable_target` and
-        // return either the agent's own tile or None (since no other
-        // walkable tile exists, None is also acceptable).
+    fn flee_signals_cornered_when_entire_cone_is_blocked() {
         let mut map = walkable_test_map();
         let agent_tx = 6u32;
         let agent_ty = 6u32;
@@ -1966,84 +2133,72 @@ mod tests {
             agent_tx as f32 * MAP_TILE_SIZE + MAP_TILE_SIZE / 2.0,
             agent_ty as f32 * MAP_TILE_SIZE + MAP_TILE_SIZE / 2.0,
         );
-        let away = Vec2::new(1.0, 0.0);
+        let threats = vec![pos + Vec2::new(20.0, 0.0)];
 
-        // The desperate fallback may return None (no walkable neighbour
-        // exists). What we're asserting is that it does *not* return a
-        // bogus water tile — i.e. any Some(target) must be walkable.
-        if let Some(target) = pick_flee_target(pos, away, &map, &mut rng) {
-            assert!(
-                map.is_walkable(target),
-                "fallback target {target:?} must still be walkable when the \
-                 cone is fully blocked",
-            );
-        }
+        let target = pick_flee_target(pos, &threats, &[], Vec2::ZERO, &map, &mut rng);
+        assert!(
+            matches!(target, FleeTarget::Cornered(_)),
+            "fully-blocked cone must signal Cornered; got {target:?}",
+        );
     }
 
     #[test]
     fn flee_rejects_candidates_whose_straight_line_crosses_water() {
-        // The destination tile is walkable, but the path from the agent
-        // to it crosses a water column. A flee picker that only checks
-        // `is_walkable(test_pos)` returns that target; a straight-line
-        // check correctly rejects it. This is the concrete regression
-        // from the post-fix 40k headless run where 3v0 kept targeting a
-        // walkable tile behind a water wall and accumulating 329
-        // PathBlocked failures on the same (68, 36) coordinate.
         let mut map = walkable_test_map();
-        // Vertical water column at tile x=7 (world 112-128). Agent at
-        // world (100, 100), fleeing east (away = +x). Cone candidates:
-        //   50 px: (150, 100) — walkable destination, but path crosses
-        //          water at (112-128, 100).
-        //   35 px: (135, 100) — same.
-        //   20 px: (120, 100) — also in water.
-        // With angular offsets, ±30°/±60° at each distance land on y
-        // values that still cross the water column.
-        //
-        // Expect pick_flee_target to reject every east-going candidate
-        // and fall back to a random walkable tile (which won't be east
-        // of the wall either, since no path goes through water — but
-        // the fallback picks angles from the agent's position and the
-        // walkable area directly around them).
         fill_rect(&mut map, 7, 0, 1, MAP_CHUNK_SIZE * 4, TileType::Water);
         let mut rng = StdRng::seed_from_u64(0);
         let pos = Vec2::new(100.0, 100.0);
-        let away = Vec2::new(1.0, 0.0);
+        let threats = vec![Vec2::new(50.0, 100.0)]; // threat west → flee east
 
-        let target = pick_flee_target(pos, away, &map, &mut rng);
-
-        if let Some(target) = target {
-            // Whatever we return must actually be reachable in a straight
-            // line from the agent's position.
-            assert!(
-                straight_line_is_clear(pos, target, &map),
-                "flee target {target:?} must have a clear straight line \
-                 from agent at {pos:?}",
-            );
-            assert!(
-                map.is_walkable(target),
-                "flee target {target:?} must also be walkable",
-            );
+        if let FleeTarget::Found(target) =
+            pick_flee_target(pos, &threats, &[], Vec2::ZERO, &map, &mut rng)
+        {
+            assert!(straight_line_is_clear(pos, target, &map));
+            assert!(map.is_walkable(target));
         }
     }
 
     #[test]
-    fn flee_with_zero_away_vector_falls_back_to_random_walkable() {
-        // Agent standing on the threat: (pos - threat_pos) normalises to
-        // zero. The function must not return pos verbatim; it should fall
-        // back to pick_random_walkable_target and actually try to move.
+    fn flee_with_no_threats_uses_momentum_or_random() {
         let map = walkable_test_map();
         let mut rng = StdRng::seed_from_u64(0);
         let pos = Vec2::new(100.0, 100.0);
-        let away = Vec2::ZERO;
 
-        let target = pick_flee_target(pos, away, &map, &mut rng)
-            .expect("open map must yield a fallback walkable target");
+        // No threats, no momentum → random walkable.
+        let target = pick_flee_target(pos, &[], &[], Vec2::ZERO, &map, &mut rng);
+        let p = match target {
+            FleeTarget::Found(p) => p,
+            FleeTarget::Cornered(Some(p)) => p,
+            FleeTarget::Cornered(None) => panic!("open map must yield somewhere to go"),
+        };
+        assert!((p - pos).length() > 1e-3);
+    }
 
+    #[test]
+    fn flee_two_flanking_threats_picks_perpendicular() {
+        // Two threats at +x and -x → repulsion sums to zero. With safety
+        // pulling north, the agent should head north (perpendicular to
+        // the line between the threats).
+        let map = walkable_test_map();
+        let mut rng = StdRng::seed_from_u64(0);
+        let pos = Vec2::new(100.0, 100.0);
+        let threats = vec![Vec2::new(60.0, 100.0), Vec2::new(140.0, 100.0)];
+        let safety = vec![Vec2::new(100.0, 50.0)]; // safety to the north (lower y)
+
+        let target = unwrap_found(pick_flee_target(
+            pos,
+            &threats,
+            &safety,
+            Vec2::ZERO,
+            &map,
+            &mut rng,
+        ));
+        // Agent should head north (negative y direction in world coords).
         assert!(
-            (target - pos).length() > 1e-3,
-            "zero-away fallback must actually move; got same position {target:?}",
+            target.y < pos.y - 1.0,
+            "flanked agent should flee perpendicular toward safety (north); \
+             got {target:?} from pos {pos:?}",
         );
-        assert!(map.is_walkable(target));
     }
 
     // ─────────────────────────────────────────────────────────────────────

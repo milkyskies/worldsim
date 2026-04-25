@@ -353,12 +353,6 @@ pub mod brains {
         pub const ANGER_ENTITY_URGENCY_MULTIPLIER: f32 = 60.0;
         pub const FEAR_GENERAL_THRESHOLD: f32 = 0.7;
         pub const FEAR_GENERAL_URGENCY_MULTIPLIER: f32 = 90.0;
-        pub const ANGER_GENERAL_THRESHOLD: f32 = 0.5;
-        pub const ANGER_GENERAL_URGENCY_MULTIPLIER: f32 = 100.0;
-        /// High enough that only genuine starvation crosses it — a
-        /// well-fed predator never attacks a Dangerous target.
-        pub const STARVING_PREDATOR_HUNGER_THRESHOLD: f32 = 0.85;
-        pub const STARVING_PREDATOR_URGENCY_MULTIPLIER: f32 = 95.0;
         /// Social drive above which the emotional brain proposes
         /// `InitiateConversation` toward a visible person. Lowered from
         /// 0.55 so agents initiate conversations more readily — in real

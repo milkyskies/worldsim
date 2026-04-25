@@ -84,7 +84,7 @@ impl SkillKind {
 /// progression system.
 pub fn skill_for_action(action: ActionType) -> Option<SkillKind> {
     match action {
-        ActionType::Attack | ActionType::Bite => Some(SkillKind::Combat),
+        ActionType::Attack | ActionType::Bite | ActionType::DefendSelf => Some(SkillKind::Combat),
         ActionType::Harvest => Some(SkillKind::Harvesting),
         ActionType::Build | ActionType::Construct => Some(SkillKind::Building),
         ActionType::Converse | ActionType::Wave | ActionType::InitiateConversation => {

@@ -528,28 +528,112 @@ pub fn react_to_events(
 }
 
 /// Pain-rage appraisal: each [`SimEventKind::CombatHit`] adds Anger and
-/// Fear to the defender, scaled by damage.
+/// Fear to the defender, scaled by damage. Also propagates witness Fear
+/// (and Anger if the defender is a Friend) to nearby observers — combat
+/// is now seen, not felt-only. SimEvent reader and writer share one
+/// ParamSet because Bevy's system-param checker rejects a plain reader
+/// + writer pair against the same message type.
 pub fn react_to_combat_hit(
-    mut events: MessageReader<crate::agent::events::SimEvent>,
-    mut agents: Query<&mut EmotionalState, With<crate::agent::Agent>>,
+    mut sim_events: ParamSet<(
+        MessageReader<crate::agent::events::SimEvent>,
+        MessageWriter<crate::agent::events::SimEvent>,
+    )>,
+    tick: Res<crate::core::tick::TickCount>,
+    mut agents: Query<
+        (
+            Entity,
+            &mut EmotionalState,
+            Option<&crate::agent::mind::perception::VisibleObjects>,
+            Option<&crate::agent::mind::knowledge::MindGraph>,
+        ),
+        With<crate::agent::Agent>,
+    >,
 ) {
+    use crate::agent::mind::knowledge::Node;
     use crate::constants::actions::defend_self::{
         ANGER_PER_HIT, DAMAGE_REFERENCE_HP, FEAR_PER_HIT, HIT_SCALE_MAX, HIT_SCALE_MIN,
     };
 
-    for e in events.read() {
-        let SimEventKind::CombatHit {
-            defender, damage, ..
-        } = &e.kind
-        else {
-            continue;
-        };
-        let Ok(mut state) = agents.get_mut(*defender) else {
-            continue;
-        };
+    let hits: Vec<(Entity, Entity, f32)> = sim_events
+        .p0()
+        .read()
+        .filter_map(|e| match &e.kind {
+            SimEventKind::CombatHit {
+                attacker,
+                defender,
+                damage,
+                ..
+            } => Some((*attacker, *defender, *damage)),
+            _ => None,
+        })
+        .collect();
+
+    if hits.is_empty() {
+        return;
+    }
+
+    // Buffer witness events; emit in a second pass after the agent
+    // borrow is released so we can use the ParamSet writer.
+    let mut witness_events: Vec<(Entity, Entity, Entity)> = Vec::new();
+
+    for (attacker, defender, damage) in hits {
         let scale = (damage / DAMAGE_REFERENCE_HP).clamp(HIT_SCALE_MIN, HIT_SCALE_MAX);
-        state.add_emotion(Emotion::new(EmotionType::Anger, ANGER_PER_HIT * scale));
-        state.add_emotion(Emotion::new(EmotionType::Fear, FEAR_PER_HIT * scale));
+
+        // Defender: pain-rage path.
+        if let Ok((_, mut state, _, _)) = agents.get_mut(defender) {
+            state.add_emotion(Emotion::new(EmotionType::Anger, ANGER_PER_HIT * scale));
+            state.add_emotion(Emotion::new(EmotionType::Fear, FEAR_PER_HIT * scale));
+        }
+
+        // Witnesses: any other agent who sees BOTH the attacker and the
+        // defender in their perception gains Fear (toward attacker) and
+        // optionally Anger (if defender is a Friend they care about).
+        // Iteration is per-event but cheap — most ticks have zero hits.
+        for (observer, mut state, visible, mind) in agents.iter_mut() {
+            if observer == attacker || observer == defender {
+                continue;
+            }
+            let Some(visible) = visible else { continue };
+            let saw_attacker = visible.entities.contains(&attacker);
+            let saw_defender = visible.entities.contains(&defender);
+            if !saw_attacker && !saw_defender {
+                continue;
+            }
+
+            // Half the magnitude of the defender's pain-rage — observers
+            // are alarmed but not personally injured.
+            let witness_fear = FEAR_PER_HIT * scale * 0.5;
+            state.add_emotion(Emotion::new(EmotionType::Fear, witness_fear));
+
+            // Anger toward the attacker only if the observer treats the
+            // defender as a Friend — kin/pack bonds make violence
+            // personal. Cheap MindGraph trait lookup; nothing happens
+            // for strangers.
+            if let Some(mind) = mind
+                && mind.has_trait(
+                    &Node::Entity(defender),
+                    crate::agent::mind::knowledge::Concept::Friend,
+                )
+            {
+                let witness_anger = ANGER_PER_HIT * scale * 0.5;
+                state.add_emotion(Emotion::new(EmotionType::Anger, witness_anger));
+            }
+
+            witness_events.push((observer, attacker, defender));
+        }
+    }
+
+    let mut writer = sim_events.p1();
+    for (observer, attacker, defender) in witness_events {
+        writer.write(crate::agent::events::SimEvent::single(
+            tick.current,
+            observer,
+            SimEventKind::WitnessedCombat {
+                observer,
+                attacker,
+                defender,
+            },
+        ));
     }
 }
 

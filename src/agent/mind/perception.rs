@@ -194,6 +194,7 @@ pub fn write_perceptions_to_mind(
     inventories: Query<&crate::agent::item_slots::ItemSlots>,
     entity_types: Query<&crate::agent::inventory::EntityType>,
     becomes_components: Query<&crate::world::becomes::Becomes>,
+    lame_entities: Query<(), With<crate::agent::Lame>>,
     tick: Res<TickCount>,
 ) {
     let current_time = tick.current;
@@ -251,6 +252,18 @@ pub fn write_perceptions_to_mind(
                     entity,
                     Predicate::Becomes,
                     Value::Concept(becomes.target),
+                    current_time,
+                    confidence,
+                );
+            }
+
+            // 5. Perceive Lame status. Predator target enumeration reads
+            // this trait to weigh wounded prey above healthy prey.
+            if lame_entities.get(entity).is_ok() {
+                mind.perceive_entity(
+                    entity,
+                    Predicate::HasTrait,
+                    Value::Concept(Concept::Lame),
                     current_time,
                     confidence,
                 );
@@ -552,7 +565,7 @@ pub fn react_to_danger(
 
     for (visible, mind, mut emotions, personality, needs, body, items) in agents.iter_mut() {
         // Count how many visible entities this agent considers dangerous.
-        let dangerous_count = visible
+        let visible_dangerous_count = visible
             .entities
             .iter()
             .filter(|&&entity| {
@@ -569,9 +582,25 @@ pub fn react_to_danger(
             })
             .count();
 
-        if dangerous_count == 0 {
+        // Heard but not seen: directions with a recently-perceived
+        // Dangerous trait (alarm calls, combat sounds, screams from
+        // outside line of sight). Each direction contributes a smaller
+        // weight than a visible threat — sound alone is less precise.
+        let audible_dangerous_count = mind
+            .query(
+                None,
+                Some(Predicate::HasTrait),
+                Some(&Value::Concept(Concept::Dangerous)),
+            )
+            .iter()
+            .filter(|t| matches!(t.subject, Node::Direction(_)))
+            .count();
+
+        let total_dangerous = visible_dangerous_count + audible_dangerous_count;
+        if total_dangerous == 0 {
             continue;
         }
+        let dangerous_count = visible_dangerous_count + audible_dangerous_count.min(2);
 
         // Single contextual threat score, scaled up by the number of threats visible.
         let body_health = body.map_or(1.0, |b| b.overall_health());
@@ -768,6 +797,39 @@ pub fn perceive_hearing(
                     kind: sound.kind,
                 },
             ));
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ALARM EMISSION — Fleeing agents broadcast their distress
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Inserts a transient [`crate::world::sense_sources::SoundSource`] on
+/// every agent who started a Flee action this tick. The alarm reaches
+/// nearby agents through `perceive_hearing`, which writes a direction-
+/// based Dangerous belief into their MindGraph — that belief feeds the
+/// existing fear pipeline so a herd flees together off one alarm.
+///
+/// Cleanup happens on the next tick via `cleanup_sound_sources` (the
+/// existing transient-sound cleaner). One alarm per Flee start; agents
+/// already mid-flee don't keep re-triggering.
+pub fn emit_alarm_calls(
+    mut commands: Commands,
+    mut events: MessageReader<crate::agent::events::SimEvent>,
+) {
+    use crate::agent::actions::ActionType;
+    use crate::agent::events::SimEventKind;
+    use crate::world::sense_sources::{SoundKind, SoundSource};
+
+    for event in events.read() {
+        if let SimEventKind::ActionStarted { agent, action, .. } = &event.kind
+            && matches!(action, ActionType::Flee)
+        {
+            commands.entity(*agent).insert(SoundSource {
+                kind: SoundKind::AlarmCall,
+                intensity: 1.0,
+            });
         }
     }
 }

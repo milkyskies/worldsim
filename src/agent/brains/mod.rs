@@ -13,6 +13,7 @@ pub mod rational;
 pub mod survival;
 pub mod target_enumeration;
 pub mod thinking;
+pub mod threat_appraisal;
 pub mod trace;
 
 // Internal Tests moved inline

@@ -168,7 +168,25 @@ fn enumerate_entities_with_trait(
         });
     }
 
+    // Predator preference: Lame prey first. The TargetCandidate list
+    // is consumed top-down by the planner / brain, so simply sorting
+    // wounded targets to the front biases selection without changing
+    // any callers. Healthy prey is still picked when no Lame target
+    // exists.
+    candidates.sort_by(|a, b| {
+        let a_lame = candidate_is_lame(a, mind);
+        let b_lame = candidate_is_lame(b, mind);
+        b_lame.cmp(&a_lame)
+    });
+
     candidates
+}
+
+fn candidate_is_lame(candidate: &TargetCandidate, mind: &MindGraph) -> bool {
+    let TargetCandidate::Entity { entity, .. } = candidate else {
+        return false;
+    };
+    mind.has_trait(&Node::Entity(*entity), Concept::Lame)
 }
 
 /// Iterate tiles matching `Tile(?) HasTrait <concept>` in the MindGraph and

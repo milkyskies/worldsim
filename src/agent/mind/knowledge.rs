@@ -195,6 +195,12 @@ pub enum Concept {
     SurvivalAction,
     MovementAction,
 
+    // ─── Combat status (derived from Body) ───
+    /// Set on agents with leg `BodyNode` HP fraction below threshold.
+    /// Predator target enumeration weighs Lame entities higher — wolves
+    /// pick the limping deer over the healthy one.
+    Lame,
+
     // ─── Apparent Moods (visible expressions) ───
     HappyMood,
     SadMood,
