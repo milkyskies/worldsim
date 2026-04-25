@@ -93,7 +93,7 @@ const CRUSH_BLEED_COEFF: f32 = 0.0;
 
 fn default_damage_type(action: ActionType) -> InjuryType {
     match action {
-        ActionType::Attack => InjuryType::Crush,
+        ActionType::Attack | ActionType::DefendSelf => InjuryType::Crush,
         ActionType::Bite => InjuryType::Pierce,
         _ => InjuryType::Bruise,
     }
@@ -101,7 +101,7 @@ fn default_damage_type(action: ActionType) -> InjuryType {
 
 fn base_damage_range(action: ActionType) -> Option<(f32, f32)> {
     match action {
-        ActionType::Attack => Some((FIST_DAMAGE_MIN, FIST_DAMAGE_MAX)),
+        ActionType::Attack | ActionType::DefendSelf => Some((FIST_DAMAGE_MIN, FIST_DAMAGE_MAX)),
         ActionType::Bite => Some((BITE_DAMAGE_MIN, BITE_DAMAGE_MAX)),
         _ => None,
     }
@@ -350,7 +350,11 @@ pub fn resolve_combat_hits(
                         ..
                     },
                 ..
-            } if matches!(*action, ActionType::Attack | ActionType::Bite) => {
+            } if matches!(
+                *action,
+                ActionType::Attack | ActionType::Bite | ActionType::DefendSelf
+            ) =>
+            {
                 Some((*agent, *action, *target))
             }
             _ => None,

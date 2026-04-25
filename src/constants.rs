@@ -202,6 +202,24 @@ pub mod actions {
         pub const BASE_COST: f32 = 10.0;
     }
 
+    pub mod defend_self {
+        pub const DURATION_TICKS: u32 = 30;
+        pub const BASE_COST: f32 = 10.0;
+        /// Anger added to defender per CombatHit (before damage scaling).
+        /// Anger accumulates until the general-anger threshold flips
+        /// the agent from flee to retaliation.
+        pub const ANGER_PER_HIT: f32 = 0.3;
+        /// Fear added to defender per CombatHit (before damage scaling).
+        /// Smaller than anger — repeated injury makes you angrier than
+        /// scared once you're already committed to combat.
+        pub const FEAR_PER_HIT: f32 = 0.15;
+        /// Damage that scales the per-hit emotion increment to 1.0.
+        /// A graze under this scales down; a heavy hit scales up.
+        pub const DAMAGE_REFERENCE_HP: f32 = 30.0;
+        pub const HIT_SCALE_MIN: f32 = 0.2;
+        pub const HIT_SCALE_MAX: f32 = 1.5;
+    }
+
     pub mod walk {
         /// Estimated stamina cost per tile at normal speed (for planner estimation).
         pub const STAMINA_PER_TILE_NORMAL: f32 = 0.1;
@@ -335,6 +353,12 @@ pub mod brains {
         pub const ANGER_ENTITY_URGENCY_MULTIPLIER: f32 = 60.0;
         pub const FEAR_GENERAL_THRESHOLD: f32 = 0.7;
         pub const FEAR_GENERAL_URGENCY_MULTIPLIER: f32 = 90.0;
+        pub const ANGER_GENERAL_THRESHOLD: f32 = 0.5;
+        pub const ANGER_GENERAL_URGENCY_MULTIPLIER: f32 = 100.0;
+        /// High enough that only genuine starvation crosses it — a
+        /// well-fed predator never attacks a Dangerous target.
+        pub const STARVING_PREDATOR_HUNGER_THRESHOLD: f32 = 0.85;
+        pub const STARVING_PREDATOR_URGENCY_MULTIPLIER: f32 = 95.0;
         /// Social drive above which the emotional brain proposes
         /// `InitiateConversation` toward a visible person. Lowered from
         /// 0.55 so agents initiate conversations more readily — in real

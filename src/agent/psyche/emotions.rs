@@ -527,6 +527,32 @@ pub fn react_to_events(
     }
 }
 
+/// Pain-rage appraisal: each [`SimEventKind::CombatHit`] adds Anger and
+/// Fear to the defender, scaled by damage.
+pub fn react_to_combat_hit(
+    mut events: MessageReader<crate::agent::events::SimEvent>,
+    mut agents: Query<&mut EmotionalState, With<crate::agent::Agent>>,
+) {
+    use crate::constants::actions::defend_self::{
+        ANGER_PER_HIT, DAMAGE_REFERENCE_HP, FEAR_PER_HIT, HIT_SCALE_MAX, HIT_SCALE_MIN,
+    };
+
+    for e in events.read() {
+        let SimEventKind::CombatHit {
+            defender, damage, ..
+        } = &e.kind
+        else {
+            continue;
+        };
+        let Ok(mut state) = agents.get_mut(*defender) else {
+            continue;
+        };
+        let scale = (damage / DAMAGE_REFERENCE_HP).clamp(HIT_SCALE_MIN, HIT_SCALE_MAX);
+        state.add_emotion(Emotion::new(EmotionType::Anger, ANGER_PER_HIT * scale));
+        state.add_emotion(Emotion::new(EmotionType::Fear, FEAR_PER_HIT * scale));
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

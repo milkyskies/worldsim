@@ -212,6 +212,7 @@ impl Plugin for AgentPlugin {
                     psyche::emotions::update_mood,
                     psyche::emotions::update_stress,
                     psyche::emotions::react_to_events,
+                    psyche::emotions::react_to_combat_hit,
                 )
                     .in_set(crate::core::PerfBucket::Psyche)
                     .in_set(crate::core::PerfSubBucket::PsycheEmotions)
