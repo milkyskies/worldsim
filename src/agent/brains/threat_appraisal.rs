@@ -115,10 +115,7 @@ const CORNERED_FIGHT_BIAS_THRESHOLD: f32 = 0.30;
 /// entity by the emotional brain.
 pub fn appraise_threat(ctx: &ThreatAppraisalContext) -> ThreatResponse {
     let defender_power = combat_power(ctx.body, ctx.physical);
-    let attacker_power = ctx
-        .attacker_body
-        .map(|b| combat_power_body_only(b))
-        .unwrap_or(0.5);
+    let attacker_power = ctx.attacker_body.map(combat_power_body_only).unwrap_or(0.5);
 
     let power_ratio = if attacker_power > 0.0 {
         defender_power / attacker_power
