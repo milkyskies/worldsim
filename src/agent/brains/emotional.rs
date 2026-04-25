@@ -20,10 +20,11 @@ use crate::agent::mind::knowledge::{Concept, MindGraph, Node, Predicate, Value};
 use crate::agent::mind::perception::VisibleObjects;
 use crate::agent::psyche::emotions::{EmotionType, EmotionalState};
 use crate::constants::brains::emotional::{
-    ANGER_ENTITY_THRESHOLD, ANGER_ENTITY_URGENCY_MULTIPLIER, FEAR_ENTITY_THRESHOLD,
-    FEAR_ENTITY_URGENCY_MULTIPLIER, FEAR_GENERAL_THRESHOLD, FEAR_GENERAL_URGENCY_MULTIPLIER,
-    JOY_ENTITY_THRESHOLD, JOY_ENTITY_URGENCY_MULTIPLIER, SOCIAL_SEEK_THRESHOLD,
-    SOCIAL_SEEK_URGENCY_MULTIPLIER,
+    ANGER_ENTITY_THRESHOLD, ANGER_ENTITY_URGENCY_MULTIPLIER, ANGER_GENERAL_THRESHOLD,
+    ANGER_GENERAL_URGENCY_MULTIPLIER, FEAR_ENTITY_THRESHOLD, FEAR_ENTITY_URGENCY_MULTIPLIER,
+    FEAR_GENERAL_THRESHOLD, FEAR_GENERAL_URGENCY_MULTIPLIER, JOY_ENTITY_THRESHOLD,
+    JOY_ENTITY_URGENCY_MULTIPLIER, SOCIAL_SEEK_THRESHOLD, SOCIAL_SEEK_URGENCY_MULTIPLIER,
+    STARVING_PREDATOR_HUNGER_THRESHOLD, STARVING_PREDATOR_URGENCY_MULTIPLIER,
 };
 use crate::world::field_grid_plugin::FieldGrids;
 use bevy::prelude::*;
@@ -76,6 +77,30 @@ pub fn emotional_brain_propose(inputs: &EmotionalInputs) -> Option<BrainProposal
     if let Some(proposal) =
         check_general_fear(inputs.emotions, best_urgency, inputs.action_registry)
     {
+        best_urgency = proposal.urgency;
+        best = Some(proposal);
+    }
+
+    if let Some(proposal) = check_general_anger_defend(
+        inputs.emotions,
+        inputs.visible,
+        inputs.mind,
+        best_urgency,
+        inputs.action_registry,
+    ) {
+        best_urgency = proposal.urgency;
+        best = Some(proposal);
+    }
+
+    if let Some(proposal) = check_starving_predator_attack(
+        inputs.physical,
+        inputs.self_concept,
+        inputs.visible,
+        inputs.mind,
+        best_urgency,
+        inputs.action_registry,
+    ) {
+        best_urgency = proposal.urgency;
         best = Some(proposal);
     }
 
@@ -422,6 +447,86 @@ fn evaluate_entity_emotions(
     best
 }
 
+/// Critical-hunger predator targets a `Dangerous` entity directly,
+/// bypassing the standard Prey enumeration (the action's Prey filter
+/// runs at enumeration time only; runtime gates only require a target).
+fn check_starving_predator_attack(
+    physical: &PhysicalNeeds,
+    self_concept: Option<Concept>,
+    visible: &VisibleObjects,
+    mind: &MindGraph,
+    best_urgency: f32,
+    action_registry: &crate::agent::actions::ActionRegistry,
+) -> Option<BrainProposal> {
+    let attack_action = match self_concept? {
+        Concept::Wolf => ActionType::Bite,
+        Concept::Person => ActionType::DefendSelf,
+        _ => return None,
+    };
+
+    let hunger = physical.metabolism.hunger_urgency();
+    if hunger < STARVING_PREDATOR_HUNGER_THRESHOLD {
+        return None;
+    }
+
+    let target = find_visible_with_trait(visible, mind, Concept::Dangerous)?;
+    let urgency = hunger * STARVING_PREDATOR_URGENCY_MULTIPLIER;
+    if urgency <= best_urgency {
+        return None;
+    }
+
+    let action = action_registry.get(attack_action)?;
+    let mut template = action.to_template(Some(target));
+    template.escalate_intensity(hunger);
+    Some(BrainProposal {
+        brain: BrainType::Emotional,
+        action: template,
+        urgency,
+        intent: Intent::SatisfySafety,
+        reasoning: format!(
+            "Starving — going for what I'd normally avoid (hunger: {:.2})",
+            hunger
+        ),
+    })
+}
+
+/// High accumulated Anger + a visible `Dangerous` entity → DefendSelf.
+fn check_general_anger_defend(
+    emotions: &EmotionalState,
+    visible: &VisibleObjects,
+    mind: &MindGraph,
+    best_urgency: f32,
+    action_registry: &crate::agent::actions::ActionRegistry,
+) -> Option<BrainProposal> {
+    let anger_level: f32 = emotions
+        .active_emotions
+        .iter()
+        .filter(|e| e.emotion_type == EmotionType::Anger)
+        .map(|e| e.intensity)
+        .sum();
+
+    if anger_level <= ANGER_GENERAL_THRESHOLD {
+        return None;
+    }
+
+    let target = find_visible_with_trait(visible, mind, Concept::Dangerous)?;
+    let urgency = anger_level * ANGER_GENERAL_URGENCY_MULTIPLIER;
+    if urgency <= best_urgency {
+        return None;
+    }
+
+    let action = action_registry.get(ActionType::DefendSelf)?;
+    let mut template = action.to_template(Some(target));
+    template.escalate_intensity(anger_level);
+    Some(BrainProposal {
+        brain: BrainType::Emotional,
+        action: template,
+        urgency,
+        intent: Intent::SatisfySafety,
+        reasoning: format!("I'm done running, I'll fight! (anger: {:.2})", anger_level),
+    })
+}
+
 /// Responds to general (non-entity) fear.
 fn check_general_fear(
     emotions: &EmotionalState,
@@ -642,6 +747,177 @@ mod tests {
             behavior.intent,
             MotorIntent::Safety,
             "Flee should carry Safety intent"
+        );
+    }
+
+    #[test]
+    fn anger_above_threshold_with_visible_dangerous_proposes_defend_self() {
+        let mut state = EmotionalState::default();
+        state.add_emotion(Emotion::new(EmotionType::Anger, 0.8));
+
+        let wolf = Entity::from_bits(99);
+        let mut mind = setup_mind();
+        mind.assert(Triple::with_meta(
+            Node::Entity(wolf),
+            Predicate::HasTrait,
+            Value::Concept(Concept::Dangerous),
+            Metadata::default(),
+        ));
+
+        let mut visible = VisibleObjects::default();
+        visible.entities.push(wolf);
+
+        let mut registry = crate::agent::actions::ActionRegistry::default();
+        registry.register_def(&crate::agent::actions::action::DEFEND_SELF_DEF);
+        registry.register_def(&crate::agent::actions::action::FLEE_DEF);
+
+        let proposal = emotional_brain_propose(&EmotionalInputs {
+            emotions: &state,
+            mind: &mind,
+            visible: &visible,
+            visible_positions: &[],
+            physical: &PhysicalNeeds::default(),
+            drives: None,
+            in_conversation: None,
+            self_concept: Some(Concept::Person),
+            agent_pos: Vec2::ZERO,
+            fields: &FieldGrids::default(),
+            cns: &Default::default(),
+            action_registry: &registry,
+        })
+        .expect("should propose DefendSelf");
+
+        assert_eq!(proposal.action.action_type, ActionType::DefendSelf);
+        assert_eq!(proposal.action.target_entity, Some(wolf));
+    }
+
+    #[test]
+    fn calm_agent_with_visible_dangerous_does_not_propose_defend_self() {
+        let state = EmotionalState::default();
+
+        let wolf = Entity::from_bits(99);
+        let mut mind = setup_mind();
+        mind.assert(Triple::with_meta(
+            Node::Entity(wolf),
+            Predicate::HasTrait,
+            Value::Concept(Concept::Dangerous),
+            Metadata::default(),
+        ));
+
+        let mut visible = VisibleObjects::default();
+        visible.entities.push(wolf);
+
+        let mut registry = crate::agent::actions::ActionRegistry::default();
+        registry.register_def(&crate::agent::actions::action::DEFEND_SELF_DEF);
+
+        let proposal = emotional_brain_propose(&EmotionalInputs {
+            emotions: &state,
+            mind: &mind,
+            visible: &visible,
+            visible_positions: &[],
+            physical: &PhysicalNeeds::default(),
+            drives: None,
+            in_conversation: None,
+            self_concept: Some(Concept::Person),
+            agent_pos: Vec2::ZERO,
+            fields: &FieldGrids::default(),
+            cns: &Default::default(),
+            action_registry: &registry,
+        });
+
+        assert!(
+            proposal.is_none() || proposal.unwrap().action.action_type != ActionType::DefendSelf,
+            "calm agent must not propose DefendSelf"
+        );
+    }
+
+    #[test]
+    fn starving_wolf_with_visible_human_proposes_bite() {
+        let state = EmotionalState::default();
+
+        let human = Entity::from_bits(7);
+        let mut mind = setup_mind();
+        mind.assert(Triple::with_meta(
+            Node::Entity(human),
+            Predicate::HasTrait,
+            Value::Concept(Concept::Dangerous),
+            Metadata::default(),
+        ));
+
+        let mut visible = VisibleObjects::default();
+        visible.entities.push(human);
+
+        let starving = PhysicalNeeds {
+            metabolism: crate::agent::body::metabolism::Metabolism::at_urgency(0.95),
+            ..Default::default()
+        };
+
+        let mut registry = crate::agent::actions::ActionRegistry::default();
+        registry.register_def(&crate::agent::actions::action::BITE_DEF);
+        registry.register_def(&crate::agent::actions::action::DEFEND_SELF_DEF);
+
+        let proposal = emotional_brain_propose(&EmotionalInputs {
+            emotions: &state,
+            mind: &mind,
+            visible: &visible,
+            visible_positions: &[],
+            physical: &starving,
+            drives: None,
+            in_conversation: None,
+            self_concept: Some(Concept::Wolf),
+            agent_pos: Vec2::ZERO,
+            fields: &FieldGrids::default(),
+            cns: &Default::default(),
+            action_registry: &registry,
+        })
+        .expect("starving wolf with visible human should propose Bite");
+
+        assert_eq!(proposal.action.action_type, ActionType::Bite);
+        assert_eq!(proposal.action.target_entity, Some(human));
+    }
+
+    #[test]
+    fn well_fed_wolf_with_visible_human_does_not_propose_bite() {
+        let state = EmotionalState::default();
+
+        let human = Entity::from_bits(7);
+        let mut mind = setup_mind();
+        mind.assert(Triple::with_meta(
+            Node::Entity(human),
+            Predicate::HasTrait,
+            Value::Concept(Concept::Dangerous),
+            Metadata::default(),
+        ));
+
+        let mut visible = VisibleObjects::default();
+        visible.entities.push(human);
+
+        let well_fed = PhysicalNeeds {
+            metabolism: crate::agent::body::metabolism::Metabolism::at_urgency(0.1),
+            ..Default::default()
+        };
+
+        let mut registry = crate::agent::actions::ActionRegistry::default();
+        registry.register_def(&crate::agent::actions::action::BITE_DEF);
+
+        let proposal = emotional_brain_propose(&EmotionalInputs {
+            emotions: &state,
+            mind: &mind,
+            visible: &visible,
+            visible_positions: &[],
+            physical: &well_fed,
+            drives: None,
+            in_conversation: None,
+            self_concept: Some(Concept::Wolf),
+            agent_pos: Vec2::ZERO,
+            fields: &FieldGrids::default(),
+            cns: &Default::default(),
+            action_registry: &registry,
+        });
+
+        assert!(
+            proposal.is_none() || proposal.unwrap().action.action_type != ActionType::Bite,
+            "well-fed wolf must not propose Bite at a human"
         );
     }
 }

@@ -92,6 +92,10 @@ pub enum ActionType {
     /// Devour.
     Devour,
     Flee,
+    /// Counterattack against a `Dangerous` target — the non-prey
+    /// counterpart of `Attack`. Proposed by the emotional brain when
+    /// accumulated Anger crosses a threshold.
+    DefendSelf,
 }
 
 impl std::fmt::Display for ActionType {
@@ -133,6 +137,7 @@ impl ActionType {
             ActionType::Bite => "Biting",
             ActionType::Devour => "Devouring",
             ActionType::Flee => "Fleeing from",
+            ActionType::DefendSelf => "Defending against",
         }
     }
 
@@ -167,6 +172,7 @@ impl ActionType {
             ActionType::Bite => "Bite",
             ActionType::Devour => "Devour",
             ActionType::Flee => "Flee",
+            ActionType::DefendSelf => "DefendSelf",
         }
     }
 }
