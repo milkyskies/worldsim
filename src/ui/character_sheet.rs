@@ -445,13 +445,73 @@ impl Plugin for CharacterSheetPlugin {
 // STATE
 // ============================================================================
 
-#[derive(Resource, Default)]
+#[derive(Resource)]
 pub struct CharacterSheetState {
     /// Currently displayed tab in the right-side character panel.
     pub active_tab: CharSheetTab,
     /// User dismissed the panel for this specific entity. Cleared when the
     /// player selects a different agent so the next click reopens it.
     dismissed_for: Option<Entity>,
+    /// Which `LogCategory` rows the Activity tab shows. Default-quiet
+    /// (Brain/Perception/Debug off) so the read-pane reflects narrative
+    /// events rather than per-tick arbitration spam.
+    pub activity_filter: ActivityFilter,
+}
+
+impl Default for CharacterSheetState {
+    fn default() -> Self {
+        Self {
+            active_tab: CharSheetTab::default(),
+            dismissed_for: None,
+            activity_filter: ActivityFilter::default(),
+        }
+    }
+}
+
+/// Per-category toggle for the Activity tab. `Copy` so we can move it
+/// into and out of egui's memory layer without allocation.
+#[derive(Clone, Copy, Debug)]
+pub struct ActivityFilter {
+    bits: u8,
+}
+
+impl ActivityFilter {
+    const ACTION: u8 = 1 << 0;
+    const EVENT: u8 = 1 << 1;
+    const PLAN: u8 = 1 << 2;
+    const BRAIN: u8 = 1 << 3;
+    const PERCEPTION: u8 = 1 << 4;
+    const DEBUG: u8 = 1 << 5;
+
+    fn flag(cat: crate::core::log::LogCategory) -> u8 {
+        use crate::core::log::LogCategory;
+        match cat {
+            LogCategory::Action => Self::ACTION,
+            LogCategory::Event => Self::EVENT,
+            LogCategory::Plan => Self::PLAN,
+            LogCategory::Brain => Self::BRAIN,
+            LogCategory::Perception => Self::PERCEPTION,
+            LogCategory::Debug => Self::DEBUG,
+            LogCategory::Performance => 0, // never shown in activity tab
+        }
+    }
+
+    pub fn contains(self, cat: crate::core::log::LogCategory) -> bool {
+        let f = Self::flag(cat);
+        f != 0 && (self.bits & f) != 0
+    }
+
+    pub fn toggle(&mut self, cat: crate::core::log::LogCategory) {
+        self.bits ^= Self::flag(cat);
+    }
+}
+
+impl Default for ActivityFilter {
+    fn default() -> Self {
+        Self {
+            bits: Self::ACTION | Self::EVENT | Self::PLAN,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
@@ -912,6 +972,128 @@ fn render_overview(ui: &mut egui::Ui, world: &World, entity: Entity) {
             });
         }
     }
+
+    ui.separator();
+
+    render_entity_feelings(ui, world, entity);
+    render_condition_states(ui, world, entity);
+}
+
+/// Per-entity feelings: who the agent has emotional triples toward,
+/// grouped by entity. Reads `TriggersEmotion` triples in the agent's
+/// MindGraph and renders one row per entity. Combat-shipped Anger sits
+/// next to friend-affection Joy and predator-fear Fear — same render
+/// surface for every emotion source.
+fn render_entity_feelings(ui: &mut egui::Ui, world: &World, entity: Entity) {
+    use crate::agent::brains::emotional::{entities_with_feelings, entity_feelings};
+
+    let Some(mind) = world.get::<MindGraph>(entity) else {
+        return;
+    };
+    let entities = entities_with_feelings(mind);
+    if entities.is_empty() {
+        return;
+    }
+
+    ui.label(egui::RichText::new("Feels about").strong());
+    let mut rows: Vec<(Entity, Vec<(EmotionType, f32)>, f32)> = entities
+        .into_iter()
+        .filter_map(|e| {
+            let f = entity_feelings(e, mind);
+            if f.is_empty() {
+                return None;
+            }
+            let strongest = f.iter().map(|(_, i)| *i).fold(0.0f32, f32::max);
+            Some((e, f, strongest))
+        })
+        .collect();
+    // Strongest feeling first — combat anger and intense fear surface
+    // above ambient pack affection.
+    rows.sort_by(|a, b| b.2.partial_cmp(&a.2).unwrap_or(std::cmp::Ordering::Equal));
+
+    for (target, feelings, _) in rows.iter().take(8) {
+        let name = world
+            .get::<Name>(*target)
+            .map(|n| n.to_string())
+            .unwrap_or_else(|| format!("{:?}", target));
+        ui.horizontal_wrapped(|ui| {
+            ui.label(egui::RichText::new(name).small().strong());
+            // Aggregate same-type entries before rendering so the same
+            // emotion isn't listed twice (entity-level + concept-level).
+            let mut sums: std::collections::HashMap<EmotionType, f32> =
+                std::collections::HashMap::new();
+            for (etype, intensity) in feelings {
+                *sums.entry(*etype).or_insert(0.0) += intensity;
+            }
+            let mut entries: Vec<_> = sums.into_iter().collect();
+            entries.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+            for (etype, intensity) in entries {
+                let (label, color) = emotion_label_color(etype, intensity);
+                ui.colored_label(
+                    color,
+                    egui::RichText::new(format!("{} {:.0}%", label, intensity * 100.0)).small(),
+                );
+            }
+        });
+    }
+}
+
+/// Active condition components (Cornered, Lame, Dazed, etc.) rendered
+/// as a small status row below mood. Mirrors the overhead status icon
+/// system but with full text labels — useful when zoomed out enough
+/// that the icons are hidden.
+fn render_condition_states(ui: &mut egui::Ui, world: &World, entity: Entity) {
+    let mut tags: Vec<(&'static str, Color32, Option<String>)> = Vec::new();
+    if world.get::<crate::agent::Cornered>(entity).is_some() {
+        tags.push(("Cornered", Color32::from_rgb(220, 90, 90), None));
+    }
+    if world.get::<crate::agent::Lame>(entity).is_some() {
+        tags.push(("Lame", Color32::from_rgb(220, 160, 80), None));
+    }
+    if let Some(d) = world.get::<crate::agent::Dazed>(entity) {
+        let tick = world
+            .get_resource::<crate::core::tick::TickCount>()
+            .map(|t| t.current)
+            .unwrap_or(0);
+        let remaining = d.until_tick.saturating_sub(tick);
+        tags.push((
+            "Dazed",
+            Color32::from_rgb(200, 130, 200),
+            Some(format!("{}t", remaining)),
+        ));
+    }
+    if let Some(needs) = world.get::<PhysicalNeeds>(entity)
+        && needs.warmth.value < 0.3
+    {
+        tags.push(("Cold", Color32::from_rgb(120, 180, 220), None));
+    }
+    if let Some(needs) = world.get::<PhysicalNeeds>(entity)
+        && needs.stamina.aerobic_fraction() < 0.2
+    {
+        tags.push(("Tired", Color32::from_rgb(180, 180, 120), None));
+    }
+    if let Some(body) = world.get::<crate::agent::biology::body::Body>(entity)
+        && body
+            .parts
+            .iter()
+            .any(|p| p.injuries.iter().any(|i| i.bleed_rate > 0.0))
+    {
+        tags.push(("Bleeding", Color32::from_rgb(220, 80, 80), None));
+    }
+
+    if tags.is_empty() {
+        return;
+    }
+    ui.horizontal_wrapped(|ui| {
+        ui.label(egui::RichText::new("State").strong());
+        for (label, color, suffix) in tags {
+            let text = match suffix {
+                Some(s) => format!("{} ({})", label, s),
+                None => label.to_string(),
+            };
+            ui.colored_label(color, text);
+        }
+    });
 }
 
 /// Horizontal "label | progress bar | number" row keyed to a 0..max
@@ -2283,50 +2465,96 @@ fn render_inventory(ui: &mut egui::Ui, world: &World, entity: Entity) {
 // ============================================================================
 
 fn render_activity(ui: &mut egui::Ui, world: &World, entity: Entity) {
+    use crate::core::log::LogCategory;
+
     let Some(log) = world.get_resource::<GameLog>() else {
         placeholder(ui, "(game log unavailable)");
         return;
     };
 
     ui.heading("Recent Activity");
-    ui.label(
-        egui::RichText::new("Game-log entries that mention this agent, newest first.")
-            .small()
-            .color(Color32::LIGHT_GRAY),
-    );
+
+    // Per-tab category filter — agents emit Brain/Perception entries
+    // every tick, which floods the read-pane. Default to the
+    // narratively-significant categories so the player can actually
+    // see what happened without drowning in arbitration spam. Filter
+    // state lives in egui memory so we don't need a mutable World
+    // borrow inside the render closure.
+    let filter_id = egui::Id::new("activity_filter");
+    let mut filter: ActivityFilter = ui
+        .ctx()
+        .memory(|m| m.data.get_temp(filter_id).unwrap_or_default());
+    ui.horizontal_wrapped(|ui| {
+        ui.label(
+            egui::RichText::new("Show:")
+                .small()
+                .color(Color32::LIGHT_GRAY),
+        );
+        for (cat, label) in [
+            (LogCategory::Action, "Actions"),
+            (LogCategory::Event, "Events"),
+            (LogCategory::Plan, "Plans"),
+            (LogCategory::Brain, "Brain"),
+            (LogCategory::Perception, "Perception"),
+            (LogCategory::Debug, "Debug"),
+        ] {
+            let mut on = filter.contains(cat);
+            if ui.toggle_value(&mut on, label).changed() {
+                filter.toggle(cat);
+            }
+        }
+    });
+    ui.ctx()
+        .memory_mut(|m| m.data.insert_temp(filter_id, filter));
     ui.add_space(2.0);
 
     let mut entries: Vec<_> = log
         .all_entries()
-        .filter(|e| e.entity == Some(entity))
+        .filter(|e| e.entity == Some(entity) && filter.contains(e.category))
         .collect();
     entries.reverse();
-    entries.truncate(60);
+    entries.truncate(200);
 
     if entries.is_empty() {
-        placeholder(ui, "(nothing logged for this agent yet)");
+        placeholder(
+            ui,
+            "(nothing logged for this agent yet — try enabling more categories)",
+        );
         return;
     }
 
     for entry in entries {
+        let cat_color = activity_category_color(entry.category);
         ui.horizontal(|ui| {
             ui.label(
                 egui::RichText::new(format!("[{}]", entry.timestamp))
                     .small()
-                    .color(Color32::LIGHT_GRAY),
+                    .color(Color32::from_gray(120)),
+            );
+            ui.colored_label(
+                cat_color,
+                egui::RichText::new(entry.category.prefix()).small(),
             );
             let count_suffix = if entry.count > 1 {
                 format!(" (×{})", entry.count)
             } else {
                 String::new()
             };
-            ui.label(format!(
-                "{} {}{}",
-                entry.category.prefix(),
-                entry.message,
-                count_suffix
-            ));
+            ui.label(format!("{}{}", entry.message, count_suffix));
         });
+    }
+}
+
+fn activity_category_color(cat: crate::core::log::LogCategory) -> Color32 {
+    use crate::core::log::LogCategory;
+    match cat {
+        LogCategory::Action => Color32::from_rgb(220, 200, 120),
+        LogCategory::Event => Color32::from_rgb(220, 120, 120),
+        LogCategory::Plan => Color32::from_rgb(180, 200, 230),
+        LogCategory::Brain => Color32::from_rgb(160, 220, 180),
+        LogCategory::Perception => Color32::from_rgb(170, 170, 220),
+        LogCategory::Debug => Color32::from_gray(140),
+        LogCategory::Performance => Color32::from_gray(140),
     }
 }
 

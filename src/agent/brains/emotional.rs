@@ -373,6 +373,44 @@ pub fn find_closest_dangerous(
     best.map(|(e, pos, _)| (e, pos))
 }
 
+/// Per-emotion sums for one entity, including type-inherited contributions
+/// (e.g. an entity-of-type-Wolf inherits the Concept-level Wolf feelings).
+/// Public so the UI can read the agent's feelings toward any entity, not
+/// just the three types `evaluate_entity_emotions` consumes.
+pub fn entity_feelings(entity: Entity, mind: &MindGraph) -> Vec<(EmotionType, f32)> {
+    let subject = Node::Entity(entity);
+    let mut feelings: Vec<(EmotionType, f32)> = Vec::new();
+    let mut collect = |subj: &Node| {
+        for triple in mind.query(Some(subj), Some(Predicate::TriggersEmotion), None) {
+            if let Value::Emotion(etype, intensity) = triple.object {
+                feelings.push((etype, intensity));
+            }
+        }
+    };
+    collect(&subject);
+    for concept in mind.all_types(&subject) {
+        collect(&Node::Concept(concept));
+    }
+    feelings
+}
+
+/// All entities the agent has any `TriggersEmotion` triple for —
+/// the keys for an "I feel about these entities" UI panel. Only
+/// returns entity-level subjects; concept-level feelings (like "I
+/// fear all Wolves in general") aren't enumerated here.
+pub fn entities_with_feelings(mind: &MindGraph) -> Vec<Entity> {
+    let mut seen = std::collections::HashSet::new();
+    let mut out = Vec::new();
+    for triple in mind.query(None, Some(Predicate::TriggersEmotion), None) {
+        if let Node::Entity(e) = triple.subject
+            && seen.insert(e)
+        {
+            out.push(e);
+        }
+    }
+    out
+}
+
 /// Returns (fear, joy, anger) intensities from direct and inherited associations.
 fn collect_entity_feelings(entity: Entity, mind: &MindGraph) -> (f32, f32, f32) {
     let subject = Node::Entity(entity);
