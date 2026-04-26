@@ -60,11 +60,7 @@ pub fn arbitrate_every_tick(
             // Brains
             (&mut PlanMemory, &CentralNervousSystem),
             // Needs
-            (
-                &PhysicalNeeds,
-                &Consciousness,
-                Option<&PsychologicalDrives>,
-            ),
+            (&PhysicalNeeds, &Consciousness, Option<&PsychologicalDrives>),
             // Body & Self
             (
                 &EmotionalState,
