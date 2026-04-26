@@ -1217,6 +1217,35 @@ impl TestWorld {
 
     // ─── Convenience queries ───────────────────────────────────────────────
 
+    /// Bootstrap acquaintance from `observer` toward `target`: writes the
+    /// `SocialIdentity` ledger entry and seeds the relationship dimensions
+    /// (Trust / Affection / Respect / PowerBalance) on the observer's
+    /// MindGraph at the given `affection` level.
+    pub fn introduce_agent(
+        &mut self,
+        observer: Entity,
+        target: Entity,
+        target_name: &str,
+        affection: f32,
+    ) {
+        if let Some(mut social) =
+            self.app_mut()
+                .world_mut()
+                .get_mut::<crate::agent::mind::social_identity::SocialIdentity>(observer)
+        {
+            social.introduce(
+                target,
+                crate::agent::mind::knowledge::AgentName(target_name.to_string()),
+                0,
+            );
+        }
+        if let Some(mut mind) = self.app_mut().world_mut().get_mut::<MindGraph>(observer) {
+            crate::agent::mind::recognition::init_relationship_dimensions(
+                &mut mind, target, 0, affection,
+            );
+        }
+    }
+
     /// True if `agent`'s `SocialIdentity` ledger contains `other`.
     pub fn agent_knows(&self, agent: Entity, other: Entity) -> bool {
         self.app()

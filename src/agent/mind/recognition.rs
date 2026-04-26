@@ -64,8 +64,10 @@ pub fn check_recognition(
 
             // Check: Do I know this entity?
             if !social_identity.knows(visible_entity) {
-                // This is a stranger! Mark them as such
-                // The social brain will see this and propose introduction
+                // Stranger — write the IsA tag once, when it isn't already
+                // there, to avoid a per-tick MindGraph round-trip while
+                // the stranger remains in view. The social brain proposes
+                // introduction; emit the wakeup-style event regardless.
                 sim_events.write(crate::agent::events::SimEvent::single(
                     current_time,
                     observer_entity,
@@ -74,25 +76,30 @@ pub fn check_recognition(
                         stranger: visible_entity,
                     },
                 ));
-                mind.assert(Triple::with_meta(
-                    target_node.clone(),
-                    Predicate::IsA,
-                    Value::Concept(Concept::Stranger),
-                    Metadata::perception(current_time),
-                ));
-
-                // Remove any stale "known" relationship type
-                // (they might have been Friend/Acquaintance but we forgot)
-                mind.remove(
+                if !mind.has(
                     &target_node,
                     Predicate::IsA,
-                    &Value::Concept(Concept::Friend),
-                );
-                mind.remove(
-                    &target_node,
-                    Predicate::IsA,
-                    &Value::Concept(Concept::Acquaintance),
-                );
+                    &Value::Concept(Concept::Stranger),
+                ) {
+                    mind.assert(Triple::with_meta(
+                        target_node.clone(),
+                        Predicate::IsA,
+                        Value::Concept(Concept::Stranger),
+                        Metadata::perception(current_time),
+                    ));
+                    // Drop any stale relationship category from a previous
+                    // acquaintance we've since forgotten about.
+                    mind.remove(
+                        &target_node,
+                        Predicate::IsA,
+                        &Value::Concept(Concept::Friend),
+                    );
+                    mind.remove(
+                        &target_node,
+                        Predicate::IsA,
+                        &Value::Concept(Concept::Acquaintance),
+                    );
+                }
             } else {
                 // We know them - remove stranger tag if present
                 mind.remove(

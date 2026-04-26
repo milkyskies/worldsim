@@ -15,7 +15,6 @@ use crate::agent::body::genetics::genome::Genome;
 use crate::agent::mind::knowledge::{
     Metadata, MindGraph, Node, Predicate, Quantity, Triple, Value,
 };
-use crate::agent::mind::recognition::init_relationship_dimensions;
 use crate::testing::config::AgentConfig;
 use crate::testing::world::{TestWorld, make_walkable_map};
 use crate::world::map::{TileType, WorldMap};
@@ -557,30 +556,6 @@ fn spawn_named_agent(world: &mut TestWorld, spec: &AgentSpec) -> Entity {
     world.spawn_agent(config)
 }
 
-/// Write mutual Knows triples between all members of a group.
-/// Bootstrap acquaintance from `observer` toward `target`: writes the
-/// `SocialIdentity` ledger entry and the neutral relationship dimensions
-/// to the observer's MindGraph. Replaces the old monolithic
-/// `initialize_relationship` after #587 split the social ledger out of
-/// the MindGraph.
-fn init_acquaintance(world: &mut TestWorld, observer: Entity, target: Entity, target_name: &str) {
-    if let Some(mut social) =
-        world
-            .app_mut()
-            .world_mut()
-            .get_mut::<crate::agent::mind::social_identity::SocialIdentity>(observer)
-    {
-        social.introduce(
-            target,
-            crate::agent::mind::knowledge::AgentName(target_name.to_string()),
-            0,
-        );
-    }
-    if let Some(mut mind) = world.app_mut().world_mut().get_mut::<MindGraph>(observer) {
-        init_relationship_dimensions(&mut mind, target, 0, 0.5);
-    }
-}
-
 fn apply_mutual_knowledge(world: &mut TestWorld, members: &[Entity]) {
     // Collect (entity, name) pairs without holding borrows.
     let pairs: Vec<(Entity, String)> = members
@@ -607,8 +582,8 @@ fn apply_mutual_knowledge(world: &mut TestWorld, members: &[Entity]) {
             let b_name = name_b.clone();
             let a_name = name_a.clone();
 
-            init_acquaintance(world, a, b, &b_name);
-            init_acquaintance(world, b, a, &a_name);
+            world.introduce_agent(a, b, &b_name, 0.5);
+            world.introduce_agent(b, a, &a_name, 0.5);
         }
     }
 }
@@ -622,7 +597,7 @@ fn apply_relationship(world: &mut TestWorld, a: Entity, b: Entity, spec: &Relati
         .map(|n| n.as_str().to_string())
         .unwrap_or_default();
 
-    init_acquaintance(world, a, b, &b_name);
+    world.introduce_agent(a, b, &b_name, 0.5);
     let mind = world.app_mut().world_mut().get_mut::<MindGraph>(a);
     let Some(mut mind) = mind else { return };
 

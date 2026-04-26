@@ -128,13 +128,6 @@ pub fn update_body_perception(
             Metadata::semantic(current_time),
         ));
 
-        // Body-state self-sensing — Hunger / Thirst / Stamina / Pain — used
-        // to be written here as triples every tick. They now live as live
-        // component fields (`PhysicalNeeds`, `Body::total_pain`) and the
-        // planner reads them via `PlanCostContext` built at brain entry.
-        // Skipping the triple round-trip removes this system's dominant
-        // per-tick cost (see #587 / 2026-04-26 benchmark).
-
         // Rule 4: Consciousness
         let is_awake = consciousness.alertness > 0.2;
         let trait_val = if is_awake {
