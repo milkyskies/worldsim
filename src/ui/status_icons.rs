@@ -319,8 +319,10 @@ mod tests {
 
     #[test]
     fn happy_agent_shows_smile() {
-        let mut emotions = EmotionalState::default();
-        emotions.current_mood = 0.8;
+        let emotions = EmotionalState {
+            current_mood: 0.8,
+            ..Default::default()
+        };
         assert_eq!(
             pick_icon(&ctx_with(
                 ActiveActions::default(),
@@ -333,8 +335,10 @@ mod tests {
 
     #[test]
     fn hungry_agent_shows_warning() {
-        let mut needs = PhysicalNeeds::default();
-        needs.metabolism = crate::agent::body::metabolism::Metabolism::at_urgency(0.85);
+        let needs = PhysicalNeeds {
+            metabolism: crate::agent::body::metabolism::Metabolism::at_urgency(0.85),
+            ..Default::default()
+        };
         assert_eq!(
             pick_icon(&ctx_with(
                 ActiveActions::default(),

@@ -445,27 +445,13 @@ impl Plugin for CharacterSheetPlugin {
 // STATE
 // ============================================================================
 
-#[derive(Resource)]
+#[derive(Resource, Default)]
 pub struct CharacterSheetState {
     /// Currently displayed tab in the right-side character panel.
     pub active_tab: CharSheetTab,
     /// User dismissed the panel for this specific entity. Cleared when the
     /// player selects a different agent so the next click reopens it.
     dismissed_for: Option<Entity>,
-    /// Which `LogCategory` rows the Activity tab shows. Default-quiet
-    /// (Brain/Perception/Debug off) so the read-pane reflects narrative
-    /// events rather than per-tick arbitration spam.
-    pub activity_filter: ActivityFilter,
-}
-
-impl Default for CharacterSheetState {
-    fn default() -> Self {
-        Self {
-            active_tab: CharSheetTab::default(),
-            dismissed_for: None,
-            activity_filter: ActivityFilter::default(),
-        }
-    }
 }
 
 /// Per-category toggle for the Activity tab. `Copy` so we can move it
