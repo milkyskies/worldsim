@@ -197,9 +197,15 @@ fn compute_realistic_layout(config: &WorldSpawnConfig, map: &WorldMap) -> SpawnL
         }
     }
 
-    // Stone nodes spawn in rocky terrain.
+    // Stone nodes spawn on rocky terrain (Rock OR Gravel) so resources stay
+    // reliable even on small maps where full Rock peaks may not form.
     for _ in 0..config.stone_nodes {
-        if let Some(pos) = find_biome_tile(map, &mut rng, &[TileType::Rock], MAX_SPAWN_ATTEMPTS) {
+        if let Some(pos) = find_biome_tile(
+            map,
+            &mut rng,
+            &[TileType::Rock, TileType::Gravel],
+            MAX_SPAWN_ATTEMPTS,
+        ) {
             layout.stone_node_positions.push((pos, 5));
         }
     }
