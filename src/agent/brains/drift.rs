@@ -138,10 +138,19 @@ fn get_deficit_warmth(ctx: &DriftContext) -> f32 {
 }
 
 fn collect_heat_emitters(ctx: &DriftContext) -> Vec<(Vec2, f32)> {
+    // Read the trait at the concept level via `visible_types` (parallel-
+    // indexed with `visible`) instead of `mind.has_trait(&Node::Entity)` —
+    // saves the per-call `(entity, IsA, ?)` walk for what's already a
+    // hot warmth-seeking-drift loop.
     ctx.visible
         .iter()
-        .filter(|(e, _)| ctx.mind.has_trait(&Node::Entity(*e), Concept::HeatEmitting))
-        .map(|(_, pos)| (*pos, 1.0))
+        .enumerate()
+        .filter_map(|(i, (_, pos))| {
+            let concept = ctx.visible_types.get(i).and_then(|c| *c)?;
+            ctx.mind
+                .has_trait(&Node::Concept(concept), Concept::HeatEmitting)
+                .then_some((*pos, 1.0))
+        })
         .collect()
 }
 

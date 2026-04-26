@@ -15,6 +15,7 @@ use super::survival::{SurvivalBrainContext, survival_brain_propose};
 use crate::agent::biology::body::{Body, TagChannelMapping};
 use crate::agent::body::needs::{Consciousness, PhysicalNeeds, PsychologicalDrives};
 use crate::agent::events::SimEventKind;
+use crate::agent::mind::knowledge::Concept;
 use crate::agent::mind::perception::VisibleObjects;
 use crate::agent::nervous_system::cns::CentralNervousSystem;
 use crate::agent::psyche::emotions::EmotionalState;
@@ -124,7 +125,7 @@ pub fn arbitrate_every_tick(
     mut brain_histories: Query<&mut BrainHistory>,
     mapping: Res<TagChannelMapping>,
     fields: Res<crate::world::field_grid_plugin::FieldGrids>,
-    all_transforms: Query<&Transform>,
+    all_transforms: Query<(&Transform, Option<&crate::agent::inventory::EntityType>)>,
     all_bodies: Query<&Body>,
     cornered_query: Query<&crate::agent::Cornered>,
     dazed_query: Query<&crate::agent::Dazed>,
@@ -160,7 +161,7 @@ pub fn arbitrate_every_tick(
         // Compute once per agent — survival context and threat appraisal
         // both need the closest visible Dangerous entity.
         let closest_dangerous =
-            super::emotional::find_closest_dangerous(visible, mind, agent_pos, &all_transforms);
+            super::emotional::find_closest_dangerous(visible, mind, &all_transforms, agent_pos);
 
         let survival_context = SurvivalBrainContext {
             physical,
@@ -178,22 +179,28 @@ pub fn arbitrate_every_tick(
             &action_registry,
         );
 
-        // Pre-resolve visible-entity positions so the tile scorer doesn't
-        // hit the Query per tile.
-        let visible_positions: Vec<(Entity, Vec2)> = visible
-            .entities
-            .iter()
-            .filter_map(|&e| {
-                all_transforms
-                    .get(e)
-                    .ok()
-                    .map(|t| (e, t.translation.truncate()))
-            })
-            .collect();
+        // Pre-resolve visible-entity positions and concept types so the
+        // tile scorer doesn't hit the Query per tile and so emotional
+        // proposers can ask the ontology by concept (skipping the
+        // wasted entity→IsA chain walk per visible-entity per
+        // arbitration).
+        let mut visible_positions: Vec<(Entity, Vec2)> = Vec::with_capacity(visible.entities.len());
+        let mut visible_types: Vec<Option<Concept>> = Vec::with_capacity(visible.entities.len());
+        for &e in &visible.entities {
+            if let Ok((t, et)) = all_transforms.get(e) {
+                visible_positions.push((e, t.translation.truncate()));
+                visible_types.push(et.map(|et| et.0));
+            }
+        }
 
         let closest_threat = closest_dangerous.map(|(e, pos)| super::emotional::ClosestThreat {
             entity: e,
             pos,
+            type_concept: all_transforms
+                .get(e)
+                .ok()
+                .and_then(|(_, et)| et)
+                .map(|et| et.0),
             body: all_bodies.get(e).ok(),
         });
         let cornered = cornered_query.contains(entity);
@@ -203,6 +210,7 @@ pub fn arbitrate_every_tick(
             mind,
             visible,
             visible_positions: &visible_positions,
+            visible_types: &visible_types,
             physical,
             drives,
             in_conversation,
