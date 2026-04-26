@@ -123,9 +123,12 @@ pub mod world {
 
 /// Agent movement parameters
 pub mod movement {
-    /// Pixels per tick at normal stamina. 22 px/tick = 1.4 tiles/game-sec =
-    /// 1.4 m/s, matching real-life human walking pace (since 1 tile = 1m).
-    pub const BASE_SPEED_PER_TICK: f32 = 22.0;
+    /// Pixels per tick at normal stamina. Set below realistic walking pace
+    /// (real walking would be ~22 px/tick) because the game's wallclock
+    /// compression (60 game-sec per real-sec) makes literal-realistic
+    /// movement look like sprinting. 6 px/tick = 0.375 m/s in-game (slow
+    /// stroll), but reads as a natural brisk walk on screen.
+    pub const BASE_SPEED_PER_TICK: f32 = 6.0;
     pub const TIRED_STAMINA_THRESHOLD: f32 = 20.0;
     pub const TIRED_SPEED_MULTIPLIER: f32 = 0.5;
     pub const EXHAUSTED_STAMINA_THRESHOLD: f32 = 5.0;
@@ -229,14 +232,14 @@ pub mod actions {
 
     pub mod walk {
         /// Estimated stamina cost per tile at normal speed (for planner estimation).
-        /// Calibrated against real-life walking endurance: at the 22 px/tick
-        /// (1.4 m/s) base speed, 0.004/tile drains ~0.4 stamina per game-minute
-        /// of walking, so a 100-stamina pool sustains ~4 game-hours of travel
-        /// before forcing a rest.
-        pub const STAMINA_PER_TILE_NORMAL: f32 = 0.004;
+        /// Scaled together with `BASE_SPEED_PER_TICK` so per-game-time fatigue
+        /// stays roughly constant: at 6 px/tick, 0.015/tile drains ~0.34
+        /// stamina per game-minute of walking, sustaining ~5 game-hours of
+        /// travel before forcing a rest.
+        pub const STAMINA_PER_TILE_NORMAL: f32 = 0.015;
 
         /// Estimated stamina cost per tile at tired speed (below TIRED_STAMINA_THRESHOLD).
-        pub const STAMINA_PER_TILE_TIRED: f32 = 0.008;
+        pub const STAMINA_PER_TILE_TIRED: f32 = 0.030;
     }
 
     pub mod warm_up {
