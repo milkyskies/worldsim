@@ -89,23 +89,6 @@ pub const PLAN_GENERATION_MIN_URGENCY: f32 = 0.1;
 /// arbitration and stranding a partially-completed chain.
 pub const PLAN_MOMENTUM_URGENCY_BONUS: f32 = 0.15;
 
-/// Stagger modulus for the heavy GOAP-search loop in
-/// `update_rational_planning`. 10 ticks = ~10 game-seconds of worst-case
-/// latency before a new urgency gets a fresh plan, well below human
-/// reaction-time at 1 tick = 1 game-second.
-const PLANNING_STAGGER_MOD: u64 = 10;
-
-/// Returns true on ticks where this agent should enter the heavy
-/// planner loop (step 5 of `update_rational_planning`). Steps 1-4
-/// (event-driven plan-step advancement, commitment growth, state
-/// transitions, stale-plan sweep) still run every tick for every
-/// agent — only the urgency-driven re-planning is throttled here.
-fn planner_phase_active(entity_index: u32, tick: u64) -> bool {
-    (entity_index as u64)
-        .wrapping_add(tick)
-        .is_multiple_of(PLANNING_STAGGER_MOD)
-}
-
 /// Synthesize a concrete goal from an active urgency. Returns `None`
 /// for urgencies with no planner-level satisfier — those drives
 /// (Curiosity/Fun/Territoriality) are handled reactively by the
@@ -295,8 +278,14 @@ pub fn update_rational_planning(
         MessageReader<crate::agent::events::SimEvent>,
         MessageWriter<crate::agent::events::SimEvent>,
     )>,
+    mut wakeup_params: ParamSet<(
+        MessageReader<super::wakeup::BrainWakeup>,
+        MessageWriter<super::wakeup::BrainWakeup>,
+    )>,
     mapping: Res<TagChannelMapping>,
 ) {
+    let woken_planner_agents: std::collections::HashSet<Entity> =
+        wakeup_params.p0().read().map(|w| w.agent).collect();
     let perf_logging = game_log.is_enabled(crate::core::log::LogCategory::Performance);
     let start_time = if perf_logging {
         Some(std::time::Instant::now())
@@ -434,8 +423,19 @@ pub fn update_rational_planning(
                 finished_ids.push(plan.id);
             }
         }
+        let any_plan_change = !invalid_ids.is_empty() || !finished_ids.is_empty();
         for id in invalid_ids.iter().chain(finished_ids.iter()) {
             plan_memory.remove(*id);
+        }
+        // A removed plan invalidates BrainState.chosen_actions for this
+        // agent — fire a wakeup so arbitration (later this same tick)
+        // recomputes instead of leaving the stale entry in place.
+        if any_plan_change {
+            wakeup_params.p1().write(super::wakeup::BrainWakeup {
+                tick: current_tick,
+                agent: entity,
+                reason: super::wakeup::BrainTrigger::PlanFailed,
+            });
         }
 
         // 2. Per-tick commitment accumulation for plans still in
@@ -569,19 +569,14 @@ pub fn update_rational_planning(
             continue;
         }
 
-        // Spread the GOAP-search loop across PLANNING_STAGGER_MOD ticks
-        // so action-completion cascades and alarm broadcasts don't trigger
-        // every agent's planner on the same frame. The per-urgency
-        // cooldown inside the loop continues to throttle within an agent.
-        //
-        // Bypass when the agent has no plans at all — they need a plan
-        // *now*, not 9 ticks from now. Otherwise emotional brain takes
-        // the wheel and behavior visibly drifts (e.g. an agent finishing
-        // a "walk to talk to X" plan would idle and wander before the
-        // staggered planner produced "say hi", cutting conversations
-        // short).
-        if !plan_memory.plans.is_empty() && !planner_phase_active(entity.index_u32(), current_tick)
-        {
+        // Skip the heavy GOAP search loop unless this agent was woken
+        // this tick — same wakeup set that gates `arbitrate_every_tick`.
+        // Steps 1-4 above (event-driven plan-step advancement,
+        // commitment growth, state transitions, stale-plan sweep) still
+        // ran for every agent because they consume single-pass events.
+        // Bypass when the agent has no plans at all — a plan-less agent
+        // always needs the search regardless of wakeup state.
+        if !plan_memory.plans.is_empty() && !woken_planner_agents.contains(&entity) {
             continue;
         }
 
@@ -1016,37 +1011,6 @@ mod tests {
     use crate::agent::mind::knowledge::{Concept, Node as MindNode, Predicate, Value};
     use crate::agent::nervous_system::cns::CentralNervousSystem;
     use crate::agent::nervous_system::urgency::{Urgency, UrgencySource};
-
-    #[test]
-    fn planner_phase_active_fires_once_per_window_per_agent() {
-        for entity_index in 0..32u32 {
-            let hits = (0..PLANNING_STAGGER_MOD)
-                .filter(|tick| planner_phase_active(entity_index, *tick))
-                .count();
-            assert_eq!(
-                hits, 1,
-                "entity {entity_index} fired {hits} times in a {PLANNING_STAGGER_MOD}-tick window",
-            );
-        }
-    }
-
-    #[test]
-    fn planner_phase_active_distributes_load_across_window() {
-        let agents_per_tick: Vec<usize> = (0..PLANNING_STAGGER_MOD)
-            .map(|tick| {
-                (0..PLANNING_STAGGER_MOD as u32)
-                    .filter(|idx| planner_phase_active(*idx, tick))
-                    .count()
-            })
-            .collect();
-
-        for (tick, count) in agents_per_tick.iter().enumerate() {
-            assert_eq!(
-                *count, 1,
-                "tick {tick} had {count} agents firing — load is not evenly spread",
-            );
-        }
-    }
 
     fn template(name: &str, action_type: ActionType) -> ActionTemplate {
         let registry = crate::agent::actions::ActionRegistry::new();

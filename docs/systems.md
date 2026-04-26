@@ -582,13 +582,19 @@ score = urgency × power
 **Location**: `src/agent/brains/brain_system.rs`
 
 **Update Schedule**:
-- `arbitrate_every_tick` runs every tick for every agent so the recorded
-  brain winner always agrees with what the body is currently executing.
-- `update_rational_planning` (in `rational.rs`) runs every tick for plan-
-  step advancement and stale-plan cleanup, but the heavy GOAP-search
-  loop is staggered by `(entity_index + tick) % PLANNING_STAGGER_MOD`
-  so action-completion cascades and alarm broadcasts can't collide on
-  one frame.
+- Brain arbitration is **event-driven via `BrainWakeup`** — `arbitrate_every_tick`
+  only re-arbitrates for agents whose situation actually changed this tick.
+  Agents with no pending wakeup keep their previous `BrainState`, so the
+  body keeps executing the same winner. Wakeups fire from action lifecycle
+  events, drive-threshold crossings (with hysteresis bands), new perceptions,
+  knowledge changes, conversation state changes, plan invalidations, and
+  a periodic-safety catch-all every 600 ticks per agent.
+- `update_rational_planning` runs every tick for plan-step advancement and
+  stale-plan cleanup (those steps consume single-pass events), but its
+  heavy GOAP-search loop is gated by the same wakeup set as arbitration.
+- `tick_cognitive_drain` and `emit_agent_state_hash` run every tick
+  unconditionally — both are observability/state signals that mustn't
+  depend on the wakeup gate.
 - Perception Interval: 10 ticks (6 Hz).
 
 **Process**:
@@ -1789,18 +1795,20 @@ Vec<Item>  // Item = (Concept, quantity)
 
 ## Performance Optimizations
 
-### Staggered Updates
-Heavy per-agent inner loops gate on entity index so they don't all
-fire on the same frame:
-```
-phase_active = (entity_index + current_tick) % stagger_mod == 0
-```
+### Event-Driven Brain Ticking
+Brain arbitration and the rational planner's GOAP-search loop are gated
+by `BrainWakeup` messages — they only run for agents whose situation
+actually changed this tick. Wakeup emitters live in
+`src/agent/brains/wakeup.rs` and cover action lifecycle, drive-threshold
+crossings (with hysteresis), new perceptions, knowledge changes,
+conversation state changes, plan invalidations, and a 600-tick periodic
+safety net. Agents with no wakeup keep their previous `BrainState`, so
+the body keeps executing the same winner — invariant preserved by
+*not changing it* until something actually changes.
 
-**Currently staggered**:
-- The GOAP-search loop in `update_rational_planning` (mod 10).
-
-Light bookkeeping (plan-step advancement, brain arbitration, perception
-tile sampling) runs every tick for every agent.
+Light bookkeeping (plan-step advancement reading single-pass action
+events, perception tile sampling, cognitive alertness drain, agent
+state-hash emission) runs every tick for every agent.
 
 **Benefit**: Prevents frame spikes when many agents replan
 simultaneously (action-completion cascades, alarm broadcasts).

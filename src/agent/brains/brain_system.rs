@@ -22,15 +22,64 @@ use crate::agent::psyche::personality::Personality;
 use crate::world::map::WorldMap;
 use bevy::prelude::*;
 
-/// Collect proposals from all three brains and pick the admitted
-/// action set for every agent, every tick. Proposal generation,
-/// arbitration, and BrainState writeback are all cheap enough to run
-/// per-tick so the recorded winner always agrees with what the body
-/// is running. Expensive GOAP re-planning lives in
-/// `rational::update_rational_planning` and fires only when the
-/// current goal has no concrete plan.
+/// Per-tick alertness drain from cognitive load. Runs every tick for
+/// every agent regardless of whether arbitration fired, so agents that
+/// don't get woken still pay the steady metabolic cost of being awake.
+pub fn tick_cognitive_drain(
+    mut query: Query<
+        (&mut Consciousness, &Personality),
+        (
+            With<crate::agent::Agent>,
+            With<super::rational::RationalBrain>,
+        ),
+    >,
+) {
+    for (mut consciousness, personality) in query.iter_mut() {
+        let tick_relief = personality.traits.conscientiousness
+            * crate::constants::brains::cognition::CONSCIENTIOUSNESS_TICK_RELIEF;
+        let tick_drain = crate::constants::brains::rational::COGNITIVE_TICK_ALERTNESS_DRAIN
+            * (1.0 - tick_relief)
+            / 60.0;
+        consciousness.alertness = (consciousness.alertness - tick_drain).max(0.0);
+    }
+}
+
+/// Emit `AgentStateHash` every tick for every agent, regardless of
+/// whether arbitration fired. This is a determinism-debugging signal,
+/// not a decision signal, so it can't depend on the wakeup gate.
+pub fn emit_agent_state_hash(
+    tick: Res<crate::core::tick::TickCount>,
+    query: Query<
+        (Entity, &Transform, &CentralNervousSystem, &PlanMemory),
+        (
+            With<crate::agent::Agent>,
+            With<super::rational::RationalBrain>,
+        ),
+    >,
+    mut sim_events: MessageWriter<crate::agent::events::SimEvent>,
+) {
+    for (entity, transform, cns, plan_memory) in query.iter() {
+        let hash =
+            compute_agent_state_hash(entity, transform.translation.truncate(), cns, plan_memory);
+        sim_events.write(crate::agent::events::SimEvent::single(
+            tick.current,
+            entity,
+            SimEventKind::AgentStateHash {
+                agent: entity,
+                hash,
+            },
+        ));
+    }
+}
+
+/// Collect proposals from all three brains and pick the admitted action
+/// set for agents whose situation changed this tick (signalled via
+/// `BrainWakeup`). Agents with no pending wakeup keep the BrainState
+/// from their previous arbitration — the body executes the same winner
+/// until something interesting happens to fire a fresh wakeup.
 pub fn arbitrate_every_tick(
     tick: Res<crate::core::tick::TickCount>,
+    mut wakeups: MessageReader<super::wakeup::BrainWakeup>,
     mut query: Query<
         (
             Entity,
@@ -39,11 +88,7 @@ pub fn arbitrate_every_tick(
             // Brains
             (&mut PlanMemory, &CentralNervousSystem),
             // Needs
-            (
-                &PhysicalNeeds,
-                &mut Consciousness,
-                Option<&PsychologicalDrives>,
-            ),
+            (&PhysicalNeeds, &Consciousness, Option<&PsychologicalDrives>),
             // Body & Self
             (
                 &EmotionalState,
@@ -84,34 +129,30 @@ pub fn arbitrate_every_tick(
     cornered_query: Query<&crate::agent::Cornered>,
     dazed_query: Query<&crate::agent::Dazed>,
 ) {
+    let woken: std::collections::HashSet<Entity> = wakeups.read().map(|w| w.agent).collect();
+
     for (
         entity,
         name,
         mut brain_state,
         (mut plan_memory, cns),
-        (physical, mut consciousness, drives),
+        (physical, consciousness, drives),
         (emotions, body, personality, inventory),
         (transform, visible, mind, active_actions, in_conversation, self_entity_type),
     ) in query.iter_mut()
     {
+        // Skip agents whose situation didn't change this tick — their
+        // existing BrainState is still the correct decision.
+        if !woken.contains(&entity) {
+            continue;
+        }
+
         // Dazed agents skip arbitration entirely — heavy head trauma
         // suppresses the next decision cycle. The component clears on
         // its own when `until_tick` passes.
         if dazed_query.contains(entity) {
             continue;
         }
-
-        // Cognitive tick cost: every arbitration burns a sliver of alertness.
-        // Conscientious agents tolerate brain work better — they're wired
-        // for it. The constant is calibrated per wallclock-second at the
-        // 60 tps base rate, so divide by 60 to spread the cost across
-        // every-tick arbitration.
-        let tick_relief = personality.traits.conscientiousness
-            * crate::constants::brains::cognition::CONSCIENTIOUSNESS_TICK_RELIEF;
-        let tick_drain = crate::constants::brains::rational::COGNITIVE_TICK_ALERTNESS_DRAIN
-            * (1.0 - tick_relief)
-            / 60.0;
-        consciousness.alertness = (consciousness.alertness - tick_drain).max(0.0);
 
         // 1. Gather proposals from all three brains
 
@@ -182,7 +223,7 @@ pub fn arbitrate_every_tick(
         let rational_proposals = rational_brain_propose(&plan_memory, cns, mind, &action_registry);
 
         // 2. Calculate brain powers, then apply history-based multiplier
-        let base_powers = calculate_brain_powers(cns, &consciousness, emotions, personality);
+        let base_powers = calculate_brain_powers(cns, consciousness, emotions, personality);
         let powers = if let Ok(history) = brain_histories.get(entity) {
             BrainPowers {
                 survival: base_powers.survival * history.power_multiplier(BrainType::Survival),
@@ -201,7 +242,7 @@ pub fn arbitrate_every_tick(
         let capacities = crate::agent::actions::ChannelCapacities::compute(
             body,
             Some(physical),
-            Some(&*consciousness),
+            Some(consciousness),
             &mapping,
         );
 
@@ -330,18 +371,6 @@ pub fn arbitrate_every_tick(
                 powers,
                 proposals: std::sync::Arc::new(brain_state.proposals.clone()),
                 urgencies: urgencies_snapshot,
-            },
-        ));
-
-        // Per-tick state hash for non-determinism debugging.
-        let hash =
-            compute_agent_state_hash(entity, transform.translation.truncate(), cns, &plan_memory);
-        sim_events.write(crate::agent::events::SimEvent::single(
-            tick.current,
-            entity,
-            SimEventKind::AgentStateHash {
-                agent: entity,
-                hash,
             },
         ));
     }

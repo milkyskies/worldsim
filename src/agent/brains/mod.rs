@@ -15,6 +15,7 @@ pub mod target_enumeration;
 pub mod thinking;
 pub mod threat_appraisal;
 pub mod trace;
+pub mod wakeup;
 
 // Internal Tests moved inline
 
@@ -30,8 +31,29 @@ impl Plugin for BrainPlugin {
             .register_type::<proposal::BrainType>()
             .register_type::<proposal::BrainPowers>()
             .register_type::<history::BrainHistory>()
+            .add_message::<wakeup::BrainWakeup>()
             .init_resource::<trace::TraceConfig>()
             .init_resource::<trace::DecisionTraceBuffer>()
+            .init_resource::<wakeup::UrgencyBandHistory>()
+            .init_resource::<wakeup::PerceptionHistory>()
+            .add_systems(
+                FixedUpdate,
+                (
+                    wakeup::emit_initial_wakeups,
+                    wakeup::emit_action_lifecycle_wakeups,
+                    wakeup::emit_drive_threshold_wakeups,
+                    wakeup::emit_new_perception_wakeups,
+                    wakeup::emit_knowledge_change_wakeups,
+                    wakeup::emit_conversation_state_wakeups,
+                    wakeup::emit_periodic_safety_wakeups,
+                )
+                    .in_set(crate::core::PerfBucket::Brain)
+                    .in_set(crate::core::PerfSubBucket::BrainArbitration)
+                    .before(rational::update_rational_planning)
+                    .before(brain_system::arbitrate_every_tick)
+                    .after(crate::agent::nervous_system::urgency::generate_urgency)
+                    .run_if(not_paused),
+            )
             .add_systems(
                 FixedUpdate,
                 rational::update_rational_planning
@@ -47,6 +69,28 @@ impl Plugin for BrainPlugin {
                     .in_set(crate::core::PerfBucket::Brain)
                     .in_set(crate::core::PerfSubBucket::BrainArbitration)
                     .after(crate::agent::nervous_system::urgency::generate_urgency)
+                    .after(wakeup::emit_initial_wakeups)
+                    .after(wakeup::emit_action_lifecycle_wakeups)
+                    .after(wakeup::emit_drive_threshold_wakeups)
+                    .after(wakeup::emit_new_perception_wakeups)
+                    .after(wakeup::emit_knowledge_change_wakeups)
+                    .after(wakeup::emit_conversation_state_wakeups)
+                    .after(wakeup::emit_periodic_safety_wakeups)
+                    .run_if(not_paused),
+            )
+            .add_systems(
+                FixedUpdate,
+                brain_system::tick_cognitive_drain
+                    .in_set(crate::core::PerfBucket::Brain)
+                    .in_set(crate::core::PerfSubBucket::BrainArbitration)
+                    .run_if(not_paused),
+            )
+            .add_systems(
+                FixedUpdate,
+                brain_system::emit_agent_state_hash
+                    .in_set(crate::core::PerfBucket::Brain)
+                    .in_set(crate::core::PerfSubBucket::BrainArbitration)
+                    .after(brain_system::arbitrate_every_tick)
                     .run_if(not_paused),
             )
             .add_systems(
