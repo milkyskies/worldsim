@@ -1,3 +1,9 @@
 /target
 .cargo/
 /debug/
+
+# Stray debug captures left at the repo root (the field logger and event log
+# default into debug/, but ad-hoc runs sometimes drop them next to the binary).
+*.jsonl
+*.parquet
+*.tracy
