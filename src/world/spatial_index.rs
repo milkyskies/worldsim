@@ -128,7 +128,7 @@ pub fn world_pos_to_chunk(pos: Vec2) -> IVec2 {
 /// How many chunks outward we need to check to cover a circle of `radius` world units.
 ///
 /// One chunk = `CHUNK_SIZE × TILE_SIZE` world units (16 tiles × 16 px = 256 px).
-fn chunk_radius_for(radius: f32) -> i32 {
+pub fn chunk_radius_for(radius: f32) -> i32 {
     let chunk_world_size = CHUNK_SIZE as f32 * TILE_SIZE;
     (radius / chunk_world_size).ceil() as i32 + 1
 }

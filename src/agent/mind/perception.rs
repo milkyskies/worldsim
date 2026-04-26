@@ -1,7 +1,7 @@
 //! Perception: multi-sense detection of nearby entities and environmental signals.
 //!
 //! Reads: Transform, Vision, LightLevel, Physical entities, body state components, TickCount, SpatialIndex, HeatSource, SoundSource
-//! Writes: VisibleObjects (entity list), MindGraph (triples tagged with source_sense), SimEvent::{EntityPerceived, WarmthPerceived, SoundPerceived}
+//! Writes: VisibleObjects (entity list), PerceptionCache (chunk-bucket query cache), MindGraph (triples tagged with source_sense), SimEvent::{EntityPerceived, WarmthPerceived, SoundPerceived}
 //! Upstream: world::map (tile/chunk data), world::environment (LightLevel), world::sense_sources, agent body state
 //! Downstream: brain_system (reads VisibleObjects), knowledge (MindGraph updated with percepts), SimEvent consumers
 
@@ -16,7 +16,7 @@ use crate::world::environment::LightLevel;
 use crate::world::map::{CHUNK_SIZE, TILE_SIZE};
 use crate::world::property::HeatSource;
 use crate::world::sense_sources::SoundSource;
-use crate::world::spatial_index::SpatialIndex;
+use crate::world::spatial_index::{SpatialIndex, chunk_radius_for, world_pos_to_chunk};
 use bevy::prelude::*;
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -25,6 +25,7 @@ use bevy::prelude::*;
 
 #[derive(Component, Reflect, Default)]
 #[reflect(Component)]
+#[require(PerceptionCache)]
 pub struct Vision {
     pub range: f32,
 }
@@ -35,31 +36,85 @@ pub struct VisibleObjects {
     pub entities: Vec<Entity>,
 }
 
+/// Per-agent cache of the raw `SpatialIndex::entities_near` result, keyed by
+/// `(center_chunk, chunk_radius)` — the exact pair that determines which chunk
+/// buckets the query scans. Despawns are absorbed by the precise-distance pass
+/// (failed `Transform` fetch); spawns are bounded by `SAFETY_REFRESH_TICKS`.
+#[derive(Component, Reflect, Default)]
+#[reflect(Component)]
+pub struct PerceptionCache {
+    last_chunk: Option<IVec2>,
+    last_chunk_radius: i32,
+    last_query_tick: u64,
+    cached: Vec<Entity>,
+}
+
+/// Maximum ticks the cache may serve a stale chunk-bucket result before being forced
+/// to re-query. Bounds the latency for a newly spawned nearby entity to enter
+/// perception when the agent itself hasn't moved between chunks. At 60 ticks/second
+/// this is 0.5s real time.
+const SAFETY_REFRESH_TICKS: u64 = 30;
+
+impl PerceptionCache {
+    fn is_stale(&self, agent_chunk: IVec2, chunk_radius: i32, now: u64) -> bool {
+        // Empty cache: re-query every tick. Cheap (HashMap miss on empty chunk buckets)
+        // and avoids locking in a transient empty result — e.g. on the very first frame
+        // before `update_spatial_index` has populated the index, or for an agent in an
+        // empty zone where any new neighbor would otherwise wait the full safety window.
+        self.cached.is_empty()
+            || self.last_chunk != Some(agent_chunk)
+            || self.last_chunk_radius != chunk_radius
+            || now.saturating_sub(self.last_query_tick) >= SAFETY_REFRESH_TICKS
+    }
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // VISUAL PERCEPTION — Detect entities in range
 // ═══════════════════════════════════════════════════════════════════════════
 
 pub fn update_visual_perception(
-    mut agents: Query<(Entity, &Transform, &Vision, &mut VisibleObjects), With<Agent>>,
+    mut agents: Query<
+        (
+            Entity,
+            &Transform,
+            &Vision,
+            &mut VisibleObjects,
+            &mut PerceptionCache,
+        ),
+        With<Agent>,
+    >,
     transforms: Query<&Transform, With<crate::world::Physical>>,
     spatial_index: Res<SpatialIndex>,
     light_level: Res<LightLevel>,
     mut _game_log: ResMut<GameLog>,
     tick: Res<TickCount>,
     mut sim_events: MessageWriter<crate::agent::events::SimEvent>,
+    mut previous_buf: Local<Vec<Entity>>,
 ) {
     let _start = std::time::Instant::now();
 
-    for (agent_entity, agent_transform, vision, mut visible_objects) in agents.iter_mut() {
-        let previous: Vec<Entity> = visible_objects.entities.clone();
+    for (agent_entity, agent_transform, vision, mut visible_objects, mut cache) in agents.iter_mut()
+    {
+        // Swap the previous-tick visible list out without allocating; both buffers stabilise
+        // at their max size after a warmup tick or two.
+        std::mem::swap(&mut *previous_buf, &mut visible_objects.entities);
         visible_objects.entities.clear();
 
         let agent_pos = agent_transform.translation.truncate();
         let view_range = vision.range * light_level.0;
 
-        // Spatial index gives us only nearby candidates (O(k) instead of O(n)).
-        // We still do a precise distance check since chunk buckets are coarser than view range.
-        for entity in spatial_index.entities_near(agent_pos, view_range) {
+        let agent_chunk = world_pos_to_chunk(agent_pos);
+        let chunk_radius = chunk_radius_for(view_range);
+        if cache.is_stale(agent_chunk, chunk_radius, tick.current) {
+            cache.cached = spatial_index.entities_near(agent_pos, view_range);
+            cache.last_chunk = Some(agent_chunk);
+            cache.last_chunk_radius = chunk_radius;
+            cache.last_query_tick = tick.current;
+        }
+
+        // Precise distance pass against the cached candidates. Despawned entities fall
+        // out here because `transforms.get` returns Err for them.
+        for &entity in &cache.cached {
             if entity == agent_entity {
                 continue;
             }
@@ -74,7 +129,7 @@ pub fn update_visual_perception(
 
         // Emit EntityPerceived for newly visible entities
         for &entity in &visible_objects.entities {
-            if !previous.contains(&entity) {
+            if !previous_buf.contains(&entity) {
                 sim_events.write(crate::agent::events::SimEvent::single(
                     tick.current,
                     agent_entity,
@@ -925,5 +980,67 @@ mod threat_tests {
         let score = assess_threat(&personality, &needs, 0.0, None);
         assert!(score <= 1.0, "score {score} should be clamped to ≤1.0");
         assert!(score >= 0.0, "score {score} should be non-negative");
+    }
+}
+
+#[cfg(test)]
+mod cache_tests {
+    use super::*;
+
+    fn entity(id: u32) -> Entity {
+        Entity::from_bits(id as u64)
+    }
+
+    fn primed(chunk: IVec2, chunk_radius: i32, tick: u64) -> PerceptionCache {
+        PerceptionCache {
+            last_chunk: Some(chunk),
+            last_chunk_radius: chunk_radius,
+            last_query_tick: tick,
+            // A non-empty cache exercises the steady-state hit path; the "empty
+            // forces re-query" branch has its own test below.
+            cached: vec![entity(1)],
+        }
+    }
+
+    #[test]
+    fn unpopulated_cache_is_always_stale() {
+        let cache = PerceptionCache::default();
+        assert!(cache.is_stale(IVec2::ZERO, 2, 0));
+    }
+
+    #[test]
+    fn same_chunk_and_radius_within_safety_window_is_fresh() {
+        let cache = primed(IVec2::new(3, 4), 2, 100);
+        assert!(!cache.is_stale(IVec2::new(3, 4), 2, 100));
+        assert!(!cache.is_stale(IVec2::new(3, 4), 2, 100 + SAFETY_REFRESH_TICKS - 1));
+    }
+
+    #[test]
+    fn chunk_change_invalidates() {
+        let cache = primed(IVec2::new(3, 4), 2, 100);
+        assert!(cache.is_stale(IVec2::new(4, 4), 2, 101));
+    }
+
+    #[test]
+    fn chunk_radius_change_invalidates() {
+        // Light dropping (or vision shrinking) can move chunk_radius_for from 2 → 1.
+        let cache = primed(IVec2::new(3, 4), 2, 100);
+        assert!(cache.is_stale(IVec2::new(3, 4), 1, 101));
+    }
+
+    #[test]
+    fn safety_refresh_fires_at_threshold() {
+        let cache = primed(IVec2::new(3, 4), 2, 100);
+        assert!(cache.is_stale(IVec2::new(3, 4), 2, 100 + SAFETY_REFRESH_TICKS));
+    }
+
+    #[test]
+    fn empty_cached_list_invalidates_even_within_safety_window() {
+        // Reproduces the pre-fix bug: on the first tick the spatial index has not
+        // yet been populated, so the query returns []. Without this branch the
+        // cache would happily serve [] for the next 30 ticks.
+        let mut cache = primed(IVec2::new(3, 4), 2, 100);
+        cache.cached.clear();
+        assert!(cache.is_stale(IVec2::new(3, 4), 2, 101));
     }
 }
