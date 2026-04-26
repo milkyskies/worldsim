@@ -223,7 +223,7 @@ pub fn arbitrate_every_tick(
         let rational_proposals = rational_brain_propose(&plan_memory, cns, mind, &action_registry);
 
         // 2. Calculate brain powers, then apply history-based multiplier
-        let base_powers = calculate_brain_powers(cns, &consciousness, emotions, personality);
+        let base_powers = calculate_brain_powers(cns, consciousness, emotions, personality);
         let powers = if let Ok(history) = brain_histories.get(entity) {
             BrainPowers {
                 survival: base_powers.survival * history.power_multiplier(BrainType::Survival),
@@ -242,7 +242,7 @@ pub fn arbitrate_every_tick(
         let capacities = crate::agent::actions::ChannelCapacities::compute(
             body,
             Some(physical),
-            Some(&*consciousness),
+            Some(consciousness),
             &mapping,
         );
 
