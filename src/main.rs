@@ -25,8 +25,7 @@ fn main() {
     #[cfg(feature = "profile-tracy")]
     {
         use tracing_subscriber::layer::SubscriberExt;
-        let subscriber = tracing_subscriber::registry()
-            .with(tracing_tracy::TracyLayer::default());
+        let subscriber = tracing_subscriber::registry().with(tracing_tracy::TracyLayer::default());
         tracing::subscriber::set_global_default(subscriber)
             .expect("failed to install global tracing-tracy subscriber");
     }
