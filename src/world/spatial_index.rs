@@ -14,8 +14,12 @@ pub struct SpatialIndexPlugin;
 
 impl Plugin for SpatialIndexPlugin {
     fn build(&self, app: &mut App) {
+        // FixedPreUpdate so perception (FixedUpdate) reads an up-to-date index. Movement
+        // mutates Transform in FixedUpdate, so by the next FixedPreUpdate the changes are
+        // visible via Changed<Transform>. Nothing in the regular Update schedule moves
+        // `Physical` entities, so no PostUpdate run is needed.
         app.insert_resource(SpatialIndex::default())
-            .add_systems(PostUpdate, update_spatial_index);
+            .add_systems(FixedPreUpdate, update_spatial_index);
     }
 }
 
@@ -128,7 +132,7 @@ pub fn world_pos_to_chunk(pos: Vec2) -> IVec2 {
 /// How many chunks outward we need to check to cover a circle of `radius` world units.
 ///
 /// One chunk = `CHUNK_SIZE × TILE_SIZE` world units (16 tiles × 16 px = 256 px).
-fn chunk_radius_for(radius: f32) -> i32 {
+pub fn chunk_radius_for(radius: f32) -> i32 {
     let chunk_world_size = CHUNK_SIZE as f32 * TILE_SIZE;
     (radius / chunk_world_size).ceil() as i32 + 1
 }
