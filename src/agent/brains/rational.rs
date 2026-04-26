@@ -101,7 +101,9 @@ const PLANNING_STAGGER_MOD: u64 = 10;
 /// transitions, stale-plan sweep) still run every tick for every
 /// agent — only the urgency-driven re-planning is throttled here.
 fn planner_phase_active(entity_index: u32, tick: u64) -> bool {
-    (entity_index as u64).wrapping_add(tick) % PLANNING_STAGGER_MOD == 0
+    (entity_index as u64)
+        .wrapping_add(tick)
+        .is_multiple_of(PLANNING_STAGGER_MOD)
 }
 
 /// Synthesize a concrete goal from an active urgency. Returns `None`
