@@ -495,6 +495,42 @@ pub enum SimEventKind {
         part_kind: crate::agent::biology::body::BodyNodeKind,
     },
 
+    /// `pick_flee_target` exhausted every escape candidate and the agent
+    /// has no walkable retreat path. The threat-appraisal function reads
+    /// the resulting `Cornered` component to drop the Fight threshold.
+    Cornered {
+        #[serde(serialize_with = "crate::core::entity_serde::serialize_entity")]
+        agent: Entity,
+    },
+
+    /// Lame status toggled (gained or lost) on an agent. Driven by leg
+    /// `BodyNode` HP fractions crossing the lameness threshold.
+    LamenessChanged {
+        #[serde(serialize_with = "crate::core::entity_serde::serialize_entity")]
+        agent: Entity,
+        lame: bool,
+    },
+
+    /// Agent took heavy head damage and is dazed for `duration_ticks`,
+    /// skipping action proposals until they recover.
+    Dazed {
+        #[serde(serialize_with = "crate::core::entity_serde::serialize_entity")]
+        agent: Entity,
+        duration_ticks: u32,
+    },
+
+    /// An agent witnessed combat involving someone else. Used by the
+    /// witness-fear pipeline so future tooling can correlate observed
+    /// violence with later behavioral shifts.
+    WitnessedCombat {
+        #[serde(serialize_with = "crate::core::entity_serde::serialize_entity")]
+        observer: Entity,
+        #[serde(serialize_with = "crate::core::entity_serde::serialize_entity")]
+        attacker: Entity,
+        #[serde(serialize_with = "crate::core::entity_serde::serialize_entity")]
+        defender: Entity,
+    },
+
     /// A genome was expressed into a phenotype at spawn.
     ///
     /// Emitted once per agent by `develop_phenotype_system` immediately after

@@ -87,6 +87,14 @@ const PIERCE_BLEED_COEFF: f32 = 1.5;
 const SLASH_BLEED_COEFF: f32 = 2.0;
 const CRUSH_BLEED_COEFF: f32 = 0.0;
 
+use crate::core::time::GameTime;
+
+/// Damage on a head-class node above which the defender is Dazed.
+const DAZED_DAMAGE_THRESHOLD: f32 = 18.0;
+/// How long Dazed persists. One game-minute is two-three action cycles
+/// at typical Attack/Bite durations.
+const DAZED_DURATION_TICKS: u32 = GameTime::TICKS_PER_MINUTE as u32;
+
 // ════════════════════════════════════════════════════════════════════════════
 // DAMAGE HELPERS
 // ════════════════════════════════════════════════════════════════════════════
@@ -486,6 +494,29 @@ pub fn resolve_combat_hits(
                         injury_type,
                     },
                 ));
+
+                // Heavy head hit → daze the defender. Threshold high
+                // enough that grazes don't register; severe blows skip
+                // the next ~3 seconds of action proposals.
+                if matches!(part_kind, BodyNodeKind::Head | BodyNodeKind::Brain)
+                    && damage >= DAZED_DAMAGE_THRESHOLD
+                    && !defender_died
+                {
+                    let duration = DAZED_DURATION_TICKS;
+                    commands
+                        .entity(effect.defender)
+                        .insert(crate::agent::Dazed {
+                            until_tick: tick.current + duration as u64,
+                        });
+                    emitted.push(SimEvent::single(
+                        tick.current,
+                        effect.defender,
+                        SimEventKind::Dazed {
+                            agent: effect.defender,
+                            duration_ticks: duration,
+                        },
+                    ));
+                }
 
                 // Blood splash proportional to bleed coefficient.
                 let amount = damage * bleed_coefficient(injury_type) * 0.5;

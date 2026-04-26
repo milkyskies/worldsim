@@ -32,8 +32,59 @@ impl Plugin for BiologyPlugin {
                         .after(crate::agent::nervous_system::execution::tick_actions),
                     combat::bleed_system,
                     combat::severance_system.after(combat::resolve_combat_hits),
+                    derive_lameness.after(combat::resolve_combat_hits),
+                    expire_dazed,
                 ),
             );
+    }
+}
+
+/// Toggle the [`crate::agent::Lame`] component when leg-node HP crosses
+/// the lameness threshold. `Changed<Body>` filter skips agents whose
+/// body didn't mutate this tick (most of them, most ticks).
+fn derive_lameness(
+    mut commands: Commands,
+    bodies: Query<
+        (Entity, &body::Body, Option<&crate::agent::Lame>),
+        (With<Agent>, Changed<body::Body>),
+    >,
+    tick: Res<crate::core::tick::TickCount>,
+    mut sim_events: MessageWriter<crate::agent::events::SimEvent>,
+) {
+    for (entity, body, current_lame) in bodies.iter() {
+        let now_lame = body.is_lame();
+        let was_lame = current_lame.is_some();
+        if now_lame == was_lame {
+            continue;
+        }
+        if now_lame {
+            commands.entity(entity).insert(crate::agent::Lame);
+        } else {
+            commands.entity(entity).remove::<crate::agent::Lame>();
+        }
+        sim_events.write(crate::agent::events::SimEvent::single(
+            tick.current,
+            entity,
+            crate::agent::events::SimEventKind::LamenessChanged {
+                agent: entity,
+                lame: now_lame,
+            },
+        ));
+    }
+}
+
+/// Drop the [`crate::agent::Dazed`] component once its `until_tick` has
+/// passed. Brain proposal layer reads `Dazed` and skips the agent's
+/// proposal cycle while it's set.
+fn expire_dazed(
+    mut commands: Commands,
+    dazed: Query<(Entity, &crate::agent::Dazed)>,
+    tick: Res<crate::core::tick::TickCount>,
+) {
+    for (entity, daze) in dazed.iter() {
+        if tick.current >= daze.until_tick {
+            commands.entity(entity).remove::<crate::agent::Dazed>();
+        }
     }
 }
 

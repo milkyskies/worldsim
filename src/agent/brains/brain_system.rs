@@ -6,7 +6,7 @@
 //! Downstream: nervous_system::cns (executes the chosen action), SimEvent consumers
 
 use super::arbitration::{arbitrate_parallel, calculate_brain_powers};
-use super::emotional::{emotional_brain_propose, find_most_feared_visible_entity};
+use super::emotional::emotional_brain_propose;
 use super::history::BrainHistory;
 use super::plan_memory::{PlanMemory, PlanState};
 use super::proposal::{BrainPowers, BrainState, BrainType};
@@ -80,6 +80,9 @@ pub fn arbitrate_every_tick(
     mapping: Res<TagChannelMapping>,
     fields: Res<crate::world::field_grid_plugin::FieldGrids>,
     all_transforms: Query<&Transform>,
+    all_bodies: Query<&Body>,
+    cornered_query: Query<&crate::agent::Cornered>,
+    dazed_query: Query<&crate::agent::Dazed>,
 ) {
     for (
         entity,
@@ -91,6 +94,13 @@ pub fn arbitrate_every_tick(
         (transform, visible, mind, active_actions, in_conversation, self_entity_type),
     ) in query.iter_mut()
     {
+        // Dazed agents skip arbitration entirely — heavy head trauma
+        // suppresses the next decision cycle. The component clears on
+        // its own when `until_tick` passes.
+        if dazed_query.contains(entity) {
+            continue;
+        }
+
         // Cognitive tick cost: every arbitration burns a sliver of alertness.
         // Conscientious agents tolerate brain work better — they're wired
         // for it. The constant is calibrated per wallclock-second at the
@@ -105,11 +115,17 @@ pub fn arbitrate_every_tick(
 
         // 1. Gather proposals from all three brains
 
+        let agent_pos = transform.translation.truncate();
+        // Compute once per agent — survival context and threat appraisal
+        // both need the closest visible Dangerous entity.
+        let closest_dangerous =
+            super::emotional::find_closest_dangerous(visible, mind, agent_pos, &all_transforms);
+
         let survival_context = SurvivalBrainContext {
             physical,
             cns,
-            most_feared_entity: find_most_feared_visible_entity(visible, mind),
-            pos: transform.translation.truncate(),
+            most_feared_entity: closest_dangerous.map(|(e, _)| e),
+            pos: agent_pos,
             world_map: &world_map,
         };
 
@@ -134,6 +150,13 @@ pub fn arbitrate_every_tick(
             })
             .collect();
 
+        let closest_threat = closest_dangerous.map(|(e, pos)| super::emotional::ClosestThreat {
+            entity: e,
+            pos,
+            body: all_bodies.get(e).ok(),
+        });
+        let cornered = cornered_query.contains(entity);
+
         let emotional_inputs = super::emotional::EmotionalInputs {
             emotions,
             mind,
@@ -143,10 +166,14 @@ pub fn arbitrate_every_tick(
             drives,
             in_conversation,
             self_concept: self_entity_type.map(|t| t.0),
-            agent_pos: transform.translation.truncate(),
+            agent_pos,
             fields: &fields,
             cns,
             action_registry: &action_registry,
+            personality: Some(&personality.traits),
+            body,
+            cornered,
+            closest_threat,
         };
         let emotional_proposal = emotional_brain_propose(&emotional_inputs);
 

@@ -585,6 +585,37 @@ fn format_sim_event(event: &SimEvent) -> String {
         } => {
             format!("[t{tick}] AgentStateHash agent={agent:?} hash={hash}")
         }
+        SimEvent {
+            tick,
+            kind: SimEventKind::Cornered { agent },
+            ..
+        } => format!("[t{tick}] Cornered agent={agent:?}"),
+        SimEvent {
+            tick,
+            kind: SimEventKind::LamenessChanged { agent, lame },
+            ..
+        } => format!("[t{tick}] LamenessChanged agent={agent:?} lame={lame}"),
+        SimEvent {
+            tick,
+            kind:
+                SimEventKind::Dazed {
+                    agent,
+                    duration_ticks,
+                },
+            ..
+        } => format!("[t{tick}] Dazed agent={agent:?} duration={duration_ticks}"),
+        SimEvent {
+            tick,
+            kind:
+                SimEventKind::WitnessedCombat {
+                    observer,
+                    attacker,
+                    defender,
+                },
+            ..
+        } => format!(
+            "[t{tick}] WitnessedCombat observer={observer:?} attacker={attacker:?} defender={defender:?}"
+        ),
     }
 }
 

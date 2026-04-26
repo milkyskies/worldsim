@@ -168,7 +168,21 @@ fn enumerate_entities_with_trait(
         });
     }
 
+    // Predator preference: Lame prey first. Skip the sort entirely
+    // when no candidate is Lame (the common case) so we don't pay
+    // O(n log n) trait-lookups per enumeration.
+    if candidates.iter().any(|c| candidate_is_lame(c, mind)) {
+        candidates.sort_by_key(|c| if candidate_is_lame(c, mind) { 0 } else { 1 });
+    }
+
     candidates
+}
+
+fn candidate_is_lame(candidate: &TargetCandidate, mind: &MindGraph) -> bool {
+    let TargetCandidate::Entity { entity, .. } = candidate else {
+        return false;
+    };
+    mind.has_trait(&Node::Entity(*entity), Concept::Lame)
 }
 
 /// Iterate tiles matching `Tile(?) HasTrait <concept>` in the MindGraph and

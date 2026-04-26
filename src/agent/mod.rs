@@ -46,6 +46,42 @@ pub struct Dead;
 #[reflect(Component)]
 pub struct Person;
 
+/// Set when `pick_flee_target` exhausts every escape candidate. Read by
+/// the threat-appraisal function as the `escape_available = false` input
+/// — cornered agents lower their Fight threshold dramatically. Cleared
+/// the next time a flee target is found, so this flips back and forth
+/// as the situation changes.
+#[derive(Component, Reflect, Default)]
+#[reflect(Component)]
+pub struct Cornered;
+
+/// Set on agents whose leg `BodyNode`s are below the lameness threshold.
+/// Visible to perception (other agents see the Lame trait), used by
+/// predator target selection to prefer wounded prey, and modulates speed
+/// on top of the existing channel-capacity penalty.
+#[derive(Component, Reflect, Default)]
+#[reflect(Component)]
+pub struct Lame;
+
+/// Set on agents who took heavy head damage; they skip action proposals
+/// until `until_tick`. Cleared by the daze-recovery system once the tick
+/// passes.
+#[derive(Component, Reflect, Default)]
+#[reflect(Component)]
+pub struct Dazed {
+    pub until_tick: u64,
+}
+
+/// Last-perceived flee direction, used by `pick_flee_target` for
+/// momentum: small threat-position drift no longer pivots the flee
+/// vector every tick. Cleared when the agent is no longer fleeing.
+#[derive(Component, Reflect, Default)]
+#[reflect(Component)]
+pub struct FleeMomentum {
+    pub direction: Vec2,
+    pub last_tick: u64,
+}
+
 #[derive(Component, Default, Debug, Reflect)]
 #[reflect(Component)]
 pub struct TargetPosition(pub Option<Vec2>);
@@ -60,6 +96,10 @@ impl Plugin for AgentPlugin {
             .register_type::<Alive>()
             .register_type::<Dead>()
             .register_type::<Person>()
+            .register_type::<Cornered>()
+            .register_type::<Lame>()
+            .register_type::<Dazed>()
+            .register_type::<FleeMomentum>()
             .register_type::<TargetPosition>()
             .register_type::<movement::MovementState>()
             .register_type::<affordance::Affordance>()
@@ -149,8 +189,10 @@ impl Plugin for AgentPlugin {
                     mind::perception::perceive_grass_tiles,
                     mind::perception::perceive_temperature,
                     mind::perception::perceive_hearing,
+                    mind::perception::emit_alarm_calls,
                     mind::perception::cleanup_sound_sources
-                        .after(mind::perception::perceive_hearing),
+                        .after(mind::perception::perceive_hearing)
+                        .after(mind::perception::emit_alarm_calls),
                     mind::perception::react_to_danger
                         .after(mind::perception::write_perceptions_to_mind),
                 )

@@ -135,6 +135,12 @@ pub mod movement {
     pub const INJURY_MOBILITY_RANGE: f32 = 0.9;
 }
 
+pub mod biology {
+    /// HP fraction at or below which a leg `BodyNode` flips the agent to
+    /// `Lame`. Predator target enumeration prefers Lame prey.
+    pub const LAMENESS_HP_FRACTION: f32 = 0.5;
+}
+
 /// Per-action constants (durations, costs, runtime effects)
 pub mod actions {
     pub mod eat {
@@ -353,12 +359,16 @@ pub mod brains {
         pub const ANGER_ENTITY_URGENCY_MULTIPLIER: f32 = 60.0;
         pub const FEAR_GENERAL_THRESHOLD: f32 = 0.7;
         pub const FEAR_GENERAL_URGENCY_MULTIPLIER: f32 = 90.0;
-        pub const ANGER_GENERAL_THRESHOLD: f32 = 0.5;
-        pub const ANGER_GENERAL_URGENCY_MULTIPLIER: f32 = 100.0;
-        /// High enough that only genuine starvation crosses it — a
-        /// well-fed predator never attacks a Dangerous target.
-        pub const STARVING_PREDATOR_HUNGER_THRESHOLD: f32 = 0.85;
-        pub const STARVING_PREDATOR_URGENCY_MULTIPLIER: f32 = 95.0;
+        /// Multiplier applied to a Flee `ThreatResponse::urgency` to
+        /// produce the proposal urgency. Set so saturated outmatching
+        /// (urgency 1.5) rivals `FEAR_GENERAL_URGENCY_MULTIPLIER`.
+        pub const FLEE_RESPONSE_URGENCY_MULTIPLIER: f32 = 70.0;
+        /// Floor for a StandGround proposal — beats drift/idle but loses
+        /// to anything pressing.
+        pub const STAND_GROUND_BASE_URGENCY: f32 = 25.0;
+        /// Base urgency for a Fight proposal; commitment scales it up.
+        pub const FIGHT_RESPONSE_BASE_URGENCY: f32 = 60.0;
+        pub const FIGHT_RESPONSE_COMMITMENT_MULTIPLIER: f32 = 60.0;
         /// Social drive above which the emotional brain proposes
         /// `InitiateConversation` toward a visible person. Lowered from
         /// 0.55 so agents initiate conversations more readily — in real

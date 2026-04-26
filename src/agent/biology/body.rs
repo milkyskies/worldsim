@@ -156,6 +156,15 @@ impl Body {
         self.parts.iter().find(|p| p.kind == kind)
     }
 
+    /// True when any leg-class node is below the lameness HP fraction.
+    /// Exposed to perception so observers can see hobbled prey without
+    /// having to inspect the body part directly.
+    pub fn is_lame(&self) -> bool {
+        self.parts.iter().any(|p| {
+            p.kind.is_leg() && p.condition() <= crate::constants::biology::LAMENESS_HP_FRACTION
+        })
+    }
+
     pub fn part_mut(&mut self, kind: BodyNodeKind) -> Option<&mut BodyNode> {
         self.parts.iter_mut().find(|p| p.kind == kind)
     }
@@ -396,6 +405,22 @@ pub enum BodyNodeKind {
 }
 
 impl BodyNodeKind {
+    /// True for any structural leg-class node (humanoid `LeftLeg` /
+    /// `RightLeg`, quadruped foreleg / hindleg). Used by lameness
+    /// detection — extremities (hands, paws, hooves) are deliberately
+    /// excluded since they don't carry the locomotion load directly.
+    pub fn is_leg(self) -> bool {
+        matches!(
+            self,
+            Self::LeftLeg
+                | Self::RightLeg
+                | Self::LeftForeleg
+                | Self::RightForeleg
+                | Self::LeftHindleg
+                | Self::RightHindleg
+        )
+    }
+
     pub fn display_name(self) -> &'static str {
         match self {
             Self::Head => "head",
