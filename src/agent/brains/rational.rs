@@ -571,7 +571,15 @@ pub fn update_rational_planning(
         // so action-completion cascades and alarm broadcasts don't trigger
         // every agent's planner on the same frame. The per-urgency
         // cooldown inside the loop continues to throttle within an agent.
-        if !planner_phase_active(entity.index_u32(), current_tick) {
+        //
+        // Bypass when the agent has no plans at all — they need a plan
+        // *now*, not 9 ticks from now. Otherwise emotional brain takes
+        // the wheel and behavior visibly drifts (e.g. an agent finishing
+        // a "walk to talk to X" plan would idle and wander before the
+        // staggered planner produced "say hi", cutting conversations
+        // short).
+        if !plan_memory.plans.is_empty() && !planner_phase_active(entity.index_u32(), current_tick)
+        {
             continue;
         }
 

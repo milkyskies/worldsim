@@ -42,6 +42,15 @@ fi
 echo "[perf-snapshot] building --no-default-features --features profile-tracy"
 cargo build --release --no-default-features --features profile-tracy
 
+# Without bevy_dylib the binary still expects libstd-<hash>.dylib at runtime
+# but its rpath doesn't include the toolchain. Point dyld at the active
+# rustup toolchain so `worldsim --headless` actually launches.
+if [ -z "${DYLD_FALLBACK_LIBRARY_PATH:-}" ] && command -v rustc >/dev/null 2>&1; then
+  RUST_SYSROOT="$(rustc --print sysroot)"
+  TARGET_TRIPLE="$(rustc -vV | awk '/^host:/ {print $2}')"
+  export DYLD_FALLBACK_LIBRARY_PATH="$RUST_SYSROOT/lib/rustlib/$TARGET_TRIPLE/lib:$RUST_SYSROOT/lib"
+fi
+
 TRACE="$OUT_DIR/run.tracy"
 RAW_CSV="$OUT_DIR/zones-raw.csv"
 SYSTEMS_CSV="$OUT_DIR/zones-systems.csv"
