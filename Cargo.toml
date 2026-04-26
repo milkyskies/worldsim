@@ -14,7 +14,6 @@ bevy = { version = "0.18", default-features = false, features = [
   "default_app",
   "default_platform",
   "2d_bevy_render",
-  "dynamic_linking",
 ] }
 # Disable inspector defaults so we don't pull bevy_pbr (and the rest of
 # the 3D stack) in just to render an inspector tab for types we never use.
@@ -47,6 +46,8 @@ log = { version = "*", features = [
   "release_max_level_warn",
 ] }
 strum = { version = "0.28.0", features = ["derive"] }
+tracing-tracy = { version = "0.11", optional = true }
+tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter"], optional = true }
 
 # Enable a small amount of optimization in the dev profile.
 [profile.dev]
@@ -74,11 +75,19 @@ opt-level = 0
 debug = 0
 
 [features]
+default = ["fast-link"]
+
+# Dynamically link Bevy for fast incremental builds. On by default; turn off
+# (`--no-default-features`) for any build that needs to statically link a
+# native lib that bevy_dylib hides — notably `profile-tracy`.
+fast-link = ["bevy/dynamic_linking"]
+
 # Opt-in Tracy profiler integration. Forwards to `bevy/trace_tracy`, which
 # auto-instruments every Bevy system as a named span and accepts sampled
-# callstacks on top. Build with `--features profile-tracy`, then connect
-# the native Tracy viewer (https://github.com/wolfpld/tracy) over TCP.
-profile-tracy = ["bevy/trace_tracy"]
+# callstacks on top. Build with `--no-default-features --features profile-tracy`,
+# then connect the native Tracy viewer (https://github.com/wolfpld/tracy) over
+# TCP.
+profile-tracy = ["bevy/trace_tracy", "dep:tracing-tracy", "dep:tracing-subscriber"]
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }

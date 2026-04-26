@@ -18,6 +18,19 @@ use worldsim::ui::camera::CameraPlugin;
 use worldsim::world::WorldPlugin;
 
 fn main() {
+    // Bevy caches each system's `info_span!("system", name = ...)` at
+    // SystemMeta::new(), and `info_span!` checks the global tracing dispatcher
+    // at construction. Without a subscriber installed first, every system span
+    // is permanently disabled and never reaches Tracy.
+    #[cfg(feature = "profile-tracy")]
+    {
+        use tracing_subscriber::layer::SubscriberExt;
+        let subscriber = tracing_subscriber::registry()
+            .with(tracing_tracy::TracyLayer::default());
+        tracing::subscriber::set_global_default(subscriber)
+            .expect("failed to install global tracing-tracy subscriber");
+    }
+
     let args = CliArgs::parse();
 
     if args.dump_map {

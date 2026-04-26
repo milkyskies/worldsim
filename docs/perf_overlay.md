@@ -120,12 +120,21 @@ it stops at the sub-bucket boundary. Two external tools cover the layers
 underneath:
 
 - **[Tracy](https://github.com/wolfpld/tracy) + the `profile-tracy` Cargo
-  feature.** Build with `cargo run --release --features profile-tracy`
+  feature.** Build with
+  `cargo build --release --no-default-features --features profile-tracy`
   and launch the native Tracy viewer — it connects over TCP and shows
   every Bevy system as a named span with sampled callstacks inside,
   live. Strict superset of the overlay's data plus function-level
   detail. Reach for this when a sub-bucket is hot and you need to know
   which function inside it is the culprit.
+
+  **`--no-default-features` is mandatory.** The default `fast-link`
+  feature enables `bevy/dynamic_linking`, which produces a `bevy_dylib`
+  that statically swallows `tracy-client-sys` symbols without
+  re-exporting them. Building tracy on top then fails to link with
+  `Undefined symbols ... ____tracy_emit_zone_begin_alloc`. Drop the
+  default features when profiling and you trade fast incremental builds
+  for a working tracy binary.
 
   **Viewer version must match the Rust client's wire protocol exactly.**
   Bevy 0.18 bundles `tracy-client-sys 0.28.0`, which pins Tracy to
@@ -149,6 +158,15 @@ underneath:
   ln -sf ~/src/tracy-0.13.1/capture/build/tracy-capture      ~/.local/bin/
   ln -sf ~/src/tracy-0.13.1/csvexport/build/tracy-csvexport  ~/.local/bin/
   ```
+
+  **macOS gotcha.** If the cmake build fails with
+  `fatal error: 'limits' file not found`, the Apple Command Line Tools
+  install is missing libc++ headers in the path clang searches by
+  default. Export
+  `CPLUS_INCLUDE_PATH=/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1`
+  before re-running `cmake --build` (and before the worldsim build with
+  `--features profile-tracy`, since `tracy-client-sys` compiles its C++
+  client as part of the cargo build).
 
   After a Bevy bump, re-check `TracyVersion.hpp` and rebuild against
   the matching tag.

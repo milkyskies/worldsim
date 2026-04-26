@@ -349,23 +349,27 @@ cargo run --release -- --headless --game-defaults --seed 42 --ticks 5000 \
 
 ### 6. Tracy CLI — for per-Bevy-system function-level timings
 
-When `--perf` says a sub-bucket is hot but you need to know *which function inside it* is the culprit, use Tracy's headless CLI. Build with the `profile-tracy` Cargo feature (forwards to `bevy/trace_tracy`), capture with `tracy-capture`, then export to CSV with `tracy-csvexport` — one row per unique span (every Bevy system + any manually-annotated zone).
+When `--perf` says a sub-bucket is hot but you need to know *which function inside it* is the culprit, use Tracy's headless CLI. Build with the `profile-tracy` Cargo feature (forwards to `bevy/trace_tracy` and installs the tracy subscriber globally), capture with `tracy-capture`, then export to CSV with `tracy-csvexport` — one row per unique span (every Bevy system + any manually-annotated zone).
 
-**Assumes `tracy-capture` and `tracy-csvexport` are on `PATH`** with a matching Tracy build (see `docs/perf_overlay.md` for install + version pinning — Bevy locks the wire protocol to a specific Tracy release). If the sim errors out with "incompatible protocol version", the installed Tracy viewer is newer than the Rust client expects.
+**`--no-default-features` is mandatory.** The default `fast-link` feature enables `bevy/dynamic_linking`, and `bevy_dylib` swallows tracy's C symbols without re-exporting them, breaking the link step. See `docs/perf_overlay.md` for the install + version pinning details and the macOS `CPLUS_INCLUDE_PATH` workaround for building tracy from source.
 
 ```bash
 mkdir -p debug/tracy
 
+# Build once with the right feature set (no default features → no bevy_dylib).
+cargo build --release --no-default-features --features profile-tracy
+
 # Terminal 1 (or `&`): headless capture daemon. Exits when the client disconnects.
 tracy-capture -o debug/tracy/run.tracy &
 
-# Terminal 2: run the game with the feature flag. Tracy connects on startup.
-cargo run --release --features profile-tracy -- \
-  --headless --game-defaults --seed 42 --ticks 5000
+# Terminal 2: run the resulting binary directly. Tracy connects on startup.
+./target/release/worldsim --headless --game-defaults --seed 42 --ticks 5000
 
 # Export to CSV once the sim exits
 tracy-csvexport debug/tracy/run.tracy > debug/tracy/zones.csv
 ```
+
+Per-system spans appear in the CSV as `system{name="<full::path::system_name>"}`. Sort by `total_ns` (column 4) to find the hottest functions in the run.
 
 **CSV schema** (one row per zone, fields comma-separated):
 `name, src_file, src_line, total_ns, count, mean_ns, median_ns, min_ns, max_ns, stddev_ns`
