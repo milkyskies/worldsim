@@ -87,6 +87,14 @@ impl Plugin for BrainPlugin {
             )
             .add_systems(
                 FixedUpdate,
+                brain_system::emit_agent_state_hash
+                    .in_set(crate::core::PerfBucket::Brain)
+                    .in_set(crate::core::PerfSubBucket::BrainArbitration)
+                    .after(brain_system::arbitrate_every_tick)
+                    .run_if(not_paused),
+            )
+            .add_systems(
+                FixedUpdate,
                 history::update_brain_history
                     .in_set(crate::core::PerfBucket::Brain)
                     .in_set(crate::core::PerfSubBucket::BrainHistory)

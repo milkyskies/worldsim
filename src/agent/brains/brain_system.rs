@@ -44,6 +44,34 @@ pub fn tick_cognitive_drain(
     }
 }
 
+/// Emit `AgentStateHash` every tick for every agent, regardless of
+/// whether arbitration fired. This is a determinism-debugging signal,
+/// not a decision signal, so it can't depend on the wakeup gate.
+pub fn emit_agent_state_hash(
+    tick: Res<crate::core::tick::TickCount>,
+    query: Query<
+        (Entity, &Transform, &CentralNervousSystem, &PlanMemory),
+        (
+            With<crate::agent::Agent>,
+            With<super::rational::RationalBrain>,
+        ),
+    >,
+    mut sim_events: MessageWriter<crate::agent::events::SimEvent>,
+) {
+    for (entity, transform, cns, plan_memory) in query.iter() {
+        let hash =
+            compute_agent_state_hash(entity, transform.translation.truncate(), cns, plan_memory);
+        sim_events.write(crate::agent::events::SimEvent::single(
+            tick.current,
+            entity,
+            SimEventKind::AgentStateHash {
+                agent: entity,
+                hash,
+            },
+        ));
+    }
+}
+
 /// Collect proposals from all three brains and pick the admitted action
 /// set for agents whose situation changed this tick (signalled via
 /// `BrainWakeup`). Agents with no pending wakeup keep the BrainState
@@ -343,18 +371,6 @@ pub fn arbitrate_every_tick(
                 powers,
                 proposals: std::sync::Arc::new(brain_state.proposals.clone()),
                 urgencies: urgencies_snapshot,
-            },
-        ));
-
-        // Per-tick state hash for non-determinism debugging.
-        let hash =
-            compute_agent_state_hash(entity, transform.translation.truncate(), cns, &plan_memory);
-        sim_events.write(crate::agent::events::SimEvent::single(
-            tick.current,
-            entity,
-            SimEventKind::AgentStateHash {
-                agent: entity,
-                hash,
             },
         ));
     }
