@@ -1217,19 +1217,13 @@ impl TestWorld {
 
     // ─── Convenience queries ───────────────────────────────────────────────
 
-    /// True if `agent` has at least one Knows triple about `other`.
+    /// True if `agent`'s `SocialIdentity` ledger contains `other`.
     pub fn agent_knows(&self, agent: Entity, other: Entity) -> bool {
-        let mind = self.get::<MindGraph>(agent);
-        !mind
-            .query(
-                Some(&MindNode::Self_),
-                Some(Predicate::Knows),
-                Some(&Value::Entity(other)),
-            )
-            .is_empty()
-            || !mind
-                .query(Some(&MindNode::Entity(other)), Some(Predicate::Knows), None)
-                .is_empty()
+        self.app()
+            .world()
+            .get::<crate::agent::mind::social_identity::SocialIdentity>(agent)
+            .map(|s| s.knows(other))
+            .unwrap_or(false)
     }
 
     /// Returns the trust value `agent` has toward `other`, or 0.0 if no triple exists.
@@ -1906,6 +1900,8 @@ impl TestWorld {
         };
 
         // Single pass: collect (trust, affection, respect, knows) per Entity subject.
+        // Trust/Affection/Respect live in MindGraph (epistemic — decay, change
+        // over time). `knows` lives in SocialIdentity (agent self-state).
         #[derive(Default)]
         struct RelEntry {
             trust: Option<f32>,
@@ -1915,12 +1911,7 @@ impl TestWorld {
         }
         let mut by_entity: std::collections::HashMap<Entity, RelEntry> =
             std::collections::HashMap::new();
-        for pred in [
-            Predicate::Trust,
-            Predicate::Affection,
-            Predicate::Respect,
-            Predicate::Knows,
-        ] {
+        for pred in [Predicate::Trust, Predicate::Affection, Predicate::Respect] {
             for triple in mind.query(None, Some(pred), None) {
                 if let MindNode::Entity(e) = &triple.subject {
                     let entry = by_entity.entry(*e).or_default();
@@ -1934,10 +1925,16 @@ impl TestWorld {
                         (Predicate::Respect, Value::Quantity(q)) => {
                             entry.respect = Some(q.point_estimate())
                         }
-                        (Predicate::Knows, _) => entry.knows = true,
                         _ => {}
                     }
                 }
+            }
+        }
+        if let Some(social) =
+            world.get::<crate::agent::mind::social_identity::SocialIdentity>(agent)
+        {
+            for (entity, _) in social.iter() {
+                by_entity.entry(*entity).or_default().knows = true;
             }
         }
 

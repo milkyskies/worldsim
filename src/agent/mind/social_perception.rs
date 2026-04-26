@@ -67,28 +67,12 @@ pub fn perceive_other_agents(
             // needs "is the agent observing X is sad", surface it through the
             // event-driven brain wakeup pipeline instead.)
 
-            // 5. Store their name (if we don't know it yet, use their entity name)
-            // This simulates "seeing their name tag" for now - real introductions come later
-            if !mind.has(
-                &target_node,
-                Predicate::NameOf,
-                &Value::Text(AgentName(name.to_string())),
-            ) {
-                // Only assert if we've been introduced
-                let introduced = mind.query(
-                    Some(&target_node),
-                    Some(Predicate::Introduced),
-                    Some(&Value::Boolean(true)),
-                );
-                if !introduced.is_empty() {
-                    mind.assert(Triple::with_meta(
-                        target_node.clone(),
-                        Predicate::NameOf,
-                        Value::Text(AgentName(name.to_string())),
-                        Metadata::semantic(current_time),
-                    ));
-                }
-            }
+            // (Names used to be written here as `(Entity, NameOf, Text)`
+            // triples gated on a `(Entity, Introduced, true)` query. The
+            // social ledger now lives in `SocialIdentity`, populated by
+            // `recognition::initialize_relationship` on first formal
+            // introduction — we don't re-write names from passive sight.)
+            let _ = (name, target_node);
         }
     }
 }

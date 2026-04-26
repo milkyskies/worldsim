@@ -6,11 +6,22 @@
 //! The triple must reference the new campfire entity, not the despawned site.
 
 use bevy::prelude::*;
-use worldsim::agent::mind::knowledge::{Concept, MindGraph, Node, Predicate};
+use worldsim::agent::mind::knowledge::Concept;
 use worldsim::testing::{AgentConfig, TestWorld};
 use worldsim::world::campfire::CampfireMarker;
 use worldsim::world::construction_site::spawn_construction_site_headless;
 use worldsim::world::property::BuiltBy;
+
+/// Returns every entity whose `BuiltBy` records the given builder. Replaces
+/// the old `mind.query(Self, Owns, ?)` lookup after the Owns triple was
+/// deleted in #587 — `BuiltBy` was always the canonical record; the triple
+/// was redundant duplication.
+fn entities_built_by(world: &mut TestWorld, builder: Entity) -> Vec<Entity> {
+    let mut q = world.app_mut().world_mut().query::<(Entity, &BuiltBy)>();
+    q.iter(world.app().world())
+        .filter_map(|(entity, built_by)| (built_by.builder == builder).then_some(entity))
+        .collect()
+}
 
 /// After Alice places a site that transforms into a campfire, her MindGraph
 /// should contain `(Self, Owns, campfire_entity)`.
@@ -29,7 +40,7 @@ fn building_a_campfire_records_ownership_triple() {
     );
 
     // One tick: becomes_system fires, despawns the site, spawns the campfire,
-    // copies BuiltBy forward, writes the ownership triple.
+    // and tags it with BuiltBy.
     world.tick(1);
 
     // The site is gone.
@@ -38,29 +49,23 @@ fn building_a_campfire_records_ownership_triple() {
         "construction site should be despawned after transformation"
     );
 
-    // Alice's MindGraph should contain exactly one Owns triple, pointing at
-    // the new campfire entity.
-    let mind = world.get::<MindGraph>(alice);
-    let owns_triples = mind.query(Some(&Node::Self_), Some(Predicate::Owns), None);
+    // Alice should be the builder of exactly one entity — the new campfire.
+    let owned = entities_built_by(&mut world, alice);
     assert_eq!(
-        owns_triples.len(),
+        owned.len(),
         1,
-        "Alice should own exactly one entity after building one campfire (got {})",
-        owns_triples.len()
+        "Alice should be the builder of exactly one entity after building one campfire (got {})",
+        owned.len()
     );
 
-    // The owned entity must be a real campfire (CampfireMarker present).
-    let owned_entity = owns_triples[0]
-        .object
-        .as_entity()
-        .expect("Owns triple's object must be an Entity");
+    // That entity must be a real campfire (CampfireMarker present).
     assert!(
         world
             .app()
             .world()
-            .get::<CampfireMarker>(owned_entity)
+            .get::<CampfireMarker>(owned[0])
             .is_some(),
-        "Owned entity should be a campfire (have CampfireMarker)"
+        "BuiltBy entity should be a campfire (have CampfireMarker)"
     );
 }
 
@@ -80,17 +85,16 @@ fn ownership_triple_references_finished_entity_not_site() {
 
     world.tick(1);
 
-    let mind = world.get::<MindGraph>(alice);
-    let owns_triples = mind.query(Some(&Node::Self_), Some(Predicate::Owns), None);
-    let owned_entity = owns_triples[0].object.as_entity().unwrap();
+    let owned = entities_built_by(&mut world, alice);
+    let owned_entity = owned[0];
 
     assert_ne!(
         owned_entity, site,
-        "Owns triple must reference the new campfire entity, not the despawned site"
+        "BuiltBy must tag the new campfire entity, not the despawned site"
     );
     assert!(
         world.entity_exists(owned_entity),
-        "the owned entity must still exist (it's the new campfire)"
+        "the built entity must still exist (it's the new campfire)"
     );
 }
 
@@ -119,43 +123,20 @@ fn multiple_agents_each_own_their_own_campfire() {
 
     world.tick(1);
 
-    // Alice owns one campfire — but it isn't Bob's.
-    let alice_owns = {
-        let mind = world.get::<MindGraph>(alice);
-        mind.query(Some(&Node::Self_), Some(Predicate::Owns), None)
-            .into_iter()
-            .map(|t| t.object.as_entity().unwrap())
-            .collect::<Vec<_>>()
-    };
-    let bob_owns = {
-        let mind = world.get::<MindGraph>(bob);
-        mind.query(Some(&Node::Self_), Some(Predicate::Owns), None)
-            .into_iter()
-            .map(|t| t.object.as_entity().unwrap())
-            .collect::<Vec<_>>()
-    };
+    // Alice built one campfire — but it isn't Bob's.
+    let alice_built = entities_built_by(&mut world, alice);
+    let bob_built = entities_built_by(&mut world, bob);
 
-    assert_eq!(alice_owns.len(), 1, "Alice should own exactly one campfire");
-    assert_eq!(bob_owns.len(), 1, "Bob should own exactly one campfire");
-    assert_ne!(
-        alice_owns[0], bob_owns[0],
-        "Alice and Bob should own different campfires"
+    assert_eq!(
+        alice_built.len(),
+        1,
+        "Alice should build exactly one campfire"
     );
-
-    // Each campfire's BuiltBy should point at its actual builder.
-    let alice_built_by = world
-        .app()
-        .world()
-        .get::<BuiltBy>(alice_owns[0])
-        .expect("Alice's campfire should have BuiltBy");
-    assert_eq!(alice_built_by.builder, alice);
-
-    let bob_built_by = world
-        .app()
-        .world()
-        .get::<BuiltBy>(bob_owns[0])
-        .expect("Bob's campfire should have BuiltBy");
-    assert_eq!(bob_built_by.builder, bob);
+    assert_eq!(bob_built.len(), 1, "Bob should build exactly one campfire");
+    assert_ne!(
+        alice_built[0], bob_built[0],
+        "Alice and Bob should build different campfires"
+    );
 }
 
 /// Only the agent who PLACED the site owns the result. Other agents who
@@ -184,25 +165,17 @@ fn building_for_a_friend_does_not_create_my_ownership() {
 
     world.tick(1);
 
-    // Alice owns the campfire. Bob owns nothing.
-    let alice_owns_count = {
-        let mind = world.get::<MindGraph>(alice);
-        mind.query(Some(&Node::Self_), Some(Predicate::Owns), None)
-            .len()
-    };
-    let bob_owns_count = {
-        let mind = world.get::<MindGraph>(bob);
-        mind.query(Some(&Node::Self_), Some(Predicate::Owns), None)
-            .len()
-    };
+    // Alice built the campfire. Bob built nothing.
+    let alice_count = entities_built_by(&mut world, alice).len();
+    let bob_count = entities_built_by(&mut world, bob).len();
 
     assert_eq!(
-        alice_owns_count, 1,
-        "Alice (the placer) should own the campfire"
+        alice_count, 1,
+        "Alice (the placer) should be the builder of the campfire"
     );
     assert_eq!(
-        bob_owns_count, 0,
-        "Bob (who only stood nearby) should not own anything"
+        bob_count, 0,
+        "Bob (who only stood nearby) should not be the builder of anything"
     );
 }
 

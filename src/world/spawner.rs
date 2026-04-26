@@ -16,7 +16,7 @@
 //! - `wood_log.rs` - Wood Log spawning
 
 use crate::agent::mind::knowledge::{MindGraph, Ontology};
-use crate::agent::mind::recognition::initialize_relationship_with_affection;
+use crate::agent::mind::recognition::init_relationship_dimensions;
 use crate::menu::{AppState, SimConfig, SimMode};
 use crate::world::spawn_config::{SpawnLayout, WorldSpawnConfig};
 use bevy::prelude::*;
@@ -49,9 +49,18 @@ fn introduce_group_as_kin(commands: &mut Commands, members: Vec<Entity>, affecti
                 if i == j {
                     continue;
                 }
+                if let Some(mut social) =
+                    world.get_mut::<crate::agent::mind::social_identity::SocialIdentity>(*entity_a)
+                {
+                    social.introduce(
+                        *entity_b,
+                        crate::agent::mind::knowledge::AgentName(name_b.clone()),
+                        0,
+                    );
+                }
                 if let Some(mut mind) = world.get_mut::<MindGraph>(*entity_a) {
-                    initialize_relationship_with_affection(
-                        &mut mind, *entity_b, name_b, 0, affection,
+                    crate::agent::mind::recognition::init_relationship_dimensions(
+                        &mut mind, *entity_b, 0, affection,
                     );
                 }
             }

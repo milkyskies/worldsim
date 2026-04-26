@@ -537,18 +537,11 @@ pub fn resolve_field(world: &World, entity: Entity, path: &str) -> Option<Value>
             let mind = world.get::<MindGraph>(entity)?;
             let known = !mind
                 .query(
-                    Some(&Node::Self_),
-                    Some(Predicate::Knows),
+                    None,
+                    Some(Predicate::IsA),
                     Some(&MindValue::Concept(concept)),
                 )
-                .is_empty()
-                || !mind
-                    .query(
-                        None,
-                        Some(Predicate::IsA),
-                        Some(&MindValue::Concept(concept)),
-                    )
-                    .is_empty();
+                .is_empty();
             Some(json!(known))
         }
 

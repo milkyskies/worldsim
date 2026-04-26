@@ -271,12 +271,6 @@ pub enum Predicate {
     // ─── Social ───
     Relationship, // (Self, Relationship, Bob) → Attitude(0.7)
     TrustsFor,    // (Bob, TrustsFor, FoodKnowledge)
-    Knows,        // (Self, Knows, Entity) - have we met?
-    Introduced,   // (Self, Introduced, Entity) - exchanged names?
-    NameOf,       // (Entity, NameOf, String) - what's their name?
-
-    // ─── Possession ───
-    Owns, // (Self, Owns, Entity<campfire>) - "this is mine"
 
     // ─── Commitment ───
     Committed, // (Self, Committed, Concept) - "I've promised to pursue this"
@@ -286,12 +280,6 @@ pub enum Predicate {
     Affection,    // (Entity, Affection, Float) - 0.0 to 1.0
     Respect,      // (Entity, Respect, Float) - 0.0 to 1.0
     PowerBalance, // (Entity, PowerBalance, Float) - -1.0 to 1.0
-
-    // ─── Social Perception ───
-    Doing,          // (Entity, Doing, Action) - current activity
-    AppearsMood,    // (Entity, AppearsMood, Concept) - visible mood
-    AppearsInjured, // (Entity, AppearsInjured, Boolean)
-    Heading,        // (Entity, Heading, Tile) - movement direction
 
     // ─── Exploration ───
     Explored, // (Tile(x,y), Explored, Timestamp) - agent has seen this tile
@@ -325,12 +313,6 @@ impl Predicate {
                 | Predicate::Affection
                 | Predicate::Respect
                 | Predicate::PowerBalance
-                | Predicate::NameOf
-                // Social perception (one current state per entity)
-                | Predicate::Doing
-                | Predicate::AppearsMood
-                | Predicate::AppearsInjured
-                | Predicate::Heading
         )
     }
 
