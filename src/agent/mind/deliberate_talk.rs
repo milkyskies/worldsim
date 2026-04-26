@@ -117,14 +117,7 @@ fn is_deliberate_shareable(triple: &Triple) -> bool {
     // Exclude relationship data — personal, not shareable world-knowledge
     if matches!(
         triple.predicate,
-        Predicate::Trust
-            | Predicate::Affection
-            | Predicate::Respect
-            | Predicate::PowerBalance
-            | Predicate::Doing
-            | Predicate::AppearsMood
-            | Predicate::AppearsInjured
-            | Predicate::Heading
+        Predicate::Trust | Predicate::Affection | Predicate::Respect | Predicate::PowerBalance
     ) {
         return false;
     }

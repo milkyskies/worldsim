@@ -9,5 +9,6 @@ pub mod memory;
 pub mod perception;
 pub mod recognition;
 pub mod small_talk;
+pub mod social_identity;
 pub mod social_perception;
 pub mod theory_of_mind;

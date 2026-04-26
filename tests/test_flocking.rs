@@ -16,8 +16,6 @@ use bevy::prelude::*;
 use worldsim::agent::actions::ActionType;
 use worldsim::agent::body::needs::PsychologicalDrives;
 use worldsim::agent::events::{SimEvent, SimEventKind};
-use worldsim::agent::mind::knowledge::MindGraph;
-use worldsim::agent::mind::recognition::initialize_relationship_with_affection;
 use worldsim::testing::TestWorld;
 
 /// Deer must spawn with `PsychologicalDrives` so the urgency / decay
@@ -46,14 +44,8 @@ fn visible_kin_decay_social_drive() {
     let deer_b = world.spawn_deer(Vec2::new(60.0, 40.0));
 
     // Mutually introduce them at kin-level affection.
-    {
-        let mut mind_a = world.get_mut::<MindGraph>(deer_a);
-        initialize_relationship_with_affection(&mut mind_a, deer_b, "Deer 2", 0, 0.8);
-    }
-    {
-        let mut mind_b = world.get_mut::<MindGraph>(deer_b);
-        initialize_relationship_with_affection(&mut mind_b, deer_a, "Deer 1", 0, 0.8);
-    }
+    world.introduce_agent(deer_a, deer_b, "Deer 2", 0.8);
+    world.introduce_agent(deer_b, deer_a, "Deer 1", 0.8);
 
     // Tick once to let `develop_phenotype_system` run (Added<Genome>) so the
     // drives it computes from the genome don't clobber our test-authored
@@ -112,14 +104,8 @@ fn lonely_deer_with_visible_kin_walks_toward_them() {
 
     // Introduce them at high affection so the flock-walk picks the
     // friend over any random deer that might wander in.
-    {
-        let mut mind = world.get_mut::<MindGraph>(lonely);
-        initialize_relationship_with_affection(&mut mind, friend, "Deer 2", 0, 0.9);
-    }
-    {
-        let mut mind = world.get_mut::<MindGraph>(friend);
-        initialize_relationship_with_affection(&mut mind, lonely, "Deer 1", 0, 0.9);
-    }
+    world.introduce_agent(lonely, friend, "Deer 2", 0.9);
+    world.introduce_agent(friend, lonely, "Deer 1", 0.9);
 
     // Tick once to let `develop_phenotype_system` run, so our direct drive
     // mutation below isn't overwritten by the genome→drives pipeline.

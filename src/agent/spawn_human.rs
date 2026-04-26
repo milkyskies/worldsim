@@ -67,6 +67,7 @@ pub struct PersonCoreBundle {
 pub struct PersonPerceptionBundle {
     pub affordance: Affordance,
     pub mind: MindGraph,
+    pub social_identity: crate::agent::mind::social_identity::SocialIdentity,
     pub vision: Vision,
     pub visible: VisibleObjects,
 }
@@ -199,6 +200,7 @@ pub fn build_person_logic(
     let perception = PersonPerceptionBundle {
         affordance: Affordance::default(),
         mind,
+        social_identity: crate::agent::mind::social_identity::SocialIdentity::default(),
         vision: Vision { range: 100.0 },
         visible: VisibleObjects::default(),
     };

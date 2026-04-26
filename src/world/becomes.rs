@@ -20,12 +20,11 @@ use std::collections::HashMap;
 
 use bevy::prelude::*;
 
-use crate::agent::Agent;
 use crate::agent::actions::ActionType;
 use crate::agent::actions::registry::ActiveActions;
 use crate::agent::events::{SimEvent, SimEventKind};
 use crate::agent::item_slots::{ItemSlots, SlotRole};
-use crate::agent::mind::knowledge::{Concept, Metadata, MindGraph, Node, Predicate, Triple, Value};
+use crate::agent::mind::knowledge::Concept;
 use crate::core::tick::TickCount;
 use crate::world::property::BuiltBy;
 use crate::world::spawn::{spawn_concept_entity, transform_concept_in_place};
@@ -213,7 +212,6 @@ pub fn becomes_system(
         Option<&ItemSlots>,
         Option<&BuiltBy>,
     )>,
-    mut agent_minds: Query<&mut MindGraph, With<Agent>>,
     tick: Res<TickCount>,
 ) {
     for (entity, becomes, transform, slots, built_by) in query.iter() {
@@ -234,7 +232,9 @@ pub fn becomes_system(
                     continue;
                 };
 
-                // Carry BuiltBy forward and record ownership in the builder's mind.
+                // Carry BuiltBy forward — this component is the canonical
+                // "who built me" record. The redundant `(Self, Owns, Entity)`
+                // mind triple was deleted in #587.
                 let Some(built_by) = built_by else {
                     continue;
                 };
@@ -242,14 +242,6 @@ pub fn becomes_system(
                     builder: built_by.builder,
                     built_at: built_by.built_at,
                 });
-                if let Ok(mut mind) = agent_minds.get_mut(built_by.builder) {
-                    mind.assert(Triple::with_meta(
-                        Node::Self_,
-                        Predicate::Owns,
-                        Value::Entity(new_entity),
-                        Metadata::default(),
-                    ));
-                }
             }
             BecomesMode::InPlace => {
                 transform_concept_in_place(&mut commands, entity, becomes.target);

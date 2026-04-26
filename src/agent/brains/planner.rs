@@ -1466,7 +1466,7 @@ fn energy_full_pattern() -> TriplePattern {
 fn build_walk_goals(
     dist_tiles: f32,
     remaining_goals: &[TriplePattern],
-    mind: &MindGraph,
+    cost_cache: &PlanCostCache,
 ) -> Option<Vec<TriplePattern>> {
     // Worst-case stamina cost: whole trip at tired speed (conservative).
     let stamina_needed = dist_tiles * walk_const::STAMINA_PER_TILE_TIRED;
@@ -1476,12 +1476,10 @@ fn build_walk_goals(
         return None;
     }
 
-    let current_stamina = match mind.get(&MindNode::Self_, Predicate::Stamina) {
-        // Pessimistic: for fuzzy beliefs take the lower bound so the planner
-        // errs toward inserting Rest instead of risking an exhausted walk.
-        Some(Value::Quantity(q)) => q.lower_bound(),
-        _ => 100.0, // Unknown stamina — assume full, let it proceed
-    };
+    // Stamina is now a live component value (PhysicalNeeds::stamina.aerobic),
+    // surfaced through PlanCostContext at planner entry — no MindGraph triple
+    // round-trip every search step.
+    let current_stamina = cost_cache.ctx.stamina_aerobic * 100.0;
 
     let mut goals = remaining_goals.to_vec();
 
@@ -1579,7 +1577,7 @@ fn generate_implicit_walk(
 
     let walk_action = build_walk_template(world_pos, tile);
 
-    let next_goals = build_walk_goals(dist, remaining_goals, mind)?;
+    let next_goals = build_walk_goals(dist, remaining_goals, cost_cache)?;
     let next_state = RegressiveState::new(next_goals, current_consumed.to_vec());
     let new_cost = current_g
         + subjective_walk_cost(
@@ -1659,7 +1657,7 @@ fn generate_concept_near_walks(
             Value::Concept(target_concept),
         ));
 
-        let Some(next_goals) = build_walk_goals(dist, remaining_goals, mind) else {
+        let Some(next_goals) = build_walk_goals(dist, remaining_goals, cost_cache) else {
             continue;
         };
         let next_state = RegressiveState::new(next_goals, current_consumed.to_vec());
@@ -1980,17 +1978,22 @@ mod tests {
     }
 
     /// Mind with agent at origin, given stamina, and food entity at `food_tile`.
-    fn mind_with_food_and_energy(food: Entity, food_tile: (i32, i32), stamina: i32) -> MindGraph {
+    /// Build a `PlanCostContext` matching `stamina` (0..100) so the planner
+    /// stamina precondition logic kicks in the same way it would when called
+    /// from a real agent. Other fields stay neutral.
+    fn ctx_with_stamina(stamina: f32) -> PlanCostContext {
+        PlanCostContext {
+            stamina_aerobic: (stamina / 100.0).clamp(0.0, 1.0),
+            ..PlanCostContext::neutral()
+        }
+    }
+
+    fn mind_with_food_and_energy(food: Entity, food_tile: (i32, i32), _stamina: i32) -> MindGraph {
         let mut mind = test_mind();
         mind.add(Triple::new(
             MindNode::Self_,
             Predicate::LocatedAt,
             Value::Tile((0, 0)),
-        ));
-        mind.add(Triple::new(
-            MindNode::Self_,
-            Predicate::Stamina,
-            Value::Quantity(Quantity::Exact(stamina as f32)),
         ));
         mind.add(Triple::new(
             MindNode::Entity(food),
@@ -2061,7 +2064,7 @@ mod tests {
         ];
         let goal = goal_self_contains(Concept::Apple);
 
-        let (plan, _) = regressive_plan(&mind, &goal, &actions, &PlanCostContext::neutral());
+        let (plan, _) = regressive_plan(&mind, &goal, &actions, &ctx_with_stamina(20.0));
         assert!(
             plan.is_some(),
             "should produce a plan (Rest makes it feasible)"
@@ -2114,11 +2117,6 @@ mod tests {
             Value::Tile((0, 0)),
         ));
         mind.add(Triple::new(
-            MindNode::Self_,
-            Predicate::Stamina,
-            Value::Quantity(Quantity::Exact(20.0)),
-        ));
-        mind.add(Triple::new(
             MindNode::Entity(stone),
             Predicate::LocatedAt,
             Value::Tile(stone_tile),
@@ -2163,7 +2161,7 @@ mod tests {
             priority: 1.0,
         };
 
-        let (plan, _) = regressive_plan(&mind, &goal, &actions, &PlanCostContext::neutral());
+        let (plan, _) = regressive_plan(&mind, &goal, &actions, &ctx_with_stamina(20.0));
         assert!(plan.is_some(), "should produce a plan for stone harvest");
         let plan = plan.unwrap();
 

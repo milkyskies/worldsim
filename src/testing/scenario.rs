@@ -15,7 +15,6 @@ use crate::agent::body::genetics::genome::Genome;
 use crate::agent::mind::knowledge::{
     Metadata, MindGraph, Node, Predicate, Quantity, Triple, Value,
 };
-use crate::agent::mind::recognition::initialize_relationship;
 use crate::testing::config::AgentConfig;
 use crate::testing::world::{TestWorld, make_walkable_map};
 use crate::world::map::{TileType, WorldMap};
@@ -557,7 +556,6 @@ fn spawn_named_agent(world: &mut TestWorld, spec: &AgentSpec) -> Entity {
     world.spawn_agent(config)
 }
 
-/// Write mutual Knows triples between all members of a group.
 fn apply_mutual_knowledge(world: &mut TestWorld, members: &[Entity]) {
     // Collect (entity, name) pairs without holding borrows.
     let pairs: Vec<(Entity, String)> = members
@@ -584,18 +582,8 @@ fn apply_mutual_knowledge(world: &mut TestWorld, members: &[Entity]) {
             let b_name = name_b.clone();
             let a_name = name_a.clone();
 
-            {
-                let mind_a = world.app_mut().world_mut().get_mut::<MindGraph>(a);
-                if let Some(mut mind) = mind_a {
-                    initialize_relationship(&mut mind, b, &b_name, 0);
-                }
-            }
-            {
-                let mind_b = world.app_mut().world_mut().get_mut::<MindGraph>(b);
-                if let Some(mut mind) = mind_b {
-                    initialize_relationship(&mut mind, a, &a_name, 0);
-                }
-            }
+            world.introduce_agent(a, b, &b_name, 0.5);
+            world.introduce_agent(b, a, &a_name, 0.5);
         }
     }
 }
@@ -609,12 +597,9 @@ fn apply_relationship(world: &mut TestWorld, a: Entity, b: Entity, spec: &Relati
         .map(|n| n.as_str().to_string())
         .unwrap_or_default();
 
+    world.introduce_agent(a, b, &b_name, 0.5);
     let mind = world.app_mut().world_mut().get_mut::<MindGraph>(a);
     let Some(mut mind) = mind else { return };
-
-    // initialize_relationship sets Knows/Introduced/NameOf/Trust/Affection/Respect/PowerBalance.
-    // We then overwrite the three dimensions with the caller-specified values.
-    initialize_relationship(&mut mind, b, &b_name, 0);
 
     let target = Node::Entity(b);
     let meta = Metadata::semantic(0);

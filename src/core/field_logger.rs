@@ -23,7 +23,7 @@ use crate::agent::body::species::{Species, SpeciesProfile};
 use crate::agent::brains::history::BrainHistory;
 use crate::agent::brains::plan_memory::{HeldPlan, PlanMemory, PlanState};
 use crate::agent::brains::proposal::BrainState;
-use crate::agent::mind::knowledge::{Concept, MindGraph, Node, Predicate, Value as MindValue};
+use crate::agent::mind::knowledge::{Concept, MindGraph, Predicate, Value as MindValue};
 use crate::agent::nervous_system::cns::CentralNervousSystem;
 use crate::agent::nervous_system::urgency::UrgencySource;
 use crate::agent::psyche::emotions::EmotionalState;
@@ -537,18 +537,11 @@ pub fn resolve_field(world: &World, entity: Entity, path: &str) -> Option<Value>
             let mind = world.get::<MindGraph>(entity)?;
             let known = !mind
                 .query(
-                    Some(&Node::Self_),
-                    Some(Predicate::Knows),
+                    None,
+                    Some(Predicate::IsA),
                     Some(&MindValue::Concept(concept)),
                 )
-                .is_empty()
-                || !mind
-                    .query(
-                        None,
-                        Some(Predicate::IsA),
-                        Some(&MindValue::Concept(concept)),
-                    )
-                    .is_empty();
+                .is_empty();
             Some(json!(known))
         }
 

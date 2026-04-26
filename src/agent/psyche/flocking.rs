@@ -178,11 +178,11 @@ fn query_affection(mind: &MindGraph, other: Entity) -> Option<f32> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::agent::mind::recognition::initialize_relationship_with_affection;
+    use crate::agent::mind::recognition::init_relationship_dimensions;
 
     fn make_mind_with_affection(other: Entity, affection: f32) -> MindGraph {
         let mut mind = MindGraph::default();
-        initialize_relationship_with_affection(&mut mind, other, "Deer 2", 0, affection);
+        init_relationship_dimensions(&mut mind, other, 0, affection);
         mind
     }
 

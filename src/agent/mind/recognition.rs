@@ -37,6 +37,7 @@ pub fn check_recognition(
             Entity,
             &VisibleObjects,
             &mut MindGraph,
+            &crate::agent::mind::social_identity::SocialIdentity,
             &RelationshipHistory,
         ),
         With<Agent>,
@@ -47,7 +48,7 @@ pub fn check_recognition(
 ) {
     let current_time = tick.current;
 
-    for (observer_entity, visible, mut mind, history) in observers.iter_mut() {
+    for (observer_entity, visible, mut mind, social_identity, history) in observers.iter_mut() {
         for &visible_entity in &visible.entities {
             // Skip self
             if visible_entity == observer_entity {
@@ -62,15 +63,11 @@ pub fn check_recognition(
             let target_node = Node::Entity(visible_entity);
 
             // Check: Do I know this entity?
-            let knows_triples = mind.query(
-                Some(&target_node),
-                Some(Predicate::Knows),
-                Some(&Value::Boolean(true)),
-            );
-
-            if knows_triples.is_empty() {
-                // This is a stranger! Mark them as such
-                // The social brain will see this and propose introduction
+            if !social_identity.knows(visible_entity) {
+                // Stranger — write the IsA tag once, when it isn't already
+                // there, to avoid a per-tick MindGraph round-trip while
+                // the stranger remains in view. The social brain proposes
+                // introduction; emit the wakeup-style event regardless.
                 sim_events.write(crate::agent::events::SimEvent::single(
                     current_time,
                     observer_entity,
@@ -79,25 +76,30 @@ pub fn check_recognition(
                         stranger: visible_entity,
                     },
                 ));
-                mind.assert(Triple::with_meta(
-                    target_node.clone(),
-                    Predicate::IsA,
-                    Value::Concept(Concept::Stranger),
-                    Metadata::perception(current_time),
-                ));
-
-                // Remove any stale "known" relationship type
-                // (they might have been Friend/Acquaintance but we forgot)
-                mind.remove(
+                if !mind.has(
                     &target_node,
                     Predicate::IsA,
-                    &Value::Concept(Concept::Friend),
-                );
-                mind.remove(
-                    &target_node,
-                    Predicate::IsA,
-                    &Value::Concept(Concept::Acquaintance),
-                );
+                    &Value::Concept(Concept::Stranger),
+                ) {
+                    mind.assert(Triple::with_meta(
+                        target_node.clone(),
+                        Predicate::IsA,
+                        Value::Concept(Concept::Stranger),
+                        Metadata::perception(current_time),
+                    ));
+                    // Drop any stale relationship category from a previous
+                    // acquaintance we've since forgotten about.
+                    mind.remove(
+                        &target_node,
+                        Predicate::IsA,
+                        &Value::Concept(Concept::Friend),
+                    );
+                    mind.remove(
+                        &target_node,
+                        Predicate::IsA,
+                        &Value::Concept(Concept::Acquaintance),
+                    );
+                }
             } else {
                 // We know them - remove stranger tag if present
                 mind.remove(
@@ -192,57 +194,20 @@ pub(crate) fn classify_from_history(log: &VecDeque<InteractionRecord>) -> Concep
     Concept::Acquaintance
 }
 
-/// Initialize relationship with kin-level bonds. Affection defaults to
-/// `baseline_affection` (instead of the neutral 0.5 used for strangers) so
-/// the #260 flocking drive can decay strongly against herd-mates / pack-mates
-/// introduced at spawn. Same signature as `initialize_relationship` otherwise.
-pub fn initialize_relationship_with_affection(
+/// Initialize the epistemic relationship dimensions (Trust / Affection /
+/// Respect / PowerBalance) in the agent's MindGraph. The Knows /
+/// Introduced / NameOf side of "I've met them" lives in
+/// `SocialIdentity` — call `social.introduce(entity, name, tick)`
+/// alongside this. Splitting the two halves lets callers grab `&mut` to
+/// each component independently without fighting Bevy's borrow rules.
+pub fn init_relationship_dimensions(
     mind: &mut MindGraph,
     entity: Entity,
-    name: &str,
     timestamp: u64,
     baseline_affection: f32,
 ) {
-    initialize_relationship(mind, entity, name, timestamp);
-    // Overwrite the neutral 0.5 affection that `initialize_relationship`
-    // just wrote. Functional predicate → the new value replaces the old.
-    mind.assert(Triple::with_meta(
-        Node::Entity(entity),
-        Predicate::Affection,
-        Value::Quantity(Quantity::Exact(baseline_affection.clamp(0.0, 1.0))),
-        Metadata::semantic(timestamp),
-    ));
-}
-
-/// Initialize relationship when meeting someone for the first time
-pub fn initialize_relationship(mind: &mut MindGraph, entity: Entity, name: &str, timestamp: u64) {
     let target = Node::Entity(entity);
 
-    // Mark as known
-    mind.assert(Triple::with_meta(
-        target.clone(),
-        Predicate::Knows,
-        Value::Boolean(true),
-        Metadata::semantic(timestamp),
-    ));
-
-    // Mark as introduced
-    mind.assert(Triple::with_meta(
-        target.clone(),
-        Predicate::Introduced,
-        Value::Boolean(true),
-        Metadata::semantic(timestamp),
-    ));
-
-    // Store their name
-    mind.assert(Triple::with_meta(
-        target.clone(),
-        Predicate::NameOf,
-        Value::Text(crate::agent::mind::knowledge::AgentName(name.to_string())),
-        Metadata::semantic(timestamp),
-    ));
-
-    // Initialize neutral relationship dimensions
     let neutral = Value::Quantity(Quantity::Exact(0.5));
     mind.assert(Triple::with_meta(
         target.clone(),
@@ -254,7 +219,7 @@ pub fn initialize_relationship(mind: &mut MindGraph, entity: Entity, name: &str,
     mind.assert(Triple::with_meta(
         target.clone(),
         Predicate::Affection,
-        neutral.clone(),
+        Value::Quantity(Quantity::Exact(baseline_affection.clamp(0.0, 1.0))),
         Metadata::semantic(timestamp),
     ));
 

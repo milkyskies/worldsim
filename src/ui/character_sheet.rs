@@ -1745,8 +1745,13 @@ fn render_social(ui: &mut egui::Ui, world: &World, entity: Entity) {
         placeholder(ui, "(no social knowledge — this entity has no mind)");
         return;
     };
+    let Some(social) = world.get::<crate::agent::mind::social_identity::SocialIdentity>(entity)
+    else {
+        placeholder(ui, "(no social ledger — this entity has no SocialIdentity)");
+        return;
+    };
 
-    let known = mind.query(None, Some(Predicate::Knows), Some(&Value::Boolean(true)));
+    let known: Vec<Entity> = social.known_entities().collect();
     if known.is_empty() {
         placeholder(ui, "(has not met anyone yet)");
         return;
@@ -1755,11 +1760,7 @@ fn render_social(ui: &mut egui::Ui, world: &World, entity: Entity) {
     let history = world.get::<RelationshipHistory>(entity);
 
     let mut rows: Vec<SocialRow> = Vec::new();
-    for triple in known {
-        let Node::Entity(other) = triple.subject else {
-            continue;
-        };
-
+    for other in known {
         let name = world
             .get::<Name>(other)
             .map(|n| n.to_string())
@@ -2321,23 +2322,24 @@ fn render_knowledge_summary(ui: &mut egui::Ui, world: &World, entity: Entity) {
     });
 
     ui.collapsing("People I know", |ui| {
-        let known = mind.query(None, Some(Predicate::Knows), Some(&Value::Boolean(true)));
+        let known: Vec<Entity> = world
+            .get::<crate::agent::mind::social_identity::SocialIdentity>(entity)
+            .map(|s| s.known_entities().collect())
+            .unwrap_or_default();
         if known.is_empty() {
             placeholder(ui, "(none)");
         } else {
-            for triple in &known {
-                if let Node::Entity(other) = triple.subject {
-                    let name = world
-                        .get::<Name>(other)
-                        .map(|n| n.to_string())
-                        .unwrap_or_else(|| format!("{:?}", other));
-                    let cat = relationship_category(mind, other);
-                    let (label, color) = category_label_color(cat);
-                    ui.horizontal(|ui| {
-                        ui.label(format!("• {}", name));
-                        ui.colored_label(color, format!("({})", label));
-                    });
-                }
+            for other in known {
+                let name = world
+                    .get::<Name>(other)
+                    .map(|n| n.to_string())
+                    .unwrap_or_else(|| format!("{:?}", other));
+                let cat = relationship_category(mind, other);
+                let (label, color) = category_label_color(cat);
+                ui.horizontal(|ui| {
+                    ui.label(format!("• {}", name));
+                    ui.colored_label(color, format!("({})", label));
+                });
             }
         }
     });

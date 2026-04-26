@@ -21,7 +21,6 @@ use crate::agent::events::{ConversationTopic, GameEvent};
 use crate::agent::mind::knowledge::{
     Metadata, MindGraph, Node, Predicate, Quantity, Triple, Value,
 };
-use crate::agent::mind::recognition::initialize_relationship;
 use crate::agent::psyche::personality::Personality;
 use crate::core::tick::TickCount;
 use crate::core::time::GameTime;
@@ -137,6 +136,7 @@ pub fn update_relationships(
             Entity,
             &Name,
             &mut MindGraph,
+            &mut crate::agent::mind::social_identity::SocialIdentity,
             &Personality,
             &mut RelationshipHistory,
         ),
@@ -158,10 +158,10 @@ pub fn update_relationships(
         } = event
         {
             // Update target's feelings about actor (the one who did the action)
-            if let Ok((_, actor_name, _, _, _)) = agents.get(*actor) {
+            if let Ok((_, actor_name, _, _, _, _)) = agents.get(*actor) {
                 let actor_name_str = actor_name.to_string();
 
-                if let Ok((_, _, mut target_mind, personality, mut history)) =
+                if let Ok((_, _, mut target_mind, mut target_social, personality, mut history)) =
                     agents.get_mut(*target)
                 {
                     // Record the interaction in the log.
@@ -175,20 +175,19 @@ pub fn update_relationships(
                     );
                     let actor_node = Node::Entity(*actor);
 
-                    // Check if we know this person, if not initialize
-                    let knows = target_mind.query(
-                        Some(&actor_node),
-                        Some(Predicate::Knows),
-                        Some(&Value::Boolean(true)),
-                    );
-
-                    if knows.is_empty() {
-                        // First meeting! Initialize relationship
-                        initialize_relationship(
+                    // First meeting? Initialize the social ledger entry +
+                    // neutral relationship dimensions.
+                    if !target_social.knows(*actor) {
+                        target_social.introduce(
+                            *actor,
+                            crate::agent::mind::knowledge::AgentName(actor_name_str.clone()),
+                            current_time,
+                        );
+                        crate::agent::mind::recognition::init_relationship_dimensions(
                             &mut target_mind,
                             *actor,
-                            &actor_name_str,
                             current_time,
+                            0.5,
                         );
                     }
 

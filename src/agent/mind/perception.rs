@@ -8,8 +8,7 @@
 use crate::agent::Agent;
 use crate::agent::events::SimEventKind;
 use crate::agent::mind::knowledge::{
-    CardinalDirection, Concept, Metadata, MindGraph, Node, Predicate, Quantity, Sense, Triple,
-    Value,
+    CardinalDirection, Concept, Metadata, MindGraph, Node, Predicate, Sense, Triple, Value,
 };
 use crate::core::GameLog;
 use crate::core::tick::TickCount;
@@ -97,9 +96,7 @@ pub fn update_body_perception(
     mut agents: Query<
         (
             Entity,
-            &crate::agent::body::needs::PhysicalNeeds,
             &crate::agent::body::needs::Consciousness,
-            Option<&crate::agent::biology::body::Body>,
             &Transform,
             &mut MindGraph,
         ),
@@ -109,7 +106,7 @@ pub fn update_body_perception(
 ) {
     let current_time = tick.current;
 
-    for (_entity, physical, consciousness, body, transform, mut mind) in agents.iter_mut() {
+    for (_entity, consciousness, transform, mut mind) in agents.iter_mut() {
         // Rule 1: Location
         let pos = transform.translation.truncate();
         let tile_x = (pos.x / TILE_SIZE).floor() as i32;
@@ -130,35 +127,6 @@ pub fn update_body_perception(
             Value::Boolean(true),
             Metadata::semantic(current_time),
         ));
-
-        // Rule 3: Stats — self-sensing is Exact. The agent's body tells the
-        // mind the ground-truth value. Observed beliefs about other agents go
-        // through the social perception writer at Qualitative precision.
-        let exact = |v: f32| Value::Quantity(Quantity::Exact(v));
-        mind.perceive_self(
-            Predicate::Hunger,
-            exact(physical.hunger_urgency() * 100.0),
-            current_time,
-        );
-        // Thirst stores "how thirsty" (0 = hydrated, 100 = parched) so
-        // downstream goal predicates like `(Self, Thirst, 0)` keep reading
-        // correctly. The mind stores thirst as a 0..100 deficit for legacy
-        // goal-predicate compatibility; hydration itself is a 0..1 Need.
-        mind.perceive_self(
-            Predicate::Thirst,
-            exact(physical.hydration.deficit() * 100.0),
-            current_time,
-        );
-        mind.perceive_self(
-            Predicate::Stamina,
-            exact(physical.stamina.aerobic),
-            current_time,
-        );
-
-        let total_pain = body.map(|b| b.total_pain()).unwrap_or(0.0);
-        if total_pain > 0.0 {
-            mind.perceive_self(Predicate::Pain, exact(total_pain), current_time);
-        }
 
         // Rule 4: Consciousness
         let is_awake = consciousness.alertness > 0.2;

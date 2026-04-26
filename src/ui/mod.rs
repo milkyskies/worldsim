@@ -1129,14 +1129,15 @@ fn render_social_ui(world: &mut World, ui: &mut egui::Ui, selected_entities: &[E
 
     // === RELATIONSHIPS ===
     ui.collapsing("💕 Relationships", |ui| {
+        let known: Vec<Entity> = world
+            .get::<crate::agent::mind::social_identity::SocialIdentity>(entity)
+            .map(|s| s.known_entities().collect())
+            .unwrap_or_default();
+
         if let Some(mind) = world.get::<crate::agent::mind::knowledge::MindGraph>(entity) {
-            use crate::agent::mind::knowledge::{Node, Predicate, Value};
+            use crate::agent::mind::knowledge::{Node, Predicate};
 
-            // Find all entities we "Know"
-            let known_entities =
-                mind.query(None, Some(Predicate::Knows), Some(&Value::Boolean(true)));
-
-            if known_entities.is_empty() {
+            if known.is_empty() {
                 ui.label("No known relationships yet.");
             } else {
                 egui::Grid::new("relationships_grid")
@@ -1148,8 +1149,8 @@ fn render_social_ui(world: &mut World, ui: &mut egui::Ui, selected_entities: &[E
                         ui.strong("Affection");
                         ui.end_row();
 
-                        for triple in known_entities {
-                            if let Node::Entity(other_entity) = triple.subject {
+                        for other_entity in known {
+                            {
                                 // Get their name
                                 let other_name = world
                                     .get::<Name>(other_entity)
@@ -1362,7 +1363,7 @@ fn render_social_ui(world: &mut World, ui: &mut egui::Ui, selected_entities: &[E
     // === SOCIAL NEEDS ===
     ui.collapsing("🧠 Social State", |ui| {
         if let Some(mind) = world.get::<crate::agent::mind::knowledge::MindGraph>(entity) {
-            use crate::agent::mind::knowledge::{Node, Predicate, Value};
+            use crate::agent::mind::knowledge::{Node, Predicate};
 
             // Social drive
             let social_drive = mind
@@ -1381,9 +1382,10 @@ fn render_social_ui(world: &mut World, ui: &mut egui::Ui, selected_entities: &[E
             });
 
             // Count known people
-            let known_count = mind
-                .query(None, Some(Predicate::Knows), Some(&Value::Boolean(true)))
-                .len();
+            let known_count = world
+                .get::<crate::agent::mind::social_identity::SocialIdentity>(entity)
+                .map(|s| s.len())
+                .unwrap_or(0);
 
             ui.label(format!("Known people: {}", known_count));
         }
