@@ -544,14 +544,16 @@ pub fn react_to_combat_hit(
             Entity,
             &mut EmotionalState,
             Option<&crate::agent::mind::perception::VisibleObjects>,
-            Option<&crate::agent::mind::knowledge::MindGraph>,
+            Option<&mut crate::agent::mind::knowledge::MindGraph>,
         ),
         With<crate::agent::Agent>,
     >,
 ) {
-    use crate::agent::mind::knowledge::Node;
+    use crate::agent::brains::emotional::add_entity_emotion;
+    use crate::agent::mind::knowledge::{Node, Source};
     use crate::constants::actions::defend_self::{
         ANGER_PER_HIT, DAMAGE_REFERENCE_HP, FEAR_PER_HIT, HIT_SCALE_MAX, HIT_SCALE_MIN,
+        WITNESS_INTENSITY_FRACTION,
     };
 
     let hits: Vec<(Entity, Entity, f32)> = sim_events
@@ -572,23 +574,41 @@ pub fn react_to_combat_hit(
         return;
     }
 
-    // Buffer witness events; emit in a second pass after the agent
-    // borrow is released so we can use the ParamSet writer.
+    let current_tick = tick.current;
     let mut witness_events: Vec<(Entity, Entity, Entity)> = Vec::new();
 
     for (attacker, defender, damage) in hits {
         let scale = (damage / DAMAGE_REFERENCE_HP).clamp(HIT_SCALE_MIN, HIT_SCALE_MAX);
+        let anger_delta = ANGER_PER_HIT * scale;
+        let fear_delta = FEAR_PER_HIT * scale;
 
-        // Defender: pain-rage path.
-        if let Ok((_, mut state, _, _)) = agents.get_mut(defender) {
-            state.add_emotion(Emotion::new(EmotionType::Anger, ANGER_PER_HIT * scale));
-            state.add_emotion(Emotion::new(EmotionType::Fear, FEAR_PER_HIT * scale));
+        // Per-entity triple feeds entity-targeted appraisal; general
+        // emotion bump still drives the stress + mood pipeline.
+        if let Ok((_, mut state, _, mind)) = agents.get_mut(defender) {
+            state.add_emotion(Emotion::new(EmotionType::Anger, anger_delta));
+            state.add_emotion(Emotion::new(EmotionType::Fear, fear_delta));
+            if let Some(mut mind) = mind {
+                add_entity_emotion(
+                    &mut mind,
+                    attacker,
+                    EmotionType::Anger,
+                    anger_delta,
+                    current_tick,
+                    Source::Experienced,
+                );
+                add_entity_emotion(
+                    &mut mind,
+                    attacker,
+                    EmotionType::Fear,
+                    fear_delta,
+                    current_tick,
+                    Source::Experienced,
+                );
+            }
         }
 
-        // Witnesses: any other agent who sees BOTH the attacker and the
-        // defender in their perception gains Fear (toward attacker) and
-        // optionally Anger (if defender is a Friend they care about).
-        // Iteration is per-event but cheap — most ticks have zero hits.
+        let witness_fear = fear_delta * WITNESS_INTENSITY_FRACTION;
+        let witness_anger = anger_delta * WITNESS_INTENSITY_FRACTION;
         for (observer, mut state, visible, mind) in agents.iter_mut() {
             if observer == attacker || observer == defender {
                 continue;
@@ -600,23 +620,38 @@ pub fn react_to_combat_hit(
                 continue;
             }
 
-            // Half the magnitude of the defender's pain-rage — observers
-            // are alarmed but not personally injured.
-            let witness_fear = FEAR_PER_HIT * scale * 0.5;
             state.add_emotion(Emotion::new(EmotionType::Fear, witness_fear));
 
-            // Anger toward the attacker only if the observer treats the
-            // defender as a Friend — kin/pack bonds make violence
-            // personal. Cheap MindGraph trait lookup; nothing happens
-            // for strangers.
-            if let Some(mind) = mind
-                && mind.has_trait(
+            // Defender-is-Friend bumps Anger toward attacker (kin/pack bonds).
+            let defender_is_friend = mind.as_deref().is_some_and(|m| {
+                m.has_trait(
                     &Node::Entity(defender),
                     crate::agent::mind::knowledge::Concept::Friend,
                 )
-            {
-                let witness_anger = ANGER_PER_HIT * scale * 0.5;
+            });
+            if defender_is_friend {
                 state.add_emotion(Emotion::new(EmotionType::Anger, witness_anger));
+            }
+
+            if let Some(mut mind) = mind {
+                add_entity_emotion(
+                    &mut mind,
+                    attacker,
+                    EmotionType::Fear,
+                    witness_fear,
+                    current_tick,
+                    Source::Observed,
+                );
+                if defender_is_friend {
+                    add_entity_emotion(
+                        &mut mind,
+                        attacker,
+                        EmotionType::Anger,
+                        witness_anger,
+                        current_tick,
+                        Source::Observed,
+                    );
+                }
             }
 
             witness_events.push((observer, attacker, defender));
@@ -626,7 +661,7 @@ pub fn react_to_combat_hit(
     let mut writer = sim_events.p1();
     for (observer, attacker, defender) in witness_events {
         writer.write(crate::agent::events::SimEvent::single(
-            tick.current,
+            current_tick,
             observer,
             SimEventKind::WitnessedCombat {
                 observer,
