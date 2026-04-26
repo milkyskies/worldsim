@@ -124,7 +124,7 @@ pub fn arbitrate_every_tick(
     mut brain_histories: Query<&mut BrainHistory>,
     mapping: Res<TagChannelMapping>,
     fields: Res<crate::world::field_grid_plugin::FieldGrids>,
-    all_transforms: Query<&Transform>,
+    all_transforms: Query<(&Transform, Option<&crate::agent::inventory::EntityType>)>,
     all_bodies: Query<&Body>,
     cornered_query: Query<&crate::agent::Cornered>,
     dazed_query: Query<&crate::agent::Dazed>,
@@ -160,7 +160,7 @@ pub fn arbitrate_every_tick(
         // Compute once per agent — survival context and threat appraisal
         // both need the closest visible Dangerous entity.
         let closest_dangerous =
-            super::emotional::find_closest_dangerous(visible, mind, agent_pos, &all_transforms);
+            super::emotional::find_closest_dangerous(visible, mind, &all_transforms, agent_pos);
 
         let survival_context = SurvivalBrainContext {
             physical,
@@ -187,7 +187,7 @@ pub fn arbitrate_every_tick(
                 all_transforms
                     .get(e)
                     .ok()
-                    .map(|t| (e, t.translation.truncate()))
+                    .map(|(t, _)| (e, t.translation.truncate()))
             })
             .collect();
 

@@ -352,20 +352,27 @@ fn seek_social_initiation(
 
 /// Closest visible entity the agent considers `Dangerous`, with its
 /// world position.
+/// Find the closest visible Dangerous entity. Looks the trait up by the
+/// entity's concept (`mind.has_trait(&Node::Concept(...))`) instead of
+/// `mind.has_trait(&Node::Entity(...))` — both paths reach the same
+/// answer, but the entity path pays an extra indexed MindGraph query to
+/// walk `(entity, IsA, ?)` first, even when the concept is already
+/// available from the entity's `EntityType` component. Saves a per-tick
+/// MindGraph query per visible entity per agent inside arbitration.
 pub fn find_closest_dangerous(
     visible: &VisibleObjects,
     mind: &MindGraph,
+    transforms_and_types: &Query<(&Transform, Option<&crate::agent::inventory::EntityType>)>,
     agent_pos: Vec2,
-    all_transforms: &Query<&Transform>,
 ) -> Option<(Entity, Vec2)> {
     let mut best: Option<(Entity, Vec2, f32)> = None;
     for &e in &visible.entities {
-        if !mind.has_trait(&Node::Entity(e), Concept::Dangerous) {
-            continue;
-        }
-        let Ok(t) = all_transforms.get(e) else {
+        let Ok((t, Some(entity_type))) = transforms_and_types.get(e) else {
             continue;
         };
+        if !mind.has_trait(&Node::Concept(entity_type.0), Concept::Dangerous) {
+            continue;
+        }
         let pos = t.translation.truncate();
         let d = pos.distance_squared(agent_pos);
         if best.map(|(_, _, prev)| d < prev).unwrap_or(true) {
