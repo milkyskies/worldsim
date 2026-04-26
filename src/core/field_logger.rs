@@ -23,7 +23,7 @@ use crate::agent::body::species::{Species, SpeciesProfile};
 use crate::agent::brains::history::BrainHistory;
 use crate::agent::brains::plan_memory::{HeldPlan, PlanMemory, PlanState};
 use crate::agent::brains::proposal::BrainState;
-use crate::agent::mind::knowledge::{Concept, MindGraph, Node, Predicate, Value as MindValue};
+use crate::agent::mind::knowledge::{Concept, MindGraph, Predicate, Value as MindValue};
 use crate::agent::nervous_system::cns::CentralNervousSystem;
 use crate::agent::nervous_system::urgency::UrgencySource;
 use crate::agent::psyche::emotions::EmotionalState;

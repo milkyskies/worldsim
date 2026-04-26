@@ -1363,7 +1363,7 @@ fn render_social_ui(world: &mut World, ui: &mut egui::Ui, selected_entities: &[E
     // === SOCIAL NEEDS ===
     ui.collapsing("🧠 Social State", |ui| {
         if let Some(mind) = world.get::<crate::agent::mind::knowledge::MindGraph>(entity) {
-            use crate::agent::mind::knowledge::{Node, Predicate, Value};
+            use crate::agent::mind::knowledge::{Node, Predicate};
 
             // Social drive
             let social_drive = mind

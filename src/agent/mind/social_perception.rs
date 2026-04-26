@@ -9,9 +9,7 @@
 
 use crate::agent::Agent;
 use crate::agent::inventory::EntityType;
-use crate::agent::mind::knowledge::{
-    AgentName, Metadata, MindGraph, Node, Predicate, Triple, Value,
-};
+use crate::agent::mind::knowledge::{Metadata, MindGraph, Node, Predicate, Triple, Value};
 use crate::agent::mind::perception::VisibleObjects;
 use crate::core::tick::TickCount;
 use bevy::prelude::*;

@@ -16,7 +16,6 @@
 //! - `wood_log.rs` - Wood Log spawning
 
 use crate::agent::mind::knowledge::{MindGraph, Ontology};
-use crate::agent::mind::recognition::init_relationship_dimensions;
 use crate::menu::{AppState, SimConfig, SimMode};
 use crate::world::spawn_config::{SpawnLayout, WorldSpawnConfig};
 use bevy::prelude::*;
