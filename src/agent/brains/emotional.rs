@@ -98,7 +98,9 @@ pub fn emotional_brain_propose(inputs: &EmotionalInputs) -> Option<BrainProposal
     // or Fight — replacing the three ad-hoc branches that used to live
     // here (general fear, general anger, starving-predator).
     if let Some(threat) = inputs.closest_threat.as_ref() {
-        let anger = inputs.emotions.get_emotion_intensity(EmotionType::Anger);
+        let entity_anger = entity_emotion_intensity(inputs.mind, threat.entity, EmotionType::Anger);
+        let general_anger = inputs.emotions.get_emotion_intensity(EmotionType::Anger);
+        let anger = entity_anger.max(general_anger);
         let ctx = super::threat_appraisal::ThreatAppraisalContext {
             physical: inputs.physical,
             body: inputs.body,
@@ -410,6 +412,70 @@ pub fn entities_with_feelings(mind: &MindGraph) -> Vec<Entity> {
     }
     out
 }
+
+/// Sum of one emotion type toward an entity (entity-level + concept-level).
+pub fn entity_emotion_intensity(
+    mind: &MindGraph,
+    entity: Entity,
+    emotion_type: EmotionType,
+) -> f32 {
+    entity_feelings(entity, mind)
+        .into_iter()
+        .filter(|(t, _)| *t == emotion_type)
+        .map(|(_, i)| i)
+        .sum()
+}
+
+/// Sums into the existing (target, type) triple instead of forking a
+/// new one each call. `MemoryType::Episodic` so entity-feelings about
+/// no-longer-seen entities fade rather than persisting forever.
+pub fn add_entity_emotion(
+    mind: &mut MindGraph,
+    target: Entity,
+    emotion_type: EmotionType,
+    delta: f32,
+    tick: u64,
+    source: crate::agent::mind::knowledge::Source,
+) {
+    use crate::agent::mind::knowledge::{MemoryType, Metadata, Triple};
+
+    if delta <= 0.0 {
+        return;
+    }
+    let subject = Node::Entity(target);
+
+    let mut existing: Option<Value> = None;
+    let mut existing_intensity: f32 = 0.0;
+    for triple in mind.query(Some(&subject), Some(Predicate::TriggersEmotion), None) {
+        if let Value::Emotion(t, i) = triple.object
+            && t == emotion_type
+        {
+            existing = Some(Value::Emotion(t, i));
+            existing_intensity = i;
+            break;
+        }
+    }
+
+    if let Some(old) = existing {
+        mind.remove(&subject, Predicate::TriggersEmotion, &old);
+    }
+
+    let new_intensity = (existing_intensity + delta).clamp(0.0, MAX_ENTITY_EMOTION_INTENSITY);
+    let mut meta = Metadata::experience(tick);
+    meta.source = source;
+    meta.memory_type = MemoryType::Episodic;
+    mind.assert(Triple::with_meta(
+        subject,
+        Predicate::TriggersEmotion,
+        Value::Emotion(emotion_type, new_intensity),
+        meta,
+    ));
+}
+
+/// Cap per-entity emotion intensity. Past this point further events
+/// don't deepen the feeling — prevents anger toward one wolf from
+/// dominating arbitration after dozens of hits.
+pub const MAX_ENTITY_EMOTION_INTENSITY: f32 = 2.0;
 
 /// (fear, joy, anger) intensities from direct and inherited associations.
 fn collect_entity_feelings(entity: Entity, mind: &MindGraph) -> (f32, f32, f32) {

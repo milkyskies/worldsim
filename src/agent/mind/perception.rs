@@ -550,7 +550,7 @@ pub fn react_to_danger(
     mut agents: Query<
         (
             &VisibleObjects,
-            &MindGraph,
+            &mut MindGraph,
             &mut crate::agent::psyche::emotions::EmotionalState,
             &crate::agent::psyche::personality::Personality,
             &crate::agent::body::needs::PhysicalNeeds,
@@ -560,32 +560,31 @@ pub fn react_to_danger(
         With<Agent>,
     >,
     entity_types: Query<&crate::agent::inventory::EntityType>,
+    tick: Res<TickCount>,
 ) {
+    use crate::agent::brains::emotional::add_entity_emotion;
+    use crate::agent::mind::knowledge::Source;
     use crate::agent::psyche::emotions::{Emotion, EmotionType};
 
-    for (visible, mind, mut emotions, personality, needs, body, items) in agents.iter_mut() {
-        // Count how many visible entities this agent considers dangerous.
-        let visible_dangerous_count = visible
+    let current_tick = tick.current;
+    // Cadence-gate the per-entity Fear writes. Every tick is too noisy
+    // (300 agents × N visible threats × 60Hz of mind ops) and the
+    // entity-Fear scalar moves slowly anyway.
+    let do_per_entity_writes = current_tick % PER_ENTITY_FEAR_WRITE_PERIOD == 0;
+
+    for (visible, mut mind, mut emotions, personality, needs, body, items) in agents.iter_mut() {
+        let visible_dangerous: Vec<Entity> = visible
             .entities
             .iter()
-            .filter(|&&entity| {
+            .copied()
+            .filter(|&entity| {
                 let Ok(entity_type) = entity_types.get(entity) else {
                     return false;
                 };
-                !mind
-                    .query(
-                        Some(&Node::Concept(entity_type.0)),
-                        Some(Predicate::HasTrait),
-                        Some(&Value::Concept(Concept::Dangerous)),
-                    )
-                    .is_empty()
+                mind.has_trait(&Node::Concept(entity_type.0), Concept::Dangerous)
             })
-            .count();
+            .collect();
 
-        // Heard but not seen: directions with a recently-perceived
-        // Dangerous trait (alarm calls, combat sounds, screams from
-        // outside line of sight). Each direction contributes a smaller
-        // weight than a visible threat — sound alone is less precise.
         let audible_dangerous_count = mind
             .query(
                 None,
@@ -596,32 +595,50 @@ pub fn react_to_danger(
             .filter(|t| matches!(t.subject, Node::Direction(_)))
             .count();
 
-        let total_dangerous = visible_dangerous_count + audible_dangerous_count;
+        let total_dangerous = visible_dangerous.len() + audible_dangerous_count;
         if total_dangerous == 0 {
             continue;
         }
-        let dangerous_count = visible_dangerous_count + audible_dangerous_count.min(2);
+        let dangerous_count = visible_dangerous.len() + audible_dangerous_count.min(2);
 
-        // Single contextual threat score, scaled up by the number of threats visible.
         let body_health = body.map_or(1.0, |b| b.overall_health());
         let per_threat = assess_threat(personality, needs, body_health, items);
         let fear_intensity = (per_threat * dangerous_count as f32).clamp(0.0, 1.0);
 
-        // Only top up fear if we're not already scared enough — prevents
-        // runaway accumulation from the same scene being perceived each tick.
         let current_fear: f32 = emotions
             .active_emotions
             .iter()
             .filter(|e| e.emotion_type == EmotionType::Fear)
             .map(|e| e.intensity)
             .sum();
-
         if current_fear < fear_intensity {
             let additional_fear = (fear_intensity - current_fear).max(0.1);
             emotions.add_emotion(Emotion::new(EmotionType::Fear, additional_fear));
         }
+
+        if !do_per_entity_writes {
+            continue;
+        }
+        let per_entity_delta = (per_threat * PER_ENTITY_FEAR_FRACTION).max(PER_ENTITY_FEAR_FLOOR);
+        for &entity in &visible_dangerous {
+            add_entity_emotion(
+                &mut mind,
+                entity,
+                EmotionType::Fear,
+                per_entity_delta,
+                current_tick,
+                Source::Experienced,
+            );
+        }
     }
 }
+
+/// Run per-entity Fear accumulation every Nth tick. At 60 ticks/sec,
+/// 15 = ~4 writes per real-second per agent, which still feels live
+/// while cutting per-tick cost.
+const PER_ENTITY_FEAR_WRITE_PERIOD: u64 = 15;
+const PER_ENTITY_FEAR_FRACTION: f32 = 0.2;
+const PER_ENTITY_FEAR_FLOOR: f32 = 0.05;
 
 // ═══════════════════════════════════════════════════════════════════════════
 // TEMPERATURE PERCEPTION — Detect heat sources without line-of-sight

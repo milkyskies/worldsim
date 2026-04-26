@@ -232,6 +232,9 @@ pub mod actions {
         pub const DAMAGE_REFERENCE_HP: f32 = 30.0;
         pub const HIT_SCALE_MIN: f32 = 0.2;
         pub const HIT_SCALE_MAX: f32 = 1.5;
+        /// Witnesses gain emotion at this fraction of the defender's
+        /// per-hit increment — alarmed but not personally injured.
+        pub const WITNESS_INTENSITY_FRACTION: f32 = 0.5;
     }
 
     pub mod walk {
