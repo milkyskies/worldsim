@@ -168,16 +168,12 @@ fn enumerate_entities_with_trait(
         });
     }
 
-    // Predator preference: Lame prey first. The TargetCandidate list
-    // is consumed top-down by the planner / brain, so simply sorting
-    // wounded targets to the front biases selection without changing
-    // any callers. Healthy prey is still picked when no Lame target
-    // exists.
-    candidates.sort_by(|a, b| {
-        let a_lame = candidate_is_lame(a, mind);
-        let b_lame = candidate_is_lame(b, mind);
-        b_lame.cmp(&a_lame)
-    });
+    // Predator preference: Lame prey first. Skip the sort entirely
+    // when no candidate is Lame (the common case) so we don't pay
+    // O(n log n) trait-lookups per enumeration.
+    if candidates.iter().any(|c| candidate_is_lame(c, mind)) {
+        candidates.sort_by_key(|c| if candidate_is_lame(c, mind) { 0 } else { 1 });
+    }
 
     candidates
 }

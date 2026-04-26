@@ -115,19 +115,17 @@ pub fn arbitrate_every_tick(
 
         // 1. Gather proposals from all three brains
 
+        let agent_pos = transform.translation.truncate();
+        // Compute once per agent — survival context and threat appraisal
+        // both need the closest visible Dangerous entity.
+        let closest_dangerous =
+            super::emotional::find_closest_dangerous(visible, mind, agent_pos, &all_transforms);
+
         let survival_context = SurvivalBrainContext {
             physical,
             cns,
-            // Closest by distance — a wolf 3 tiles away beats a wolf 50
-            // tiles away even if the latter was perceived first.
-            most_feared_entity: super::emotional::find_closest_dangerous(
-                visible,
-                mind,
-                transform.translation.truncate(),
-                &all_transforms,
-            )
-            .map(|(e, _)| e),
-            pos: transform.translation.truncate(),
+            most_feared_entity: closest_dangerous.map(|(e, _)| e),
+            pos: agent_pos,
             world_map: &world_map,
         };
 
@@ -152,14 +150,11 @@ pub fn arbitrate_every_tick(
             })
             .collect();
 
-        let agent_pos = transform.translation.truncate();
-        let closest_threat =
-            super::emotional::find_closest_dangerous(visible, mind, agent_pos, &all_transforms)
-                .map(|(e, pos)| super::emotional::ClosestThreat {
-                    entity: e,
-                    pos,
-                    body: all_bodies.get(e).ok(),
-                });
+        let closest_threat = closest_dangerous.map(|(e, pos)| super::emotional::ClosestThreat {
+            entity: e,
+            pos,
+            body: all_bodies.get(e).ok(),
+        });
         let cornered = cornered_query.contains(entity);
 
         let emotional_inputs = super::emotional::EmotionalInputs {

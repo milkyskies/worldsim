@@ -805,31 +805,24 @@ pub fn perceive_hearing(
 // ALARM EMISSION — Fleeing agents broadcast their distress
 // ═══════════════════════════════════════════════════════════════════════════
 
-/// Inserts a transient [`crate::world::sense_sources::SoundSource`] on
-/// every agent who started a Flee action this tick. The alarm reaches
-/// nearby agents through `perceive_hearing`, which writes a direction-
-/// based Dangerous belief into their MindGraph — that belief feeds the
-/// existing fear pipeline so a herd flees together off one alarm.
-///
-/// Cleanup happens on the next tick via `cleanup_sound_sources` (the
-/// existing transient-sound cleaner). One alarm per Flee start; agents
-/// already mid-flee don't keep re-triggering.
+/// Inserts a transient [`SoundSource`] on every agent who started a
+/// Flee action this tick. `perceive_hearing` writes direction-based
+/// Dangerous beliefs into listeners; that belief feeds existing fear
+/// → herd flees together off one alarm.
 pub fn emit_alarm_calls(
     mut commands: Commands,
     mut events: MessageReader<crate::agent::events::SimEvent>,
 ) {
-    use crate::agent::actions::ActionType;
-    use crate::agent::events::SimEventKind;
-    use crate::world::sense_sources::{SoundKind, SoundSource};
-
     for event in events.read() {
         if let SimEventKind::ActionStarted { agent, action, .. } = &event.kind
-            && matches!(action, ActionType::Flee)
+            && matches!(action, crate::agent::actions::ActionType::Flee)
         {
-            commands.entity(*agent).insert(SoundSource {
-                kind: SoundKind::AlarmCall,
-                intensity: 1.0,
-            });
+            commands
+                .entity(*agent)
+                .insert(crate::world::sense_sources::SoundSource {
+                    kind: crate::world::sense_sources::SoundKind::AlarmCall,
+                    intensity: 1.0,
+                });
         }
     }
 }

@@ -531,20 +531,6 @@ pub enum SimEventKind {
         defender: Entity,
     },
 
-    /// Threat appraisal produced a decision (Flee / StandGround / Fight).
-    /// Mostly diagnostic — exposes the appraisal output for debugging
-    /// without requiring a tracing pass.
-    ThreatAppraised {
-        #[serde(serialize_with = "crate::core::entity_serde::serialize_entity")]
-        agent: Entity,
-        response: &'static str,
-        defender_power: f32,
-        attacker_power: f32,
-        boldness: f32,
-        anger: f32,
-        cornered: bool,
-    },
-
     /// A genome was expressed into a phenotype at spawn.
     ///
     /// Emitted once per agent by `develop_phenotype_system` immediately after

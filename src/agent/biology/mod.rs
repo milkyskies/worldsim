@@ -39,13 +39,15 @@ impl Plugin for BiologyPlugin {
     }
 }
 
-/// Toggle the [`crate::agent::Lame`] component based on leg-node HP.
-/// Runs after combat resolution so a fresh leg injury is reflected in
-/// the same tick. Emits `LamenessChanged` only on transition so the
-/// event log doesn't churn every tick.
+/// Toggle the [`crate::agent::Lame`] component when leg-node HP crosses
+/// the lameness threshold. `Changed<Body>` filter skips agents whose
+/// body didn't mutate this tick (most of them, most ticks).
 fn derive_lameness(
     mut commands: Commands,
-    bodies: Query<(Entity, &body::Body, Option<&crate::agent::Lame>), With<Agent>>,
+    bodies: Query<
+        (Entity, &body::Body, Option<&crate::agent::Lame>),
+        (With<Agent>, Changed<body::Body>),
+    >,
     tick: Res<crate::core::tick::TickCount>,
     mut sim_events: MessageWriter<crate::agent::events::SimEvent>,
 ) {

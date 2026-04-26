@@ -22,8 +22,9 @@ use crate::agent::psyche::emotions::{EmotionType, EmotionalState};
 use crate::constants::brains::emotional::{
     ANGER_ENTITY_THRESHOLD, ANGER_ENTITY_URGENCY_MULTIPLIER, FEAR_ENTITY_THRESHOLD,
     FEAR_ENTITY_URGENCY_MULTIPLIER, FEAR_GENERAL_THRESHOLD, FEAR_GENERAL_URGENCY_MULTIPLIER,
-    JOY_ENTITY_THRESHOLD, JOY_ENTITY_URGENCY_MULTIPLIER, SOCIAL_SEEK_THRESHOLD,
-    SOCIAL_SEEK_URGENCY_MULTIPLIER,
+    FIGHT_RESPONSE_BASE_URGENCY, FIGHT_RESPONSE_COMMITMENT_MULTIPLIER,
+    FLEE_RESPONSE_URGENCY_MULTIPLIER, JOY_ENTITY_THRESHOLD, JOY_ENTITY_URGENCY_MULTIPLIER,
+    SOCIAL_SEEK_THRESHOLD, SOCIAL_SEEK_URGENCY_MULTIPLIER, STAND_GROUND_BASE_URGENCY,
 };
 use crate::world::field_grid_plugin::FieldGrids;
 use bevy::prelude::*;
@@ -348,11 +349,7 @@ fn seek_social_initiation(
 }
 
 /// Closest visible entity the agent considers `Dangerous`, with its
-/// world position. Replaces `find_most_feared_visible_entity` for code
-/// paths that need distance-correct targeting (flee target, threat
-/// appraisal). The first-visible behavior of the older function had a
-/// concrete bug: an agent could be fleeing a wolf 50 tiles away while
-/// a wolf 3 tiles away was ignored.
+/// world position.
 pub fn find_closest_dangerous(
     visible: &VisibleObjects,
     mind: &MindGraph,
@@ -498,7 +495,7 @@ fn appraise_threat_proposal(
     match response {
         ThreatResponse::Flee { urgency } => {
             let action = action_registry.get(ActionType::Flee)?;
-            let proposal_urgency = urgency * 70.0;
+            let proposal_urgency = urgency * FLEE_RESPONSE_URGENCY_MULTIPLIER;
             if proposal_urgency <= best_urgency {
                 return None;
             }
@@ -514,10 +511,7 @@ fn appraise_threat_proposal(
         }
         ThreatResponse::StandGround => {
             let action = action_registry.get(ActionType::Idle)?;
-            let proposal_urgency = 25.0_f32.max(best_urgency + 0.1);
-            // Cornered without enough fight bias to engage — hold rather
-            // than thrash randomly. Outscores low-priority drift but
-            // loses to anything urgent.
+            let proposal_urgency = STAND_GROUND_BASE_URGENCY.max(best_urgency + 0.1);
             if proposal_urgency <= best_urgency {
                 return None;
             }
@@ -537,7 +531,9 @@ fn appraise_threat_proposal(
                 _ => ActionType::DefendSelf,
             };
             let action = action_registry.get(attack_action)?;
-            let proposal_urgency = (60.0 + commitment * 60.0).max(best_urgency + 0.1);
+            let proposal_urgency = (FIGHT_RESPONSE_BASE_URGENCY
+                + commitment * FIGHT_RESPONSE_COMMITMENT_MULTIPLIER)
+                .max(best_urgency + 0.1);
             if proposal_urgency <= best_urgency {
                 return None;
             }

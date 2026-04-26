@@ -1,109 +1,51 @@
 //! Unified flight-vs-fight threat appraisal.
 //!
-//! Reads: PhysicalNeeds, Body, Personality, EmotionalState, Cornered (component)
+//! Reads: PhysicalNeeds, Body, Personality, Cornered (component)
 //! Writes: ThreatResponse (returned by [`appraise_threat`])
 //! Upstream: brains::emotional (consumes appraisal output)
 //! Downstream: brains::emotional proposal layer
-//!
-//! Replaces three ad-hoc proposal functions in the emotional brain with
-//! a single decision function. Inputs that the project doesn't yet
-//! produce (dependents nearby, on-home-turf, prior experience) live as
-//! `Option` fields with documented defaults — when those subsystems
-//! land, plumbing them in is one new caller field, no decision-logic
-//! rewrite.
-//!
-//! The function returns `ThreatResponse`; the emotional brain converts
-//! it into a `BrainProposal` with the appropriate `ActionType` and
-//! target. That keeps appraisal-the-decision separate from
-//! action-selection-the-mapping, so we can swap action verbs (e.g.
-//! Charge, Kick, Gore) without touching the appraisal core.
 
 use crate::agent::actions::channel::Channel;
 use crate::agent::biology::body::{Body, TagChannelMapping};
 use crate::agent::body::needs::PhysicalNeeds;
 use crate::agent::psyche::personality::PersonalityTraits;
 
-/// Outcome of a threat appraisal — what the agent should *do* about
-/// the threat, before action selection picks a concrete verb.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ThreatResponse {
-    /// Run away. Carries an urgency multiplier so callers can scale
-    /// flee proposal intensity.
     Flee { urgency: f32 },
-    /// Hold position — neither flee nor engage. Used when fleeing is
-    /// pointless (cornered + can't fight) or when the threat is at the
-    /// edge of attention but not yet pressing.
     StandGround,
-    /// Engage. Carries a commitment value [0, 1] so action selection
-    /// can scale damage intent / reckless engagement vs measured
-    /// approach.
     Fight { commitment: f32 },
 }
 
-/// All inputs the appraisal needs. Group fields by data source so the
-/// caller can't miss one when wiring up a new agent type.
 pub struct ThreatAppraisalContext<'a> {
-    // ── Defender state ──────────────────────────────────────────────
     pub physical: &'a PhysicalNeeds,
     pub body: Option<&'a Body>,
     pub personality: Option<&'a PersonalityTraits>,
-    /// Currently-felt entity-or-general Anger toward the threat.
-    /// Higher anger biases toward Fight even at low desperation.
     pub anger: f32,
-    /// Set when `pick_flee_target` exhausted candidates last tick —
-    /// halves the Fight threshold so trapped agents engage.
     pub cornered: bool,
-
-    // ── Attacker state ──────────────────────────────────────────────
-    /// Body of the threat, if perceivable. None means "don't know how
-    /// strong they are" — defaults to a moderate baseline so the
-    /// agent doesn't either freeze in indecision or recklessly engage.
     pub attacker_body: Option<&'a Body>,
-
-    // ── Future inputs (stubbed today, real once their subsystems land) ──
-    /// Number of dependents nearby (kin/young/packmates). Higher values
-    /// bias toward Fight — protective aggression. Stub today.
+    /// Stub. Wire up when the Kin/Ward relationship layer lands.
     pub dependents_nearby: u32,
-    /// True if the agent is on home turf (their cabin, the pack's kill,
-    /// the herd's bedding area). Biases toward Fight. Stub today.
+    /// Stub. Wire up when the territoriality system lands.
     pub on_home_turf: bool,
-    /// Prior-experience modifier in [-1.0, 1.0]. Negative = "this
-    /// species killed kin" (bias to Fight or extreme Flee depending
-    /// on context); positive = "I've beaten them before" (bias to
-    /// Fight). Stub today.
+    /// Stub. Wire up when episodic recall over species can be queried.
     pub prior_experience: f32,
 }
 
-// ════════════════════════════════════════════════════════════════════════════
-// THRESHOLDS
-// ════════════════════════════════════════════════════════════════════════════
-
-/// Effective combat-power ratio (defender / attacker, plus modifiers)
-/// at or above which a non-cornered agent fights instead of fleeing.
-/// Set above 1.0 so that neither power parity nor a neutral personality
-/// alone is enough — the agent needs a real edge or another bias source
-/// (anger, dependents, boldness, home turf) to engage.
+/// Effective power ratio at or above which a non-cornered agent fights.
+/// Above 1.0 so that parity alone (defender == attacker) doesn't trigger
+/// engagement — anger, dependents, boldness, or home turf must push it.
 const POWER_RATIO_FIGHT_DEFAULT: f32 = 1.15;
-/// Dependents-nearby Fight bonus (per dependent, capped at 4).
 const DEPENDENTS_FIGHT_BONUS: f32 = 0.08;
-/// Home-turf Fight bonus.
 const HOME_TURF_FIGHT_BONUS: f32 = 0.15;
-/// Prior-experience scalar.
 const PRIOR_EXPERIENCE_FIGHT_BONUS: f32 = 0.20;
-/// Anger contribution to Fight bias (per unit of Anger, clamped).
 const ANGER_FIGHT_BONUS: f32 = 0.50;
-/// Boldness contribution centered on personality default 0.5: bold
-/// agents get a positive push, timid agents get a negative one.
+/// Centered on neutral personality default 0.5; bold pushes positive,
+/// timid pushes negative.
 const BOLDNESS_FIGHT_BONUS: f32 = 0.60;
-/// Hunger pushes toward Fight independently of the broader desperation
-/// score — a starving predator takes risks it normally wouldn't, and
-/// is the bootstrap that lets cross-species combat ever start. Prey
-/// without combat capability (Body without Bite/Manipulation channels)
-/// is filtered out by the `defender_power > 0.05` gate, so this
-/// doesn't make hungry deer attack wolves.
+/// Hunger pushes toward Fight separately from desperation. Gated by
+/// `defender_power > 0.05` so hungry deer don't attack wolves.
 const HUNGER_FIGHT_BONUS: f32 = 0.40;
-/// Fight bias above which a cornered agent commits to fighting.
-/// Below this they hold ground (StandGround) instead of flailing.
 const CORNERED_FIGHT_BIAS_THRESHOLD: f32 = 0.30;
 
 // ════════════════════════════════════════════════════════════════════════════

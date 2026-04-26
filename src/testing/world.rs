@@ -616,13 +616,6 @@ fn format_sim_event(event: &SimEvent) -> String {
         } => format!(
             "[t{tick}] WitnessedCombat observer={observer:?} attacker={attacker:?} defender={defender:?}"
         ),
-        SimEvent {
-            tick,
-            kind: SimEventKind::ThreatAppraised {
-                agent, response, ..
-            },
-            ..
-        } => format!("[t{tick}] ThreatAppraised agent={agent:?} response={response}"),
     }
 }
 

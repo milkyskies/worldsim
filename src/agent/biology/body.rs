@@ -157,15 +157,12 @@ impl Body {
     }
 
     /// True when any leg-class node is below the lameness HP fraction.
-    /// Crippled legs already reduce locomotion capacity; this flag
-    /// exposes the same fact to perception and target selection
-    /// (a hobbled deer reads as `Lame` to wolves before they get close
-    /// enough to inspect the leg directly).
+    /// Exposed to perception so observers can see hobbled prey without
+    /// having to inspect the body part directly.
     pub fn is_lame(&self) -> bool {
-        const LAMENESS_HP_FRACTION: f32 = 0.5;
-        self.parts
-            .iter()
-            .any(|p| p.kind.is_leg() && p.condition() <= LAMENESS_HP_FRACTION)
+        self.parts.iter().any(|p| {
+            p.kind.is_leg() && p.condition() <= crate::constants::biology::LAMENESS_HP_FRACTION
+        })
     }
 
     pub fn part_mut(&mut self, kind: BodyNodeKind) -> Option<&mut BodyNode> {

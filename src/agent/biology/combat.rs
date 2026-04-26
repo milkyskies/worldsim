@@ -87,11 +87,13 @@ const PIERCE_BLEED_COEFF: f32 = 1.5;
 const SLASH_BLEED_COEFF: f32 = 2.0;
 const CRUSH_BLEED_COEFF: f32 = 0.0;
 
+use crate::core::time::GameTime;
+
 /// Damage on a head-class node above which the defender is Dazed.
 const DAZED_DAMAGE_THRESHOLD: f32 = 18.0;
-/// How many ticks the Dazed component persists. ~3 seconds at 60 tps;
-/// long enough to skip a couple of action cycles.
-const DAZED_DURATION_TICKS: u32 = 180;
+/// How long Dazed persists. One game-minute is two-three action cycles
+/// at typical Attack/Bite durations.
+const DAZED_DURATION_TICKS: u32 = GameTime::TICKS_PER_MINUTE as u32;
 
 // ════════════════════════════════════════════════════════════════════════════
 // DAMAGE HELPERS

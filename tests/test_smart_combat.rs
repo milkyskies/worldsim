@@ -213,9 +213,10 @@ fn human_witnessing_combat_gains_fear() {
         }
     }
 
-    if !hit_seen {
-        return;
-    }
+    assert!(
+        hit_seen,
+        "wolf should bite target while observer is watching within 600 ticks (seed 4)"
+    );
 
     let fear_after = agent_fear(&world, observer);
     assert!(
