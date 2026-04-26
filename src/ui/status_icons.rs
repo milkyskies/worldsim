@@ -1,30 +1,31 @@
 //! Floating status icons above agents.
 //!
-//! Reads: Agent, ActiveActions, EmotionalState, PhysicalNeeds, InConversation, Camera Projection
+//! Reads: Agent, ActiveActions, EmotionalState, PhysicalNeeds, InConversation,
+//!        Cornered, Lame, Dazed, Body (bleed/wounds), Camera Projection
 //! Writes: Text2d child entities (StatusIcon) spawned as children of agent root entities
-//! Upstream: agent (actions, emotions, needs, conversation), world (spawning agents)
+//! Upstream: agent (actions, emotions, needs, conversation, condition flags)
 //! Downstream: Bevy renderer (visual overlay)
+//!
+//! The icon picked is the highest-priority `Condition` for which the
+//! agent currently qualifies. New conditions plug in by adding a row to
+//! [`CONDITIONS`] — no fan-out across other systems.
 
 use crate::agent::Agent;
 use crate::agent::actions::{ActionType, ActiveActions};
+use crate::agent::biology::body::Body;
 use crate::agent::body::needs::PhysicalNeeds;
 use crate::agent::mind::conversation::InConversation;
 use crate::agent::psyche::emotions::{EmotionType, EmotionalState};
+use crate::constants::ui_status::{COLD_WARMTH, TIRED_AEROBIC_FRACTION};
 use bevy::prelude::*;
 
-/// Camera scale above which status icons are hidden.
 const HIDE_ZOOM_THRESHOLD: f32 = 2.5;
-
-/// Y offset above the agent root transform where the icon floats.
 const ICON_Y_OFFSET: f32 = 32.0;
+/// Small enough to read alongside the sprite at 1× zoom.
+const ICON_FONT_SIZE: f32 = 6.0;
 
-/// Fear intensity above which the scared icon is shown.
 const FEAR_THRESHOLD: f32 = 0.5;
-
-/// Mood value above which the happy icon is shown.
 const MOOD_HAPPY_THRESHOLD: f32 = 0.5;
-
-/// Hunger urgency (0..1) above which the hungry icon is shown (when not eating).
 const HUNGER_THRESHOLD: f32 = 0.8;
 
 pub struct StatusIconPlugin;
@@ -35,18 +36,16 @@ impl Plugin for StatusIconPlugin {
     }
 }
 
-/// Marker component for the floating status icon child entity.
 #[derive(Component)]
 pub struct StatusIcon;
 
-/// Spawns a `StatusIcon` child entity for each newly added agent.
 fn spawn_status_icons(mut commands: Commands, new_agents: Query<Entity, Added<Agent>>) {
     for agent in new_agents.iter() {
         let icon = commands
             .spawn((
-                Text2d::new(ICON_IDLE),
+                Text2d::new(""),
                 TextFont {
-                    font_size: 10.0,
+                    font_size: ICON_FONT_SIZE,
                     ..default()
                 },
                 TextColor(Color::WHITE),
@@ -58,14 +57,30 @@ fn spawn_status_icons(mut commands: Commands, new_agents: Query<Entity, Added<Ag
     }
 }
 
-/// Updates each `StatusIcon` text and visibility based on the parent agent's state.
+/// Per-agent context the condition predicates inspect.
+pub struct ConditionContext<'a> {
+    pub actions: &'a ActiveActions,
+    pub emotions: &'a EmotionalState,
+    pub needs: &'a PhysicalNeeds,
+    pub body: Option<&'a Body>,
+    pub in_conversation: Option<&'a InConversation>,
+    pub cornered: bool,
+    pub lame: bool,
+    pub dazed: bool,
+}
+
+#[allow(clippy::too_many_arguments)]
 fn update_status_icons(
     agents: Query<
         (
             &ActiveActions,
             &EmotionalState,
             &PhysicalNeeds,
+            Option<&Body>,
             Option<&InConversation>,
+            Option<&crate::agent::Cornered>,
+            Option<&crate::agent::Lame>,
+            Option<&crate::agent::Dazed>,
         ),
         With<Agent>,
     >,
@@ -77,7 +92,9 @@ fn update_status_icons(
         .any(|p| matches!(p, Projection::Orthographic(o) if o.scale > HIDE_ZOOM_THRESHOLD));
 
     for (parent, mut text, mut visibility) in icons.iter_mut() {
-        let Ok((actions, emotions, needs, in_conversation)) = agents.get(parent.parent()) else {
+        let Ok((actions, emotions, needs, body, in_conversation, cornered, lame, dazed)) =
+            agents.get(parent.parent())
+        else {
             if *visibility != Visibility::Hidden {
                 *visibility = Visibility::Hidden;
             }
@@ -94,7 +111,17 @@ fn update_status_icons(
         }
 
         if !far_zoom {
-            let icon = status_icon(actions, emotions, needs, in_conversation);
+            let ctx = ConditionContext {
+                actions,
+                emotions,
+                needs,
+                body,
+                in_conversation,
+                cornered: cornered.is_some(),
+                lame: lame.is_some(),
+                dazed: dazed.is_some(),
+            };
+            let icon = pick_icon(&ctx);
             if text.0 != icon {
                 text.0 = icon.to_string();
             }
@@ -102,68 +129,95 @@ fn update_status_icons(
     }
 }
 
-// ─── Icon constants ────────────────────────────────────────────────────────
+// ─── Condition registry ────────────────────────────────────────────────────
 
-const ICON_SLEEP: &str = "zz";
-const ICON_SCARED: &str = "!";
-const ICON_TALKING: &str = "...";
-const ICON_EATING: &str = "nom";
-const ICON_DRINKING: &str = "sip";
-const ICON_HARVESTING: &str = "get";
-const ICON_BUILDING: &str = "build";
-const ICON_HUNGRY: &str = "hungry";
-const ICON_HAPPY: &str = ":)";
+/// One row per condition. The first row whose predicate fires wins;
+/// adding a new condition is one extra row, sorted by priority.
+struct Condition {
+    icon: &'static str,
+    matches: fn(&ConditionContext) -> bool,
+}
+
+const CONDITIONS: &[Condition] = &[
+    Condition {
+        icon: "zz",
+        matches: |ctx| ctx.actions.contains(ActionType::Sleep),
+    },
+    Condition {
+        icon: "*",
+        matches: |ctx| ctx.dazed,
+    },
+    Condition {
+        icon: "X",
+        matches: |ctx| ctx.cornered,
+    },
+    Condition {
+        icon: "!",
+        matches: |ctx| ctx.emotions.get_emotion_intensity(EmotionType::Fear) > FEAR_THRESHOLD,
+    },
+    Condition {
+        icon: "...",
+        matches: |ctx| ctx.in_conversation.is_some(),
+    },
+    Condition {
+        icon: "nom",
+        matches: |ctx| ctx.actions.contains(ActionType::Eat),
+    },
+    Condition {
+        icon: "sip",
+        matches: |ctx| ctx.actions.contains(ActionType::Drink),
+    },
+    Condition {
+        icon: "get",
+        matches: |ctx| ctx.actions.contains(ActionType::Harvest),
+    },
+    Condition {
+        icon: "build",
+        matches: |ctx| ctx.actions.contains(ActionType::Build),
+    },
+    Condition {
+        icon: "limp",
+        matches: |ctx| ctx.lame,
+    },
+    Condition {
+        icon: "blood",
+        matches: |ctx| {
+            ctx.body
+                .map(|b| {
+                    b.parts
+                        .iter()
+                        .any(|p| p.injuries.iter().any(|i| i.bleed_rate > 0.0))
+                })
+                .unwrap_or(false)
+        },
+    },
+    Condition {
+        icon: "cold",
+        matches: |ctx| ctx.needs.warmth.value < COLD_WARMTH,
+    },
+    Condition {
+        icon: "tired",
+        matches: |ctx| ctx.needs.stamina.aerobic_fraction() < TIRED_AEROBIC_FRACTION,
+    },
+    Condition {
+        icon: "hungry",
+        matches: |ctx| ctx.needs.hunger_urgency() > HUNGER_THRESHOLD,
+    },
+    Condition {
+        icon: ":)",
+        matches: |ctx| ctx.emotions.current_mood > MOOD_HAPPY_THRESHOLD,
+    },
+];
+
+/// Idle fallback shown when no condition matches.
 const ICON_IDLE: &str = ".";
 
-// ─── Pure priority logic ───────────────────────────────────────────────────
-
-/// Returns the highest-priority status icon string for the given agent state.
-///
-/// Priority (highest first):
-/// 1. Sleeping
-/// 2. Scared (Fear > FEAR_THRESHOLD)
-/// 3. Talking (InConversation present)
-/// 4. Eating
-/// 5. Drinking
-/// 6. Harvesting
-/// 7. Building
-/// 8. Hungry (hunger > HUNGER_THRESHOLD, not eating)
-/// 9. Happy (mood > MOOD_HAPPY_THRESHOLD)
-/// 10. Idle (fallback)
-pub fn status_icon(
-    actions: &ActiveActions,
-    emotions: &EmotionalState,
-    needs: &PhysicalNeeds,
-    in_conversation: Option<&InConversation>,
-) -> &'static str {
-    if actions.contains(ActionType::Sleep) {
-        return ICON_SLEEP;
-    }
-    if emotions.get_emotion_intensity(EmotionType::Fear) > FEAR_THRESHOLD {
-        return ICON_SCARED;
-    }
-    if in_conversation.is_some() {
-        return ICON_TALKING;
-    }
-    if actions.contains(ActionType::Eat) {
-        return ICON_EATING;
-    }
-    if actions.contains(ActionType::Drink) {
-        return ICON_DRINKING;
-    }
-    if actions.contains(ActionType::Harvest) {
-        return ICON_HARVESTING;
-    }
-    if actions.contains(ActionType::Build) {
-        return ICON_BUILDING;
-    }
-    if needs.hunger_urgency() > HUNGER_THRESHOLD {
-        return ICON_HUNGRY;
-    }
-    if emotions.current_mood > MOOD_HAPPY_THRESHOLD {
-        return ICON_HAPPY;
-    }
-    ICON_IDLE
+pub fn pick_icon(ctx: &ConditionContext) -> &'static str {
+    CONDITIONS
+        .iter()
+        .find(|c| (c.matches)(ctx))
+        .map(|c| c.icon)
+        .unwrap_or(ICON_IDLE)
 }
 
 // ─── Tests ─────────────────────────────────────────────────────────────────
@@ -172,127 +226,144 @@ pub fn status_icon(
 mod tests {
     use super::*;
     use crate::agent::actions::{ActionState, ActiveActions};
-    use crate::agent::body::needs::PhysicalNeeds;
-    use crate::agent::psyche::emotions::{Emotion, EmotionType, EmotionalState};
+    use crate::agent::psyche::emotions::Emotion;
 
-    fn idle_actions() -> ActiveActions {
-        ActiveActions::default()
-    }
-
-    fn no_actions() -> ActiveActions {
-        ActiveActions::empty()
-    }
-
-    fn neutral_emotions() -> EmotionalState {
-        EmotionalState::default()
-    }
-
-    fn normal_needs() -> PhysicalNeeds {
-        PhysicalNeeds::default()
+    fn ctx_with(
+        actions: ActiveActions,
+        emotions: EmotionalState,
+        needs: PhysicalNeeds,
+    ) -> ConditionContext<'static> {
+        // Test-only: leak owned values to satisfy the `'static` borrow.
+        let actions = Box::leak(Box::new(actions));
+        let emotions = Box::leak(Box::new(emotions));
+        let needs = Box::leak(Box::new(needs));
+        ConditionContext {
+            actions,
+            emotions,
+            needs,
+            body: None,
+            in_conversation: None,
+            cornered: false,
+            lame: false,
+            dazed: false,
+        }
     }
 
     #[test]
     fn sleeping_agent_shows_zzz() {
-        let mut actions = no_actions();
+        let mut actions = ActiveActions::empty();
         actions.insert(ActionState::new(ActionType::Sleep, 0));
         assert_eq!(
-            status_icon(&actions, &neutral_emotions(), &normal_needs(), None),
-            ICON_SLEEP
+            pick_icon(&ctx_with(
+                actions,
+                EmotionalState::default(),
+                PhysicalNeeds::default()
+            )),
+            "zz"
         );
     }
 
     #[test]
-    fn scared_overrides_eating() {
-        let mut actions = no_actions();
+    fn dazed_overrides_eating() {
+        let mut actions = ActiveActions::empty();
         actions.insert(ActionState::new(ActionType::Eat, 0));
-        let mut emotions = neutral_emotions();
+        let mut ctx = ctx_with(actions, EmotionalState::default(), PhysicalNeeds::default());
+        ctx.dazed = true;
+        assert_eq!(pick_icon(&ctx), "*");
+    }
+
+    #[test]
+    fn cornered_overrides_fear() {
+        let mut emotions = EmotionalState::default();
+        emotions.add_emotion(Emotion::new(EmotionType::Fear, 0.9));
+        let mut ctx = ctx_with(ActiveActions::empty(), emotions, PhysicalNeeds::default());
+        ctx.cornered = true;
+        assert_eq!(pick_icon(&ctx), "X");
+    }
+
+    #[test]
+    fn scared_overrides_eating_when_not_cornered() {
+        let mut actions = ActiveActions::empty();
+        actions.insert(ActionState::new(ActionType::Eat, 0));
+        let mut emotions = EmotionalState::default();
         emotions.add_emotion(Emotion::new(EmotionType::Fear, 0.8));
         assert_eq!(
-            status_icon(&actions, &emotions, &normal_needs(), None),
-            ICON_SCARED
+            pick_icon(&ctx_with(actions, emotions, PhysicalNeeds::default())),
+            "!"
         );
     }
 
     #[test]
     fn idle_agent_shows_thought_dot() {
         assert_eq!(
-            status_icon(&idle_actions(), &neutral_emotions(), &normal_needs(), None),
+            pick_icon(&ctx_with(
+                ActiveActions::default(),
+                EmotionalState::default(),
+                PhysicalNeeds::default()
+            )),
             ICON_IDLE
         );
     }
 
     #[test]
-    fn sleep_overrides_fear() {
-        let mut actions = no_actions();
-        actions.insert(ActionState::new(ActionType::Sleep, 0));
-        let mut emotions = neutral_emotions();
-        emotions.add_emotion(Emotion::new(EmotionType::Fear, 0.9));
-        assert_eq!(
-            status_icon(&actions, &emotions, &normal_needs(), None),
-            ICON_SLEEP,
-            "sleep must override fear"
+    fn lame_shows_limp_when_no_combat_state() {
+        let mut ctx = ctx_with(
+            ActiveActions::default(),
+            EmotionalState::default(),
+            PhysicalNeeds::default(),
         );
-    }
-
-    #[test]
-    fn icon_updates_from_eating_to_sleeping() {
-        let mut actions = no_actions();
-        let emotions = neutral_emotions();
-        let needs = normal_needs();
-
-        actions.insert(ActionState::new(ActionType::Eat, 0));
-        assert_eq!(status_icon(&actions, &emotions, &needs, None), ICON_EATING);
-
-        actions.remove(ActionType::Eat);
-        actions.insert(ActionState::new(ActionType::Sleep, 1));
-        assert_eq!(status_icon(&actions, &emotions, &needs, None), ICON_SLEEP);
-    }
-
-    #[test]
-    fn hungry_agent_shows_warning() {
-        let mut needs = normal_needs();
-        needs.metabolism = crate::agent::body::metabolism::Metabolism::at_urgency(0.85);
-        assert_eq!(
-            status_icon(&idle_actions(), &neutral_emotions(), &needs, None),
-            ICON_HUNGRY
-        );
-    }
-
-    #[test]
-    fn eating_suppresses_hungry_icon() {
-        let mut actions = no_actions();
-        actions.insert(ActionState::new(ActionType::Eat, 0));
-        let mut needs = normal_needs();
-        needs.metabolism = crate::agent::body::metabolism::Metabolism::at_urgency(0.85);
-        // Eating takes priority over hungry
-        assert_eq!(
-            status_icon(&actions, &neutral_emotions(), &needs, None),
-            ICON_EATING
-        );
+        ctx.lame = true;
+        assert_eq!(pick_icon(&ctx), "limp");
     }
 
     #[test]
     fn happy_agent_shows_smile() {
-        let mut emotions = neutral_emotions();
-        emotions.current_mood = 0.8;
+        let emotions = EmotionalState {
+            current_mood: 0.8,
+            ..Default::default()
+        };
         assert_eq!(
-            status_icon(&idle_actions(), &emotions, &normal_needs(), None),
-            ICON_HAPPY
+            pick_icon(&ctx_with(
+                ActiveActions::default(),
+                emotions,
+                PhysicalNeeds::default()
+            )),
+            ":)"
+        );
+    }
+
+    #[test]
+    fn hungry_agent_shows_warning() {
+        let needs = PhysicalNeeds {
+            metabolism: crate::agent::body::metabolism::Metabolism::at_urgency(0.85),
+            ..Default::default()
+        };
+        assert_eq!(
+            pick_icon(&ctx_with(
+                ActiveActions::default(),
+                EmotionalState::default(),
+                needs
+            )),
+            "hungry"
         );
     }
 
     #[test]
     fn talking_agent_shows_ellipsis() {
-        use crate::agent::mind::conversation::InConversation;
         let dummy = InConversation { conversation_id: 0 };
-        assert_eq!(
-            status_icon(
-                &idle_actions(),
-                &neutral_emotions(),
-                &normal_needs(),
-                Some(&dummy)
-            ),
-            ICON_TALKING
-        );
+        let actions = Box::leak(Box::new(ActiveActions::default()));
+        let emotions = Box::leak(Box::new(EmotionalState::default()));
+        let needs = Box::leak(Box::new(PhysicalNeeds::default()));
+        let ctx = ConditionContext {
+            actions,
+            emotions,
+            needs,
+            body: None,
+            in_conversation: Some(&dummy),
+            cornered: false,
+            lame: false,
+            dazed: false,
+        };
+        assert_eq!(pick_icon(&ctx), "...");
     }
 }
