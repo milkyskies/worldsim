@@ -20,9 +20,14 @@ use crate::world::map::{
     DEFAULT_TERRAIN_SEED, TileType, WORLD_HEIGHT, WORLD_WIDTH, WorldMap, river_center_x,
 };
 use crate::world::spawn_placement::{
-    SettlementSearch, cluster_positions, find_biome_tile, find_settlement_center,
-    find_tile_away_from,
+    SettlementSearch, cluster_positions, find_biome_tile, find_interior_biome_tile,
+    find_settlement_center, find_tile_away_from,
 };
+
+/// Minimum tile distance from any water for vegetation that should cluster
+/// in the interior (apple trees, berry bushes scattered outside settlements).
+/// Calibrated for a 512x512 island with a coast band of ~30 tiles.
+const VEGETATION_INTERIOR_MIN_WATER_DIST: u32 = 12;
 
 /// Area in pixels for the Uniform scatter algorithm.
 const UNIFORM_AREA_PX: f32 = 1024.0;
@@ -161,21 +166,33 @@ fn compute_realistic_layout(config: &WorldSpawnConfig, map: &WorldMap) -> SpawnL
         );
     }
 
-    // Apple trees spawn on grass.
+    // Apple trees cluster in the island interior, away from the coast.
     for _ in 0..config.apple_trees {
-        if let Some(pos) = find_biome_tile(map, &mut rng, &[TileType::Grass], MAX_SPAWN_ATTEMPTS) {
+        if let Some(pos) = find_interior_biome_tile(
+            map,
+            &mut rng,
+            &[TileType::Grass],
+            VEGETATION_INTERIOR_MIN_WATER_DIST,
+            MAX_SPAWN_ATTEMPTS,
+        ) {
             layout.apple_tree_positions.push((pos, 5));
         }
     }
 
-    // Remaining berry bushes scatter across grass.
+    // Remaining berry bushes scatter across the interior, away from the coast.
     let scattered = config.berry_bushes.saturating_sub(if settlement.is_some() {
         SETTLEMENT_BERRY_BUSH_COUNT
     } else {
         0
     });
     for _ in 0..scattered {
-        if let Some(pos) = find_biome_tile(map, &mut rng, &[TileType::Grass], MAX_SPAWN_ATTEMPTS) {
+        if let Some(pos) = find_interior_biome_tile(
+            map,
+            &mut rng,
+            &[TileType::Grass],
+            VEGETATION_INTERIOR_MIN_WATER_DIST,
+            MAX_SPAWN_ATTEMPTS,
+        ) {
             layout.berry_bush_positions.push((pos, 4));
         }
     }

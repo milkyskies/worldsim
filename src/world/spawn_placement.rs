@@ -168,12 +168,45 @@ pub fn find_biome_tile(
     None
 }
 
+/// Like [`find_biome_tile`] but rejects positions within `min_water_distance`
+/// tiles of any water tile. Used for vegetation that should cluster in the
+/// island interior away from the coast.
+pub fn find_interior_biome_tile(
+    map: &WorldMap,
+    rng: &mut impl Rng,
+    allowed: &[TileType],
+    min_water_distance: u32,
+    max_attempts: usize,
+) -> Option<Vec2> {
+    for _ in 0..max_attempts {
+        let x = rng.random_range(0..map.width);
+        let y = rng.random_range(0..map.height);
+        let Some(tile) = map.get_tile(x, y) else {
+            continue;
+        };
+        if !allowed.contains(&tile) {
+            continue;
+        }
+        // Reject if there's water within min_water_distance tiles.
+        if nearest_water_distance(map, x, y, min_water_distance).is_some() {
+            continue;
+        }
+        return Some(map.tile_to_world(x as i32, y as i32));
+    }
+    None
+}
+
 // ─── Helpers ───────────────────────────────────────────────────────────────
 
 /// BFS-like ring scan for the nearest water tile around (cx, cy). Returns the
 /// Chebyshev distance to the closest water tile, or `None` if none is within
 /// `max_radius`.
-fn nearest_water_distance(map: &WorldMap, cx: u32, cy: u32, max_radius: u32) -> Option<u32> {
+pub(crate) fn nearest_water_distance(
+    map: &WorldMap,
+    cx: u32,
+    cy: u32,
+    max_radius: u32,
+) -> Option<u32> {
     for r in 0..=max_radius {
         let r_i = r as i32;
         for dy in -r_i..=r_i {
@@ -384,6 +417,52 @@ mod tests {
         let dx = tx as i64 - origin.x as i64;
         let dy = ty as i64 - origin.y as i64;
         assert!(dx * dx + dy * dy >= (min_distance as i64).pow(2));
+    }
+
+    #[test]
+    fn find_interior_biome_tile_rejects_tiles_near_water() {
+        // 32x32 map with water on the outer 8 tiles; interior 16x16 is grass.
+        let mut map = empty_map(32, 32);
+        fill_with(&mut map, TileType::Grass);
+        for y in 0..32 {
+            for x in 0..32 {
+                if x < 8 || x >= 24 || y < 8 || y >= 24 {
+                    map.set_tile(x, y, TileType::Water);
+                }
+            }
+        }
+
+        let mut rng = ChaCha8Rng::seed_from_u64(123);
+        let pos = find_interior_biome_tile(&map, &mut rng, &[TileType::Grass], 5, 500)
+            .expect("should find a deep-interior grass tile");
+
+        let (tx, ty) = map.world_to_tile(pos);
+        // Must be at least 5 tiles from any water in every direction:
+        // grass band is 8..24, so interior with 5-tile buffer is 13..19.
+        assert!(
+            (13..19).contains(&tx),
+            "x={tx} too close to water (need 13..19)"
+        );
+        assert!(
+            (13..19).contains(&ty),
+            "y={ty} too close to water (need 13..19)"
+        );
+    }
+
+    #[test]
+    fn find_interior_biome_tile_returns_none_if_no_interior() {
+        // All grass is too close to water — should give up.
+        let mut map = empty_map(16, 16);
+        fill_with(&mut map, TileType::Grass);
+        // Water column down the middle splits the map.
+        for y in 0..16 {
+            map.set_tile(8, y, TileType::Water);
+        }
+
+        let mut rng = ChaCha8Rng::seed_from_u64(7);
+        // No tile is more than 8 from the water column.
+        let result = find_interior_biome_tile(&map, &mut rng, &[TileType::Grass], 12, 200);
+        assert!(result.is_none());
     }
 
     #[test]

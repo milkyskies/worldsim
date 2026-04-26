@@ -75,15 +75,15 @@ pub mod thermal {
 
 /// World spawning configuration
 pub mod world {
-    pub const HUMAN_SPAWN_COUNT: usize = 6;
+    pub const HUMAN_SPAWN_COUNT: usize = 10;
     /// Number of humans in the second cluster spawned across the river.
-    pub const SECOND_GROUP_SPAWN_COUNT: usize = 4;
-    pub const APPLE_TREE_SPAWN_COUNT: usize = 24;
-    pub const BERRY_BUSH_SPAWN_COUNT: usize = 32;
-    pub const DEER_SPAWN_COUNT: usize = 8;
-    pub const WOLF_SPAWN_COUNT: usize = 6;
-    pub const STONE_NODE_SPAWN_COUNT: usize = 20;
-    pub const WOOD_LOG_SPAWN_COUNT: usize = 20;
+    pub const SECOND_GROUP_SPAWN_COUNT: usize = 7;
+    pub const APPLE_TREE_SPAWN_COUNT: usize = 90;
+    pub const BERRY_BUSH_SPAWN_COUNT: usize = 120;
+    pub const DEER_SPAWN_COUNT: usize = 24;
+    pub const WOLF_SPAWN_COUNT: usize = 12;
+    pub const STONE_NODE_SPAWN_COUNT: usize = 50;
+    pub const WOOD_LOG_SPAWN_COUNT: usize = 60;
     /// Maximum attempts to find a walkable spawn position before giving up
     pub const MAX_SPAWN_ATTEMPTS: usize = 200;
 
@@ -98,27 +98,27 @@ pub mod world {
 
     /// Number of berry bushes seeded near the settlement (from the total
     /// `BERRY_BUSH_SPAWN_COUNT`). Remaining bushes scatter across the map.
-    pub const SETTLEMENT_BERRY_BUSH_COUNT: usize = 6;
+    pub const SETTLEMENT_BERRY_BUSH_COUNT: usize = 10;
 
     /// Number of deer per herd. Total deer split across `DEER_SPAWN_COUNT /
     /// DEER_HERD_SIZE` herds.
-    pub const DEER_HERD_SIZE: usize = 3;
+    pub const DEER_HERD_SIZE: usize = 6;
 
     /// Tile radius for deer-herd cluster spawning.
-    pub const DEER_HERD_RADIUS_TILES: u32 = 3;
+    pub const DEER_HERD_RADIUS_TILES: u32 = 5;
 
     /// Minimum tile distance between a deer herd anchor and the human
     /// settlement center.
-    pub const DEER_MIN_DISTANCE_FROM_SETTLEMENT: u32 = 12;
+    pub const DEER_MIN_DISTANCE_FROM_SETTLEMENT: u32 = 30;
 
     /// Number of wolves per pack.
-    pub const WOLF_PACK_SIZE: usize = 3;
+    pub const WOLF_PACK_SIZE: usize = 6;
 
     /// Tile radius for wolf-pack cluster spawning.
-    pub const WOLF_PACK_RADIUS_TILES: u32 = 4;
+    pub const WOLF_PACK_RADIUS_TILES: u32 = 6;
 
     /// Minimum tile distance between a wolf pack anchor and the human settlement.
-    pub const WOLF_MIN_DISTANCE_FROM_SETTLEMENT: u32 = 18;
+    pub const WOLF_MIN_DISTANCE_FROM_SETTLEMENT: u32 = 50;
 }
 
 /// Agent movement parameters
