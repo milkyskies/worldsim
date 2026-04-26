@@ -426,7 +426,7 @@ mod tests {
         fill_with(&mut map, TileType::Grass);
         for y in 0..32 {
             for x in 0..32 {
-                if x < 8 || x >= 24 || y < 8 || y >= 24 {
+                if !(8..24).contains(&x) || !(8..24).contains(&y) {
                     map.set_tile(x, y, TileType::Water);
                 }
             }
