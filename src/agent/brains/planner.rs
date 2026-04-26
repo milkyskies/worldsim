@@ -2047,9 +2047,11 @@ mod tests {
 
     #[test]
     fn long_walk_with_low_energy_inserts_rest() {
-        // Agent stamina 20, food 60 tiles away — should plan Rest -> Walk -> Harvest.
+        // Agent stamina 20, food 250 tiles away — should plan Rest -> Walk -> Harvest.
+        // 250 * STAMINA_PER_TILE_TIRED (0.054) = 13.5; 20 - 13.5 = 6.5 < EXHAUSTION_TRIGGER (15)
+        // so the planner must prepend Rest.
         let food = Entity::from_bits(11);
-        let food_tile = (60i32, 0i32); // 60 tiles from origin, costs 12 stamina at tired rate
+        let food_tile = (250i32, 0i32);
         let mind = mind_with_food_and_energy(food, food_tile, 20);
 
         let registry = minimal_registry();
@@ -2078,9 +2080,10 @@ mod tests {
 
     #[test]
     fn impossibly_long_walk_returns_no_plan() {
-        // Food 500 tiles away — impossible even after resting (stamina cost > 85).
+        // Food 1000 tiles away — impossible even after resting.
+        // 1000 * STAMINA_PER_TILE_TIRED (0.108) = 108 > (100 - EXHAUSTION_TRIGGER) = 85.
         let food = Entity::from_bits(12);
-        let food_tile = (500i32, 0i32);
+        let food_tile = (1000i32, 0i32);
         let mind = mind_with_food_and_energy(food, food_tile, 20);
 
         let registry = minimal_registry();
@@ -2100,9 +2103,10 @@ mod tests {
     #[test]
     fn energy_check_applies_to_non_food_harvest() {
         // Same stamina logic applies to any walk, not just food plans.
-        // Agent stamina 20, stone node 60 tiles away — Rest should be prepended.
+        // Agent stamina 20, stone node 120 tiles away — Rest should be prepended.
+        // (120 tiles at 0.108/tile tired = 12.96 stamina; 20 - 12.96 < 15 trigger.)
         let stone = Entity::from_bits(13);
-        let stone_tile = (60i32, 0i32);
+        let stone_tile = (120i32, 0i32);
         let mut mind = test_mind();
         mind.add(Triple::new(
             MindNode::Self_,

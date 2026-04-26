@@ -75,15 +75,15 @@ pub mod thermal {
 
 /// World spawning configuration
 pub mod world {
-    pub const HUMAN_SPAWN_COUNT: usize = 6;
+    pub const HUMAN_SPAWN_COUNT: usize = 12;
     /// Number of humans in the second cluster spawned across the river.
-    pub const SECOND_GROUP_SPAWN_COUNT: usize = 4;
-    pub const APPLE_TREE_SPAWN_COUNT: usize = 24;
-    pub const BERRY_BUSH_SPAWN_COUNT: usize = 32;
-    pub const DEER_SPAWN_COUNT: usize = 8;
-    pub const WOLF_SPAWN_COUNT: usize = 6;
-    pub const STONE_NODE_SPAWN_COUNT: usize = 20;
-    pub const WOOD_LOG_SPAWN_COUNT: usize = 20;
+    pub const SECOND_GROUP_SPAWN_COUNT: usize = 8;
+    pub const APPLE_TREE_SPAWN_COUNT: usize = 22;
+    pub const BERRY_BUSH_SPAWN_COUNT: usize = 30;
+    pub const DEER_SPAWN_COUNT: usize = 12;
+    pub const WOLF_SPAWN_COUNT: usize = 8;
+    pub const STONE_NODE_SPAWN_COUNT: usize = 14;
+    pub const WOOD_LOG_SPAWN_COUNT: usize = 18;
     /// Maximum attempts to find a walkable spawn position before giving up
     pub const MAX_SPAWN_ATTEMPTS: usize = 200;
 
@@ -98,33 +98,37 @@ pub mod world {
 
     /// Number of berry bushes seeded near the settlement (from the total
     /// `BERRY_BUSH_SPAWN_COUNT`). Remaining bushes scatter across the map.
-    pub const SETTLEMENT_BERRY_BUSH_COUNT: usize = 6;
+    pub const SETTLEMENT_BERRY_BUSH_COUNT: usize = 10;
 
     /// Number of deer per herd. Total deer split across `DEER_SPAWN_COUNT /
     /// DEER_HERD_SIZE` herds.
-    pub const DEER_HERD_SIZE: usize = 3;
+    pub const DEER_HERD_SIZE: usize = 6;
 
     /// Tile radius for deer-herd cluster spawning.
-    pub const DEER_HERD_RADIUS_TILES: u32 = 3;
+    pub const DEER_HERD_RADIUS_TILES: u32 = 5;
 
     /// Minimum tile distance between a deer herd anchor and the human
     /// settlement center.
-    pub const DEER_MIN_DISTANCE_FROM_SETTLEMENT: u32 = 12;
+    pub const DEER_MIN_DISTANCE_FROM_SETTLEMENT: u32 = 18;
 
     /// Number of wolves per pack.
-    pub const WOLF_PACK_SIZE: usize = 3;
+    pub const WOLF_PACK_SIZE: usize = 6;
 
     /// Tile radius for wolf-pack cluster spawning.
-    pub const WOLF_PACK_RADIUS_TILES: u32 = 4;
+    pub const WOLF_PACK_RADIUS_TILES: u32 = 6;
 
     /// Minimum tile distance between a wolf pack anchor and the human settlement.
-    pub const WOLF_MIN_DISTANCE_FROM_SETTLEMENT: u32 = 18;
+    pub const WOLF_MIN_DISTANCE_FROM_SETTLEMENT: u32 = 30;
 }
 
 /// Agent movement parameters
 pub mod movement {
-    /// Pixels per tick at normal stamina
-    pub const BASE_SPEED_PER_TICK: f32 = 0.8;
+    /// Pixels per tick at normal stamina. Visually-tuned for the 60x wallclock
+    /// compression (literal real-life walking would look like sprinting).
+    /// 1.5 px/tick = pure RimWorld visual walking pace, comfortably clickable.
+    /// In-game m/s is 0.094, well below real walking (1.4 m/s) — that gap is
+    /// intentional; see docs/spatial_scale.md for the visual-feel rationale.
+    pub const BASE_SPEED_PER_TICK: f32 = 1.5;
     pub const TIRED_STAMINA_THRESHOLD: f32 = 20.0;
     pub const TIRED_SPEED_MULTIPLIER: f32 = 0.5;
     pub const EXHAUSTED_STAMINA_THRESHOLD: f32 = 5.0;
@@ -239,10 +243,14 @@ pub mod actions {
 
     pub mod walk {
         /// Estimated stamina cost per tile at normal speed (for planner estimation).
-        pub const STAMINA_PER_TILE_NORMAL: f32 = 0.1;
+        /// Scales inversely with `BASE_SPEED_PER_TICK` so per-real-time fatigue
+        /// stays consistent regardless of movement tuning. At 1.5 px/tick,
+        /// 0.054/tile drains ~0.3 stamina per game-minute of walking, so a
+        /// 100-stamina pool sustains ~5 game-hours of continuous travel.
+        pub const STAMINA_PER_TILE_NORMAL: f32 = 0.054;
 
         /// Estimated stamina cost per tile at tired speed (below TIRED_STAMINA_THRESHOLD).
-        pub const STAMINA_PER_TILE_TIRED: f32 = 0.2;
+        pub const STAMINA_PER_TILE_TIRED: f32 = 0.108;
     }
 
     pub mod warm_up {
@@ -264,9 +272,11 @@ pub mod actions {
 
     pub mod graze {
         /// Drifting range (pixels) for a single graze session before the
-        /// movement completes and the brain proposes another drift.
-        pub const DRIFT_RANGE_MIN: f32 = 8.0;
-        pub const DRIFT_RANGE_MAX: f32 = 20.0;
+        /// movement completes and the brain proposes another drift. Tuned so
+        /// each drift segment is 1-2.5 tiles — enough to read on screen,
+        /// short enough not to wander out of grazing range.
+        pub const DRIFT_RANGE_MIN: f32 = 15.0;
+        pub const DRIFT_RANGE_MAX: f32 = 40.0;
         /// Plant carbs ingested per second while grazing. Grass is low-calorie,
         /// so a full graze-loop trickles into the stomach rather than replacing
         /// a berry-sized meal.

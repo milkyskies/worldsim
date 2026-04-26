@@ -19,8 +19,8 @@ impl Plugin for MapPlugin {
 // World size constants
 pub const TILE_SIZE: f32 = 16.0;
 pub const CHUNK_SIZE: u32 = 16;
-pub const MAP_CHUNKS_X: u32 = 8;
-pub const MAP_CHUNKS_Y: u32 = 8;
+pub const MAP_CHUNKS_X: u32 = 13;
+pub const MAP_CHUNKS_Y: u32 = 13;
 // Derived constants
 pub const WORLD_WIDTH: u32 = MAP_CHUNKS_X * CHUNK_SIZE;
 pub const WORLD_HEIGHT: u32 = MAP_CHUNKS_Y * CHUNK_SIZE;
@@ -282,73 +282,116 @@ impl WorldMap {
     }
 }
 
+/// Shape of the island mask. Lower = smoother, wider transition; higher = sharper edges.
+const ISLAND_FALLOFF_EXPONENT: f64 = 1.8;
+
+/// Strength of low-frequency noise added to the radial distance, producing gentle bays.
+/// Kept low so the coastline stays smooth instead of forming tentacle peninsulas.
+const COAST_NOISE_STRENGTH: f64 = 0.07;
+
+/// Mix factor for the island mask in `sample()`. 0.0 = no island shape (pure
+/// noise terrain edge-to-edge, current playtest default). 1.0 = full island
+/// with deep-water corners and a beach ring. Flip up for a tropical-island
+/// scenario; the radial-falloff math is still in `sample()`, just dormant.
+const ISLAND_MASK_STRENGTH: f64 = 0.0;
+
 /// Noise fields for terrain generation.
 ///
 /// Combines fBm rolling hills with domain warping for organic shapes,
-/// a low-frequency mountain mask (~5 % of the map), and ridged multifractal
-/// noise in mountain zones for sharp peaks and ridges.
+/// a low-frequency mountain mask (~5 % of the map), ridged multifractal
+/// noise in mountain zones for sharp peaks, and a radial island mask
+/// with noisy coastline so the world reads as a single connected island.
 struct TerrainNoise {
     elevation: Simplex,
-    detail: Simplex,
     warp_x: Simplex,
     warp_y: Simplex,
     mountain_mask: Simplex,
     ridge: Simplex,
+    coast: Simplex,
+    width: u32,
+    height: u32,
 }
 
 impl TerrainNoise {
-    fn new(seed: u32) -> Self {
+    fn new(seed: u32, width: u32, height: u32) -> Self {
         Self {
             elevation: Simplex::new(seed),
-            detail: Simplex::new(seed.wrapping_add(2)),
             warp_x: Simplex::new(seed.wrapping_add(3)),
             warp_y: Simplex::new(seed.wrapping_add(4)),
             mountain_mask: Simplex::new(seed.wrapping_add(5)),
             ridge: Simplex::new(seed.wrapping_add(6)),
+            coast: Simplex::new(seed.wrapping_add(7)),
+            width,
+            height,
         }
     }
 
     /// Returns an elevation value in roughly the [-1.0, 1.0] range.
     ///
-    /// The output combines rolling-hill fBm everywhere with ridged peaks
-    /// in areas selected by the mountain mask.
+    /// Smooth fBm shapes plus rare mountain ridges, biased by an additive
+    /// island mask. The bias is small enough that center tiles read as grass
+    /// by default, sloping into dirt/gravel/rock only where the (tightly
+    /// thresholded) mountain mask fires.
     fn sample(&self, x: u32, y: u32) -> f64 {
-        const BASE: f64 = 0.045;
+        const BASE: f64 = 0.030;
         let bx = x as f64 * BASE;
         let by = y as f64 * BASE;
 
-        // Gentle domain warping — just enough to break grid alignment.
-        const WARP_STRENGTH: f64 = 0.25;
+        const WARP_STRENGTH: f64 = 0.10;
         let wx = bx + self.warp_x.get([bx * 0.5, by * 0.5]) * WARP_STRENGTH;
         let wy = by + self.warp_y.get([bx * 0.5 + 50.0, by * 0.5 + 50.0]) * WARP_STRENGTH;
 
-        // Rolling hills: fBm with 3 octaves.
-        let hills = self.elevation.get([wx, wy]) * 0.65
-            + self.elevation.get([wx * 2.1, wy * 2.1]) * 0.25
-            + self.detail.get([wx * 4.3, wy * 4.3]) * 0.10;
+        let hills = (self.elevation.get([wx, wy]) * 0.85
+            + self.elevation.get([wx * 2.1, wy * 2.1]) * 0.15)
+            .clamp(-1.0, 1.0);
 
-        // Mountain mask: very low frequency, thresholded so only a small area
-        // of the map becomes mountainous. Ramps smoothly at edges.
-        const MASK_FREQ: f64 = 0.012;
-        const MASK_THRESHOLD: f64 = 0.35;
+        // Mountain mask: Minecraft-style — chunky 50-tile features at low
+        // threshold so rocky terrain reliably covers a meaningful share of
+        // the map. Combined with the lower biome thresholds, this gives
+        // dramatic slope-to-rock transitions instead of subtle peaks.
+        const MASK_FREQ: f64 = 0.020;
+        const MASK_THRESHOLD: f64 = 0.10;
         let raw_mask = self.mountain_mask.get([bx * MASK_FREQ, by * MASK_FREQ]);
         let mask = ((raw_mask - MASK_THRESHOLD) / (1.0 - MASK_THRESHOLD)).clamp(0.0, 1.0);
-
-        // In mountain zones, boost elevation with a single smooth ridge octave.
-        // No sharp abs() ridges — just amplified noise for taller, rounder peaks.
+        // Mountain mask: rare dramatic peaks when noise happens to fire.
+        // Reliable baseline rock/gravel comes from `place_rocky_outcrops`,
+        // so this can stay rare without breaking resource gathering.
         let peak = self.ridge.get([wx * 1.2, wy * 1.2]).max(0.0);
-        let mountain_boost = mask * peak * 0.5;
+        let mountain_boost = mask * peak * 1.5;
 
-        (hills + mountain_boost).clamp(-1.0, 1.0)
+        let cx = self.width as f64 / 2.0;
+        let cy = self.height as f64 / 2.0;
+        let dx = (x as f64 - cx) / cx;
+        let dy = (y as f64 - cy) / cy;
+        const COAST_FREQ: f64 = 0.010;
+        let coast_offset = self
+            .coast
+            .get([x as f64 * COAST_FREQ, y as f64 * COAST_FREQ])
+            * COAST_NOISE_STRENGTH;
+        let dist = ((dx * dx + dy * dy).sqrt() + coast_offset).clamp(0.0, 1.0);
+        let falloff = (1.0 - dist.powf(ISLAND_FALLOFF_EXPONENT)).max(0.0);
+
+        // Island mask: applied at strength `ISLAND_MASK_STRENGTH`. At 0 the
+        // bias term zeroes out and we get plain noise terrain edge-to-edge
+        // (mountains can appear anywhere). At 1.0 the full island shape
+        // returns: center stays grass, corners forced into deep water,
+        // mountains gated to interior.
+        let land_bias = (falloff * 1.10 - 0.95) * ISLAND_MASK_STRENGTH;
+        let mountain_gate = 1.0 - ISLAND_MASK_STRENGTH + ISLAND_MASK_STRENGTH * falloff;
+        let base = hills * 0.50 + land_bias;
+        (base + mountain_boost * mountain_gate).clamp(-1.0, 1.0)
     }
 }
 
 /// Elevation thresholds (in noise output space, roughly [-1.0, 1.0])
-/// that decide which biome a tile belongs to.
+/// that decide which biome a tile belongs to. Subtle land variation
+/// (low noise → mostly grass with occasional dirt patches) — reliable
+/// stone comes from `place_rocky_outcrops`, not from this gradient.
+/// Loose water bands so ponds form naturally without the island mask.
 mod biome {
-    pub const DEEP_WATER_MAX: f64 = -0.65;
-    pub const SHALLOW_WATER_MAX: f64 = -0.55;
-    pub const SAND_MAX: f64 = -0.42;
+    pub const DEEP_WATER_MAX: f64 = -0.45;
+    pub const SHALLOW_WATER_MAX: f64 = -0.32;
+    pub const SAND_MAX: f64 = -0.22;
     pub const DIRT_MIN: f64 = 0.35;
     pub const GRAVEL_MIN: f64 = 0.45;
     pub const ROCK_MIN: f64 = 0.55;
@@ -376,9 +419,13 @@ fn classify_tile(elevation: f64) -> TileType {
 }
 
 /// Generate a `width x height` terrain grid using layered simplex noise,
-/// then overlay a procedural winding river through the center.
+/// then overlay a procedural winding river and scattered rocky outcrops.
+///
+/// The island-mask path inside `TerrainNoise::sample` is gated by
+/// `ISLAND_MASK_STRENGTH = 0` so the playtest map has usable terrain
+/// edge-to-edge. Flip it on for a tropical-island scenario.
 pub fn generate_terrain(width: u32, height: u32, seed: u32) -> Vec<TileType> {
-    let noise = TerrainNoise::new(seed);
+    let noise = TerrainNoise::new(seed, width, height);
     let mut tiles = Vec::with_capacity((width * height) as usize);
     for y in 0..height {
         for x in 0..width {
@@ -387,7 +434,70 @@ pub fn generate_terrain(width: u32, height: u32, seed: u32) -> Vec<TileType> {
         }
     }
     carve_river(&mut tiles, width, height, seed);
+    place_rocky_outcrops(&mut tiles, width, height, seed);
     tiles
+}
+
+/// How many rocky outcrops to place per 256×256 map area. Scales with map
+/// area so the per-tile density stays consistent at any map size.
+const ROCKY_OUTCROP_DENSITY_PER_AREA: f64 = 6.0 / (256.0 * 256.0);
+const ROCKY_OUTCROP_RADIUS_MIN: i32 = 2;
+const ROCKY_OUTCROP_RADIUS_MAX: i32 = 4;
+
+/// Scatters small rocky outcrops across the terrain. Each outcrop is a Rock
+/// tile at the center surrounded by Gravel within a small radius. Skips water
+/// tiles so outcrops form on dry land. Deterministic per seed.
+fn place_rocky_outcrops(tiles: &mut [TileType], width: u32, height: u32, seed: u32) {
+    use rand::SeedableRng;
+    use rand::seq::IteratorRandom;
+    use rand_chacha::ChaCha8Rng;
+
+    let area = (width as f64) * (height as f64);
+    let count = (area * ROCKY_OUTCROP_DENSITY_PER_AREA).round() as usize;
+    let mut rng = ChaCha8Rng::seed_from_u64(seed.wrapping_add(202) as u64);
+
+    for _ in 0..count {
+        // Pick a random non-water tile as the outcrop center.
+        let Some(idx) = (0..tiles.len())
+            .filter(|&i| !tiles[i].is_water())
+            .choose(&mut rng)
+        else {
+            return;
+        };
+        let cx = (idx as u32) % width;
+        let cy = (idx as u32) / width;
+
+        let radius = rand::Rng::random_range(
+            &mut rng,
+            ROCKY_OUTCROP_RADIUS_MIN..=ROCKY_OUTCROP_RADIUS_MAX,
+        );
+
+        for dy in -radius..=radius {
+            for dx in -radius..=radius {
+                let nx = cx as i32 + dx;
+                let ny = cy as i32 + dy;
+                if nx < 0 || ny < 0 || nx >= width as i32 || ny >= height as i32 {
+                    continue;
+                }
+                let dist_sq = dx * dx + dy * dy;
+                if dist_sq > radius * radius {
+                    continue;
+                }
+                let i = (ny as u32 * width + nx as u32) as usize;
+                if tiles[i].is_water() {
+                    continue;
+                }
+                // Center tile (and immediate neighbours) become Rock; outer
+                // ring becomes Gravel. Gives each outcrop a clear "core +
+                // skirt" structure.
+                tiles[i] = if dist_sq <= 1 {
+                    TileType::Rock
+                } else {
+                    TileType::Gravel
+                };
+            }
+        }
+    }
 }
 
 /// Water tiles are capped at this elevation (sea level). Rivers and lakes sit at or below it.
@@ -408,7 +518,7 @@ pub fn generate_elevations(tiles: &[TileType], width: u32, height: u32, seed: u3
         (width * height) as usize,
         "tiles length must equal width * height"
     );
-    let noise = TerrainNoise::new(seed);
+    let noise = TerrainNoise::new(seed, width, height);
     tiles
         .iter()
         .enumerate()
@@ -927,14 +1037,30 @@ mod tests {
     }
 
     #[test]
-    fn generated_terrain_contains_all_land_types() {
+    fn generated_terrain_has_visible_rocky_outcrops() {
+        // Rocky terrain (Gravel + Rock) must be visible in the world, not
+        // a handful of stray tiles — otherwise stone gathering breaks and
+        // the world reads as flat grass. Threshold sized for the deterministic
+        // outcrop pass (~6 outcrops × ~9 tiles each on a 208x208 map, minus
+        // overlap with water).
         let tiles = generate_terrain(WORLD_WIDTH, WORLD_HEIGHT, DEFAULT_TERRAIN_SEED);
         let unique: HashSet<TileType> = tiles.iter().copied().collect();
-        assert!(unique.contains(&TileType::Grass), "expected Grass tiles");
-        assert!(unique.contains(&TileType::Sand), "expected Sand tiles");
-        assert!(unique.contains(&TileType::Dirt), "expected Dirt tiles");
-        assert!(unique.contains(&TileType::Gravel), "expected Gravel tiles");
-        assert!(unique.contains(&TileType::Rock), "expected Rock tiles");
+        for t in [
+            TileType::Grass,
+            TileType::Sand,
+            TileType::Dirt,
+            TileType::Gravel,
+        ] {
+            assert!(unique.contains(&t), "expected {t:?} tiles");
+        }
+        let rocky = tiles
+            .iter()
+            .filter(|&&t| matches!(t, TileType::Gravel | TileType::Rock))
+            .count();
+        assert!(
+            rocky >= 30,
+            "expected visible rocky outcrops (>=30 Gravel+Rock), got {rocky}"
+        );
     }
 
     #[test]
@@ -1029,5 +1155,189 @@ mod tests {
                 "river_center_x({y}) = {cx} out of bounds"
             );
         }
+    }
+
+    // ─── Island shape (#659) ────────────────────────────────────────────────
+
+    #[test]
+    fn map_size_is_208x208() {
+        assert_eq!(WORLD_WIDTH, 208);
+        assert_eq!(WORLD_HEIGHT, 208);
+    }
+
+    #[test]
+    #[ignore = "diagnostic — run with --include-ignored to see tile counts"]
+    fn debug_tile_distribution() {
+        // Diagnostic: prints tile counts at the default seed so we can see
+        // whether the noise actually produces visible gravel/rock patches.
+        let tiles = generate_terrain(WORLD_WIDTH, WORLD_HEIGHT, DEFAULT_TERRAIN_SEED);
+        let mut counts = std::collections::HashMap::new();
+        for &t in &tiles {
+            *counts.entry(format!("{t:?}")).or_insert(0_usize) += 1;
+        }
+        let total = tiles.len();
+        let mut pairs: Vec<_> = counts.into_iter().collect();
+        pairs.sort_by_key(|(_, c)| std::cmp::Reverse(*c));
+        eprintln!("tile counts at seed {DEFAULT_TERRAIN_SEED} on {WORLD_WIDTH}x{WORLD_HEIGHT}:");
+        for (t, c) in &pairs {
+            let pct = 100.0 * (*c as f64) / total as f64;
+            eprintln!("  {t}: {c} ({pct:.1}%)");
+        }
+    }
+
+    #[test]
+    #[ignore = "island mask disabled — see ISLAND_MASK_STRENGTH"]
+    fn island_corners_are_water() {
+        let tiles = generate_terrain(WORLD_WIDTH, WORLD_HEIGHT, DEFAULT_TERRAIN_SEED);
+        let w = WORLD_WIDTH;
+        let h = WORLD_HEIGHT;
+        for &(x, y) in &[(0, 0), (w - 1, 0), (0, h - 1), (w - 1, h - 1)] {
+            let idx = (y * w + x) as usize;
+            assert!(
+                tiles[idx].is_water(),
+                "corner ({x}, {y}) should be water but was {:?}",
+                tiles[idx]
+            );
+        }
+    }
+
+    #[test]
+    #[ignore = "island mask disabled — see ISLAND_MASK_STRENGTH"]
+    fn island_edges_are_mostly_water() {
+        let tiles = generate_terrain(WORLD_WIDTH, WORLD_HEIGHT, DEFAULT_TERRAIN_SEED);
+        let w = WORLD_WIDTH;
+        let h = WORLD_HEIGHT;
+        let mut water_edge = 0;
+        let mut total_edge = 0;
+        for x in 0..w {
+            for &y in &[0, h - 1] {
+                if tiles[(y * w + x) as usize].is_water() {
+                    water_edge += 1;
+                }
+                total_edge += 1;
+            }
+        }
+        for y in 0..h {
+            for &x in &[0, w - 1] {
+                if tiles[(y * w + x) as usize].is_water() {
+                    water_edge += 1;
+                }
+                total_edge += 1;
+            }
+        }
+        let ratio = water_edge as f64 / total_edge as f64;
+        assert!(
+            ratio > 0.95,
+            "expected >95% of edge tiles to be water, got {:.2}%",
+            ratio * 100.0
+        );
+    }
+
+    #[test]
+    #[ignore = "island mask disabled — see ISLAND_MASK_STRENGTH"]
+    fn island_interior_has_substantial_land() {
+        let tiles = generate_terrain(WORLD_WIDTH, WORLD_HEIGHT, DEFAULT_TERRAIN_SEED);
+        let w = WORLD_WIDTH;
+        let h = WORLD_HEIGHT;
+        // Sample a 100x100 box around the center.
+        let cx = w / 2;
+        let cy = h / 2;
+        let mut land = 0;
+        let mut total = 0;
+        for dy in -50i32..=50 {
+            for dx in -50i32..=50 {
+                let x = (cx as i32 + dx) as u32;
+                let y = (cy as i32 + dy) as u32;
+                if !tiles[(y * w + x) as usize].is_water() {
+                    land += 1;
+                }
+                total += 1;
+            }
+        }
+        let ratio = land as f64 / total as f64;
+        assert!(
+            ratio > 0.6,
+            "expected >60% land in central 100x100 box, got {:.2}%",
+            ratio * 100.0
+        );
+    }
+
+    #[test]
+    #[ignore = "island mask disabled — see ISLAND_MASK_STRENGTH"]
+    fn coastline_has_visible_sand_ring() {
+        let tiles = generate_terrain(WORLD_WIDTH, WORLD_HEIGHT, DEFAULT_TERRAIN_SEED);
+        let sand_count = tiles
+            .iter()
+            .filter(|&&t| matches!(t, TileType::Sand))
+            .count();
+        // A 512x512 island should have hundreds of sand tiles along its coast.
+        assert!(
+            sand_count > 500,
+            "expected hundreds of sand tiles for the coast, got {sand_count}"
+        );
+    }
+
+    #[test]
+    #[ignore = "island mask disabled — see ISLAND_MASK_STRENGTH"]
+    fn coastline_is_irregular_not_circular() {
+        // Walk inward from each cardinal edge and record the distance to the
+        // first land tile. A round island would give equal distances; an
+        // irregular coast gives variation.
+        let tiles = generate_terrain(WORLD_WIDTH, WORLD_HEIGHT, DEFAULT_TERRAIN_SEED);
+        let w = WORLD_WIDTH;
+        let h = WORLD_HEIGHT;
+        let mid_x = w / 2;
+        let mid_y = h / 2;
+
+        let mut samples = Vec::new();
+        // Sample 16 rays around the half-perimeter to measure coast distance.
+        for i in 0..16 {
+            let frac = i as f32 / 16.0;
+            let y = (frac * h as f32) as u32;
+            // Walk in from x=0
+            for x in 0..mid_x {
+                if !tiles[(y * w + x) as usize].is_water() {
+                    samples.push(x);
+                    break;
+                }
+            }
+            // Walk in from x=w-1
+            for x in (mid_x..w).rev() {
+                if !tiles[(y * w + x) as usize].is_water() {
+                    samples.push(w - 1 - x);
+                    break;
+                }
+            }
+            let x = (frac * w as f32) as u32;
+            for y in 0..mid_y {
+                if !tiles[(y * w + x) as usize].is_water() {
+                    samples.push(y);
+                    break;
+                }
+            }
+            for y in (mid_y..h).rev() {
+                if !tiles[(y * w + x) as usize].is_water() {
+                    samples.push(h - 1 - y);
+                    break;
+                }
+            }
+        }
+
+        assert!(samples.len() > 30, "got only {} samples", samples.len());
+        let mean = samples.iter().sum::<u32>() as f64 / samples.len() as f64;
+        let variance = samples
+            .iter()
+            .map(|&v| {
+                let d = v as f64 - mean;
+                d * d
+            })
+            .sum::<f64>()
+            / samples.len() as f64;
+        let stddev = variance.sqrt();
+        // A round island would give stddev ~0; an irregular coast >> 0.
+        assert!(
+            stddev > 8.0,
+            "coastline looks too round (stddev = {stddev:.2} tiles)"
+        );
     }
 }
