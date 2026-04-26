@@ -34,6 +34,13 @@ pub struct EmotionalInputs<'a> {
     pub mind: &'a MindGraph,
     pub visible: &'a VisibleObjects,
     pub visible_positions: &'a [(Entity, Vec2)],
+    /// Parallel-indexed with `visible_positions`. `Some(concept)` for
+    /// agents/things with an `EntityType` component; `None` for the rest.
+    /// Lets the per-visible-entity loops do `mind.has_trait(&Node::Concept(_))`
+    /// at the ontology-cache fast-path instead of `Node::Entity(_)` (which
+    /// pays a wasted `(entity, IsA, ?)` indexed query before falling
+    /// through to the same cache).
+    pub visible_types: &'a [Option<Concept>],
     pub physical: &'a PhysicalNeeds,
     pub drives: Option<&'a PsychologicalDrives>,
     pub in_conversation: Option<&'a InConversation>,
@@ -58,6 +65,10 @@ pub struct EmotionalInputs<'a> {
 pub struct ClosestThreat<'a> {
     pub entity: Entity,
     pub pos: Vec2,
+    /// Concept from the threat's `EntityType` component (Wolf, Person…),
+    /// threaded through so threat-appraisal can read concept-level
+    /// emotions without paying an indexed `(entity, IsA, ?)` lookup.
+    pub type_concept: Option<Concept>,
     pub body: Option<&'a crate::agent::biology::body::Body>,
 }
 
@@ -73,6 +84,7 @@ impl<'a> EmotionalInputs<'a> {
             drives: self.drives,
             mind: self.mind,
             visible: self.visible_positions,
+            visible_types: self.visible_types,
             fields: self.fields,
         }
     }
@@ -82,10 +94,20 @@ pub fn emotional_brain_propose(inputs: &EmotionalInputs) -> Option<BrainProposal
     let mut best: Option<BrainProposal> = None;
     let mut best_urgency = 0.0f32;
 
-    for &entity in &inputs.visible.entities {
-        if let Some((proposal, urgency)) =
-            evaluate_entity_emotions(entity, inputs.mind, inputs.action_registry, best_urgency)
-        {
+    // `visible_positions` and `visible_types` are pre-built in
+    // arbitrate_every_tick from a single Bevy query, parallel-indexed so
+    // visible_positions[i] is the same agent as visible_types[i]. Iterate
+    // them together to skip the per-call `(entity, IsA, ?)` lookup that
+    // walking from `Node::Entity(_)` would cost.
+    for (i, &(entity, _)) in inputs.visible_positions.iter().enumerate() {
+        let entity_type = inputs.visible_types.get(i).and_then(|t| *t);
+        if let Some((proposal, urgency)) = evaluate_entity_emotions(
+            entity,
+            entity_type,
+            inputs.mind,
+            inputs.action_registry,
+            best_urgency,
+        ) {
             best = Some(proposal);
             best_urgency = urgency;
         }
@@ -98,7 +120,15 @@ pub fn emotional_brain_propose(inputs: &EmotionalInputs) -> Option<BrainProposal
     // or Fight — replacing the three ad-hoc branches that used to live
     // here (general fear, general anger, starving-predator).
     if let Some(threat) = inputs.closest_threat.as_ref() {
-        let entity_anger = entity_emotion_intensity(inputs.mind, threat.entity, EmotionType::Anger);
+        let entity_anger = match threat.type_concept {
+            Some(et) => entity_emotion_intensity_with_type(
+                inputs.mind,
+                threat.entity,
+                et,
+                EmotionType::Anger,
+            ),
+            None => entity_emotion_intensity(inputs.mind, threat.entity, EmotionType::Anger),
+        };
         let general_anger = inputs.emotions.get_emotion_intensity(EmotionType::Anger);
         let anger = entity_anger.max(general_anger);
         let ctx = super::threat_appraisal::ThreatAppraisalContext {
@@ -159,6 +189,7 @@ pub fn emotional_brain_propose(inputs: &EmotionalInputs) -> Option<BrainProposal
             drives: inputs.drives,
             mind: inputs.mind,
             visible: inputs.visible_positions,
+            visible_types: inputs.visible_types,
             fields: inputs.fields,
         };
         for behavior in BEHAVIORS {
@@ -176,8 +207,8 @@ pub fn emotional_brain_propose(inputs: &EmotionalInputs) -> Option<BrainProposal
     // Converse Focus 0.6; Observe Focus 0.3 + Awareness 0.6 soft-conflicts).
     if let Some(proposal) = propose_curiosity(
         inputs.cns,
-        inputs.visible,
-        inputs.mind,
+        inputs.visible_positions,
+        inputs.visible_types,
         inputs.action_registry,
         best_urgency,
     ) {
@@ -207,8 +238,8 @@ pub fn emotional_brain_propose(inputs: &EmotionalInputs) -> Option<BrainProposal
 /// Explore — go find something to look at.
 fn propose_curiosity(
     cns: &crate::agent::nervous_system::cns::CentralNervousSystem,
-    visible: &VisibleObjects,
-    mind: &MindGraph,
+    visible_positions: &[(Entity, Vec2)],
+    visible_types: &[Option<Concept>],
     action_registry: &crate::agent::actions::ActionRegistry,
     min_urgency: f32,
 ) -> Option<BrainProposal> {
@@ -229,10 +260,21 @@ fn propose_curiosity(
 
     // Pick the most interesting visible entity: another agent beats a
     // static object. A curious creature watches moving things, not
-    // the berry bush it's seen a thousand times. Filtering to agents
-    // also keeps the target fresh because agents themselves move.
-    let interesting_target = visible.entities.iter().find(|&&e| is_agent(mind, e));
-    if let Some(&target) = interesting_target {
+    // the berry bush it's seen a thousand times. Read agent-ness from
+    // the entity's `EntityType` concept threaded through `visible_types`
+    // (parallel-indexed with `visible_positions`) — saves three
+    // MindGraph IsA queries per visible entity vs. the old path.
+    let interesting_target = visible_positions
+        .iter()
+        .enumerate()
+        .find(|(i, _)| {
+            visible_types
+                .get(*i)
+                .and_then(|c| *c)
+                .is_some_and(is_agent_concept)
+        })
+        .map(|(_, (e, _))| *e);
+    if let Some(target) = interesting_target {
         let observe = action_registry.get(ActionType::Observe)?;
         let mut template = observe.to_template(None);
         template.target_entity = Some(target);
@@ -257,24 +299,11 @@ fn propose_curiosity(
     })
 }
 
-/// True if the MindGraph says this entity is a Person, Deer, or Wolf —
-/// i.e. another agent. Static objects (berry bushes, trees, rocks) are
-/// filtered out so a curious agent doesn't freeze staring at a stump.
-fn is_agent(mind: &MindGraph, entity: Entity) -> bool {
-    const AGENT_CONCEPTS: &[Concept] = &[Concept::Person, Concept::Deer, Concept::Wolf];
-    for concept in AGENT_CONCEPTS {
-        if !mind
-            .query(
-                Some(&Node::Entity(entity)),
-                Some(Predicate::IsA),
-                Some(&Value::Concept(*concept)),
-            )
-            .is_empty()
-        {
-            return true;
-        }
-    }
-    false
+/// True if the concept is a Person/Deer/Wolf — i.e. an agent species.
+/// Static objects (berry bushes, trees, rocks) return false so a
+/// curious agent doesn't freeze staring at a stump.
+fn is_agent_concept(concept: Concept) -> bool {
+    matches!(concept, Concept::Person | Concept::Deer | Concept::Wolf)
 }
 
 /// Propose `Wander` for Territoriality urgency. The agent paces a
@@ -386,7 +415,40 @@ pub fn find_closest_dangerous(
 /// (e.g. an entity-of-type-Wolf inherits the Concept-level Wolf feelings).
 /// Public so the UI can read the agent's feelings toward any entity, not
 /// just the three types `evaluate_entity_emotions` consumes.
+/// Per-emotion sums toward `entity` including type-inherited contributions
+/// (e.g. an entity-of-type-Wolf inherits the Concept-level Wolf feelings).
+///
+/// The "what type is this entity" question is resolved by walking the
+/// agent's per-agent `(entity, IsA, ?)` MindGraph triples — i.e. the
+/// agent's *belief* about what the entity is. Cold-path callers (UI,
+/// debug inspection) want this. Hot-path callers inside arbitration
+/// know the entity's `EntityType` component already and should use
+/// [`entity_feelings_with_type`] to skip the per-call IsA-walk query.
 pub fn entity_feelings(entity: Entity, mind: &MindGraph) -> Vec<(EmotionType, f32)> {
+    entity_feelings_inner(entity, mind.all_types(&Node::Entity(entity)), mind)
+}
+
+/// Hot-path variant of [`entity_feelings`] for callers who already know
+/// the entity's `EntityType` concept (typically threaded through from
+/// the brain's per-tick visible-entity loop). Walks the ontology
+/// hierarchy from `entity_type` directly instead of paying an indexed
+/// `(entity, IsA, ?)` lookup per call.
+pub fn entity_feelings_with_type(
+    entity: Entity,
+    entity_type: Concept,
+    mind: &MindGraph,
+) -> Vec<(EmotionType, f32)> {
+    let mut types: Vec<Concept> = Vec::with_capacity(8);
+    types.push(entity_type);
+    types.extend(mind.all_types(&Node::Concept(entity_type)));
+    entity_feelings_inner(entity, types, mind)
+}
+
+fn entity_feelings_inner(
+    entity: Entity,
+    type_concepts: Vec<Concept>,
+    mind: &MindGraph,
+) -> Vec<(EmotionType, f32)> {
     let subject = Node::Entity(entity);
     let mut feelings: Vec<(EmotionType, f32)> = Vec::new();
     let mut collect = |subj: &Node| {
@@ -397,7 +459,7 @@ pub fn entity_feelings(entity: Entity, mind: &MindGraph) -> Vec<(EmotionType, f3
         }
     };
     collect(&subject);
-    for concept in mind.all_types(&subject) {
+    for concept in type_concepts {
         collect(&Node::Concept(concept));
     }
     feelings
@@ -421,12 +483,29 @@ pub fn entities_with_feelings(mind: &MindGraph) -> Vec<Entity> {
 }
 
 /// Sum of one emotion type toward an entity (entity-level + concept-level).
+/// Cold-path variant — falls back to walking the agent's IsA triples.
 pub fn entity_emotion_intensity(
     mind: &MindGraph,
     entity: Entity,
     emotion_type: EmotionType,
 ) -> f32 {
     entity_feelings(entity, mind)
+        .into_iter()
+        .filter(|(t, _)| *t == emotion_type)
+        .map(|(_, i)| i)
+        .sum()
+}
+
+/// Hot-path variant of [`entity_emotion_intensity`]. Same answer, but the
+/// caller supplies the entity's `EntityType` concept so we can walk the
+/// ontology hierarchy directly from there.
+pub fn entity_emotion_intensity_with_type(
+    mind: &MindGraph,
+    entity: Entity,
+    entity_type: Concept,
+    emotion_type: EmotionType,
+) -> f32 {
+    entity_feelings_with_type(entity, entity_type, mind)
         .into_iter()
         .filter(|(t, _)| *t == emotion_type)
         .map(|(_, i)| i)
@@ -485,8 +564,15 @@ pub fn add_entity_emotion(
 pub const MAX_ENTITY_EMOTION_INTENSITY: f32 = 2.0;
 
 /// (fear, joy, anger) intensities from direct and inherited associations.
-fn collect_entity_feelings(entity: Entity, mind: &MindGraph) -> (f32, f32, f32) {
-    let feelings = entity_feelings(entity, mind);
+fn collect_entity_feelings(
+    entity: Entity,
+    entity_type: Option<Concept>,
+    mind: &MindGraph,
+) -> (f32, f32, f32) {
+    let feelings = match entity_type {
+        Some(et) => entity_feelings_with_type(entity, et, mind),
+        None => entity_feelings(entity, mind),
+    };
     let sum = |target: EmotionType| -> f32 {
         feelings
             .iter()
@@ -504,11 +590,12 @@ fn collect_entity_feelings(entity: Entity, mind: &MindGraph) -> (f32, f32, f32) 
 /// Returns the best (proposal, intensity) for a single entity, if above min_urgency.
 fn evaluate_entity_emotions(
     entity: Entity,
+    entity_type: Option<Concept>,
     mind: &MindGraph,
     action_registry: &crate::agent::actions::ActionRegistry,
     min_urgency: f32,
 ) -> Option<(BrainProposal, f32)> {
-    let (fear, joy, anger) = collect_entity_feelings(entity, mind);
+    let (fear, joy, anger) = collect_entity_feelings(entity, entity_type, mind);
     let mut best: Option<(BrainProposal, f32)> = None;
     let mut threshold = min_urgency;
 
@@ -706,6 +793,7 @@ mod tests {
             mind: &mind,
             visible: &visible,
             visible_positions: &[],
+            visible_types: &[],
             physical: &PhysicalNeeds::default(),
             drives: None,
             in_conversation: None,
@@ -742,6 +830,7 @@ mod tests {
 
         let mut visible = VisibleObjects::default();
         visible.entities.push(entity);
+        let visible_positions = [(entity, Vec2::ZERO)];
 
         let mut registry = crate::agent::actions::ActionRegistry::default();
         registry.register_def(&crate::agent::actions::action::FLEE_DEF);
@@ -750,7 +839,8 @@ mod tests {
             emotions: &state,
             mind: &mind,
             visible: &visible,
-            visible_positions: &[],
+            visible_positions: &visible_positions,
+            visible_types: &[None],
             physical: &PhysicalNeeds::default(),
             drives: None,
             in_conversation: None,
@@ -785,6 +875,7 @@ mod tests {
 
         let mut visible = VisibleObjects::default();
         visible.entities.push(entity);
+        let visible_positions = [(entity, Vec2::ZERO)];
 
         let mut registry = crate::agent::actions::ActionRegistry::default();
         registry.register_def(&crate::agent::actions::action::WALK_DEF);
@@ -793,7 +884,8 @@ mod tests {
             emotions: &state,
             mind: &mind,
             visible: &visible,
-            visible_positions: &[],
+            visible_positions: &visible_positions,
+            visible_types: &[None],
             physical: &PhysicalNeeds::default(),
             drives: None,
             in_conversation: None,
@@ -825,6 +917,7 @@ mod tests {
             mind: &mind,
             visible: &visible,
             visible_positions: &[],
+            visible_types: &[],
             physical: &PhysicalNeeds::default(),
             drives: None,
             in_conversation: None,
@@ -860,6 +953,7 @@ mod tests {
             mind: &mind,
             visible: &visible,
             visible_positions: &[],
+            visible_types: &[],
             physical: &PhysicalNeeds::default(),
             drives: None,
             in_conversation: None,

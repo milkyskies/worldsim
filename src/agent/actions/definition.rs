@@ -318,6 +318,11 @@ pub struct PreferenceContext<'a> {
     /// Pre-resolved (entity, world position) pairs for visible entities
     /// so scorers don't hit the ECS per tile.
     pub visible: &'a [(Entity, Vec2)],
+    /// Parallel-indexed with `visible`: `Some(concept)` when the visible
+    /// entity has an `EntityType` component. Lets scorers ask trait
+    /// questions at the concept level via the ontology cache without
+    /// the per-call `(entity, IsA, ?)` walk.
+    pub visible_types: &'a [Option<Concept>],
     pub fields: &'a FieldGrids,
 }
 
