@@ -778,7 +778,8 @@ pub fn perceive_hearing(
     let current_time = tick.current;
 
     // SoundSource is transient (1-tick lifetime) and typically rare. Iterate
-    // the query directly instead of via spatial index.
+    // the query directly instead of via spatial index — avoids the 1-tick lag
+    // from PostUpdate spatial index updates.
     for (agent_entity, agent_transform, mut mind) in agents.iter_mut() {
         let agent_pos = agent_transform.translation.truncate();
 

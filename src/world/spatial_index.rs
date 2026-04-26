@@ -14,12 +14,8 @@ pub struct SpatialIndexPlugin;
 
 impl Plugin for SpatialIndexPlugin {
     fn build(&self, app: &mut App) {
-        // FixedPreUpdate so perception (FixedUpdate) reads an up-to-date index. Movement
-        // mutates Transform in FixedUpdate, so by the next FixedPreUpdate the changes are
-        // visible via Changed<Transform>. Nothing in the regular Update schedule moves
-        // `Physical` entities, so no PostUpdate run is needed.
         app.insert_resource(SpatialIndex::default())
-            .add_systems(FixedPreUpdate, update_spatial_index);
+            .add_systems(PostUpdate, update_spatial_index);
     }
 }
 

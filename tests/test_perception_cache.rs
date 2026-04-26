@@ -8,11 +8,16 @@ use bevy::prelude::*;
 use worldsim::agent::mind::perception::VisibleObjects;
 use worldsim::testing::TestWorld;
 
+// Spatial index updates in PostUpdate, so the first FixedUpdate perception sees an
+// empty index — the cache picks up real entities on the second cycle once the empty
+// cache forces a re-query.
+const WARMUP_TICKS: u64 = 2;
+
 #[test]
 fn despawned_entity_never_appears_after_one_more_tick() {
     let (mut world, agent) = TestWorld::solo_agent(42);
 
-    world.tick(1);
+    world.tick(WARMUP_TICKS);
     let visible_initial: Vec<Entity> = world.get::<VisibleObjects>(agent).entities.clone();
     assert!(
         !visible_initial.is_empty(),
@@ -39,7 +44,7 @@ fn despawned_entity_never_appears_after_one_more_tick() {
 #[test]
 fn entity_spawned_into_cached_bucket_appears_within_safety_refresh() {
     let (mut world, agent) = TestWorld::solo_agent(42);
-    world.tick(1);
+    world.tick(WARMUP_TICKS);
 
     // Spawn a fresh entity well within the agent's view range. The agent has
     // not moved chunks since its first perception tick, so the cache key is

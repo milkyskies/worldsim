@@ -52,11 +52,9 @@ omitted.
 | `arbitrate_every_tick` | 886.9 | 935.5 | +48.6 | +5.5 |
 | `check_recognition` | 111.3 | 120.9 | +9.6 | +8.6 |
 
-`arbitrate_every_tick` and `check_recognition` deltas are single-run noise —
-neither system reads the spatial index or `PerceptionCache`. The
-`update_rational_planning` improvement is mostly noise as well, although a
-small share is plausibly downstream of the schedule shift (spatial index
-update moved from `PostUpdate` to `FixedPreUpdate`).
+`arbitrate_every_tick`, `check_recognition`, and `update_rational_planning`
+deltas are single-run noise — none of these systems read the spatial
+index or `PerceptionCache`.
 
 ## Notes
 
@@ -65,7 +63,8 @@ update moved from `PostUpdate` to `FixedPreUpdate`).
   *up* with agents-per-chunk (more stationary neighbors per query). At
   the 100-human stress config the absolute saving on
   `update_visual_perception` should be several times larger.
-- Schedule change: `update_spatial_index` runs in `FixedPreUpdate` rather
-  than `PostUpdate` so perception in `FixedUpdate` reads an up-to-date
-  index on tick 1. No regular-`Update` system mutates `Physical`
-  transforms, so this is a pure ordering shift.
+- The cache treats an empty `cached` list as stale to handle the
+  bootstrap (tick 1 perception runs before `update_spatial_index` in
+  `PostUpdate` populates the index) — perception picks up real entities
+  on the second cycle. This preserves the original tick-by-tick
+  observability ordering, which matters for seed-stable behavior tests.
