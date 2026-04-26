@@ -141,6 +141,14 @@ pub mod biology {
     pub const LAMENESS_HP_FRACTION: f32 = 0.5;
 }
 
+/// Display thresholds shared by overhead status icons and the
+/// character-sheet condition row, so a single threshold change moves
+/// both surfaces together.
+pub mod ui_status {
+    pub const COLD_WARMTH: f32 = 0.3;
+    pub const TIRED_AEROBIC_FRACTION: f32 = 0.2;
+}
+
 /// Per-action constants (durations, costs, runtime effects)
 pub mod actions {
     pub mod eat {

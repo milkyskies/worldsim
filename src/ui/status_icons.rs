@@ -16,18 +16,17 @@ use crate::agent::biology::body::Body;
 use crate::agent::body::needs::PhysicalNeeds;
 use crate::agent::mind::conversation::InConversation;
 use crate::agent::psyche::emotions::{EmotionType, EmotionalState};
+use crate::constants::ui_status::{COLD_WARMTH, TIRED_AEROBIC_FRACTION};
 use bevy::prelude::*;
 
 const HIDE_ZOOM_THRESHOLD: f32 = 2.5;
 const ICON_Y_OFFSET: f32 = 32.0;
-/// Tuned for 1× zoom. Keep small — these float over agent sprites.
+/// Small enough to read alongside the sprite at 1× zoom.
 const ICON_FONT_SIZE: f32 = 6.0;
 
 const FEAR_THRESHOLD: f32 = 0.5;
 const MOOD_HAPPY_THRESHOLD: f32 = 0.5;
 const HUNGER_THRESHOLD: f32 = 0.8;
-const COLD_THRESHOLD: f32 = 0.3;
-const TIRED_AEROBIC_FRACTION: f32 = 0.2;
 
 pub struct StatusIconPlugin;
 
@@ -194,7 +193,7 @@ const CONDITIONS: &[Condition] = &[
     },
     Condition {
         icon: "cold",
-        matches: |ctx| ctx.needs.warmth.value < COLD_THRESHOLD,
+        matches: |ctx| ctx.needs.warmth.value < COLD_WARMTH,
     },
     Condition {
         icon: "tired",
@@ -234,7 +233,7 @@ mod tests {
         emotions: EmotionalState,
         needs: PhysicalNeeds,
     ) -> ConditionContext<'static> {
-        // Leak the references — only used in unit tests, doesn't matter.
+        // Test-only: leak owned values to satisfy the `'static` borrow.
         let actions = Box::leak(Box::new(actions));
         let emotions = Box::leak(Box::new(emotions));
         let needs = Box::leak(Box::new(needs));

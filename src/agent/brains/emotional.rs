@@ -411,24 +411,9 @@ pub fn entities_with_feelings(mind: &MindGraph) -> Vec<Entity> {
     out
 }
 
-/// Returns (fear, joy, anger) intensities from direct and inherited associations.
+/// (fear, joy, anger) intensities from direct and inherited associations.
 fn collect_entity_feelings(entity: Entity, mind: &MindGraph) -> (f32, f32, f32) {
-    let subject = Node::Entity(entity);
-    let mut feelings: Vec<(EmotionType, f32)> = Vec::new();
-
-    let mut collect = |subj: &Node| {
-        for triple in mind.query(Some(subj), Some(Predicate::TriggersEmotion), None) {
-            if let Value::Emotion(etype, intensity) = triple.object {
-                feelings.push((etype, intensity));
-            }
-        }
-    };
-
-    collect(&subject);
-    for concept in mind.all_types(&subject) {
-        collect(&Node::Concept(concept));
-    }
-
+    let feelings = entity_feelings(entity, mind);
     let sum = |target: EmotionType| -> f32 {
         feelings
             .iter()
@@ -436,7 +421,6 @@ fn collect_entity_feelings(entity: Entity, mind: &MindGraph) -> (f32, f32, f32) 
             .map(|(_, i)| i)
             .sum()
     };
-
     (
         sum(EmotionType::Fear),
         sum(EmotionType::Joy),

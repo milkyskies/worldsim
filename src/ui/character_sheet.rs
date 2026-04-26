@@ -44,6 +44,22 @@ const SEVERITY_GOOD: Color32 = Color32::from_rgb(80, 200, 100);
 const SEVERITY_WARN: Color32 = Color32::from_rgb(220, 190, 60);
 const SEVERITY_BAD: Color32 = Color32::from_rgb(220, 80, 60);
 
+// Condition-state chips on the Overview "State" row.
+const CONDITION_TAG_CORNERED: Color32 = Color32::from_rgb(220, 90, 90);
+const CONDITION_TAG_LAME: Color32 = Color32::from_rgb(220, 160, 80);
+const CONDITION_TAG_DAZED: Color32 = Color32::from_rgb(200, 130, 200);
+const CONDITION_TAG_COLD: Color32 = Color32::from_rgb(120, 180, 220);
+const CONDITION_TAG_TIRED: Color32 = Color32::from_rgb(180, 180, 120);
+const CONDITION_TAG_BLEEDING: Color32 = Color32::from_rgb(220, 80, 80);
+
+// Activity tab category prefixes.
+const CAT_ACTION: Color32 = Color32::from_rgb(220, 200, 120);
+const CAT_EVENT: Color32 = Color32::from_rgb(220, 120, 120);
+const CAT_PLAN: Color32 = Color32::from_rgb(180, 200, 230);
+const CAT_BRAIN: Color32 = Color32::from_rgb(160, 220, 180);
+const CAT_PERCEPTION: Color32 = Color32::from_rgb(170, 170, 220);
+const CAT_DEBUG: Color32 = Color32::from_gray(140);
+
 /// Pick a traffic-light color from a 0..1 value against two thresholds.
 /// Values above `warn_above` are good, values below `bad_below` are bad,
 /// anything in between is warn.
@@ -965,11 +981,8 @@ fn render_overview(ui: &mut egui::Ui, world: &World, entity: Entity) {
     render_condition_states(ui, world, entity);
 }
 
-/// Per-entity feelings: who the agent has emotional triples toward,
-/// grouped by entity. Reads `TriggersEmotion` triples in the agent's
-/// MindGraph and renders one row per entity. Combat-shipped Anger sits
-/// next to friend-affection Joy and predator-fear Fear — same render
-/// surface for every emotion source.
+/// Per-entity feelings: one row per entity the agent has any
+/// `TriggersEmotion` triple toward.
 fn render_entity_feelings(ui: &mut egui::Ui, world: &World, entity: Entity) {
     use crate::agent::brains::emotional::{entities_with_feelings, entity_feelings};
 
@@ -993,8 +1006,6 @@ fn render_entity_feelings(ui: &mut egui::Ui, world: &World, entity: Entity) {
             Some((e, f, strongest))
         })
         .collect();
-    // Strongest feeling first — combat anger and intense fear surface
-    // above ambient pack affection.
     rows.sort_by(|a, b| b.2.partial_cmp(&a.2).unwrap_or(std::cmp::Ordering::Equal));
 
     for (target, feelings, _) in rows.iter().take(8) {
@@ -1004,8 +1015,8 @@ fn render_entity_feelings(ui: &mut egui::Ui, world: &World, entity: Entity) {
             .unwrap_or_else(|| format!("{:?}", target));
         ui.horizontal_wrapped(|ui| {
             ui.label(egui::RichText::new(name).small().strong());
-            // Aggregate same-type entries before rendering so the same
-            // emotion isn't listed twice (entity-level + concept-level).
+            // Same emotion can appear twice (entity-level + concept-level);
+            // sum-aggregate before rendering.
             let mut sums: std::collections::HashMap<EmotionType, f32> =
                 std::collections::HashMap::new();
             for (etype, intensity) in feelings {
@@ -1024,17 +1035,18 @@ fn render_entity_feelings(ui: &mut egui::Ui, world: &World, entity: Entity) {
     }
 }
 
-/// Active condition components (Cornered, Lame, Dazed, etc.) rendered
-/// as a small status row below mood. Mirrors the overhead status icon
-/// system but with full text labels — useful when zoomed out enough
-/// that the icons are hidden.
+/// Visible-but-not-numeric condition components rendered as labeled
+/// chips. Same source data as the overhead icon registry, but always
+/// rendered regardless of zoom.
 fn render_condition_states(ui: &mut egui::Ui, world: &World, entity: Entity) {
+    use crate::constants::ui_status::{COLD_WARMTH, TIRED_AEROBIC_FRACTION};
+
     let mut tags: Vec<(&'static str, Color32, Option<String>)> = Vec::new();
     if world.get::<crate::agent::Cornered>(entity).is_some() {
-        tags.push(("Cornered", Color32::from_rgb(220, 90, 90), None));
+        tags.push(("Cornered", CONDITION_TAG_CORNERED, None));
     }
     if world.get::<crate::agent::Lame>(entity).is_some() {
-        tags.push(("Lame", Color32::from_rgb(220, 160, 80), None));
+        tags.push(("Lame", CONDITION_TAG_LAME, None));
     }
     if let Some(d) = world.get::<crate::agent::Dazed>(entity) {
         let tick = world
@@ -1044,19 +1056,17 @@ fn render_condition_states(ui: &mut egui::Ui, world: &World, entity: Entity) {
         let remaining = d.until_tick.saturating_sub(tick);
         tags.push((
             "Dazed",
-            Color32::from_rgb(200, 130, 200),
+            CONDITION_TAG_DAZED,
             Some(format!("{}t", remaining)),
         ));
     }
-    if let Some(needs) = world.get::<PhysicalNeeds>(entity)
-        && needs.warmth.value < 0.3
-    {
-        tags.push(("Cold", Color32::from_rgb(120, 180, 220), None));
-    }
-    if let Some(needs) = world.get::<PhysicalNeeds>(entity)
-        && needs.stamina.aerobic_fraction() < 0.2
-    {
-        tags.push(("Tired", Color32::from_rgb(180, 180, 120), None));
+    if let Some(needs) = world.get::<PhysicalNeeds>(entity) {
+        if needs.warmth.value < COLD_WARMTH {
+            tags.push(("Cold", CONDITION_TAG_COLD, None));
+        }
+        if needs.stamina.aerobic_fraction() < TIRED_AEROBIC_FRACTION {
+            tags.push(("Tired", CONDITION_TAG_TIRED, None));
+        }
     }
     if let Some(body) = world.get::<crate::agent::biology::body::Body>(entity)
         && body
@@ -1064,7 +1074,7 @@ fn render_condition_states(ui: &mut egui::Ui, world: &World, entity: Entity) {
             .iter()
             .any(|p| p.injuries.iter().any(|i| i.bleed_rate > 0.0))
     {
-        tags.push(("Bleeding", Color32::from_rgb(220, 80, 80), None));
+        tags.push(("Bleeding", CONDITION_TAG_BLEEDING, None));
     }
 
     if tags.is_empty() {
@@ -2534,13 +2544,12 @@ fn render_activity(ui: &mut egui::Ui, world: &World, entity: Entity) {
 fn activity_category_color(cat: crate::core::log::LogCategory) -> Color32 {
     use crate::core::log::LogCategory;
     match cat {
-        LogCategory::Action => Color32::from_rgb(220, 200, 120),
-        LogCategory::Event => Color32::from_rgb(220, 120, 120),
-        LogCategory::Plan => Color32::from_rgb(180, 200, 230),
-        LogCategory::Brain => Color32::from_rgb(160, 220, 180),
-        LogCategory::Perception => Color32::from_rgb(170, 170, 220),
-        LogCategory::Debug => Color32::from_gray(140),
-        LogCategory::Performance => Color32::from_gray(140),
+        LogCategory::Action => CAT_ACTION,
+        LogCategory::Event => CAT_EVENT,
+        LogCategory::Plan => CAT_PLAN,
+        LogCategory::Brain => CAT_BRAIN,
+        LogCategory::Perception => CAT_PERCEPTION,
+        LogCategory::Debug | LogCategory::Performance => CAT_DEBUG,
     }
 }
 
