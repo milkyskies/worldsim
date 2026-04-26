@@ -16,4 +16,5 @@ Always-loaded rules are declared in `opencode.json` (`instructions` field). The 
 - @.claude/rules/module-docs.md
 - @.claude/rules/rust-style.md
 - @.claude/rules/testing.md
+- @.claude/rules/time.md
 - @.claude/rules/worktrees.md

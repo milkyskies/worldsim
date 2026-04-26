@@ -22,4 +22,6 @@ exclude = [
     # Bevy compile is too slow for the full check trinity locally.
     ".mise/tasks/check/rust",
     ".claude/skills/ship/SKILL.md",
+    # macOS uses default ld-prime (faster than LLD per Bevy docs); Linux keeps mold.
+    ".cargo/config.toml",
 ]
