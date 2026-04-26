@@ -570,7 +570,7 @@ pub fn react_to_danger(
     // Cadence-gate the per-entity Fear writes. Every tick is too noisy
     // (300 agents × N visible threats × 60Hz of mind ops) and the
     // entity-Fear scalar moves slowly anyway.
-    let do_per_entity_writes = current_tick % PER_ENTITY_FEAR_WRITE_PERIOD == 0;
+    let do_per_entity_writes = current_tick.is_multiple_of(PER_ENTITY_FEAR_WRITE_PERIOD);
 
     for (visible, mut mind, mut emotions, personality, needs, body, items) in agents.iter_mut() {
         let visible_dangerous: Vec<Entity> = visible
