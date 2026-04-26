@@ -582,10 +582,14 @@ score = urgency × power
 **Location**: `src/agent/brains/brain_system.rs`
 
 **Update Schedule**:
-- Runs staggered: `(entity_id + tick) % interval`
-- Prevents all agents thinking simultaneously
-- Thinking Interval: 60 ticks (1 Hz)
-- Perception Interval: 10 ticks (6 Hz)
+- `arbitrate_every_tick` runs every tick for every agent so the recorded
+  brain winner always agrees with what the body is currently executing.
+- `update_rational_planning` (in `rational.rs`) runs every tick for plan-
+  step advancement and stale-plan cleanup, but the heavy GOAP-search
+  loop is staggered by `(entity_index + tick) % PLANNING_STAGGER_MOD`
+  so action-completion cascades and alarm broadcasts can't collide on
+  one frame.
+- Perception Interval: 10 ticks (6 Hz).
 
 **Process**:
 1. Gather proposals from all three brains
@@ -1720,7 +1724,8 @@ Vec<Item>  // Item = (Concept, quantity)
 **Pattern**: Fixed logical timestep
 
 - Decoupled from rendering framerate
-- Staggered updates: `(entity_id + tick) % interval`
+- Heavy per-agent loops (e.g. GOAP planning) gate on
+  `(entity_index + tick) % stagger_mod == 0`
 - Pause/speed control without logic changes
 
 **Benefits**:
@@ -1785,17 +1790,20 @@ Vec<Item>  // Item = (Concept, quantity)
 ## Performance Optimizations
 
 ### Staggered Updates
-Systems run on intervals to spread computation:
+Heavy per-agent inner loops gate on entity index so they don't all
+fire on the same frame:
 ```
-should_run = (entity_id + current_tick) % interval == 0
+phase_active = (entity_index + current_tick) % stagger_mod == 0
 ```
 
-**Staggered Systems**:
-- Brain thinking: Every N ticks
-- Goal formulation: Every N ticks
-- Rational planning: Every N ticks
+**Currently staggered**:
+- The GOAP-search loop in `update_rational_planning` (mod 10).
 
-**Benefit**: Prevents frame spikes when many agents think simultaneously
+Light bookkeeping (plan-step advancement, brain arbitration, perception
+tile sampling) runs every tick for every agent.
+
+**Benefit**: Prevents frame spikes when many agents replan
+simultaneously (action-completion cascades, alarm broadcasts).
 
 ---
 

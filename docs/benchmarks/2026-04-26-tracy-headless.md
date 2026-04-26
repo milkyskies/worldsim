@@ -80,17 +80,14 @@ If reducing `arbitrate_every_tick` cost is the goal:
 - 813μs per tick × 5000 ticks at default population (≈25 agents on the realistic map) = ~32μs per agent per tick. That's high for a function that mostly compares brain proposals; suggests either (a) per-proposal allocation overhead, (b) repeated O(targets) work that could be cached across the survival/emotional/rational arbitrators, or (c) avoidable work for agents that have a stable plan and don't need re-arbitration this tick.
 - A 2× speedup here would shave ~17% off total tick time — bigger lever than any other single system.
 
+## Machine-readable data
+
+`2026-04-26-tracy-headless.csv` has the same per-system totals shown in the table above, in `system,total_ms,calls,mean_us` form sorted by total_ms. PRs that change perf-sensitive systems should regenerate this CSV against their branch and include a before/after diff in the description.
+
 ## Reproduce
 
 ```bash
-mkdir -p debug/tracy
-
-cargo build --release --no-default-features --features profile-tracy
-
-tracy-capture -o debug/tracy/run.tracy &
-./target/release/worldsim --headless --game-defaults --seed 42 --ticks 5000
-
-tracy-csvexport debug/tracy/run.tracy > debug/tracy/zones.csv
+scripts/perf-snapshot.sh debug/perf/<label>
 ```
 
-Then sort `zones.csv` by `total_ns` (column 4) and filter rows whose `name` starts with `system{`. See `docs/perf_overlay.md` for setup details (Tracy version pinning, macOS `CPLUS_INCLUDE_PATH` workaround, why `--no-default-features` is required).
+That builds with the right feature set, runs the canonical headless trace (seed 42, 5000 ticks, game-defaults), and emits a per-system CSV at `debug/perf/<label>/zones-systems.csv`. See `docs/perf_overlay.md` for setup details (Tracy version pinning, macOS `CPLUS_INCLUDE_PATH` workaround, why `--no-default-features` is required).
