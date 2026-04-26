@@ -36,6 +36,10 @@ pub enum BrainTrigger {
     KnowledgeChanged,
     /// Conversation joined, left, or its turn-state changed.
     ConversationStateChanged,
+    /// A plan was invalidated or completed — emitted by the rational
+    /// planner from inside `update_rational_planning` so arbitration
+    /// (later same tick) clears the now-stale `BrainState`.
+    PlanFailed,
     /// Periodic catch-all so a missed wakeup can never strand an agent.
     PeriodicSafety,
 }

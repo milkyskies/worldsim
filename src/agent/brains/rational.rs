@@ -278,11 +278,14 @@ pub fn update_rational_planning(
         MessageReader<crate::agent::events::SimEvent>,
         MessageWriter<crate::agent::events::SimEvent>,
     )>,
-    mut wakeups: MessageReader<super::wakeup::BrainWakeup>,
+    mut wakeup_params: ParamSet<(
+        MessageReader<super::wakeup::BrainWakeup>,
+        MessageWriter<super::wakeup::BrainWakeup>,
+    )>,
     mapping: Res<TagChannelMapping>,
 ) {
     let woken_planner_agents: std::collections::HashSet<Entity> =
-        wakeups.read().map(|w| w.agent).collect();
+        wakeup_params.p0().read().map(|w| w.agent).collect();
     let perf_logging = game_log.is_enabled(crate::core::log::LogCategory::Performance);
     let start_time = if perf_logging {
         Some(std::time::Instant::now())
@@ -420,8 +423,19 @@ pub fn update_rational_planning(
                 finished_ids.push(plan.id);
             }
         }
+        let any_plan_change = !invalid_ids.is_empty() || !finished_ids.is_empty();
         for id in invalid_ids.iter().chain(finished_ids.iter()) {
             plan_memory.remove(*id);
+        }
+        // A removed plan invalidates BrainState.chosen_actions for this
+        // agent — fire a wakeup so arbitration (later this same tick)
+        // recomputes instead of leaving the stale entry in place.
+        if any_plan_change {
+            wakeup_params.p1().write(super::wakeup::BrainWakeup {
+                tick: current_tick,
+                agent: entity,
+                reason: super::wakeup::BrainTrigger::PlanFailed,
+            });
         }
 
         // 2. Per-tick commitment accumulation for plans still in
