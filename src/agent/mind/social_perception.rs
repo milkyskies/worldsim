@@ -8,14 +8,11 @@
 //! - Whether they are a stranger or someone we've met
 
 use crate::agent::Agent;
-use crate::agent::actions::registry::{ActionRegistry, ActiveActions};
-use crate::agent::biology::body::Body;
 use crate::agent::inventory::EntityType;
 use crate::agent::mind::knowledge::{
-    AgentName, Concept, Metadata, MindGraph, Node, Predicate, Triple, Value,
+    AgentName, Metadata, MindGraph, Node, Predicate, Triple, Value,
 };
 use crate::agent::mind::perception::VisibleObjects;
-use crate::agent::psyche::emotions::EmotionalState;
 use crate::core::tick::TickCount;
 use bevy::prelude::*;
 
@@ -25,19 +22,7 @@ pub const CONVERSATION_RANGE: f32 = 32.0;
 /// System: Perceive other agents' observable states
 pub fn perceive_other_agents(
     mut observers: Query<(Entity, &Transform, &VisibleObjects, &mut MindGraph), With<Agent>>,
-    observable_agents: Query<
-        (
-            Entity,
-            &Name,
-            &Transform,
-            &ActiveActions,
-            &EmotionalState,
-            &Body,
-            &EntityType,
-        ),
-        With<Agent>,
-    >,
-    registry: Res<ActionRegistry>,
+    observable_agents: Query<(Entity, &Name, &Transform, &EntityType), With<Agent>>,
     tick: Res<TickCount>,
 ) {
     let current_time = tick.current;
@@ -52,7 +37,7 @@ pub fn perceive_other_agents(
             }
 
             // Only perceive other agents
-            let Ok((_, name, target_transform, active, emotional_state, body, entity_type)) =
+            let Ok((_, name, target_transform, entity_type)) =
                 observable_agents.get(visible_entity)
             else {
                 continue;
@@ -75,35 +60,12 @@ pub fn perceive_other_agents(
                 meta.clone(),
             ));
 
-            // 2. Perceive their primary current action
-            let primary_action_type = active
-                .primary(&registry)
-                .map(|s| s.action_type)
-                .unwrap_or(crate::agent::actions::ActionType::Idle);
-            mind.assert(Triple::with_meta(
-                target_node.clone(),
-                Predicate::Doing,
-                Value::Action(primary_action_type),
-                meta.clone(),
-            ));
-
-            // 3. Perceive their apparent mood (based on emotional state)
-            let apparent_mood = interpret_visible_mood(emotional_state);
-            mind.assert(Triple::with_meta(
-                target_node.clone(),
-                Predicate::AppearsMood,
-                Value::Concept(apparent_mood),
-                meta.clone(),
-            ));
-
-            // 4. Perceive if they appear injured (derived health below 70%)
-            let appears_injured = body.overall_health() < 0.7;
-            mind.assert(Triple::with_meta(
-                target_node.clone(),
-                Predicate::AppearsInjured,
-                Value::Boolean(appears_injured),
-                meta.clone(),
-            ));
+            // (Doing / AppearsMood / AppearsInjured used to be written here as
+            // triples every tick. No production behaviour ever queried them —
+            // `deliberate_talk` filtered them out of speech, and that was the
+            // only consumer. Deleted entirely per #587. If a future feature
+            // needs "is the agent observing X is sad", surface it through the
+            // event-driven brain wakeup pipeline instead.)
 
             // 5. Store their name (if we don't know it yet, use their entity name)
             // This simulates "seeing their name tag" for now - real introductions come later
@@ -126,38 +88,6 @@ pub fn perceive_other_agents(
                         Metadata::semantic(current_time),
                     ));
                 }
-            }
-        }
-    }
-}
-
-/// Convert internal emotional state to visible mood concept
-fn interpret_visible_mood(emotional_state: &EmotionalState) -> Concept {
-    use crate::agent::psyche::emotions::EmotionType;
-
-    // Find the strongest active emotion
-    let mut strongest: Option<(EmotionType, f32)> = None;
-
-    for emotion in &emotional_state.active_emotions {
-        if strongest.is_none_or(|(_, i)| emotion.intensity > i) {
-            strongest = Some((emotion.emotion_type, emotion.intensity));
-        }
-    }
-
-    // Map to visible mood (only if intensity is noticeable)
-    match strongest {
-        Some((EmotionType::Joy, i)) if i > 0.3 => Concept::HappyMood,
-        Some((EmotionType::Sadness, i)) if i > 0.3 => Concept::SadMood,
-        Some((EmotionType::Anger, i)) if i > 0.3 => Concept::AngryMood,
-        Some((EmotionType::Fear, i)) if i > 0.3 => Concept::FearfulMood,
-        _ => {
-            // Default based on overall mood
-            if emotional_state.current_mood > 0.3 {
-                Concept::HappyMood
-            } else if emotional_state.current_mood < -0.3 {
-                Concept::SadMood
-            } else {
-                Concept::NeutralMood
             }
         }
     }
