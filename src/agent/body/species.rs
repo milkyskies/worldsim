@@ -96,7 +96,7 @@ impl SpeciesProfile {
             rational_weight: 0.34,
 
             base_speed: 1.0,
-            vision_range: 100.0,
+            vision_range: 480.0,
             diet: Diet::Omnivore,
             mass_kg: 70.0,
 
@@ -118,7 +118,7 @@ impl SpeciesProfile {
             rational_weight: 0.10,
 
             base_speed: 1.2,
-            vision_range: 80.0,
+            vision_range: 400.0,
             diet: Diet::Herbivore,
             mass_kg: 80.0,
 
@@ -140,7 +140,7 @@ impl SpeciesProfile {
             rational_weight: 0.25,
 
             base_speed: 1.4,
-            vision_range: 120.0,
+            vision_range: 560.0,
             diet: Diet::Carnivore,
             mass_kg: 40.0,
 
@@ -162,7 +162,7 @@ impl SpeciesProfile {
             rational_weight: 0.05,
 
             base_speed: 1.5,
-            vision_range: 60.0,
+            vision_range: 240.0,
             diet: Diet::Herbivore,
             mass_kg: 2.0,
 
