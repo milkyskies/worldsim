@@ -18,6 +18,8 @@ use crate::world::property::HeatSource;
 use crate::world::sense_sources::SoundSource;
 use crate::world::spatial_index::{SpatialIndex, chunk_radius_for, world_pos_to_chunk};
 use bevy::prelude::*;
+use smallvec::SmallVec;
+use std::collections::HashMap;
 
 // ═══════════════════════════════════════════════════════════════════════════
 // VISION COMPONENTS
@@ -30,10 +32,33 @@ pub struct Vision {
     pub range: f32,
 }
 
-#[derive(Component, Reflect, Default)]
-#[reflect(Component)]
+#[derive(Component, Default)]
 pub struct VisibleObjects {
     pub entities: Vec<Entity>,
+    /// Visible entities grouped by their world `EntityType` concept.
+    /// Built once per tick by `update_visual_perception` so consumers
+    /// that filter by trait (`Dangerous`, `Person`, …) do one
+    /// `mind.has_trait` per concept instead of once per entity.
+    /// Entities without an `EntityType` component are absent from
+    /// these buckets but still listed in `entities`.
+    pub by_concept: HashMap<Concept, SmallVec<[Entity; 4]>>,
+}
+
+impl VisibleObjects {
+    /// Iterate visible entities whose concept matches `predicate`.
+    /// Lets consumers (recognition, social perception) walk only the
+    /// concept buckets they care about — typically "is this concept an
+    /// agent species" via `mind.has_trait(_, Sentient)` — without
+    /// re-checking every visible entity.
+    pub fn iter_by_concept<'a>(
+        &'a self,
+        mut predicate: impl FnMut(Concept) -> bool + 'a,
+    ) -> impl Iterator<Item = Entity> + 'a {
+        self.by_concept
+            .iter()
+            .filter(move |(c, _)| predicate(**c))
+            .flat_map(|(_, ents)| ents.iter().copied())
+    }
 }
 
 /// Per-agent cache of the raw `SpatialIndex::entities_near` result, keyed by
@@ -84,6 +109,7 @@ pub fn update_visual_perception(
         With<Agent>,
     >,
     transforms: Query<&Transform, With<crate::world::Physical>>,
+    entity_types: Query<&crate::agent::inventory::EntityType>,
     spatial_index: Res<SpatialIndex>,
     light_level: Res<LightLevel>,
     mut _game_log: ResMut<GameLog>,
@@ -99,6 +125,9 @@ pub fn update_visual_perception(
         // at their max size after a warmup tick or two.
         std::mem::swap(&mut *previous_buf, &mut visible_objects.entities);
         visible_objects.entities.clear();
+        for bucket in visible_objects.by_concept.values_mut() {
+            bucket.clear();
+        }
 
         let agent_pos = agent_transform.translation.truncate();
         let view_range = vision.range * light_level.0;
@@ -123,9 +152,20 @@ pub fn update_visual_perception(
                 let target_pos = target_transform.translation.truncate();
                 if agent_pos.distance(target_pos) <= view_range {
                     visible_objects.entities.push(entity);
+                    if let Ok(entity_type) = entity_types.get(entity) {
+                        visible_objects
+                            .by_concept
+                            .entry(entity_type.0)
+                            .or_default()
+                            .push(entity);
+                    }
                 }
             }
         }
+
+        visible_objects
+            .by_concept
+            .retain(|_, ents| !ents.is_empty());
 
         // Emit EntityPerceived for newly visible entities
         for &entity in &visible_objects.entities {
@@ -582,7 +622,6 @@ pub fn react_to_danger(
         ),
         With<Agent>,
     >,
-    entity_types: Query<&crate::agent::inventory::EntityType>,
     tick: Res<TickCount>,
 ) {
     use crate::agent::brains::emotional::add_entity_emotion;
@@ -596,16 +635,14 @@ pub fn react_to_danger(
     let do_per_entity_writes = current_tick.is_multiple_of(PER_ENTITY_FEAR_WRITE_PERIOD);
 
     for (visible, mut mind, mut emotions, personality, needs, body, items) in agents.iter_mut() {
+        // Trait checks are concept-level (every Wolf is Dangerous-or-not the
+        // same way), so iterate by_concept and pay one `has_trait` per
+        // visible concept instead of one per visible entity.
         let visible_dangerous: Vec<Entity> = visible
-            .entities
+            .by_concept
             .iter()
-            .copied()
-            .filter(|&entity| {
-                let Ok(entity_type) = entity_types.get(entity) else {
-                    return false;
-                };
-                mind.has_trait(&Node::Concept(entity_type.0), Concept::Dangerous)
-            })
+            .filter(|(concept, _)| mind.has_trait(&Node::Concept(**concept), Concept::Dangerous))
+            .flat_map(|(_, ents)| ents.iter().copied())
             .collect();
 
         let audible_dangerous_count = mind
