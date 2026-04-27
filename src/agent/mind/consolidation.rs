@@ -15,8 +15,9 @@ pub fn consolidate_knowledge(
     let current_time = tick.current;
 
     for (entity, mut mind) in agents.iter_mut() {
-        // Staggered: Run every 30 ticks, offset by entity ID
-        if !tick.should_run(entity, 30) {
+        // TICK_RARE per-entity stagger: pattern detection works off absolute
+        // timestamps, so a slow re-scan rate doesn't lose information.
+        if !tick.should_run(entity, crate::core::tick::TICK_RARE_PERIOD) {
             continue;
         }
         // We want to find patterns like: "Person X has attacked me N times" -> Hostile
