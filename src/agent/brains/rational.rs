@@ -278,14 +278,17 @@ pub fn update_rational_planning(
         MessageReader<crate::agent::events::SimEvent>,
         MessageWriter<crate::agent::events::SimEvent>,
     )>,
-    mut wakeup_params: ParamSet<(
-        MessageReader<super::wakeup::BrainWakeup>,
-        MessageWriter<super::wakeup::BrainWakeup>,
-    )>,
+    mut pending_wakeups: ResMut<super::wakeup::PendingBrainWakeups>,
+    brain_interval: Res<super::BrainTickInterval>,
     mapping: Res<TagChannelMapping>,
 ) {
-    let woken_planner_agents: std::collections::HashSet<Entity> =
-        wakeup_params.p0().read().map(|w| w.agent).collect();
+    // Plan verification (steps 1-4 below) runs every tick so it can
+    // consume single-pass `SimEvent`s before Bevy's message-update clears
+    // them. The heavy GOAP search (step 5) is gated to the brain's 10 Hz
+    // cadence — running it every tick would defeat the per-system perf
+    // win from arbitration's 10 Hz gate. Arbitration (running later this
+    // same brain tick) is the one that drains the pending wakeup set.
+    let goap_search_due = brain_interval.is_due(tick.current);
     let perf_logging = game_log.is_enabled(crate::core::log::LogCategory::Performance);
     let start_time = if perf_logging {
         Some(std::time::Instant::now())
@@ -431,11 +434,7 @@ pub fn update_rational_planning(
         // agent — fire a wakeup so arbitration (later this same tick)
         // recomputes instead of leaving the stale entry in place.
         if any_plan_change {
-            wakeup_params.p1().write(super::wakeup::BrainWakeup {
-                tick: current_tick,
-                agent: entity,
-                reason: super::wakeup::BrainTrigger::PlanFailed,
-            });
+            pending_wakeups.wake(entity);
         }
 
         // 2. Per-tick commitment accumulation for plans still in
@@ -565,18 +564,22 @@ pub fn update_rational_planning(
         //    triggers a GOAP search, throttled by its own per-urgency
         //    cooldown. High-urgency drives get shorter cooldowns so a
         //    desperate agent thinks harder about the worst thing.
+        if !goap_search_due {
+            continue;
+        }
         if consciousness.alertness < MIN_ALERTNESS_FOR_PLANNING {
             continue;
         }
 
         // Skip the heavy GOAP search loop unless this agent was woken
-        // this tick — same wakeup set that gates `arbitrate_every_tick`.
-        // Steps 1-4 above (event-driven plan-step advancement,
-        // commitment growth, state transitions, stale-plan sweep) still
-        // ran for every agent because they consume single-pass events.
-        // Bypass when the agent has no plans at all — a plan-less agent
-        // always needs the search regardless of wakeup state.
-        if !plan_memory.plans.is_empty() && !woken_planner_agents.contains(&entity) {
+        // since the last brain tick — same wakeup set that gates
+        // `arbitrate_every_tick`. Steps 1-4 above (event-driven
+        // plan-step advancement, commitment growth, state transitions,
+        // stale-plan sweep) still run every tick for every agent because
+        // they consume single-pass events. Bypass when the agent has no
+        // plans at all — a plan-less agent always needs the search
+        // regardless of wakeup state.
+        if !plan_memory.plans.is_empty() && !pending_wakeups.contains(entity) {
             continue;
         }
 

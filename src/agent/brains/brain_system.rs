@@ -74,13 +74,15 @@ pub fn emit_agent_state_hash(
 }
 
 /// Collect proposals from all three brains and pick the admitted action
-/// set for agents whose situation changed this tick (signalled via
-/// `BrainWakeup`). Agents with no pending wakeup keep the BrainState
-/// from their previous arbitration — the body executes the same winner
-/// until something interesting happens to fire a fresh wakeup.
+/// set for agents whose situation changed since the last brain run
+/// (signalled via `PendingBrainWakeups`). Agents with no pending wakeup
+/// keep the BrainState from their previous arbitration — the body
+/// executes the same winner until something interesting happens to fire
+/// a fresh wakeup. Drains the pending set so the next 10 Hz brain run
+/// sees only newly-buffered wakeups.
 pub fn arbitrate_every_tick(
     tick: Res<crate::core::tick::TickCount>,
-    mut wakeups: MessageReader<super::wakeup::BrainWakeup>,
+    mut pending: ResMut<super::wakeup::PendingBrainWakeups>,
     mut query: Query<
         (
             Entity,
@@ -130,7 +132,7 @@ pub fn arbitrate_every_tick(
     cornered_query: Query<&crate::agent::Cornered>,
     dazed_query: Query<&crate::agent::Dazed>,
 ) {
-    let woken: std::collections::HashSet<Entity> = wakeups.read().map(|w| w.agent).collect();
+    let woken = pending.drain();
 
     for (
         entity,

@@ -1,10 +1,10 @@
-//! Brain wakeup events: gates `arbitrate_every_tick` and the rational
+//! Brain wakeup pending set: gates `arbitrate_every_tick` and the rational
 //! planner so they only run for agents whose situation actually changed.
 //!
 //! Reads: SimEvent (action lifecycle, mind-graph mutations), CentralNervousSystem
 //!        (urgency thresholds), VisibleObjects (new entities), InConversation
 //!        (added/removed/changed), Added<Agent> (initial wakeup).
-//! Writes: BrainWakeup (consumed by arbitrate_every_tick + update_rational_planning).
+//! Writes: PendingBrainWakeups (drained by arbitrate_every_tick).
 //! Upstream: action lifecycle, perception, cns urgency, conversation lifecycle.
 //! Downstream: brains::brain_system, brains::rational.
 
@@ -18,37 +18,26 @@ use crate::core::tick::TickCount;
 use bevy::prelude::*;
 use std::collections::{HashMap, HashSet};
 
-/// Why the brain was woken. Carried for diagnostics + for the brain to
-/// decide whether to take a fast-path (e.g. PeriodicSafety can skip
-/// expensive work that nothing actually changed).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize)]
-pub enum BrainTrigger {
-    /// Newly-spawned agent's first arbitration. Required so freshly-built
-    /// scenarios in tests get a decision on tick 1.
-    Initial,
-    /// An action just started, completed, failed, or was preempted.
-    ActionLifecycle,
-    /// An urgency crossed a hysteresis band (rising or falling).
-    DriveThreshold,
-    /// VisibleObjects gained at least one entity not visible last tick.
-    NewPerception,
-    /// MindGraph added or removed a triple.
-    KnowledgeChanged,
-    /// Conversation joined, left, or its turn-state changed.
-    ConversationStateChanged,
-    /// A plan was invalidated or completed — emitted by the rational
-    /// planner from inside `update_rational_planning` so arbitration
-    /// (later same tick) clears the now-stale `BrainState`.
-    PlanFailed,
-    /// Periodic catch-all so a missed wakeup can never strand an agent.
-    PeriodicSafety,
+/// Set of agents with a pending brain wakeup. Emitters insert every
+/// FixedUpdate tick (60 Hz); `arbitrate_every_tick` drains the set on
+/// its 10 Hz cadence so wakeups buffer naturally between brain runs.
+#[derive(Resource, Default)]
+pub struct PendingBrainWakeups {
+    agents: HashSet<Entity>,
 }
 
-#[derive(Message, Clone, Copy, Debug)]
-pub struct BrainWakeup {
-    pub tick: u64,
-    pub agent: Entity,
-    pub reason: BrainTrigger,
+impl PendingBrainWakeups {
+    pub fn wake(&mut self, agent: Entity) {
+        self.agents.insert(agent);
+    }
+
+    pub fn contains(&self, agent: Entity) -> bool {
+        self.agents.contains(&agent)
+    }
+
+    pub fn drain(&mut self) -> HashSet<Entity> {
+        std::mem::take(&mut self.agents)
+    }
 }
 
 /// Hysteresis bands for `DriveThreshold` wakeups. A wakeup fires when the
@@ -104,23 +93,17 @@ pub fn urgency_band(value: f32, last_index: usize) -> usize {
 }
 
 pub fn emit_initial_wakeups(
-    tick: Res<TickCount>,
     spawned: Query<Entity, Added<Agent>>,
-    mut wakeups: MessageWriter<BrainWakeup>,
+    mut pending: ResMut<PendingBrainWakeups>,
 ) {
     for agent in spawned.iter() {
-        wakeups.write(BrainWakeup {
-            tick: tick.current,
-            agent,
-            reason: BrainTrigger::Initial,
-        });
+        pending.wake(agent);
     }
 }
 
 pub fn emit_action_lifecycle_wakeups(
-    tick: Res<TickCount>,
     mut events: MessageReader<SimEvent>,
-    mut wakeups: MessageWriter<BrainWakeup>,
+    mut pending: ResMut<PendingBrainWakeups>,
 ) {
     for event in events.read() {
         let agent = match &event.kind {
@@ -130,19 +113,14 @@ pub fn emit_action_lifecycle_wakeups(
             | SimEventKind::ActionPreempted { agent, .. } => *agent,
             _ => continue,
         };
-        wakeups.write(BrainWakeup {
-            tick: tick.current,
-            agent,
-            reason: BrainTrigger::ActionLifecycle,
-        });
+        pending.wake(agent);
     }
 }
 
 pub fn emit_drive_threshold_wakeups(
-    tick: Res<TickCount>,
     agents: Query<(Entity, &CentralNervousSystem), With<Agent>>,
     mut history: ResMut<UrgencyBandHistory>,
-    mut wakeups: MessageWriter<BrainWakeup>,
+    mut pending: ResMut<PendingBrainWakeups>,
 ) {
     for (agent, cns) in agents.iter() {
         for urgency in cns.urgencies.iter() {
@@ -151,92 +129,65 @@ pub fn emit_drive_threshold_wakeups(
             let next = urgency_band(urgency.value, last);
             if next != last {
                 history.last_band.insert(key, next);
-                wakeups.write(BrainWakeup {
-                    tick: tick.current,
-                    agent,
-                    reason: BrainTrigger::DriveThreshold,
-                });
+                pending.wake(agent);
             }
         }
     }
 }
 
 pub fn emit_new_perception_wakeups(
-    tick: Res<TickCount>,
     agents: Query<(Entity, &VisibleObjects), With<Agent>>,
     mut history: ResMut<PerceptionHistory>,
-    mut wakeups: MessageWriter<BrainWakeup>,
+    mut pending: ResMut<PendingBrainWakeups>,
 ) {
     for (agent, visible) in agents.iter() {
         let current: HashSet<Entity> = visible.entities.iter().copied().collect();
         let prev = history.last_visible.entry(agent).or_default();
         let any_new = current.iter().any(|e| !prev.contains(e));
         if any_new {
-            wakeups.write(BrainWakeup {
-                tick: tick.current,
-                agent,
-                reason: BrainTrigger::NewPerception,
-            });
+            pending.wake(agent);
         }
         *prev = current;
     }
 }
 
 pub fn emit_knowledge_change_wakeups(
-    tick: Res<TickCount>,
     mut events: MessageReader<SimEvent>,
-    mut wakeups: MessageWriter<BrainWakeup>,
+    mut pending: ResMut<PendingBrainWakeups>,
 ) {
     for event in events.read() {
         let SimEventKind::MindGraphMutation { agent, .. } = &event.kind else {
             continue;
         };
-        wakeups.write(BrainWakeup {
-            tick: tick.current,
-            agent: *agent,
-            reason: BrainTrigger::KnowledgeChanged,
-        });
+        pending.wake(*agent);
     }
 }
 
 pub fn emit_conversation_state_wakeups(
-    tick: Res<TickCount>,
     changed: Query<Entity, (With<Agent>, Changed<InConversation>)>,
     removed: RemovedComponents<InConversation>,
-    mut wakeups: MessageWriter<BrainWakeup>,
+    mut pending: ResMut<PendingBrainWakeups>,
 ) {
     for agent in changed.iter() {
-        wakeups.write(BrainWakeup {
-            tick: tick.current,
-            agent,
-            reason: BrainTrigger::ConversationStateChanged,
-        });
+        pending.wake(agent);
     }
     let mut iter = removed;
     for agent in iter.read() {
-        wakeups.write(BrainWakeup {
-            tick: tick.current,
-            agent,
-            reason: BrainTrigger::ConversationStateChanged,
-        });
+        pending.wake(agent);
     }
 }
 
 pub fn emit_periodic_safety_wakeups(
     tick: Res<TickCount>,
     agents: Query<Entity, With<Agent>>,
-    mut wakeups: MessageWriter<BrainWakeup>,
+    mut pending: ResMut<PendingBrainWakeups>,
 ) {
     for agent in agents.iter() {
         if (agent.index_u32() as u64)
             .wrapping_add(tick.current)
             .is_multiple_of(PERIODIC_SAFETY_PERIOD)
         {
-            wakeups.write(BrainWakeup {
-                tick: tick.current,
-                agent,
-                reason: BrainTrigger::PeriodicSafety,
-            });
+            pending.wake(agent);
         }
     }
 }

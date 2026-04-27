@@ -19,6 +19,32 @@ pub mod wakeup;
 
 // Internal Tests moved inline
 
+/// How often the brain runs, in FixedUpdate ticks. Default is 6 (10 Hz at
+/// 60 TPS) — fast enough that nobody perceives "slow" reaction (~100 ms)
+/// while cutting brain cost ~6× vs every-tick arbitration. Tests that
+/// need every-tick decisions for tight assertions can set this to 1.
+#[derive(Resource, Debug, Clone, Copy)]
+pub struct BrainTickInterval(pub u64);
+
+impl Default for BrainTickInterval {
+    fn default() -> Self {
+        Self(6)
+    }
+}
+
+impl BrainTickInterval {
+    pub fn is_due(&self, tick: u64) -> bool {
+        tick.is_multiple_of(self.0.max(1))
+    }
+}
+
+fn brain_tick_due(
+    tick: Res<crate::core::tick::TickCount>,
+    interval: Res<BrainTickInterval>,
+) -> bool {
+    interval.is_due(tick.current)
+}
+
 pub struct BrainPlugin;
 
 impl Plugin for BrainPlugin {
@@ -31,7 +57,8 @@ impl Plugin for BrainPlugin {
             .register_type::<proposal::BrainType>()
             .register_type::<proposal::BrainPowers>()
             .register_type::<history::BrainHistory>()
-            .add_message::<wakeup::BrainWakeup>()
+            .init_resource::<BrainTickInterval>()
+            .init_resource::<wakeup::PendingBrainWakeups>()
             .init_resource::<trace::TraceConfig>()
             .init_resource::<trace::DecisionTraceBuffer>()
             .init_resource::<wakeup::UrgencyBandHistory>()
@@ -76,7 +103,8 @@ impl Plugin for BrainPlugin {
                     .after(wakeup::emit_knowledge_change_wakeups)
                     .after(wakeup::emit_conversation_state_wakeups)
                     .after(wakeup::emit_periodic_safety_wakeups)
-                    .run_if(not_paused),
+                    .run_if(not_paused)
+                    .run_if(brain_tick_due),
             )
             .add_systems(
                 FixedUpdate,

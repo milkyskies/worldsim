@@ -1116,6 +1116,21 @@ impl TestWorld {
             .game_seconds_per_cycle = 60;
     }
 
+    /// Force the brain pipeline to run every tick instead of its default
+    /// 10 Hz cadence, and the GOAP search cooldown to one-tick. Decision-
+    /// bound tests use this so a "hungry agent eats within 500 ticks"
+    /// assertion isn't really waiting on ~8 brain cycles.
+    pub fn enable_fast_brains(&mut self) {
+        self.app
+            .world_mut()
+            .resource_mut::<crate::agent::nervous_system::config::NervousSystemConfig>()
+            .thinking_interval = 1;
+        self.app
+            .world_mut()
+            .resource_mut::<crate::agent::brains::BrainTickInterval>()
+            .0 = 1;
+    }
+
     /// Returns the current tick count.
     pub fn current_tick(&self) -> u64 {
         self.app.world().resource::<TickCount>().current

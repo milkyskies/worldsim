@@ -6,16 +6,7 @@
 use bevy::math::Vec2;
 use worldsim::agent::body::needs::PsychologicalDrives;
 use worldsim::agent::events::{SimEvent, SimEventKind};
-use worldsim::agent::nervous_system::config::NervousSystemConfig;
 use worldsim::testing::TestWorld;
-
-fn fast_brains(world: &mut TestWorld) {
-    let mut config = world
-        .app_mut()
-        .world_mut()
-        .resource_mut::<NervousSystemConfig>();
-    config.thinking_interval = 1;
-}
 
 #[test]
 fn greeting_cooldown_prevents_spam() {
@@ -33,7 +24,7 @@ fn greeting_cooldown_prevents_spam() {
         .relationship("alice", "bob", |r| r.trust(0.5).affection(0.6))
         .build();
 
-    fast_brains(&mut world);
+    world.enable_fast_brains();
     // Run for 200 ticks — cooldown is 300, so at most one greeting per agent.
     world.tick(200);
 
@@ -75,7 +66,7 @@ fn strangers_do_not_greet() {
         // No .relationship() — they're strangers
         .build();
 
-    fast_brains(&mut world);
+    world.enable_fast_brains();
     world.tick(120);
 
     let greetings = world
@@ -115,7 +106,7 @@ fn greeting_bumps_companionship() {
         .relationship("alice", "bob", |r| r.trust(0.5).affection(0.6))
         .build();
 
-    fast_brains(&mut world);
+    world.enable_fast_brains();
     // Wait for phenotype to develop, then record baseline.
     world.tick(5);
 

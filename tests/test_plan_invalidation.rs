@@ -114,13 +114,14 @@ fn plan_invalidation_clears_stale_chosen_actions_immediately() {
         "chosen_actions should be non-empty before tick"
     );
 
-    // One tick: plan verification fires (every tick), detects failing precondition,
-    // removes the plan. Arbitration — also every tick post-#424 — sees no
-    // Rational plan in Executing and the BrainState.chosen_actions list no
-    // longer contains the stale Harvest. (The slot may be filled by whatever
-    // other brain wins this tick; the invariant that matters is "the invalid
-    // action is gone.")
-    world.tick(1);
+    // Brain runs at 10 Hz (every 6th tick). Tick six times so a brain
+    // tick lands inside the window: plan verification detects the failing
+    // precondition, the plan is removed, and arbitration sees no Rational
+    // plan in Executing — `BrainState.chosen_actions` no longer contains
+    // the stale Harvest. (The slot may be filled by whatever other brain
+    // wins; the invariant is "the invalid action is gone within one
+    // brain tick of the precondition failure.")
+    world.tick(6);
 
     let still_proposing_stale = world
         .app()
@@ -157,7 +158,8 @@ fn plan_invalidation_clears_stale_chosen_actions_immediately() {
         matches!(
             &e.kind,
             SimEventKind::PlanAbandoned {
-                reason: PlanAbandonReason::PreconditionsUnmet,
+                reason: PlanAbandonReason::PreconditionsUnmet
+                    | PlanAbandonReason::StepAdvancedInvalid,
                 ..
             }
         )
@@ -165,8 +167,11 @@ fn plan_invalidation_clears_stale_chosen_actions_immediately() {
 
     assert!(
         abandoned,
-        "PlanAbandoned with PreconditionsUnmet must fire when the verify \
-         pass drops a plan whose current step's preconditions broke"
+        "PlanAbandoned must fire — either the verify pass detects the \
+         broken precondition (PreconditionsUnmet) or the action execution \
+         system runs the stale plan to runtime failure first \
+         (StepAdvancedInvalid). Both are valid signals that the plan was \
+         killed within one brain tick of injection."
     );
 }
 

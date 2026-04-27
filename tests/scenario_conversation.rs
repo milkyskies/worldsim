@@ -20,24 +20,14 @@ use worldsim::agent::mind::conversation::{ConversationManager, Intent};
 use worldsim::agent::mind::knowledge::{
     Concept, MemoryType, Metadata, MindGraph, Node, Predicate, Source, Triple, Value,
 };
-use worldsim::agent::nervous_system::config::NervousSystemConfig;
 use worldsim::testing::TestWorld;
 
 const HIGH_SOCIAL: f32 = 0.8;
 const LOW_SOCIAL: f32 = 0.1;
 
-/// With brains running every tick (see `fast_brains`), 100 ticks gives
+/// With brains running every tick (`enable_fast_brains`), 100 ticks gives
 /// plenty of time for perception → brain → action → walk → registration.
 const TICKS_TO_INITIATE: u64 = 100;
-
-/// Force brains to run every tick so tests don't fight the 60-tick stagger.
-fn fast_brains(world: &mut TestWorld) {
-    let mut config = world
-        .app_mut()
-        .world_mut()
-        .resource_mut::<NervousSystemConfig>();
-    config.thinking_interval = 1;
-}
 
 #[test]
 fn social_agents_in_vision_range_start_conversation() {
@@ -54,7 +44,7 @@ fn social_agents_in_vision_range_start_conversation() {
         .done()
         .build();
 
-    fast_brains(&mut world);
+    world.enable_fast_brains();
     world.tick(TICKS_TO_INITIATE);
 
     let alice = agents["alice"];
@@ -85,7 +75,7 @@ fn initiation_emits_conversation_started_sim_event() {
         .done()
         .build();
 
-    fast_brains(&mut world);
+    world.enable_fast_brains();
     world.tick(TICKS_TO_INITIATE);
 
     let alice = agents["alice"];
@@ -126,7 +116,7 @@ fn out_of_vision_agents_do_not_start_conversation() {
         .done()
         .build();
 
-    fast_brains(&mut world);
+    world.enable_fast_brains();
     world.tick(TICKS_TO_INITIATE);
 
     assert!(!world.in_conversation(agents["alice"]));
@@ -163,7 +153,7 @@ fn low_social_drive_agents_do_not_initiate() {
         .done()
         .build();
 
-    fast_brains(&mut world);
+    world.enable_fast_brains();
     world.tick(TICKS_TO_INITIATE);
 
     assert!(!world.in_conversation(agents["alice"]));
@@ -186,7 +176,7 @@ fn converse_marker_replaces_initiate_on_arrival() {
         .done()
         .build();
 
-    fast_brains(&mut world);
+    world.enable_fast_brains();
     world.tick(TICKS_TO_INITIATE);
 
     let alice = agents["alice"];
@@ -223,7 +213,7 @@ fn conversations_can_end_gracefully_after_enough_turns() {
         .done()
         .build();
 
-    fast_brains(&mut world);
+    world.enable_fast_brains();
     world.tick(600);
 
     let started_count = world
@@ -286,7 +276,7 @@ fn second_turn_intent_is_answer_after_greet() {
         .done()
         .build();
 
-    fast_brains(&mut world);
+    world.enable_fast_brains();
 
     // Sample in small increments to catch the conversation while it's
     // still in the manager (finalization removes it).
@@ -357,7 +347,7 @@ fn agent_warns_partner_about_personally_observed_danger() {
         .done()
         .build();
 
-    fast_brains(&mut world);
+    world.enable_fast_brains();
     world.tick(300);
 
     let alice = agents["alice"];
@@ -421,7 +411,7 @@ fn three_social_agents_form_single_group_conversation() {
         .done()
         .build();
 
-    fast_brains(&mut world);
+    world.enable_fast_brains();
     world.tick(TICKS_TO_INITIATE);
 
     let alice = agents["alice"];
@@ -478,7 +468,7 @@ fn third_agent_joining_emits_conversation_joined_event() {
         .done()
         .build();
 
-    fast_brains(&mut world);
+    world.enable_fast_brains();
     world.tick(TICKS_TO_INITIATE);
 
     let joined = world.sim_events().all().iter().any(|e| {
@@ -535,7 +525,7 @@ fn shared_knowledge_broadcasts_to_all_group_listeners() {
         .done()
         .build();
 
-    fast_brains(&mut world);
+    world.enable_fast_brains();
     world.tick(300);
 
     let alice = agents["alice"];
@@ -589,7 +579,7 @@ fn group_shrinks_then_ends_as_participants_leave() {
         .done()
         .build();
 
-    fast_brains(&mut world);
+    world.enable_fast_brains();
     world.tick(TICKS_TO_INITIATE);
 
     // All three should be in one conversation.
@@ -661,7 +651,7 @@ fn conversation_reaches_active_state() {
         .done()
         .build();
 
-    fast_brains(&mut world);
+    world.enable_fast_brains();
     world.tick(300);
 
     // Conversations get cleaned up after finalization, so check SimEvents
@@ -720,7 +710,7 @@ fn conversation_average_turn_count() {
             .done()
             .build();
 
-        fast_brains(&mut world);
+        world.enable_fast_brains();
 
         // Track the highest turn count observed per conversation ID.
         // Conversations get removed on finalization so we sample every
@@ -772,7 +762,7 @@ fn abandon_ratio_below_threshold() {
         .done()
         .build();
 
-    fast_brains(&mut world);
+    world.enable_fast_brains();
     world.tick(2000);
 
     let events = world.sim_events().all();
@@ -857,7 +847,7 @@ fn knowledge_flows_through_turn_content() {
         .done()
         .build();
 
-    fast_brains(&mut world);
+    world.enable_fast_brains();
     world.tick(600);
 
     let alice = agents["alice"];
@@ -896,7 +886,7 @@ fn social_drive_drains_per_turn() {
         .done()
         .build();
 
-    fast_brains(&mut world);
+    world.enable_fast_brains();
     // Let them start talking.
     world.tick(TICKS_TO_INITIATE);
 
