@@ -207,6 +207,7 @@ pub fn emotional_brain_propose(inputs: &EmotionalInputs) -> Option<BrainProposal
     // Converse Focus 0.6; Observe Focus 0.3 + Awareness 0.6 soft-conflicts).
     if let Some(proposal) = propose_curiosity(
         inputs.cns,
+        inputs.mind,
         inputs.visible_positions,
         inputs.visible_types,
         inputs.action_registry,
@@ -238,6 +239,7 @@ pub fn emotional_brain_propose(inputs: &EmotionalInputs) -> Option<BrainProposal
 /// Explore — go find something to look at.
 fn propose_curiosity(
     cns: &crate::agent::nervous_system::cns::CentralNervousSystem,
+    mind: &MindGraph,
     visible_positions: &[(Entity, Vec2)],
     visible_types: &[Option<Concept>],
     action_registry: &crate::agent::actions::ActionRegistry,
@@ -271,7 +273,7 @@ fn propose_curiosity(
             visible_types
                 .get(*i)
                 .and_then(|c| *c)
-                .is_some_and(is_agent_concept)
+                .is_some_and(|c| mind.has_trait(&Node::Concept(c), Concept::Sentient))
         })
         .map(|(_, (e, _))| *e);
     if let Some(target) = interesting_target {
@@ -297,13 +299,6 @@ fn propose_curiosity(
         intent: Intent::from_urgency_source(u.source),
         reasoning: format!("Curious — exploring ({:.2})", u.value),
     })
-}
-
-/// True if the concept is a Person/Deer/Wolf — i.e. an agent species.
-/// Static objects (berry bushes, trees, rocks) return false so a
-/// curious agent doesn't freeze staring at a stump.
-fn is_agent_concept(concept: Concept) -> bool {
-    matches!(concept, Concept::Person | Concept::Deer | Concept::Wolf)
 }
 
 /// Propose `Wander` for Territoriality urgency. The agent paces a
@@ -395,17 +390,19 @@ pub fn find_closest_dangerous(
     agent_pos: Vec2,
 ) -> Option<(Entity, Vec2)> {
     let mut best: Option<(Entity, Vec2, f32)> = None;
-    for &e in &visible.entities {
-        let Ok((t, Some(entity_type))) = transforms_and_types.get(e) else {
-            continue;
-        };
-        if !mind.has_trait(&Node::Concept(entity_type.0), Concept::Dangerous) {
+    for (concept, ents) in visible.by_concept.iter() {
+        if !mind.has_trait(&Node::Concept(*concept), Concept::Dangerous) {
             continue;
         }
-        let pos = t.translation.truncate();
-        let d = pos.distance_squared(agent_pos);
-        if best.map(|(_, _, prev)| d < prev).unwrap_or(true) {
-            best = Some((e, pos, d));
+        for &e in ents {
+            let Ok((t, _)) = transforms_and_types.get(e) else {
+                continue;
+            };
+            let pos = t.translation.truncate();
+            let d = pos.distance_squared(agent_pos);
+            if best.map(|(_, _, prev)| d < prev).unwrap_or(true) {
+                best = Some((e, pos, d));
+            }
         }
     }
     best.map(|(e, pos, _)| (e, pos))

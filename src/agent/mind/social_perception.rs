@@ -7,7 +7,7 @@
 
 use crate::agent::Agent;
 use crate::agent::inventory::EntityType;
-use crate::agent::mind::knowledge::{Metadata, MindGraph, Node, Predicate, Triple, Value};
+use crate::agent::mind::knowledge::{Concept, Metadata, MindGraph, Node, Predicate, Triple, Value};
 use crate::agent::mind::perception::VisibleObjects;
 use crate::core::tick::TickCount;
 use bevy::prelude::*;
@@ -28,19 +28,18 @@ pub fn perceive_other_agents(
     for (observer_entity, observer_transform, visible, mut mind) in observers.iter_mut() {
         let observer_pos = observer_transform.translation.truncate();
 
-        for &visible_entity in &visible.entities {
-            if visible_entity == observer_entity {
-                continue;
-            }
+        let agent_targets: Vec<Entity> = visible
+            .iter_by_concept(|c| mind.has_trait(&Node::Concept(c), Concept::Sentient))
+            .filter(|e| *e != observer_entity)
+            .collect();
 
+        for visible_entity in agent_targets {
             let Ok((_, target_transform, entity_type)) = observable_agents.get(visible_entity)
             else {
                 continue;
             };
-
             let distance = observer_pos.distance(target_transform.translation.truncate());
             let confidence = (1.0 - (distance / 256.0).min(1.0)).max(0.3);
-
             mind.assert(Triple::with_meta(
                 Node::Entity(visible_entity),
                 Predicate::IsA,

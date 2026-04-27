@@ -49,20 +49,14 @@ pub fn check_recognition(
     let current_time = tick.current;
 
     for (observer_entity, visible, mut mind, social_identity, history) in observers.iter_mut() {
-        for &visible_entity in &visible.entities {
-            // Skip self
-            if visible_entity == observer_entity {
-                continue;
-            }
+        let agent_targets: Vec<Entity> = visible
+            .iter_by_concept(|c| mind.has_trait(&Node::Concept(c), Concept::Sentient))
+            .filter(|e| *e != observer_entity && agents.get(*e).is_ok())
+            .collect();
 
-            // Only process other agents
-            if agents.get(visible_entity).is_err() {
-                continue;
-            }
-
+        for visible_entity in agent_targets {
             let target_node = Node::Entity(visible_entity);
 
-            // Check: Do I know this entity?
             if !social_identity.knows(visible_entity) {
                 // Stranger — write the IsA tag once, when it isn't already
                 // there, to avoid a per-tick MindGraph round-trip while
@@ -101,14 +95,12 @@ pub fn check_recognition(
                     );
                 }
             } else {
-                // We know them - remove stranger tag if present
                 mind.remove(
                     &target_node,
                     Predicate::IsA,
                     &Value::Concept(Concept::Stranger),
                 );
 
-                // Update relationship category from interaction history.
                 let partner = match target_node {
                     Node::Entity(e) => e,
                     _ => continue,
