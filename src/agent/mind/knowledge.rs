@@ -885,6 +885,25 @@ pub struct MindGraph {
     /// Number of tombstoned slots — reclaimed by `compact()`.
     tombstone_count: usize,
 
+    /// Short-lived perception facts (functional predicates only —
+    /// `LocatedAt`, `Hunger`, `Thirst`, `Stamina`, `Warmth`, etc.).
+    /// Re-asserts overwrite in place, so 100-agent perception scans
+    /// don't churn the main triple vec / indexes / decay sweep with
+    /// 30+ tombstones per agent every tick. Expiry is timestamp-based,
+    /// not strength-based — perception falls off when the agent stops
+    /// re-observing the fact, which the existing 30-tick safety
+    /// refresh already drives.
+    #[reflect(ignore)]
+    perception_store: PerceptionStore,
+
+    /// Inventory beliefs (`Contains` triples) keyed by (subject, concept).
+    /// Replaces the legacy main-store special-case for `Predicate::Contains`
+    /// so `count_of` / `has_any` / `has_any_items` / `confidence_of` /
+    /// `is_known_empty` are O(1) instead of walking the (subject, predicate)
+    /// bucket. Holds both self-inventory and beliefs about other entities.
+    #[reflect(ignore)]
+    inventory_store: InventoryStore,
+
     /// Pending mutation records to be drained by `drain_mindgraph_mutations`.
     /// Each entry is (op, subject_debug, predicate_debug, object_debug).
     /// "Add" for insertions, "Remove" for tombstones.
@@ -902,6 +921,156 @@ pub struct MindGraph {
     by_subject_predicate: HashMap<(Node, Predicate), SubjPredIdxList>,
 }
 
+/// Flat (subject, predicate) → Triple store for short-lived perception
+/// facts. Functional perception predicates only — one value per
+/// (subject, predicate) — so `HashMap::insert` is the entire write
+/// path. No tombstones, no per-write index updates.
+#[derive(Clone, Default)]
+struct PerceptionStore {
+    entries: HashMap<(Node, Predicate), Triple>,
+}
+
+impl PerceptionStore {
+    fn insert(&mut self, triple: Triple) {
+        // Same value re-asserted → reinforce in place so repeated
+        // observations build strength like the main store does. Different
+        // value → overwrite (perception always tracks "last sensed").
+        let key = (triple.subject.clone(), triple.predicate);
+        match self.entries.entry(key) {
+            std::collections::hash_map::Entry::Occupied(mut e) => {
+                if e.get().object == triple.object {
+                    e.get_mut().meta.refresh_from(&triple.meta);
+                } else {
+                    e.insert(triple);
+                }
+            }
+            std::collections::hash_map::Entry::Vacant(v) => {
+                v.insert(triple);
+            }
+        }
+    }
+
+    fn get(&self, subject: &Node, predicate: Predicate) -> Option<&Triple> {
+        self.entries.get(&(subject.clone(), predicate))
+    }
+
+    fn remove(&mut self, subject: &Node, predicate: Predicate) -> bool {
+        self.entries.remove(&(subject.clone(), predicate)).is_some()
+    }
+
+    fn iter(&self) -> impl Iterator<Item = &Triple> {
+        self.entries.values()
+    }
+
+    fn len(&self) -> usize {
+        self.entries.len()
+    }
+
+    /// Drop entries whose `meta.timestamp` is older than `now - max_age`.
+    /// Returns the number of entries removed.
+    fn prune_older_than(&mut self, now: u64, max_age: u64) -> usize {
+        let cutoff = now.saturating_sub(max_age);
+        let before = self.entries.len();
+        self.entries
+            .retain(|_, triple| triple.meta.timestamp >= cutoff);
+        before - self.entries.len()
+    }
+}
+
+/// `(subject, concept) → Triple` store for `Contains` beliefs. Holds both
+/// self-inventory ground truth and beliefs about other entities' inventories.
+/// Reads (`count_of`, `has_any`, `has_any_items`, `confidence_of`,
+/// `is_known_empty`) are O(1) hash lookups instead of walking the main
+/// triple vec.
+#[derive(Clone, Default)]
+struct InventoryStore {
+    by_subject: HashMap<Node, HashMap<Concept, Triple>>,
+}
+
+impl InventoryStore {
+    /// Insert or refresh a `Contains` belief. Returns `true` if the call
+    /// caused a real state change (new entry or value differed from the
+    /// existing entry). Returns `false` when the same value was re-asserted
+    /// — only metadata was refreshed in place. Callers use the return
+    /// value to gate brain-wakeup mutation events so per-tick perception
+    /// re-asserts of unchanged inventory don't churn the wakeup queue.
+    fn upsert(&mut self, triple: Triple) -> bool {
+        let Value::Item(concept, _) = triple.object else {
+            return false;
+        };
+        // Fast path: subject already known. Avoids cloning `Node` on the
+        // common case where the agent re-asserts existing beliefs every tick.
+        if let Some(subject_map) = self.by_subject.get_mut(&triple.subject) {
+            if let Some(existing) = subject_map.get_mut(&concept) {
+                if existing.object == triple.object {
+                    existing.meta.refresh_from(&triple.meta);
+                    return false;
+                }
+                *existing = triple;
+                return true;
+            }
+            subject_map.insert(concept, triple);
+            return true;
+        }
+        let mut concept_map = HashMap::new();
+        let subject = triple.subject.clone();
+        concept_map.insert(concept, triple);
+        self.by_subject.insert(subject, concept_map);
+        true
+    }
+
+    fn get(&self, subject: &Node, concept: Concept) -> Option<&Triple> {
+        self.by_subject.get(subject)?.get(&concept)
+    }
+
+    fn iter_subject(&self, subject: &Node) -> impl Iterator<Item = &Triple> {
+        self.by_subject
+            .get(subject)
+            .into_iter()
+            .flat_map(|map| map.values())
+    }
+
+    fn iter(&self) -> impl Iterator<Item = &Triple> {
+        self.by_subject.values().flat_map(|map| map.values())
+    }
+
+    fn len(&self) -> usize {
+        self.by_subject.values().map(|m| m.len()).sum()
+    }
+
+    fn remove(&mut self, subject: &Node, concept: Concept) -> bool {
+        let Some(map) = self.by_subject.get_mut(subject) else {
+            return false;
+        };
+        let removed = map.remove(&concept).is_some();
+        if map.is_empty() {
+            self.by_subject.remove(subject);
+        }
+        removed
+    }
+
+    /// Apply `f` to each entry in place. Entries returning `false` are
+    /// dropped. Returns the count removed. Mirrors `MindGraph::decay_pass`
+    /// semantics for the inventory tier.
+    fn decay_pass<F>(&mut self, mut f: F) -> usize
+    where
+        F: FnMut(&mut Triple) -> bool,
+    {
+        let mut removed = 0;
+        self.by_subject.retain(|_, map| {
+            map.retain(|_, triple| {
+                let keep = f(triple);
+                if !keep {
+                    removed += 1;
+                }
+                keep
+            });
+            !map.is_empty()
+        });
+        removed
+    }
+}
+
 impl MindGraph {
     pub fn new(ontology: Ontology) -> Self {
         Self {
@@ -909,6 +1078,8 @@ impl MindGraph {
             shared_knowledge: Vec::new(),
             triples: Vec::new(),
             tombstone_count: 0,
+            perception_store: PerceptionStore::default(),
+            inventory_store: InventoryStore::default(),
             pending_mutations: Vec::new(),
             by_subject: HashMap::new(),
             by_predicate: HashMap::new(),
@@ -922,17 +1093,19 @@ impl MindGraph {
 
     // ─── Accessors ──────────────────────────────────────────────────────────
 
-    /// Number of LIVE personal triples (excludes tombstones).
     pub fn len(&self) -> usize {
-        self.triples.len() - self.tombstone_count
+        (self.triples.len() - self.tombstone_count)
+            + self.perception_store.len()
+            + self.inventory_store.len()
     }
 
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
 
-    /// Total number of slots in the triple vector, including tombstones.
-    /// Exposed for compaction heuristics and tests.
+    /// Total number of slots in the main triple vector, including
+    /// tombstones. Used for compaction heuristics — does NOT include
+    /// perception-store entries (which never tombstone).
     pub fn total_slots(&self) -> usize {
         self.triples.len()
     }
@@ -941,9 +1114,13 @@ impl MindGraph {
         self.tombstone_count
     }
 
-    /// Iterate over live personal triples only.
+    /// Iterate over live personal triples (main store + perception store + inventory store).
     pub fn iter(&self) -> impl Iterator<Item = &Triple> {
-        self.triples.iter().filter_map(|slot| slot.as_ref())
+        self.triples
+            .iter()
+            .filter_map(|slot| slot.as_ref())
+            .chain(self.perception_store.iter())
+            .chain(self.inventory_store.iter())
     }
 
     /// Resolve a slice of slot ids into live triples, skipping any that have
@@ -1049,6 +1226,13 @@ impl MindGraph {
 
     /// Append a triple unconditionally. Use `assert` for deduplicated writes.
     pub fn add(&mut self, triple: Triple) {
+        // `Contains` beliefs always live in the inventory store, even when
+        // callers reach for `add()` directly (e.g. test setup). Keeps
+        // reads/writes from drifting between the two paths.
+        if triple.predicate == Predicate::Contains && matches!(triple.object, Value::Item(_, _)) {
+            self.inventory_upsert_mutating(triple);
+            return;
+        }
         let idx = self.triples.len();
         self.index_insert(idx, &triple.subject, triple.predicate);
         self.pending_mutations.push((
@@ -1058,6 +1242,21 @@ impl MindGraph {
             format!("{:?}", triple.object),
         ));
         self.triples.push(Some(triple));
+    }
+
+    /// Route a `Contains` triple into the inventory store and emit a
+    /// mutation record only when the call actually changed state — new
+    /// concept slot or different quantity. Same-value re-asserts (the
+    /// every-tick perception path) skip the mutation so the
+    /// `MindGraphMutation` wakeup queue doesn't churn.
+    fn inventory_upsert_mutating(&mut self, triple: Triple) {
+        let subject = format!("{:?}", triple.subject);
+        let predicate = format!("{:?}", triple.predicate);
+        let object = format!("{:?}", triple.object);
+        if self.inventory_store.upsert(triple) {
+            self.pending_mutations
+                .push(("Add".to_string(), subject, predicate, object));
+        }
     }
 
     /// Retain only triples for which `f` returns true. Matching triples are
@@ -1079,7 +1278,22 @@ impl MindGraph {
                 removed += 1;
             }
         }
+        // `decay_pass` takes `FnMut(&mut Triple)`; adapt the immutable
+        // predicate `f` here so retain() and decay_pass() share the inventory
+        // walk.
+        removed += self.inventory_store.decay_pass(|t| f(t));
         removed
+    }
+
+    /// Called from `decay_stale_knowledge` on the same staggered cadence
+    /// as the main decay sweep — perception entries age out by timestamp,
+    /// not strength.
+    pub fn prune_expired_perception(&mut self, now: u64, max_age: u64) -> usize {
+        self.perception_store.prune_older_than(now, max_age)
+    }
+
+    pub fn perception_store_len(&self) -> usize {
+        self.perception_store.len()
     }
 
     /// Like `retain` but the closure receives `&mut Triple`, allowing it to
@@ -1100,15 +1314,22 @@ impl MindGraph {
                 removed += 1;
             }
         }
+        removed += self.inventory_store.decay_pass(&mut f);
         removed
     }
 
     /// Snapshot of live triple counts per predicate, for interference calculations.
     pub fn predicate_count_map(&self) -> HashMap<Predicate, usize> {
-        self.by_predicate
+        let mut map: HashMap<Predicate, usize> = self
+            .by_predicate
             .iter()
             .map(|(pred, list)| (*pred, list.len()))
-            .collect()
+            .collect();
+        let inv = self.inventory_store.len();
+        if inv > 0 {
+            *map.entry(Predicate::Contains).or_insert(0) += inv;
+        }
+        map
     }
 
     /// Flat boost for triples accessed during planning. No cooldown or salience
@@ -1127,6 +1348,29 @@ impl MindGraph {
     }
 
     pub fn remove(&mut self, subject: &Node, predicate: Predicate, object: &Value) {
+        // Drop a matching perception entry, if any. Functional perception
+        // predicates have at most one entry per (subject, predicate); the
+        // object check ensures we only remove if the value matches.
+        if let Some(triple) = self.perception_store.get(subject, predicate)
+            && triple.object == *object
+        {
+            self.perception_store.remove(subject, predicate);
+        }
+
+        // Inventory entries are keyed by (subject, concept). A `Contains`
+        // remove targets a single concept slot regardless of count.
+        if predicate == Predicate::Contains
+            && let Value::Item(concept, _) = object
+            && self.inventory_store.remove(subject, *concept)
+        {
+            self.pending_mutations.push((
+                "Remove".to_string(),
+                format!("{subject:?}"),
+                format!("{predicate:?}"),
+                format!("{object:?}"),
+            ));
+        }
+
         let Some(list) = self.by_subject_predicate.get(&(subject.clone(), predicate)) else {
             return;
         };
@@ -1144,31 +1388,26 @@ impl MindGraph {
     }
 
     pub fn assert(&mut self, triple: Triple) {
-        let key = (triple.subject.clone(), triple.predicate);
-
-        // Contains + Item replaces by concept, not exact value — different
-        // quantities of the same concept share one slot. If the quantity
-        // didn't change, update metadata in place to avoid a tombstone churn
-        // (hot path: every perception re-asserts the same inventory).
-        if triple.predicate == Predicate::Contains
-            && let Value::Item(concept, _) = &triple.object
-        {
-            let concept_copy = *concept;
-            if let Some(idx) = self.find_existing_id(
-                &key,
-                |t| matches!(&t.object, Value::Item(c, _) if *c == concept_copy),
-            ) {
-                // Safe: find_existing_id only returns live ids.
-                let existing = self.triples[idx].as_mut().expect("live slot");
-                if existing.object == triple.object {
-                    existing.meta.refresh_from(&triple.meta);
-                    return;
-                }
-                self.tombstone(idx);
-            }
-            self.add(triple);
+        // Functional perception triples (`LocatedAt`, `Hunger`, `Thirst`, …)
+        // re-write every tick from the perception pipeline. Route them to
+        // the flat perception store so the main triple vec / indexes /
+        // decay sweep don't churn 30+ entries per agent per tick.
+        if triple.meta.memory_type == MemoryType::Perception && triple.predicate.is_functional() {
+            // If the same (subject, predicate) lives in the main store
+            // (e.g. an older Semantic belief) we leave it alone — the
+            // perception store wins on read for fresher facts.
+            self.perception_store.insert(triple);
             return;
         }
+
+        // `Contains` beliefs live in the dedicated inventory store keyed by
+        // (subject, concept) so reads stay O(1).
+        if triple.predicate == Predicate::Contains && matches!(triple.object, Value::Item(_, _)) {
+            self.inventory_upsert_mutating(triple);
+            return;
+        }
+
+        let key = (triple.subject.clone(), triple.predicate);
 
         // Functional predicates have at most one object per subject. If the
         // value hasn't changed, just refresh metadata — tombstoning an
@@ -1223,6 +1462,13 @@ impl MindGraph {
     // ─── Reads ──────────────────────────────────────────────────────────────
 
     pub fn get(&self, subject: &Node, predicate: Predicate) -> Option<&Value> {
+        // 0. Perception store — freshest source for functional perception
+        // facts (LocatedAt, Hunger, Thirst, …). Re-asserts overwrite in
+        // place, so this is the "last sensed" value.
+        if let Some(triple) = self.perception_store.get(subject, predicate) {
+            return Some(&triple.object);
+        }
+
         // 1. Check local knowledge (fastest)
         if let Some(list) = self.by_subject_predicate.get(&(subject.clone(), predicate)) {
             for &idx in list {
@@ -1276,13 +1522,48 @@ impl MindGraph {
         };
         let local_iter: Box<dyn Iterator<Item = &Triple>> = match (ids, subject, predicate) {
             (Some(ids), _, _) => Box::new(self.live_at(ids).filter(|t| matcher(t))),
-            // (None, None) — no index usable, walk everything live.
-            (None, None, None) => Box::new(self.iter().filter(move |t| matcher(t))),
+            // (None, None) — no index usable, walk the main triple vec
+            // (perception + inventory tiers are chained separately below).
+            (None, None, None) => Box::new(
+                self.triples
+                    .iter()
+                    .filter_map(|slot| slot.as_ref())
+                    .filter(move |t| matcher(t)),
+            ),
             // Subject or predicate specified but bucket missing → empty.
             _ => Box::new(std::iter::empty()),
         };
 
-        // Combine sources: Ontology -> Shared -> Local
+        // Perception store enumeration. Functional predicates only, so
+        // either point-lookup the (subject, predicate) entry directly or
+        // walk the values when the query is loose.
+        let perception_iter: Box<dyn Iterator<Item = &Triple>> = match (subject, predicate) {
+            (Some(sub), Some(pred)) if pred.is_functional() => Box::new(
+                self.perception_store
+                    .get(sub, pred)
+                    .filter(|t| matcher(t))
+                    .into_iter(),
+            ),
+            // Subject + predicate specified but predicate is non-functional
+            // (and therefore never in the perception store) → skip.
+            (Some(_), Some(pred)) if !pred.is_functional() => Box::new(std::iter::empty()),
+            _ => Box::new(self.perception_store.iter().filter(move |t| matcher(t))),
+        };
+
+        // Inventory store enumeration. Only Contains beliefs live there, so
+        // skip entirely when the predicate filter excludes Contains; otherwise
+        // narrow by subject when possible.
+        let inventory_iter: Box<dyn Iterator<Item = &Triple>> = match (subject, predicate) {
+            (_, Some(pred)) if pred != Predicate::Contains => Box::new(std::iter::empty()),
+            (Some(sub), _) => Box::new(
+                self.inventory_store
+                    .iter_subject(sub)
+                    .filter(move |t| matcher(t)),
+            ),
+            _ => Box::new(self.inventory_store.iter().filter(move |t| matcher(t))),
+        };
+
+        // Combine sources: Ontology -> Shared -> Local -> Perception -> Inventory
         self.ontology
             .triples
             .iter()
@@ -1293,6 +1574,8 @@ impl MindGraph {
                     .flat_map(|vec| vec.iter().filter(|t| matcher(t))),
             )
             .chain(local_iter)
+            .chain(perception_iter)
+            .chain(inventory_iter)
             .collect()
     }
 
@@ -1407,40 +1690,31 @@ impl MindGraph {
     /// Get the count of a concept that subject contains.
     /// Returns 0 if not found or if Value is not an Item.
     pub fn count_of(&self, subject: &Node, concept: Concept) -> u32 {
-        for triple in self.query(Some(subject), Some(Predicate::Contains), None) {
-            if let Value::Item(c, count) = &triple.object
-                && *c == concept
-            {
-                return *count;
-            }
+        match self.inventory_store.get(subject, concept) {
+            Some(Triple {
+                object: Value::Item(_, count),
+                ..
+            }) => *count,
+            _ => 0,
         }
-        0
     }
 
     /// Check if subject contains any items at all (any concept, any count > 0).
     pub fn has_any_items(&self, subject: &Node) -> bool {
-        for triple in self.query(Some(subject), Some(Predicate::Contains), None) {
-            if let Value::Item(_, count) = &triple.object
-                && *count > 0
-            {
-                return true;
-            }
-        }
-        false
+        self.inventory_store
+            .iter_subject(subject)
+            .any(|t| matches!(t.object, Value::Item(_, count) if count > 0))
     }
 
     /// Get the confidence that subject contains the given concept.
     /// Returns 0.0 if not found, or the triple's confidence if found with count > 0.
     pub fn confidence_of(&self, subject: &Node, concept: Concept) -> f32 {
-        for triple in self.query(Some(subject), Some(Predicate::Contains), None) {
-            if let Value::Item(c, count) = &triple.object
-                && *c == concept
-                && *count > 0
-            {
-                return triple.meta.confidence;
+        match self.inventory_store.get(subject, concept) {
+            Some(triple) if matches!(triple.object, Value::Item(_, count) if count > 0) => {
+                triple.meta.confidence
             }
+            _ => 0.0,
         }
-        0.0
     }
 
     /// True when the agent has explicit first-person evidence that
@@ -1452,8 +1726,8 @@ impl MindGraph {
     /// Callers in the planner and validity checks use this to refuse
     /// targets the agent already knows are dry.
     pub fn is_known_empty(&self, entity: Entity) -> bool {
-        self.query(Some(&Node::Entity(entity)), Some(Predicate::Contains), None)
-            .iter()
+        self.inventory_store
+            .iter_subject(&Node::Entity(entity))
             .any(|t| matches!(t.object, Value::Item(_, 0)))
     }
 
@@ -2132,23 +2406,25 @@ mod tests {
     fn remove_tombstones_rather_than_compacting() {
         let mut mind = MindGraph::default();
         let e = Entity::from_bits(1);
+        // Use IsA so the test exercises the main-store tombstone path.
+        // (Contains lives in the inventory tier and never tombstones.)
         mind.add(Triple::new(
             Node::Entity(e),
-            Predicate::Contains,
-            Value::Item(Concept::Apple, 3),
+            Predicate::IsA,
+            Value::Concept(Concept::Apple),
         ));
         mind.add(Triple::new(
             Node::Entity(e),
-            Predicate::Contains,
-            Value::Item(Concept::Berry, 1),
+            Predicate::IsA,
+            Value::Concept(Concept::Berry),
         ));
         assert_eq!(mind.len(), 2);
         assert_eq!(mind.total_slots(), 2);
 
         mind.remove(
             &Node::Entity(e),
-            Predicate::Contains,
-            &Value::Item(Concept::Apple, 3),
+            Predicate::IsA,
+            &Value::Concept(Concept::Apple),
         );
 
         // Live count drops; slot count does not.
@@ -2157,11 +2433,11 @@ mod tests {
         assert_eq!(mind.tombstone_count(), 1);
 
         // Tombstoned triple is invisible to every query path.
-        let by_both = mind.query(Some(&Node::Entity(e)), Some(Predicate::Contains), None);
+        let by_both = mind.query(Some(&Node::Entity(e)), Some(Predicate::IsA), None);
         assert_eq!(by_both.len(), 1);
-        assert_eq!(by_both[0].object, Value::Item(Concept::Berry, 1));
+        assert_eq!(by_both[0].object, Value::Concept(Concept::Berry));
 
-        let by_pred = mind.query(None, Some(Predicate::Contains), None);
+        let by_pred = mind.query(None, Some(Predicate::IsA), None);
         assert_eq!(by_pred.len(), 1);
 
         let by_all = mind.query(None, None, None);
@@ -2552,6 +2828,128 @@ mod tests {
             b[0].meta.strength,
             a[0].meta.strength,
         );
+    }
+
+    // ─── Inventory tier tests ──────────────────────────────────────────────
+
+    #[test]
+    fn inventory_count_of_is_o1() {
+        let mut mind = MindGraph::default();
+
+        // Populate other-entity inventories so the (Self_, Apple) lookup
+        // can't accidentally pass by walking only one entry.
+        let concepts = [
+            Concept::Apple,
+            Concept::Berry,
+            Concept::Stick,
+            Concept::Food,
+            Concept::Water,
+            Concept::Wood,
+            Concept::Meat,
+        ];
+        for (i, concept) in concepts.iter().cycle().take(50).enumerate() {
+            mind.assert(Triple::new(
+                Node::Entity(Entity::from_bits(i as u64 + 1)),
+                Predicate::Contains,
+                Value::Item(*concept, (i as u32) + 1),
+            ));
+        }
+        // And one self entry whose count we will verify.
+        mind.assert(Triple::new(
+            Node::Self_,
+            Predicate::Contains,
+            Value::Item(Concept::Apple, 7),
+        ));
+
+        // O(1) hash lookup — no walk over the 50 sibling entries.
+        assert_eq!(mind.count_of(&Node::Self_, Concept::Apple), 7);
+        assert!(mind.has_any(&Node::Self_, Concept::Apple));
+        assert!(!mind.has_any(&Node::Self_, Concept::Berry));
+        assert!(mind.has_any_items(&Node::Self_));
+    }
+
+    #[test]
+    fn inventory_roundtrip_preserves_metadata() {
+        let mut mind = MindGraph::default();
+
+        let mut meta = Metadata::semantic(10);
+        meta.confidence = 0.42;
+        meta.salience = 0.3;
+        meta.strength = 2.5;
+
+        mind.assert(Triple::with_meta(
+            Node::Self_,
+            Predicate::Contains,
+            Value::Item(Concept::Apple, 4),
+            meta.clone(),
+        ));
+
+        let results = mind.query(Some(&Node::Self_), Some(Predicate::Contains), None);
+        assert_eq!(results.len(), 1);
+        let stored = results[0];
+        assert_eq!(stored.object, Value::Item(Concept::Apple, 4));
+        assert_eq!(stored.meta.confidence, meta.confidence);
+        assert_eq!(stored.meta.salience, meta.salience);
+        assert_eq!(stored.meta.strength, meta.strength);
+        assert_eq!(stored.meta.timestamp, meta.timestamp);
+        assert_eq!(stored.meta.source, meta.source);
+        assert_eq!(stored.meta.memory_type, meta.memory_type);
+
+        // confidence_of also preserves the metadata field for live (count > 0) entries.
+        assert!((mind.confidence_of(&Node::Self_, Concept::Apple) - 0.42).abs() < f32::EPSILON);
+    }
+
+    // ─── Perception tier tests ─────────────────────────────────────────────
+
+    #[test]
+    fn perception_tier_overwrite_does_not_tombstone() {
+        let mut mind = MindGraph::default();
+        let tree = Entity::from_bits(42);
+
+        // 100 perception re-asserts of the same functional fact with
+        // changing values would tombstone 100 slots in the main store.
+        // The perception tier overwrites in place — no main-store growth,
+        // no tombstones.
+        for i in 0..100 {
+            mind.assert(Triple::with_meta(
+                Node::Entity(tree),
+                Predicate::LocatedAt,
+                Value::Tile((i, i)),
+                Metadata::perception(i as u64),
+            ));
+        }
+
+        assert_eq!(mind.tombstone_count(), 0);
+        assert_eq!(mind.perception_store_len(), 1);
+
+        // Latest value wins on read.
+        let value = mind.get(&Node::Entity(tree), Predicate::LocatedAt);
+        assert_eq!(value, Some(&Value::Tile((99, 99))));
+    }
+
+    #[test]
+    fn perception_tier_expires_after_threshold() {
+        let mut mind = MindGraph::default();
+        let tree = Entity::from_bits(42);
+
+        mind.assert(Triple::with_meta(
+            Node::Entity(tree),
+            Predicate::LocatedAt,
+            Value::Tile((5, 5)),
+            Metadata::perception(0),
+        ));
+        assert_eq!(mind.perception_store_len(), 1);
+
+        // now=30, max_age=60 → entry at t=0 still inside window.
+        let removed = mind.prune_expired_perception(30, 60);
+        assert_eq!(removed, 0);
+        assert_eq!(mind.perception_store_len(), 1);
+
+        // now=120, max_age=60 → cutoff=60, entry at t=0 expires.
+        let removed = mind.prune_expired_perception(120, 60);
+        assert_eq!(removed, 1);
+        assert_eq!(mind.perception_store_len(), 0);
+        assert_eq!(mind.get(&Node::Entity(tree), Predicate::LocatedAt), None);
     }
 
     #[test]
