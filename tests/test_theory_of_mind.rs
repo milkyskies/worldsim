@@ -12,19 +12,10 @@ use worldsim::agent::mind::knowledge::{
     Concept, MemoryType, Metadata, Node, Predicate, Source, Triple, Value,
 };
 use worldsim::agent::mind::theory_of_mind::TheoryOfMind;
-use worldsim::agent::nervous_system::config::NervousSystemConfig;
 use worldsim::testing::TestWorld;
 
 const HIGH_SOCIAL: f32 = 0.8;
 const TICKS_FOR_CONVERSATION: u64 = 200;
-
-fn fast_brains(world: &mut TestWorld) {
-    let mut config = world
-        .app_mut()
-        .world_mut()
-        .resource_mut::<NervousSystemConfig>();
-    config.thinking_interval = 1;
-}
 
 /// Helper: create a high-salience danger triple about wolves.
 fn wolf_danger_triple(timestamp: u64) -> Triple {
@@ -64,7 +55,7 @@ fn speaker_tom_updated_after_sharing_knowledge() {
         .done()
         .build();
 
-    fast_brains(&mut world);
+    world.enable_fast_brains();
     world.tick(TICKS_FOR_CONVERSATION);
 
     let alice = agents["alice"];
@@ -100,7 +91,7 @@ fn theory_of_mind_sim_event_fires_during_conversation() {
         .done()
         .build();
 
-    fast_brains(&mut world);
+    world.enable_fast_brains();
     world.tick(TICKS_FOR_CONVERSATION);
 
     let events = world.sim_events();

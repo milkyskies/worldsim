@@ -78,10 +78,11 @@ fn brain_walk_target_is_used_by_execution() {
         });
     }
 
-    // One tick is enough: arbitration surfaces the plan's Walk step as
-    // the winning proposal, and `start_actions` reads the target into
-    // `TargetPosition`.
-    world.tick(1);
+    // Brain runs at 10 Hz (every 6th tick). Tick six times so a brain
+    // tick lands inside the window: arbitration surfaces the plan's Walk
+    // step as the winning proposal, and `start_actions` reads the target
+    // into `TargetPosition`.
+    world.tick(6);
 
     let target_pos = world
         .app()

@@ -26,20 +26,8 @@
 use bevy::math::Vec2;
 use worldsim::agent::actions::ActionType;
 use worldsim::agent::events::{SimEvent, SimEventKind};
-use worldsim::agent::nervous_system::config::NervousSystemConfig;
 use worldsim::testing::TestWorld;
 use worldsim::world::map::TileType;
-
-/// Force brains to run every tick so these tests don't fight the 60-tick
-/// thinking stagger. Without this a "hungry agent eats within 500 ticks"
-/// test is really waiting for ~8 brain cycles.
-fn fast_brains(world: &mut TestWorld) {
-    let mut config = world
-        .app_mut()
-        .world_mut()
-        .resource_mut::<NervousSystemConfig>();
-    config.thinking_interval = 1;
-}
 
 /// Count how many times `agent` started an action of the given type.
 fn action_started_count(world: &TestWorld, agent: bevy::prelude::Entity, at: ActionType) -> usize {
@@ -77,7 +65,7 @@ fn hungry_human_next_to_bush_eats_within_500_ticks() {
         // Bush ~1 tile away — practically adjacent.
         .berry_bushes(1, Vec2::new(116.0, 100.0))
         .build();
-    fast_brains(&mut world);
+    world.enable_fast_brains();
 
     let hungry = agents["hungry"];
     world.tick(500);
@@ -115,7 +103,7 @@ fn hungry_human_next_to_bush_reduces_hunger() {
         .done()
         .berry_bushes(1, Vec2::new(116.0, 100.0))
         .build();
-    fast_brains(&mut world);
+    world.enable_fast_brains();
 
     let hungry = agents["hungry"];
     let initial_hunger = world.agent_hunger(hungry);
@@ -158,7 +146,7 @@ fn hungry_human_forms_plan_after_seeing_bush() {
         .done()
         .berry_bushes(1, Vec2::new(180.0, 100.0))
         .build();
-    fast_brains(&mut world);
+    world.enable_fast_brains();
 
     let seeker = agents["seeker"];
     world.tick(1200);
@@ -196,7 +184,7 @@ fn thirsty_human_next_to_water_drinks_within_500_ticks() {
         .pos(Vec2::new(100.0, 100.0))
         .done()
         .build();
-    fast_brains(&mut world);
+    world.enable_fast_brains();
 
     // Crank thirst up directly — `PhysicalNeeds.thirst` is on a 0-100
     // scale, and severe dehydration kicks in at roughly 80+.
@@ -334,7 +322,7 @@ fn hungry_agent_with_visible_bush_plans_a_harvest() {
         .done()
         .berry_bushes(1, Vec2::new(160.0, 100.0))
         .build();
-    fast_brains(&mut world);
+    world.enable_fast_brains();
 
     let alice = agents["alice"];
     world.tick(1000);

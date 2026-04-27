@@ -582,19 +582,31 @@ score = urgency × power
 **Location**: `src/agent/brains/brain_system.rs`
 
 **Update Schedule**:
-- Brain arbitration is **event-driven via `BrainWakeup`** — `arbitrate_every_tick`
-  only re-arbitrates for agents whose situation actually changed this tick.
-  Agents with no pending wakeup keep their previous `BrainState`, so the
-  body keeps executing the same winner. Wakeups fire from action lifecycle
-  events, drive-threshold crossings (with hysteresis bands), new perceptions,
-  knowledge changes, conversation state changes, plan invalidations, and
-  a periodic-safety catch-all every 600 ticks per agent.
-- `update_rational_planning` runs every tick for plan-step advancement and
-  stale-plan cleanup (those steps consume single-pass events), but its
-  heavy GOAP-search loop is gated by the same wakeup set as arbitration.
+- `arbitrate_every_tick` runs at **10 Hz** (every 6th FixedUpdate tick at
+  60 TPS) via the `BrainTickInterval` resource. Real human reaction time
+  is ~250 ms; 10 Hz gives ~100 ms latency between threat and decision,
+  faster than people perceive while costing ~6× less than every-tick
+  arbitration. Tests that need every-tick decisions can override the
+  interval to 1.
+- Brain arbitration is **event-driven via the `PendingBrainWakeups`
+  resource** — `arbitrate_every_tick` only re-arbitrates for agents whose
+  situation actually changed since the last brain run. Wakeup emitters
+  still fire at 60 Hz; the pending set buffers between brain runs so no
+  signal is lost. Agents with no pending wakeup keep their previous
+  `BrainState`, so the body keeps executing the same winner. Wakeups fire
+  from action lifecycle events, drive-threshold crossings (with hysteresis
+  bands), new perceptions, knowledge changes, conversation state changes,
+  plan invalidations, and a periodic-safety catch-all every 600 ticks
+  per agent.
+- `update_rational_planning` runs every tick for plan-step advancement,
+  commitment growth, state transitions, and stale-plan sweep — those
+  steps consume single-pass `SimEvent`s that Bevy's message-update
+  schedule clears within a frame or two, so they have to be drained
+  every tick. Its heavy GOAP-search step is gated to the same 10 Hz
+  brain cadence as arbitration.
 - `tick_cognitive_drain` and `emit_agent_state_hash` run every tick
   unconditionally — both are observability/state signals that mustn't
-  depend on the wakeup gate.
+  depend on the brain cadence.
 - Perception Interval: 10 ticks (6 Hz).
 
 **Process**:
