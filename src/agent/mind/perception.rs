@@ -27,9 +27,25 @@ use std::collections::HashMap;
 
 #[derive(Component, Reflect, Default)]
 #[reflect(Component)]
-#[require(PerceptionCache)]
+#[require(PerceptionCache, DangerScanCache)]
 pub struct Vision {
     pub range: f32,
+}
+
+/// Cached audible-threat count for `react_to_danger`. The visible scan
+/// over `VisibleObjects::by_concept` is cheap (one `has_trait` per visible
+/// concept); the audible scan walks the entire `HasTrait` predicate index
+/// looking for `Direction`-subjected dangerous beliefs and dominates the
+/// per-tick cost at high agent counts. Refresh on TICK_RARE per-entity
+/// stagger and reuse the count between refreshes — sound cues fade over
+/// game-minutes, not game-seconds, so staleness is fine.
+#[derive(Component, Reflect, Default)]
+#[reflect(Component)]
+pub struct DangerScanCache {
+    pub audible_dangerous_count: usize,
+    /// `None` means the cache has never been populated — the next call to
+    /// `react_to_danger` must scan, regardless of stagger phase.
+    pub last_scan_tick: Option<u64>,
 }
 
 #[derive(Component, Default)]
@@ -618,8 +634,10 @@ fn assess_threat(
 pub fn react_to_danger(
     mut agents: Query<
         (
+            Entity,
             &VisibleObjects,
             &mut MindGraph,
+            &mut DangerScanCache,
             &mut crate::agent::psyche::emotions::EmotionalState,
             &crate::agent::psyche::personality::Personality,
             &crate::agent::body::needs::PhysicalNeeds,
@@ -633,6 +651,7 @@ pub fn react_to_danger(
     use crate::agent::brains::emotional::add_entity_emotion;
     use crate::agent::mind::knowledge::Source;
     use crate::agent::psyche::emotions::{Emotion, EmotionType};
+    use crate::core::tick::TICK_RARE_PERIOD;
 
     let current_tick = tick.current;
     // Cadence-gate the per-entity Fear writes. Every tick is too noisy
@@ -640,26 +659,38 @@ pub fn react_to_danger(
     // entity-Fear scalar moves slowly anyway.
     let do_per_entity_writes = current_tick.is_multiple_of(PER_ENTITY_FEAR_WRITE_PERIOD);
 
-    for (visible, mut mind, mut emotions, personality, needs, body, items) in agents.iter_mut() {
-        // Trait checks are concept-level (every Wolf is Dangerous-or-not the
-        // same way), so iterate by_concept and pay one `has_trait` per
-        // visible concept instead of one per visible entity.
-        let visible_dangerous: Vec<Entity> = visible
+    for (entity, visible, mut mind, mut scan, mut emotions, personality, needs, body, items) in
+        agents.iter_mut()
+    {
+        // Visible scan is cheap (a few `has_trait` calls against the
+        // ontology trait_cache) and runs every tick so fresh wolves are
+        // detected immediately.
+        let visible_dangerous: SmallVec<[Entity; 4]> = visible
             .by_concept
             .iter()
             .filter(|(concept, _)| mind.has_trait(&Node::Concept(**concept), Concept::Dangerous))
             .flat_map(|(_, ents)| ents.iter().copied())
             .collect();
 
-        let audible_dangerous_count = mind
-            .query(
-                None,
-                Some(Predicate::HasTrait),
-                Some(&Value::Concept(Concept::Dangerous)),
-            )
-            .iter()
-            .filter(|t| matches!(t.subject, Node::Direction(_)))
-            .count();
+        // Audible scan walks the entire HasTrait predicate index for
+        // Direction-subjected beliefs — dominant cost at 100+ agents.
+        // Refresh on TICK_RARE per-entity stagger; sound cues fade over
+        // game-minutes so staleness is fine. First call always scans.
+        let audible_due =
+            scan.last_scan_tick.is_none() || tick.should_run(entity, TICK_RARE_PERIOD);
+        if audible_due {
+            scan.audible_dangerous_count = mind
+                .query(
+                    None,
+                    Some(Predicate::HasTrait),
+                    Some(&Value::Concept(Concept::Dangerous)),
+                )
+                .iter()
+                .filter(|t| matches!(t.subject, Node::Direction(_)))
+                .count();
+            scan.last_scan_tick = Some(current_tick);
+        }
+        let audible_dangerous_count = scan.audible_dangerous_count;
 
         let total_dangerous = visible_dangerous.len() + audible_dangerous_count;
         if total_dangerous == 0 {
@@ -686,10 +717,10 @@ pub fn react_to_danger(
             continue;
         }
         let per_entity_delta = (per_threat * PER_ENTITY_FEAR_FRACTION).max(PER_ENTITY_FEAR_FLOOR);
-        for &entity in &visible_dangerous {
+        for &target in &visible_dangerous {
             add_entity_emotion(
                 &mut mind,
-                entity,
+                target,
                 EmotionType::Fear,
                 per_entity_delta,
                 current_tick,

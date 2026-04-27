@@ -78,6 +78,37 @@ impl TickCount {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+// TICK TIERING - RimWorld-style cadence categories
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// Most ambient state (mood drift, healing, emotion decay, working-memory
+// drain, slow drives) changes on a slow timescale and doesn't need a 60 Hz
+// update. Systems that operate on this state should gate by per-entity
+// stagger at one of these periods and multiply per-tick rate constants by
+// the same period — same total drift, far fewer per-tick calls.
+//
+// Use in a system body:
+//
+// ```ignore
+// for (entity, mut state) in q.iter_mut() {
+//     if !tick.should_run(entity, TICK_RARE_PERIOD) { continue; }
+//     state.decay(dt * TICK_RARE_PERIOD as f32);
+// }
+// ```
+
+/// Run every ~250 ticks (~4 game-minutes / ~4 real seconds at default speed).
+/// Suitable for emotional decay, stress drift, healing, slow drive updates,
+/// social-proximity decay — anything where the per-game-second granularity
+/// is wasted.
+pub const TICK_RARE_PERIOD: u64 = 250;
+
+/// Run every ~2000 ticks (~33 game-minutes / ~33 real seconds at default
+/// speed). Suitable for very slow background processes — wear, age, slow
+/// rot, long-term bond drift. Not used yet but reserved for future
+/// conversions.
+pub const TICK_LONG_PERIOD: u64 = 2000;
+
+// ═══════════════════════════════════════════════════════════════════════════
 // RUN CONDITIONS - Use these with `.run_if()` on systems
 // ═══════════════════════════════════════════════════════════════════════════
 

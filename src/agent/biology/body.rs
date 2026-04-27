@@ -807,12 +807,22 @@ fn heal_node(node: &mut BodyNode, dt: f32, condition_mult: f32) {
 }
 
 pub fn process_healing(
-    mut query: Query<(&mut Body, Option<&PhysicalNeeds>), With<Alive>>,
+    mut query: Query<(Entity, &mut Body, Option<&PhysicalNeeds>), With<Alive>>,
     tick: Res<crate::core::tick::TickCount>,
 ) {
-    let dt = tick.dt();
+    use crate::core::tick::TICK_RARE_PERIOD;
 
-    for (mut body, needs) in query.iter_mut() {
+    // Healing is ambient drift — nobody perceives whether a wound closes
+    // 4 game-seconds sooner. Stagger per agent at TICK_RARE cadence and
+    // scale dt up by the same period so total heal-per-game-second matches
+    // the legacy per-tick rate.
+    let dt_rare = tick.dt() * TICK_RARE_PERIOD as f32;
+
+    for (entity, mut body, needs) in query.iter_mut() {
+        if !tick.should_run(entity, TICK_RARE_PERIOD) {
+            continue;
+        }
+
         let condition_mult = if let Some(physical) = needs
             && physical.stamina.aerobic > 80.0
         {
@@ -822,9 +832,9 @@ pub fn process_healing(
         };
 
         for part in body.parts.iter_mut() {
-            heal_node(part, dt, condition_mult);
+            heal_node(part, dt_rare, condition_mult);
             for child in part.children.iter_mut() {
-                heal_node(child, dt, condition_mult);
+                heal_node(child, dt_rare, condition_mult);
             }
         }
     }
