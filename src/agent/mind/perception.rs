@@ -34,13 +34,19 @@ pub struct Vision {
 
 #[derive(Component, Default)]
 pub struct VisibleObjects {
+    /// Every entity the agent can see this tick — typed or untyped.
+    /// Use this when the consumer needs every visible thing regardless
+    /// of `EntityType` (e.g. `write_perceptions_to_mind` writes
+    /// per-entity belief triples for everything in view). Use
+    /// [`Self::by_concept`] / [`Self::iter_by_concept`] instead when
+    /// the consumer filters by concept-level trait — same data, lets
+    /// each `mind.has_trait` query run once per concept instead of
+    /// once per entity.
     pub entities: Vec<Entity>,
     /// Visible entities grouped by their world `EntityType` concept.
-    /// Built once per tick by `update_visual_perception` so consumers
-    /// that filter by trait (`Dangerous`, `Person`, …) do one
-    /// `mind.has_trait` per concept instead of once per entity.
-    /// Entities without an `EntityType` component are absent from
-    /// these buckets but still listed in `entities`.
+    /// Built once per tick by `update_visual_perception`. Entities
+    /// without an `EntityType` component are absent from these
+    /// buckets — they still appear in [`Self::entities`].
     pub by_concept: HashMap<Concept, SmallVec<[Entity; 4]>>,
 }
 
