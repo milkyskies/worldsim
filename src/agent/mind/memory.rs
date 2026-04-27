@@ -408,6 +408,12 @@ pub fn decay_stale_knowledge(
             continue;
         }
 
+        // Drop perception-store entries the agent hasn't refreshed within
+        // the expiry window. The flat store doesn't carry strength, so
+        // expiry is timestamp-only — re-assertions during perception keep
+        // entries alive automatically.
+        mind.prune_expired_perception(current_time, decay_config.perception_expiry_ticks);
+
         let initial_count = mind.len();
 
         // Precompute per-predicate interference pressure and per-type ln(base)
@@ -560,6 +566,11 @@ pub struct MemoryDecayConfig {
     pub strength_rebound_multiplier: f32,
     pub episodic_capacity: usize,
     pub decay_interval: u64,
+    /// Maximum age in ticks for an entry in the perception flat store
+    /// before it's dropped. Re-assertions push the timestamp forward,
+    /// so an entity that stays in view never expires; one that leaves
+    /// view ages out within this window.
+    pub perception_expiry_ticks: u64,
 }
 
 impl Default for MemoryDecayConfig {
@@ -574,6 +585,7 @@ impl Default for MemoryDecayConfig {
             strength_rebound_multiplier: 4.0,
             episodic_capacity: 200,
             decay_interval: 60,
+            perception_expiry_ticks: 60,
         }
     }
 }
@@ -1056,6 +1068,41 @@ mod tests {
                 .map(|t| matches!(t.object, Value::Quantity(Quantity::Exact(_))))
                 .unwrap_or(false),
             "sloppy agent should have fuzzified Exact precision after 70 passes"
+        );
+    }
+
+    /// The decay scheduler at `decay_stale_knowledge` gates per-agent decay on
+    /// `(entity.index + tick) % decay_interval == 0`. Across one decay window
+    /// this should fire each agent exactly once and spread the firings evenly,
+    /// so no single tick has every agent decaying at once.
+    #[test]
+    fn decay_staggered_across_agents() {
+        const INTERVAL: u64 = 60;
+        const N: u32 = 600;
+
+        let mut firings_per_tick = vec![0usize; INTERVAL as usize];
+        let mut firings_per_agent = vec![0usize; N as usize];
+
+        for entity_idx in 0..N {
+            for tick in 0..INTERVAL {
+                if (entity_idx as u64 + tick).is_multiple_of(INTERVAL) {
+                    firings_per_tick[tick as usize] += 1;
+                    firings_per_agent[entity_idx as usize] += 1;
+                }
+            }
+        }
+
+        for fired in &firings_per_agent {
+            assert_eq!(
+                *fired, 1,
+                "every agent should decay exactly once per window"
+            );
+        }
+        let max_concurrent = *firings_per_tick.iter().max().unwrap();
+        let expected_per_tick = (N as usize) / (INTERVAL as usize);
+        assert_eq!(
+            max_concurrent, expected_per_tick,
+            "stagger should spread {N} agents over {INTERVAL} ticks evenly, got max {max_concurrent} on one tick"
         );
     }
 }
