@@ -215,6 +215,15 @@ pub mod actions {
         pub const LEAN_TO_LEAVES_REQUIRED: u32 = 2;
     }
 
+    pub mod cook {
+        /// Ticks to cook one raw food item over a heat source. ~80 ticks =
+        /// ~1.3 game-minutes — visible cooking time without making it
+        /// dominate a hunger window.
+        pub const DURATION_TICKS: u32 = 80;
+        /// Raw food units consumed per cook.
+        pub const RAW_REQUIRED: u32 = 1;
+    }
+
     pub mod attack {
         pub const DURATION_TICKS: u32 = 30;
         pub const BASE_COST: f32 = 10.0;

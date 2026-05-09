@@ -35,6 +35,10 @@ pub enum ActionType {
     /// Polymorphic across chests, dropped piles, furnace outputs, etc. —
     /// the target's `extract_access` decides what can leave.
     Take,
+    /// Transform a raw food item in inventory into its cooked variant by
+    /// standing near a `HeatEmitting` entity. Consumes one raw unit and
+    /// produces one cooked unit with freshness stamped at completion.
+    Cook,
 
     // Movement / Positioning
     Walk,    // "Travel"
@@ -122,6 +126,7 @@ impl ActionType {
             ActionType::Build => "Building",
             ActionType::Deposit => "Depositing into",
             ActionType::Take => "Taking from",
+            ActionType::Cook => "Cooking",
             ActionType::Walk => "Walking to",
             ActionType::Wander => "Wandering",
             ActionType::Explore => "Exploring",
@@ -157,6 +162,7 @@ impl ActionType {
             ActionType::Build => "Build",
             ActionType::Deposit => "Deposit",
             ActionType::Take => "Take",
+            ActionType::Cook => "Cook",
             ActionType::Walk => "Walk",
             ActionType::Wander => "Wander",
             ActionType::Explore => "Explore",
