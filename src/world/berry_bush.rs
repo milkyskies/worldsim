@@ -8,7 +8,7 @@ use crate::world::map::TILE_SIZE;
 use crate::world::property::HarvestableComponent;
 use bevy::prelude::*;
 
-use super::apple_tree::{ResourceRegeneration, depletion_color, depletion_fraction};
+use super::apple_tree::ResourceRegeneration;
 
 /// Marker component for berry bush leaf visuals.
 #[derive(Component)]
@@ -171,31 +171,6 @@ pub fn sync_berry_visuals(
                         }
                     }
                 }
-            }
-        }
-    }
-}
-
-/// Updates the bush body color of every Berry Bush to reflect its inventory
-/// level. A full bush shows `LeafBush`; a depleted bush fades toward
-/// `SkinDeep` (brown), so empty bushes read as bare twigs.
-pub fn sync_bush_depletion_color(
-    palette: Res<Palette>,
-    bushes: Query<(&ItemSlots, &ResourceRegeneration, &Children)>,
-    mut leaves: Query<&mut Sprite, With<VisualBushLeaves>>,
-) {
-    let healthy = palette.srgb(PaletteColor::LeafBush);
-    let depleted = palette.srgb(PaletteColor::SkinDeep);
-
-    for (inventory, regen, children) in bushes.iter() {
-        if regen.item != Concept::Berry {
-            continue;
-        }
-        let fraction = depletion_fraction(inventory.count(regen.item), regen.max_amount);
-        let target = depletion_color(fraction, depleted, healthy);
-        for child in children.iter() {
-            if let Ok(mut sprite) = leaves.get_mut(child) {
-                sprite.color = target;
             }
         }
     }

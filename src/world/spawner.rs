@@ -70,11 +70,9 @@ fn introduce_group_as_kin(commands: &mut Commands, members: Vec<Entity>, affecti
 // Re-export spawning functions for convenience
 pub use super::apple_tree::{
     ResourceRegeneration, VisualApple, VisualLeaves, regenerate_resources, spawn_apple_tree,
-    sync_apple_visuals, sync_tree_depletion_color,
+    sync_apple_visuals,
 };
-pub use super::berry_bush::{
-    VisualBerry, VisualBushLeaves, spawn_berry_bush, sync_berry_visuals, sync_bush_depletion_color,
-};
+pub use super::berry_bush::{VisualBerry, VisualBushLeaves, spawn_berry_bush, sync_berry_visuals};
 pub use super::deer::{Deer, spawn_deer};
 pub use super::human::spawn_person;
 pub use super::sapling::{Sapling, grow_saplings, spawn_sapling};
@@ -118,8 +116,6 @@ impl Plugin for SpawnerPlugin {
                     sync_berry_visuals,
                     sync_stone_visuals,
                     sync_wood_visuals,
-                    sync_bush_depletion_color,
-                    sync_tree_depletion_color,
                 ),
             );
     }
