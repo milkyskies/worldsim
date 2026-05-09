@@ -3,6 +3,7 @@
 use crate::agent::inventory::EntityType;
 use crate::agent::item_slots::ItemSlots;
 use crate::agent::mind::knowledge::Concept;
+use crate::palette::{Palette, PaletteColor};
 use crate::world::map::TILE_SIZE;
 use crate::world::property::HarvestableComponent;
 use bevy::prelude::*;
@@ -18,7 +19,12 @@ pub struct VisualBushLeaves;
 pub struct VisualBerry;
 
 /// Spawns a Berry Bush with an Inventory
-pub fn spawn_berry_bush(commands: &mut Commands, position: Vec2, berries: u32) -> Entity {
+pub fn spawn_berry_bush(
+    commands: &mut Commands,
+    palette: &Palette,
+    position: Vec2,
+    berries: u32,
+) -> Entity {
     use rand::Rng;
     let mut rng = rand::rng();
 
@@ -27,9 +33,8 @@ pub fn spawn_berry_bush(commands: &mut Commands, position: Vec2, berries: u32) -
         inventory.add(Concept::Berry, berries);
     }
 
-    // Bush Dimensions (smaller than tree)
     let bush_size = Vec2::new(TILE_SIZE * 1.0, TILE_SIZE * 0.8);
-    let bush_color = Color::srgb(0.2, 0.5, 0.2); // Darker green
+    let bush_color = palette.srgb(PaletteColor::LeafBush);
 
     // Spawn ECS Entity (Root Container)
 
@@ -66,7 +71,7 @@ pub fn spawn_berry_bush(commands: &mut Commands, position: Vec2, berries: u32) -
             // Shadow — dark ellipse underneath the bush.
             parent.spawn((
                 Sprite {
-                    color: Color::srgba(0.0, 0.0, 0.0, 0.35),
+                    color: palette.srgba(PaletteColor::FurBlack, 0.35),
                     custom_size: Some(Vec2::new(bush_size.x * 1.1, bush_size.y * 0.35)),
                     ..default()
                 },
@@ -87,7 +92,7 @@ pub fn spawn_berry_bush(commands: &mut Commands, position: Vec2, berries: u32) -
                 .with_children(|bush| {
                     // Berries (Visual only, data is in Inventory)
                     if berries > 0 {
-                        let berry_color = Color::srgb(0.6, 0.1, 0.4); // Purple-ish berries
+                        let berry_color = palette.srgb(PaletteColor::AccentBerry);
                         let berry_size = Vec2::new(3.0, 3.0);
 
                         for _ in 0..berries.min(8) {
@@ -113,6 +118,7 @@ pub fn spawn_berry_bush(commands: &mut Commands, position: Vec2, berries: u32) -
 /// Syncs the visual berry count with the inventory count.
 pub fn sync_berry_visuals(
     mut commands: Commands,
+    palette: Res<Palette>,
     mut bush_query: Query<(&ItemSlots, &Children)>,
     mut leaves_query: Query<(Entity, &Children), With<VisualBushLeaves>>,
     berries_query: Query<Entity, With<VisualBerry>>,
@@ -120,7 +126,7 @@ pub fn sync_berry_visuals(
     use rand::Rng;
     let mut rng = rand::rng();
     let bush_size = Vec2::new(TILE_SIZE * 1.0, TILE_SIZE * 0.8);
-    let berry_color = Color::srgb(0.6, 0.1, 0.4);
+    let berry_color = palette.srgb(PaletteColor::AccentBerry);
     let berry_size = Vec2::new(3.0, 3.0);
 
     for (inventory, children) in bush_query.iter_mut() {

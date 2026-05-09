@@ -8,6 +8,7 @@
 use crate::agent::inventory::EntityType;
 use crate::agent::item_slots::ItemSlots;
 use crate::agent::mind::knowledge::Concept;
+use crate::palette::{Palette, PaletteColor};
 use crate::world::apple_tree::ResourceRegeneration;
 use crate::world::map::TILE_SIZE;
 use crate::world::property::HarvestableComponent;
@@ -22,14 +23,19 @@ pub struct VisualStoneChunk;
 pub struct StoneNodeMarker;
 
 /// Spawns a Stone Node with an ItemSlots inventory containing stone.
-pub fn spawn_stone_node(commands: &mut Commands, position: Vec2, stones: u32) -> Entity {
+pub fn spawn_stone_node(
+    commands: &mut Commands,
+    palette: &Palette,
+    position: Vec2,
+    stones: u32,
+) -> Entity {
     let mut inventory = ItemSlots::agent_carry();
     if stones > 0 {
         inventory.add(Concept::Stone, stones);
     }
 
     let base_size = Vec2::new(TILE_SIZE * 1.2, TILE_SIZE * 0.7);
-    let base_color = Color::srgb(0.45, 0.45, 0.45);
+    let base_color = palette.srgb(PaletteColor::FurSlate);
 
     commands
         .spawn((
@@ -63,7 +69,7 @@ pub fn spawn_stone_node(commands: &mut Commands, position: Vec2, stones: u32) ->
             // Shadow — dark ellipse underneath the stones.
             parent.spawn((
                 Sprite {
-                    color: Color::srgba(0.0, 0.0, 0.0, 0.35),
+                    color: palette.srgba(PaletteColor::FurBlack, 0.35),
                     custom_size: Some(Vec2::new(base_size.x * 1.1, base_size.y * 0.35)),
                     ..default()
                 },
@@ -81,7 +87,7 @@ pub fn spawn_stone_node(commands: &mut Commands, position: Vec2, stones: u32) ->
 
             if stones > 0 {
                 use rand::Rng;
-                let chunk_color = Color::srgb(0.6, 0.6, 0.62);
+                let chunk_color = palette.srgb(PaletteColor::FurGrey);
                 let chunk_size = Vec2::new(5.0, 4.0);
                 let mut rng = rand::rng();
 
@@ -107,11 +113,12 @@ pub fn spawn_stone_node(commands: &mut Commands, position: Vec2, stones: u32) ->
 /// Syncs the visual stone chunk count with the inventory count.
 pub fn sync_stone_visuals(
     mut commands: Commands,
+    palette: Res<Palette>,
     node_query: Query<(Entity, &ItemSlots, &Children), (With<StoneNodeMarker>, Changed<ItemSlots>)>,
     chunks_query: Query<Entity, With<VisualStoneChunk>>,
 ) {
     let base_size = Vec2::new(TILE_SIZE * 1.2, TILE_SIZE * 0.7);
-    let chunk_color = Color::srgb(0.6, 0.6, 0.62);
+    let chunk_color = palette.srgb(PaletteColor::FurGrey);
     let chunk_size = Vec2::new(5.0, 4.0);
 
     for (node_entity, inventory, children) in node_query.iter() {

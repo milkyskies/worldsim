@@ -122,6 +122,7 @@ fn spawn_initial_population(
     mut commands: Commands,
     map: Res<crate::world::map::WorldMap>,
     ontology: Res<Ontology>,
+    palette: Res<crate::palette::Palette>,
     mut sim_rng: ResMut<crate::core::SimRng>,
     sim_config: Option<Res<SimConfig>>,
 ) {
@@ -131,7 +132,13 @@ fn spawn_initial_population(
         ..WorldSpawnConfig::game_defaults()
     };
     let layout = config.compute_layout(&map);
-    let spawned = apply_layout(&mut commands, &ontology, &layout, sim_rng.inner_mut());
+    let spawned = apply_layout(
+        &mut commands,
+        &ontology,
+        &palette,
+        &layout,
+        sim_rng.inner_mut(),
+    );
     for entity in spawned {
         commands
             .entity(entity)
@@ -167,6 +174,7 @@ fn spawn_game_scaffold() {}
 pub fn apply_layout(
     commands: &mut Commands,
     ontology: &Ontology,
+    palette: &crate::palette::Palette,
     layout: &SpawnLayout,
     rng: &mut impl rand::Rng,
 ) -> Vec<Entity> {
@@ -196,7 +204,16 @@ pub fn apply_layout(
     for (i, &pos) in layout.human_positions.iter().enumerate() {
         let culture = first_group_cultures[rng.random_range(0..first_group_cultures.len())];
         let knowledge = cultural_knowledge_map.get(&culture).unwrap().clone();
-        let entity = spawn_person(commands, ontology.clone(), pos, i, culture, knowledge, rng);
+        let entity = spawn_person(
+            commands,
+            ontology.clone(),
+            palette,
+            pos,
+            i,
+            culture,
+            knowledge,
+            rng,
+        );
         spawned.push(entity);
     }
 
@@ -207,6 +224,7 @@ pub fn apply_layout(
         let entity = spawn_person(
             commands,
             ontology.clone(),
+            palette,
             pos,
             offset + i,
             culture,
@@ -221,7 +239,7 @@ pub fn apply_layout(
         let members: Vec<Entity> = herd
             .iter()
             .map(|&pos| {
-                let entity = spawn_deer(commands, ontology.clone(), pos, deer_index, rng);
+                let entity = spawn_deer(commands, ontology.clone(), palette, pos, deer_index, rng);
                 deer_index += 1;
                 entity
             })
@@ -237,7 +255,7 @@ pub fn apply_layout(
         let members: Vec<Entity> = pack
             .iter()
             .map(|&pos| {
-                let entity = spawn_wolf(commands, ontology.clone(), pos, wolf_index, rng);
+                let entity = spawn_wolf(commands, ontology.clone(), palette, pos, wolf_index, rng);
                 wolf_index += 1;
                 entity
             })
@@ -249,19 +267,19 @@ pub fn apply_layout(
     }
 
     for &(pos, berries) in &layout.berry_bush_positions {
-        spawned.push(spawn_berry_bush(commands, pos, berries));
+        spawned.push(spawn_berry_bush(commands, palette, pos, berries));
     }
 
     for &(pos, apples) in &layout.apple_tree_positions {
-        spawned.push(spawn_apple_tree(commands, pos, apples));
+        spawned.push(spawn_apple_tree(commands, palette, pos, apples));
     }
 
     for &(pos, stones) in &layout.stone_node_positions {
-        spawned.push(spawn_stone_node(commands, pos, stones));
+        spawned.push(spawn_stone_node(commands, palette, pos, stones));
     }
 
     for &(pos, wood) in &layout.wood_log_positions {
-        spawned.push(spawn_wood_log(commands, pos, wood));
+        spawned.push(spawn_wood_log(commands, palette, pos, wood));
     }
 
     spawned

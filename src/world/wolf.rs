@@ -13,6 +13,7 @@ use crate::agent::item_slots::ItemSlots;
 use crate::agent::mind::knowledge::{Concept, MindGraph, Ontology};
 use crate::agent::naming::wolf_name;
 use crate::agent::{Agent, Alive};
+use crate::palette::{Palette, PaletteColor};
 use crate::world::map::TILE_SIZE;
 use bevy::prelude::*;
 use rand::Rng;
@@ -26,6 +27,7 @@ pub struct Wolf;
 pub fn spawn_wolf<R: Rng>(
     commands: &mut Commands,
     ontology: Ontology,
+    palette: &Palette,
     position: Vec2,
     index: usize,
     rng: &mut R,
@@ -42,8 +44,8 @@ pub fn spawn_wolf<R: Rng>(
     let mut mind = MindGraph::new(ontology);
     add_wolf_knowledge(&mut mind, spawn_tile);
 
-    let body_color = Color::srgb(0.55, 0.55, 0.55); // Gray
-    let head_color = Color::srgb(0.60, 0.60, 0.60); // Slightly lighter gray
+    let body_color = palette.srgb(PaletteColor::FurGrey);
+    let head_color = body_color;
 
     let entity = commands
         .spawn((
@@ -94,7 +96,7 @@ pub fn spawn_wolf<R: Rng>(
         parent.spawn((
             crate::ui::sprite_animation::GroundShadow::new(entity, Vec2::new(0.0, -6.0)),
             Sprite {
-                color: Color::srgba(0.0, 0.0, 0.0, 0.35),
+                color: palette.srgba(PaletteColor::FurBlack, 0.35),
                 custom_size: Some(Vec2::new(14.0, 5.0)),
                 ..default()
             },
@@ -150,7 +152,7 @@ pub fn spawn_wolf<R: Rng>(
                 ));
 
                 // Legs
-                let leg_color = Color::srgb(0.45, 0.45, 0.45);
+                let leg_color = palette.srgb(PaletteColor::FurSlate);
                 let leg_size = Vec2::new(2.5, 5.0);
                 let leg_positions = [
                     Vec3::new(-5.0, -6.0, 0.0),
@@ -188,7 +190,7 @@ pub fn spawn_wolf<R: Rng>(
                 font_size: 8.0,
                 ..default()
             },
-            TextColor(Color::srgb(1.0, 0.3, 0.3)),
+            TextColor(palette.srgb(PaletteColor::BloodFresh)),
             Transform::from_translation(Vec3::new(0.0, 14.0, 1.0)),
         ));
     });

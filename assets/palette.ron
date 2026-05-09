@@ -1,0 +1,46 @@
+// Locked 24-color game palette. Every Color::srgb in the renderer goes through here.
+// Edit this file to retune the entire game's visual identity in one place.
+//
+// Categories (counts must stay in sync with PaletteColor in src/palette.rs):
+//   - Skin/fur warm (6): pale -> deep brown range, used for human skin, brown fur, wood
+//   - Cool fur/grey (6): white -> black range, used for grey fur, stone
+//   - Vegetation greens (4)
+//   - Wound reds (2)
+//   - Scar browns (2)
+//   - Water (2)
+//   - Accents (2)
+(
+    colors: {
+        // Warm skin/fur (6)
+        SkinPale:     (1.00, 0.87, 0.76),
+        SkinFair:     (0.96, 0.80, 0.69),
+        SkinTan:      (0.89, 0.70, 0.53),
+        SkinMedium:   (0.76, 0.57, 0.35),
+        SkinDark:     (0.55, 0.38, 0.22),
+        SkinDeep:     (0.40, 0.25, 0.12),
+        // Cool fur / grey (6)
+        FurWhite:     (0.92, 0.92, 0.88),
+        FurLightGrey: (0.72, 0.72, 0.70),
+        FurGrey:      (0.58, 0.58, 0.58),
+        FurSlate:     (0.45, 0.45, 0.45),
+        FurCharcoal:  (0.28, 0.28, 0.28),
+        FurBlack:     (0.08, 0.08, 0.08),
+        // Vegetation (4)
+        LeafBright:   (0.34, 0.72, 0.30),
+        LeafForest:   (0.18, 0.56, 0.18),
+        LeafBush:     (0.22, 0.48, 0.22),
+        LeafDeep:     (0.10, 0.32, 0.12),
+        // Wounds (2)
+        BloodFresh:   (0.85, 0.20, 0.20),
+        BloodDried:   (0.55, 0.18, 0.20),
+        // Scars (2)
+        ScarLight:    (0.65, 0.55, 0.50),
+        ScarDark:     (0.42, 0.34, 0.30),
+        // Water (2)
+        WaterShallow: (0.40, 0.65, 0.85),
+        WaterDeep:    (0.18, 0.32, 0.68),
+        // Accents (2)
+        AccentFlame:  (1.00, 0.55, 0.15),
+        AccentBerry:  (0.62, 0.12, 0.42),
+    },
+)

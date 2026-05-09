@@ -8,6 +8,7 @@
 use crate::agent::inventory::EntityType;
 use crate::agent::item_slots::ItemSlots;
 use crate::agent::mind::knowledge::Concept;
+use crate::palette::{Palette, PaletteColor};
 use crate::world::apple_tree::ResourceRegeneration;
 use crate::world::map::TILE_SIZE;
 use crate::world::property::HarvestableComponent;
@@ -22,14 +23,19 @@ pub struct VisualWoodPiece;
 pub struct WoodLogMarker;
 
 /// Spawns a Wood Log with an ItemSlots inventory containing wood.
-pub fn spawn_wood_log(commands: &mut Commands, position: Vec2, wood: u32) -> Entity {
+pub fn spawn_wood_log(
+    commands: &mut Commands,
+    palette: &Palette,
+    position: Vec2,
+    wood: u32,
+) -> Entity {
     let mut inventory = ItemSlots::agent_carry();
     if wood > 0 {
         inventory.add(Concept::Wood, wood);
     }
 
     let log_size = Vec2::new(TILE_SIZE * 1.4, TILE_SIZE * 0.5);
-    let log_color = Color::srgb(0.4, 0.25, 0.1);
+    let log_color = palette.srgb(PaletteColor::SkinDeep);
 
     commands
         .spawn((
@@ -63,7 +69,7 @@ pub fn spawn_wood_log(commands: &mut Commands, position: Vec2, wood: u32) -> Ent
             // Shadow — dark ellipse underneath the log.
             parent.spawn((
                 Sprite {
-                    color: Color::srgba(0.0, 0.0, 0.0, 0.35),
+                    color: palette.srgba(PaletteColor::FurBlack, 0.35),
                     custom_size: Some(Vec2::new(log_size.x * 1.1, log_size.y * 0.5)),
                     ..default()
                 },
@@ -82,7 +88,7 @@ pub fn spawn_wood_log(commands: &mut Commands, position: Vec2, wood: u32) -> Ent
             if wood > 0 {
                 use rand::Rng;
                 let mut rng = rand::rng();
-                let piece_color = Color::srgb(0.55, 0.35, 0.15);
+                let piece_color = palette.srgb(PaletteColor::SkinDark);
                 let piece_size = Vec2::new(6.0, 4.0);
 
                 for _ in 0..wood.min(5) {
@@ -107,11 +113,12 @@ pub fn spawn_wood_log(commands: &mut Commands, position: Vec2, wood: u32) -> Ent
 /// Syncs the visual wood piece count with the inventory count.
 pub fn sync_wood_visuals(
     mut commands: Commands,
+    palette: Res<Palette>,
     log_query: Query<(Entity, &ItemSlots, &Children), (With<WoodLogMarker>, Changed<ItemSlots>)>,
     pieces_query: Query<Entity, With<VisualWoodPiece>>,
 ) {
     let log_size = Vec2::new(TILE_SIZE * 1.4, TILE_SIZE * 0.5);
-    let piece_color = Color::srgb(0.55, 0.35, 0.15);
+    let piece_color = palette.srgb(PaletteColor::SkinDark);
     let piece_size = Vec2::new(6.0, 4.0);
 
     for (log_entity, inventory, children) in log_query.iter() {
