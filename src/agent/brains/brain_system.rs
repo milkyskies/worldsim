@@ -270,11 +270,7 @@ pub fn arbitrate_every_tick(
         proposals.push(emotional_proposal);
         proposals.extend(rational_proposals.into_iter().map(Some));
 
-        // Drop proposals whose runtime gate would deterministically
-        // fail (no food in inventory, target tile in unreachable
-        // cache, partner already engaged). Hoist the unreachable-tile
-        // list once per agent and reuse the context shell so each
-        // proposal pays only the per-target update + per-gate check.
+        // Pre-filter proposals by runtime gates; reuse one ActionContext.
         let unreachable_tiles = super::planner::collect_unreachable_tiles(mind, tick.current);
         let mut action_ctx = crate::agent::actions::ActionContext {
             inventory,

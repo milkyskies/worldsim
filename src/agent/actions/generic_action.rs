@@ -352,17 +352,7 @@ fn check_gate(gate: &Gate, ctx: &ActionContext) -> Result<(), FailureReason> {
             };
             let v = world_pos_to_tile(pos);
             let tile = (v.x, v.y);
-            // Brain proposers pre-compute and pass the slice so the
-            // MindGraph isn't re-scanned per proposal. Runtime callers
-            // construct the context with an empty slice — fall back to a
-            // live query so the safety-net check still works there.
-            let hit = if ctx.unreachable_tiles.is_empty() {
-                crate::agent::brains::planner::collect_unreachable_tiles(ctx.mind, ctx.current_tick)
-                    .contains(&tile)
-            } else {
-                ctx.unreachable_tiles.contains(&tile)
-            };
-            if hit {
+            if ctx.unreachable_tiles.contains(&tile) {
                 Err(FailureReason::PathBlocked { target_tile: tile })
             } else {
                 Ok(())
@@ -779,6 +769,7 @@ mod tests {
         WorldMap::new(32, 32)
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn ctx<'a>(
         inventory: &'a ItemSlots,
         mind: &'a MindGraph,
@@ -786,6 +777,7 @@ mod tests {
         physical: &'a PhysicalNeeds,
         target_entity: Option<Entity>,
         target_position: Option<Vec2>,
+        unreachable_tiles: &'a [(i32, i32)],
     ) -> ActionContext<'a> {
         ActionContext {
             inventory,
@@ -798,7 +790,7 @@ mod tests {
             drives: None,
             emotional: None,
             current_tick: 0,
-            unreachable_tiles: &[],
+            unreachable_tiles,
         }
     }
 
@@ -808,7 +800,7 @@ mod tests {
         let mind = mind();
         let map = world_map();
         let physical = PhysicalNeeds::default();
-        let ctx = ctx(&inventory, &mind, &map, &physical, None, None);
+        let ctx = ctx(&inventory, &mind, &map, &physical, None, None, &[]);
         let eat = GenericAction::new(&EAT_DEF);
         assert!(
             !eat.is_feasible(&ctx),
@@ -823,7 +815,7 @@ mod tests {
         let mind = mind();
         let map = world_map();
         let physical = PhysicalNeeds::default();
-        let ctx = ctx(&inventory, &mind, &map, &physical, None, None);
+        let ctx = ctx(&inventory, &mind, &map, &physical, None, None, &[]);
         let eat = GenericAction::new(&EAT_DEF);
         assert!(
             eat.is_feasible(&ctx),
@@ -834,17 +826,20 @@ mod tests {
     #[test]
     fn walk_is_infeasible_to_unreachable_tile() {
         let inventory = ItemSlots::agent_carry();
-        let mut mind = mind();
-        mind.assert(Triple::with_meta(
-            Node::Tile((5, 5)),
-            Predicate::HasTrait,
-            Value::Concept(Concept::Unreachable),
-            Metadata::experience(0),
-        ));
+        let mind = mind();
         let map = world_map();
         let physical = PhysicalNeeds::default();
         let target_pos = Some(Vec2::new(5.0 * TILE_SIZE, 5.0 * TILE_SIZE));
-        let ctx = ctx(&inventory, &mind, &map, &physical, None, target_pos);
+        let unreachable = [(5, 5)];
+        let ctx = ctx(
+            &inventory,
+            &mind,
+            &map,
+            &physical,
+            None,
+            target_pos,
+            &unreachable,
+        );
         let walk = GenericAction::new(&WALK_DEF);
         assert!(
             !walk.is_feasible(&ctx),
@@ -859,7 +854,7 @@ mod tests {
         let map = world_map();
         let physical = PhysicalNeeds::default();
         let target_pos = Some(Vec2::new(5.0 * TILE_SIZE, 5.0 * TILE_SIZE));
-        let ctx = ctx(&inventory, &mind, &map, &physical, None, target_pos);
+        let ctx = ctx(&inventory, &mind, &map, &physical, None, target_pos, &[]);
         let walk = GenericAction::new(&WALK_DEF);
         assert!(
             walk.is_feasible(&ctx),
@@ -881,7 +876,7 @@ mod tests {
         ));
         let map = world_map();
         let physical = PhysicalNeeds::default();
-        let ctx = ctx(&inventory, &mind, &map, &physical, Some(target), None);
+        let ctx = ctx(&inventory, &mind, &map, &physical, Some(target), None, &[]);
         let initiate = GenericAction::new(&INITIATE_CONVERSATION_DEF);
         assert!(
             !initiate.is_feasible(&ctx),
@@ -896,7 +891,7 @@ mod tests {
         let map = world_map();
         let physical = PhysicalNeeds::default();
         let target = Entity::from_bits(11);
-        let ctx = ctx(&inventory, &mind, &map, &physical, Some(target), None);
+        let ctx = ctx(&inventory, &mind, &map, &physical, Some(target), None, &[]);
         let initiate = GenericAction::new(&INITIATE_CONVERSATION_DEF);
         assert!(
             initiate.is_feasible(&ctx),

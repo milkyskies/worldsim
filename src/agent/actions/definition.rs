@@ -188,13 +188,10 @@ pub enum Gate {
     /// `threshold`. Used by Share Food. Missing belief = 0.0 affection.
     /// Maps failure to [`FailureReason::Interrupted`].
     TargetAffectionAtLeast(f32),
-    /// `target_position`'s tile is NOT in the agent's MindGraph
-    /// `Unreachable` belief. Maps failure to
-    /// [`FailureReason::PathBlocked`] (carries the blocked tile).
+    /// Target tile is not in the agent's `Unreachable` belief.
     TileReachable,
-    /// Agent's MindGraph carries no `(target, EngagedWith, ?)` triple.
-    /// Failure-reason is parameterized so future kinds (Hunt joining
-    /// an existing chase) can map "target busy" to their own reason.
+    /// Target entity has no `(target, EngagedWith, ?)` triple in the
+    /// agent's MindGraph.
     TargetNotEngaged(FailureReason),
 }
 

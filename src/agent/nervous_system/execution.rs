@@ -95,6 +95,11 @@ pub fn start_actions(
         // Snapshot capacities once per agent so the channel methods don't
         // recompute incapacitation/exhaustion math per requirement check.
         let capacities = ChannelCapacities::compute(body, physical, consciousness, &mapping);
+        // Hoist the agent's unreachable-tile belief once per agent so
+        // `Gate::TileReachable` reads from the slice instead of
+        // re-querying MindGraph per starting action.
+        let unreachable_tiles =
+            crate::agent::brains::planner::collect_unreachable_tiles(mind, tick.current);
 
         for action_template in &brain_state.chosen_actions {
             let wanted_action = action_template.action_type;
@@ -137,7 +142,7 @@ pub fn start_actions(
                 drives,
                 emotional,
                 current_tick: tick.current,
-                unreachable_tiles: &[],
+                unreachable_tiles: &unreachable_tiles,
             };
 
             // Defense-in-depth satiation gate. Survival brain pre-filters
