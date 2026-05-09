@@ -130,11 +130,17 @@ pub fn arbitrate_every_tick(
     fields: Res<crate::world::field_grid_plugin::FieldGrids>,
     all_transforms: Query<(&Transform, Option<&crate::agent::inventory::EntityType>)>,
     all_bodies: Query<&Body>,
-    cornered_query: Query<&crate::agent::Cornered>,
-    dazed_query: Query<&crate::agent::Dazed>,
-    in_conversation_query: Query<(), With<crate::agent::mind::conversation::InConversation>>,
-    social_cooldowns_query: Query<&SocialInitiationCooldowns>,
+    // Bundled into one slot — Bevy's SystemParam tuple impl caps the
+    // function at 16 parameters and adding the InConversation /
+    // cooldowns queries individually would push us over.
+    side_queries: (
+        Query<&crate::agent::Cornered>,
+        Query<&crate::agent::Dazed>,
+        Query<(), With<crate::agent::mind::conversation::InConversation>>,
+        Query<&SocialInitiationCooldowns>,
+    ),
 ) {
+    let (cornered_query, dazed_query, in_conversation_query, social_cooldowns_query) = side_queries;
     let woken = pending.drain();
 
     for (
