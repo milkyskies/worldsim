@@ -26,38 +26,28 @@ use rand::Rng;
 #[reflect(Component)]
 pub struct Wolf;
 
-/// Canonical wolf silhouette. Genes/markings deform this later; injury
-/// overlays read the per-part `body_node` link.
+/// Canonical wolf silhouette - long lean body, level snout-shaped head,
+/// pointy alert ears, bushy tail. Lower-slung profile than a deer (wolves
+/// carry their head level with the body, not raised).
 pub fn wolf_silhouette() -> CreatureSilhouette {
     let fur = PaletteColor::FurGrey;
     let leg_fur = PaletteColor::FurSlate;
     let leg = |x: f32| SilhouettePart {
         body_node: None,
         shape: Shape::Capsule,
-        size: Vec2::new(2.5, 5.0),
-        offset: Vec2::new(x, -6.0),
+        size: Vec2::new(2.0, 5.5),
+        offset: Vec2::new(x, -5.5),
         rotation: 0.0,
         color: leg_fur,
         z_bias: 0,
         role: PartRole::Limb,
         tint_with_environment: false,
     };
-    let eye = SilhouettePart {
-        body_node: None,
-        shape: Shape::Circle,
-        size: Vec2::new(1.5, 1.5),
-        offset: Vec2::new(10.5, 2.5),
-        rotation: 0.0,
-        color: PaletteColor::FurBlack,
-        z_bias: 2,
-        role: PartRole::Eye,
-        tint_with_environment: false,
-    };
-    let ear = |x: f32| SilhouettePart {
+    let ear = |x: f32, y: f32| SilhouettePart {
         body_node: None,
         shape: Shape::Triangle,
-        size: Vec2::new(3.0, 4.0),
-        offset: Vec2::new(x, 6.0),
+        size: Vec2::new(2.5, 3.5),
+        offset: Vec2::new(x, y),
         rotation: 0.0,
         color: fur,
         z_bias: 2,
@@ -66,49 +56,89 @@ pub fn wolf_silhouette() -> CreatureSilhouette {
     };
     CreatureSilhouette {
         parts: vec![
+            // Torso - lean, lower-slung, longer than tall.
             SilhouettePart {
                 body_node: Some(BodyNodeKind::Torso),
                 shape: Shape::Ellipse,
-                size: Vec2::new(16.0, 9.0),
-                offset: Vec2::ZERO,
+                size: Vec2::new(15.0, 6.5),
+                offset: Vec2::new(0.0, -0.5),
                 rotation: 0.0,
                 color: fur,
                 z_bias: 0,
                 role: PartRole::Body,
                 tint_with_environment: false,
             },
+            // Scruff - short neck/shoulder hump connecting torso to head.
+            SilhouettePart {
+                body_node: None,
+                shape: Shape::Capsule,
+                size: Vec2::new(4.0, 4.0),
+                offset: Vec2::new(5.5, 1.5),
+                rotation: 0.0,
+                color: fur,
+                z_bias: 0,
+                role: PartRole::Body,
+                tint_with_environment: false,
+            },
+            // Head - elongated forward, wolf snout silhouette.
             SilhouettePart {
                 body_node: Some(BodyNodeKind::Head),
-                shape: Shape::Circle,
-                size: Vec2::new(8.0, 7.0),
-                offset: Vec2::new(9.0, 1.0),
+                shape: Shape::Ellipse,
+                size: Vec2::new(7.0, 4.5),
+                offset: Vec2::new(9.5, 3.0),
                 rotation: 0.0,
                 color: fur,
                 z_bias: 1,
                 role: PartRole::Body,
                 tint_with_environment: false,
             },
-            eye,
-            ear(7.0),
-            ear(10.0),
-            leg(-5.0),
-            leg(-2.0),
-            leg(2.0),
-            leg(5.0),
+            // Dark snout tip.
+            SilhouettePart {
+                body_node: None,
+                shape: Shape::Ellipse,
+                size: Vec2::new(2.5, 1.8),
+                offset: Vec2::new(12.5, 2.2),
+                rotation: 0.0,
+                color: PaletteColor::FurCharcoal,
+                z_bias: 2,
+                role: PartRole::Snout,
+                tint_with_environment: false,
+            },
+            // Cute eye, forward on the head.
+            SilhouettePart {
+                body_node: None,
+                shape: Shape::Circle,
+                size: Vec2::new(1.6, 1.6),
+                offset: Vec2::new(10.5, 3.7),
+                rotation: 0.0,
+                color: PaletteColor::FurBlack,
+                z_bias: 2,
+                role: PartRole::Eye,
+                tint_with_environment: false,
+            },
+            ear(7.5, 6.0),
+            ear(9.0, 6.5),
+            // Bushy tail - bigger than the old teardrop, dropped slightly low.
             SilhouettePart {
                 body_node: None,
                 shape: Shape::Teardrop,
-                size: Vec2::new(7.0, 3.0),
-                offset: Vec2::new(-10.0, 2.0),
+                size: Vec2::new(6.0, 4.0),
+                offset: Vec2::new(-9.5, 0.5),
                 rotation: 0.0,
                 color: fur,
                 z_bias: 0,
                 role: PartRole::Tail,
                 tint_with_environment: false,
             },
+            // Front leg pair (under shoulders, x positive = head side).
+            leg(3.5),
+            leg(5.0),
+            // Back leg pair (under hips, x negative = tail side).
+            leg(-5.0),
+            leg(-3.5),
         ],
-        shadow_size: Vec2::new(14.0, 5.0),
-        shadow_offset_y: -6.0,
+        shadow_size: Vec2::new(14.0, 4.5),
+        shadow_offset_y: -8.0,
         hop_phase: 0.0,
     }
 }
