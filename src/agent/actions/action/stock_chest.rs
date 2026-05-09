@@ -42,7 +42,11 @@ pub static STOCK_CHEST_DEF: ActionDefinition = ActionDefinition {
         predicate: Predicate::FoodSecurity,
         value: 100.0,
     }],
-    plan_consumes: &[Pattern::SelfContainsFood],
+    // TODO(#737): switch to the unbound-object consume variant once it
+    // exists. Today the planner can't subtract `SelfContainsFood` (object
+    // None + isa_filter), so we leave consumes empty — same workaround
+    // Eat uses. Food still disappears at runtime via `on_complete`.
+    plan_consumes: &[],
     target_effects: TargetEffects::Static,
     plan_validity: PlanValidity::Always,
     gates: &[
