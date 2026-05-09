@@ -224,6 +224,60 @@ pub mod actions {
         pub const RAW_REQUIRED: u32 = 1;
     }
 
+    pub mod fish {
+        /// Wait time at the water's edge before producing a Fish item.
+        /// Fishing is mostly waiting — long enough that an agent visibly
+        /// stays put, short enough that it's not boring.
+        pub const DURATION_TICKS: u32 = 240;
+    }
+
+    pub mod share_food {
+        pub const DURATION_TICKS: u32 = 15;
+        /// Lower bound on `(Self, Affection, target)` for Share Food to
+        /// fire — agents don't share with strangers or rivals.
+        pub const MIN_AFFECTION: f32 = 0.4;
+    }
+
+    pub mod tend_wounds {
+        pub const DURATION_TICKS: u32 = 60;
+    }
+
+    pub mod stand_watch {
+        /// Hours of the in-game day during which Stand Watch is valid:
+        /// `[NIGHT_START, 24) ∪ [0, NIGHT_END)`. 20:00–06:00 mirrors
+        /// rural human sentinel patterns.
+        pub const NIGHT_START_HOUR: u32 = 20;
+        pub const NIGHT_END_HOUR: u32 = 6;
+    }
+
+    pub mod dance {
+        pub const DURATION_TICKS: u32 = 90;
+        /// Mood threshold above which Dance becomes available. `current_mood`
+        /// is in `[-1.0, 1.0]`; > 0.7 is genuinely happy.
+        pub const MIN_MOOD: f32 = 0.7;
+        /// Companionship satisfaction threshold above which Dance fires —
+        /// you don't dance when you're lonely.
+        pub const MIN_COMPANIONSHIP: f32 = 0.6;
+    }
+
+    pub mod mourn {
+        pub const DURATION_TICKS: u32 = 240;
+        /// Window after a known agent's death within which Mourn applies.
+        /// Beyond this, grief shifts from acute mourning to background memory.
+        pub const RECENT_DEATH_WINDOW_TICKS: u64 = 86_400;
+    }
+
+    pub mod pickup {
+        /// Quick pickup of a ground item — short enough to feel snappy in
+        /// supply-chain hauling.
+        pub const DURATION_TICKS: u32 = 10;
+    }
+
+    pub mod wave {
+        /// Brief gestural greeting / pointing motion.
+        pub const DURATION_TICKS: u32 = 10;
+    }
+
     pub mod attack {
         pub const DURATION_TICKS: u32 = 30;
         pub const BASE_COST: f32 = 10.0;

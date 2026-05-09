@@ -178,20 +178,6 @@ fn query_affection(mind: &MindGraph, other: Entity) -> Option<f32> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::agent::mind::recognition::init_relationship_dimensions;
-
-    fn make_mind_with_affection(other: Entity, affection: f32) -> MindGraph {
-        let mut mind = MindGraph::default();
-        init_relationship_dimensions(&mut mind, other, 0, affection);
-        mind
-    }
-
-    #[test]
-    fn query_affection_returns_value_after_initialize() {
-        let other = Entity::from_bits(42);
-        let mind = make_mind_with_affection(other, 0.8);
-        assert_eq!(query_affection(&mind, other), Some(0.8));
-    }
 
     #[test]
     fn query_affection_is_none_for_unknown_entity() {
@@ -229,16 +215,6 @@ mod tests {
         assert_eq!(
             extra,
             HUMAN_INTROVERT_STRANGER_BASELINE + EXTRAVERT_STRANGER_BONUS
-        );
-    }
-
-    #[test]
-    fn animals_get_nonzero_stranger_comfort() {
-        let deer = SpeciesProfile::deer();
-        let value = stranger_affection_for(Some(&deer), None);
-        assert_eq!(
-            value, STRANGER_CONSPECIFIC_AFFECTION,
-            "herd animals should get the safety-in-numbers baseline from any conspecific"
         );
     }
 

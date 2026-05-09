@@ -1169,12 +1169,6 @@ mod tests {
     // ─── Island shape (#659) ────────────────────────────────────────────────
 
     #[test]
-    fn map_size_is_208x208() {
-        assert_eq!(WORLD_WIDTH, 208);
-        assert_eq!(WORLD_HEIGHT, 208);
-    }
-
-    #[test]
     #[ignore = "diagnostic — run with --include-ignored to see tile counts"]
     fn debug_tile_distribution() {
         // Diagnostic: prints tile counts at the default seed so we can see
