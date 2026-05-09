@@ -9,6 +9,9 @@ pub struct MapPlugin;
 
 impl Plugin for MapPlugin {
     fn build(&self, app: &mut App) {
+        if !app.is_plugin_added::<crate::palette::PalettePlugin>() {
+            app.add_plugins(crate::palette::PalettePlugin);
+        }
         app.register_type::<TileMap>()
             .register_type::<Tile>()
             .register_type::<TileType>()
