@@ -42,11 +42,11 @@ pub fn wolf_silhouette() -> CreatureSilhouette {
         role: PartRole::Limb,
         tint_with_environment: false,
     };
-    let eye = |x: f32, y: f32| SilhouettePart {
+    let eye = SilhouettePart {
         body_node: None,
         shape: Shape::Circle,
         size: Vec2::new(1.5, 1.5),
-        offset: Vec2::new(x, y),
+        offset: Vec2::new(10.5, 2.5),
         rotation: 0.0,
         color: PaletteColor::FurBlack,
         z_bias: 2,
@@ -88,8 +88,7 @@ pub fn wolf_silhouette() -> CreatureSilhouette {
                 role: PartRole::Body,
                 tint_with_environment: false,
             },
-            eye(7.5, 2.5),
-            eye(10.0, 2.5),
+            eye,
             ear(7.0),
             ear(10.0),
             leg(-5.0),

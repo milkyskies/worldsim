@@ -27,11 +27,11 @@ pub struct Deer;
 pub fn deer_silhouette() -> CreatureSilhouette {
     let fur = PaletteColor::SkinDark;
     let leg_fur = PaletteColor::SkinDeep;
-    let eye = |x: f32, y: f32| SilhouettePart {
+    let eye = SilhouettePart {
         body_node: None,
         shape: Shape::Circle,
         size: Vec2::new(1.2, 1.2),
-        offset: Vec2::new(x, y),
+        offset: Vec2::new(9.5, 3.0),
         rotation: 0.0,
         color: PaletteColor::FurBlack,
         z_bias: 2,
@@ -73,8 +73,7 @@ pub fn deer_silhouette() -> CreatureSilhouette {
                 role: PartRole::Body,
                 tint_with_environment: false,
             },
-            eye(7.0, 3.0),
-            eye(9.0, 3.0),
+            eye,
             leg(-4.0),
             leg(-1.0),
             leg(2.0),

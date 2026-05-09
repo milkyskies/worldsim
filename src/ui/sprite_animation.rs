@@ -188,11 +188,25 @@ fn bounce_frame(cycle: f32, height: f32) -> (f32, f32, f32) {
 }
 
 /// Per-entity movement tracking.
-#[derive(Default)]
 struct MoveTracker {
     prev_pos: Option<Vec2>,
     /// Last wall-clock time the root position changed.
     last_moved_at: f32,
+    /// +1 facing right (default), -1 facing left. Updated whenever the
+    /// agent's horizontal movement crosses a small deadband, sticky
+    /// otherwise so a stationary creature keeps the direction it last
+    /// faced instead of snapping back to the default.
+    facing: f32,
+}
+
+impl Default for MoveTracker {
+    fn default() -> Self {
+        Self {
+            prev_pos: None,
+            last_moved_at: 0.0,
+            facing: 1.0,
+        }
+    }
 }
 
 fn animate_sprite_bodies(
@@ -227,7 +241,12 @@ fn animate_sprite_bodies(
         if root_pos.distance(prev) > 0.01 {
             tracker.last_moved_at = t;
         }
+        let dx = root_pos.x - prev.x;
+        if dx.abs() > 0.05 {
+            tracker.facing = if dx >= 0.0 { 1.0 } else { -1.0 };
+        }
         tracker.prev_pos = Some(root_pos);
+        let facing = tracker.facing;
 
         // Consider "moving" if position changed within the last 0.2 seconds
         let is_moving = (t - tracker.last_moved_at) < 0.2;
@@ -259,7 +278,7 @@ fn animate_sprite_bodies(
 
         if let Ok(mut bt) = transforms.get_mut(body_entity) {
             bt.translation.y = total_y_offset;
-            bt.scale = Vec3::new(x_scale, y_scale, 1.0);
+            bt.scale = Vec3::new(x_scale * facing, y_scale, 1.0);
         }
 
         if let Ok(mut offset) = visual_offsets.get_mut(body.root) {
