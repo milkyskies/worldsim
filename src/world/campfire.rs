@@ -105,7 +105,7 @@ pub fn spawn_campfire(commands: &mut Commands, palette: &Palette, position: Vec2
             // Shadow — dark ellipse underneath the fire.
             parent.spawn((
                 Sprite {
-                    color: palette.srgba(PaletteColor::FurBlack, 0.35),
+                    color: palette.shadow(),
                     custom_size: Some(Vec2::new(fire_size.x * 1.2, fire_size.y * 0.35)),
                     ..default()
                 },

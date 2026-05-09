@@ -68,7 +68,7 @@ pub fn spawn_person<R: Rng>(
         parent.spawn((
             crate::ui::sprite_animation::GroundShadow::new(entity, Vec2::new(0.0, -8.0)),
             Sprite {
-                color: palette.srgba(PaletteColor::FurBlack, 0.35),
+                color: palette.shadow(),
                 custom_size: Some(Vec2::new(10.0, 4.0)),
                 ..default()
             },

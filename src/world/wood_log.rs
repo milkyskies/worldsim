@@ -69,7 +69,7 @@ pub fn spawn_wood_log(
             // Shadow — dark ellipse underneath the log.
             parent.spawn((
                 Sprite {
-                    color: palette.srgba(PaletteColor::FurBlack, 0.35),
+                    color: palette.shadow(),
                     custom_size: Some(Vec2::new(log_size.x * 1.1, log_size.y * 0.5)),
                     ..default()
                 },

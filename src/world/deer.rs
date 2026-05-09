@@ -95,7 +95,7 @@ pub fn spawn_deer<R: Rng>(
         parent.spawn((
             crate::ui::sprite_animation::GroundShadow::new(entity, Vec2::new(0.0, -6.0)),
             Sprite {
-                color: palette.srgba(PaletteColor::FurBlack, 0.35),
+                color: palette.shadow(),
                 custom_size: Some(Vec2::new(14.0, 5.0)),
                 ..default()
             },

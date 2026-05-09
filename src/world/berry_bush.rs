@@ -71,7 +71,7 @@ pub fn spawn_berry_bush(
             // Shadow — dark ellipse underneath the bush.
             parent.spawn((
                 Sprite {
-                    color: palette.srgba(PaletteColor::FurBlack, 0.35),
+                    color: palette.shadow(),
                     custom_size: Some(Vec2::new(bush_size.x * 1.1, bush_size.y * 0.35)),
                     ..default()
                 },

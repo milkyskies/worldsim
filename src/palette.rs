@@ -60,6 +60,12 @@ impl Palette {
         Color::srgba(r, g, b, alpha)
     }
 
+    /// Standard ground shadow under entities. Centralized so every spawn
+    /// fn drops the same visual instead of each one hand-rolling FurBlack at 0.35.
+    pub fn shadow(&self) -> Color {
+        self.srgba(PaletteColor::FurBlack, 0.35)
+    }
+
     fn lookup(&self, slot: PaletteColor) -> (f32, f32, f32) {
         *self.colors.get(&slot).unwrap_or_else(|| {
             panic!(

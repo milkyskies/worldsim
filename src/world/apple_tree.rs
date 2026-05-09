@@ -81,7 +81,7 @@ pub fn spawn_apple_tree(
             // 0. SHADOW — dark ellipse at the base of the trunk.
             parent.spawn((
                 Sprite {
-                    color: palette.srgba(PaletteColor::FurBlack, 0.35),
+                    color: palette.shadow(),
                     custom_size: Some(Vec2::new(TILE_SIZE * 1.4, TILE_SIZE * 0.35)),
                     ..default()
                 },
