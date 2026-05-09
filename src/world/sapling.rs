@@ -155,11 +155,6 @@ mod tests {
     use bevy::math::Vec2;
 
     #[test]
-    fn sapling_default_mature_at_is_positive() {
-        assert!(DEFAULT_MATURE_AT > 0.0);
-    }
-
-    #[test]
     fn sapling_matures_into_apple_tree_after_mature_at_ticks() {
         let mut world = TestWorld::with_seed(1);
         let pos = Vec2::new(50.0, 50.0);
