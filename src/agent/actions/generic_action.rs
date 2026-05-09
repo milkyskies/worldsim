@@ -277,7 +277,95 @@ fn check_gate(gate: &Gate, ctx: &ActionContext) -> Result<(), FailureReason> {
                 Err(FailureReason::NoEdibleFood)
             }
         }
+        Gate::Nighttime {
+            start_hour,
+            end_hour,
+        } => {
+            if is_nighttime(ctx.current_tick, *start_hour, *end_hour) {
+                Ok(())
+            } else {
+                Err(FailureReason::Interrupted)
+            }
+        }
+        Gate::MoodAtLeast(threshold) => {
+            let mood = ctx.emotional.map(|e| e.current_mood).unwrap_or(0.0);
+            if mood >= *threshold {
+                Ok(())
+            } else {
+                Err(FailureReason::Interrupted)
+            }
+        }
+        Gate::CompanionshipAtLeast(threshold) => {
+            let level = ctx.drives.map(|d| d.companionship.value).unwrap_or(0.0);
+            if level >= *threshold {
+                Ok(())
+            } else {
+                Err(FailureReason::Interrupted)
+            }
+        }
+        Gate::TargetIsInjured => {
+            let Some(target) = ctx.target_entity else {
+                return Err(FailureReason::NoTarget);
+            };
+            if ctx.mind.has_trait(&Node::Entity(target), Concept::Lame) {
+                Ok(())
+            } else {
+                Err(FailureReason::TargetGone)
+            }
+        }
+        Gate::KnowsRecentDeath => {
+            if knows_any_death(ctx.mind) {
+                Ok(())
+            } else {
+                Err(FailureReason::Interrupted)
+            }
+        }
+        Gate::TargetAffectionAtLeast(threshold) => {
+            let Some(target) = ctx.target_entity else {
+                return Err(FailureReason::NoTarget);
+            };
+            let affection = ctx
+                .mind
+                .get(&Node::Entity(target), Predicate::Affection)
+                .and_then(|v| match v {
+                    Value::Quantity(Quantity::Exact(f)) => Some(*f),
+                    _ => None,
+                })
+                .unwrap_or(0.0);
+            if affection >= *threshold {
+                Ok(())
+            } else {
+                Err(FailureReason::Interrupted)
+            }
+        }
     }
+}
+
+/// Hour-of-day predicate over the cyclic `[start, end)` window across midnight.
+/// Inputs in 0..=23.
+fn is_nighttime(tick: u64, start_hour: u32, end_hour: u32) -> bool {
+    use crate::core::time::GameTime;
+    let total_ticks = tick + GameTime::INITIAL_TICK_OFFSET;
+    let total_hours = total_ticks / GameTime::TICKS_PER_HOUR;
+    let hour = (total_hours % GameTime::HOURS_PER_DAY) as u32;
+    if start_hour < end_hour {
+        (start_hour..end_hour).contains(&hour)
+    } else {
+        hour >= start_hour || hour < end_hour
+    }
+}
+
+/// True when the agent's MindGraph carries any
+/// `(?event, Action, Death)` triple — a recent death the belief updater
+/// has translated from a `SimEvent::Death` into the agent's episodic memory.
+fn knows_any_death(mind: &MindGraph) -> bool {
+    !mind
+        .query(
+            None,
+            Some(Predicate::Action),
+            Some(&Value::Concept(Concept::Death)),
+        )
+        .is_empty()
 }
 
 /// Runtime check mirroring the planner's `(Self, Near, HeatEmitting)`

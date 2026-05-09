@@ -61,9 +61,13 @@ pub fn start_actions(
         &BrainState,
         &MindGraph,
         &ItemSlots,
-        Option<&Body>,
-        Option<&PhysicalNeeds>,
-        Option<&Consciousness>,
+        (
+            Option<&Body>,
+            Option<&PhysicalNeeds>,
+            Option<&crate::agent::body::needs::PsychologicalDrives>,
+            Option<&crate::agent::psyche::emotions::EmotionalState>,
+            Option<&Consciousness>,
+        ),
         Option<&PlanMemory>,
         Option<&VisibleObjects>,
         Option<&crate::agent::FleeMomentum>,
@@ -82,9 +86,7 @@ pub fn start_actions(
         brain_state,
         mind,
         inventory,
-        body,
-        physical,
-        consciousness,
+        (body, physical, drives, emotional, consciousness),
         plan_memory,
         visible,
         flee_momentum,
@@ -132,6 +134,9 @@ pub fn start_actions(
                 target_position: action_template.target_position,
                 agent_position: transform.translation.truncate(),
                 physical,
+                drives,
+                emotional,
+                current_tick: tick.current,
             };
 
             // Defense-in-depth satiation gate. Survival brain pre-filters

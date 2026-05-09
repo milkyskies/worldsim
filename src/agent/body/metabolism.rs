@@ -200,6 +200,9 @@ pub fn food_macros(concept: Concept) -> Option<FoodMacros> {
         // Cooked meat: ~1.5x raw — cooking releases nutrients raw flesh
         // hides, so the same mass yields more usable energy.
         Concept::CookedMeat => Some(FoodMacros::new(0.0, 60.0)),
+        // Fish: lean protein — modest fat, near-zero carbs. A reliable pull
+        // from riverside camps.
+        Concept::Fish => Some(FoodMacros::new(0.0, 25.0)),
         _ => None,
     }
 }

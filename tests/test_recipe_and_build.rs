@@ -216,6 +216,9 @@ fn build_action_consumes_wood() {
         target_position: None,
         agent_position: Vec2::ZERO,
         physical: None,
+        drives: None,
+        emotional: None,
+        current_tick: 0,
     };
 
     assert!(
@@ -283,6 +286,9 @@ fn build_fails_without_materials() {
         target_position: None,
         agent_position: Vec2::ZERO,
         physical: None,
+        drives: None,
+        emotional: None,
+        current_tick: 0,
     };
 
     assert!(
