@@ -1,6 +1,6 @@
 //! InitiateConversation action — walk to a partner to start a conversation.
 //!
-//! Proposed by brains, owned by [`CommunicationPlugin`](crate::agent::communication::CommunicationPlugin).
+//! Proposed by brains, owned by [`ConversePlugin`](crate::agent::engagement::converse::ConversePlugin).
 //! The action itself contains no on-completion logic — it's a Movement marker
 //! that walks the agent toward their partner. A dedicated plugin polling
 //! system swaps InitiateConversation → Converse on arrival at CONVERSATION_RANGE.
@@ -17,7 +17,7 @@ const CHANNELS: &[ChannelUsage] = &[ChannelUsage::new(Channel::Locomotion, 1.0)]
 
 pub static INITIATE_CONVERSATION_DEF: ActionDefinition = ActionDefinition {
     action_type: ActionType::InitiateConversation,
-    // Movement: walk to the partner. The CommunicationPlugin intercepts
+    // Movement: walk to the partner. The ConversePlugin intercepts
     // arrival at CONVERSATION_RANGE before the standard arrival check fires.
     kind: ActionKind::Movement,
     // Implicit: proposed by the emotional brain, not enumerated by the

@@ -1,6 +1,6 @@
 //! Headless simulation runner: spins up a TestWorld, populates it, runs N ticks at max speed, and emits a JSON report.
 //!
-//! Reads: testing::TestWorld, agent components (PhysicalNeeds, EmotionalState, Body, ConversationManager), DecisionTraceBuffer
+//! Reads: testing::TestWorld, agent components (PhysicalNeeds, EmotionalState, Body, ConverseRegistry), DecisionTraceBuffer
 //! Writes: HeadlessReport (serializable summary), spawn entities via TestWorld, trace output to stderr/file
 //! Upstream: cli (CliArgs), main (binary entry point)
 //! Downstream: stdout (JSON report), statistical tests, regression baselines, trace output
@@ -13,7 +13,7 @@ use serde::Serialize;
 use crate::agent::biology::body::Body;
 use crate::agent::body::needs::{Consciousness, PhysicalNeeds};
 use crate::agent::brains::trace::{DecisionTraceBuffer, TraceConfig, dump_trace};
-use crate::agent::mind::conversation::ConversationManager;
+use crate::agent::engagement::converse::ConverseRegistry;
 use crate::agent::psyche::emotions::{EmotionType, EmotionalState};
 use crate::core::{
     EventLogBuffer, EventLogConfig, FieldLoggerBuffer, FieldLoggerConfig, PerfPlugin, PerfSnapshot,
@@ -501,9 +501,9 @@ fn collect_agent_stats(world: &TestWorld, agents: &[Entity], spawned: u64) -> Ag
 }
 
 fn collect_conversation_stats(world: &TestWorld) -> ConversationStats {
-    let manager = world.app().world().resource::<ConversationManager>();
+    let manager = world.app().world().resource::<ConverseRegistry>();
     let total = manager.conversations.len() as u64;
-    let active = manager.active_conversations().count() as u64;
+    let active = manager.active().count() as u64;
     let ended = total - active;
     let total_turns: u64 = manager
         .conversations

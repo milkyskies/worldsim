@@ -224,15 +224,15 @@ const SHARED_EXPERIENCE_MIN_SALIENCE: f32 = 0.5;
 /// triples about that entity and record in their ToM that the partner
 /// probably knows about it too.
 pub fn update_shared_experience_tom(
-    manager: Res<crate::agent::mind::conversation::ConversationManager>,
+    registry: Res<crate::agent::engagement::converse::ConverseRegistry>,
     visible_query: Query<&super::perception::VisibleObjects>,
     minds: Query<&super::knowledge::MindGraph>,
     mut toms: Query<&mut TheoryOfMind>,
     tick: Res<crate::core::tick::TickCount>,
     mut sim_events: MessageWriter<crate::agent::events::SimEvent>,
 ) {
-    for conv in manager.conversations.values() {
-        if conv.state == crate::agent::mind::conversation::ConversationState::Ended {
+    for conv in registry.conversations.values() {
+        if conv.state == crate::agent::engagement::converse::ConversationState::Ended {
             continue;
         }
         if conv.participants.len() < 2 {

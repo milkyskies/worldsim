@@ -15,8 +15,9 @@ use crate::agent::actions::{ActionRegistry, ActionType, ActiveActions};
 use crate::agent::biology::body::Body;
 use crate::agent::body::needs::{Consciousness, PhysicalNeeds, PsychologicalDrives};
 use crate::agent::brains::proposal::BrainState;
+use crate::agent::engagement::Engaged;
+use crate::agent::engagement::converse::ConverseRegistry;
 use crate::agent::events::{SimEvent, SimEventKind};
-use crate::agent::mind::conversation::{ConversationManager, InConversation};
 use crate::agent::mind::knowledge::{
     Concept, MindGraph, Node as MindNode, Ontology, Predicate, Value, setup_ontology,
 };
@@ -187,71 +188,62 @@ fn format_sim_event(event: &SimEvent) -> String {
         SimEvent {
             tick,
             kind:
-                SimEventKind::ConversationStarted {
+                SimEventKind::EngagementStarted {
+                    kind,
+                    engagement_id,
                     participants,
-                    conversation_id,
-                    ..
                 },
             ..
         } => {
             format!(
-                "[t{tick}] ConversationStarted  id={conversation_id} participants={participants:?}"
+                "[t{tick}] EngagementStarted    kind={kind:?} id={engagement_id:?} participants={participants:?}"
             )
         }
 
         SimEvent {
             tick,
             kind:
-                SimEventKind::ConversationEnded {
+                SimEventKind::EngagementEnded {
+                    kind,
+                    engagement_id,
                     participants,
-                    conversation_id,
-                    ..
+                    reason,
                 },
             ..
         } => {
             format!(
-                "[t{tick}] ConversationEnded    id={conversation_id} participants={participants:?}"
+                "[t{tick}] EngagementEnded      kind={kind:?} id={engagement_id:?} reason={reason:?} participants={participants:?}"
             )
         }
 
         SimEvent {
             tick,
             kind:
-                SimEventKind::ConversationJoined {
+                SimEventKind::EngagementJoined {
+                    kind,
+                    engagement_id,
                     joiner,
-                    conversation_id,
-                    ..
-                },
-            ..
-        } => {
-            format!("[t{tick}] ConversationJoined   id={conversation_id} joiner={joiner:?}")
-        }
-
-        SimEvent {
-            tick,
-            kind:
-                SimEventKind::ConversationLeft {
-                    leaver,
-                    conversation_id,
-                    ..
-                },
-            ..
-        } => {
-            format!("[t{tick}] ConversationLeft     id={conversation_id} leaver={leaver:?}")
-        }
-
-        SimEvent {
-            tick,
-            kind:
-                SimEventKind::ConversationAbandoned {
-                    abandoner,
-                    abandoned,
-                    ..
                 },
             ..
         } => {
             format!(
-                "[t{tick}] ConversationAbandoned abandoner={abandoner:?} abandoned={abandoned:?}"
+                "[t{tick}] EngagementJoined     kind={kind:?} id={engagement_id:?} joiner={joiner:?}"
+            )
+        }
+
+        SimEvent {
+            tick,
+            kind:
+                SimEventKind::EngagementBeat {
+                    kind,
+                    engagement_id,
+                    agent,
+                    payload,
+                },
+            ..
+        } => {
+            format!(
+                "[t{tick}] EngagementBeat       kind={kind:?} id={engagement_id:?} agent={agent:?} payload={payload:?}"
             )
         }
 
@@ -1376,7 +1368,7 @@ impl TestWorld {
     pub fn in_conversation(&self, agent: Entity) -> bool {
         self.app
             .world()
-            .get::<crate::agent::mind::conversation::InConversation>(agent)
+            .get::<crate::agent::engagement::Engaged>(agent)
             .is_some()
     }
 
@@ -1384,8 +1376,8 @@ impl TestWorld {
     pub fn active_conversation_count(&self) -> usize {
         self.app
             .world()
-            .resource::<crate::agent::mind::conversation::ConversationManager>()
-            .active_conversations()
+            .resource::<crate::agent::engagement::converse::ConverseRegistry>()
+            .active()
             .count()
     }
 
@@ -2035,25 +2027,25 @@ impl TestWorld {
         print_section_footer();
     }
 
-    /// Print the current conversation state for `agent` to stderr (if any).
-    pub fn print_conversation(&self, agent: Entity) {
+    /// Print the current engagement state for `agent` to stderr (if any).
+    pub fn print_engagement(&self, agent: Entity) {
         let world = self.app.world();
         let tick = world.resource::<TickCount>().current;
         let name = entity_name(world, agent);
-        print_section_header("Conversation", &name, agent, tick);
+        print_section_header("Engagement", &name, agent, tick);
 
-        let in_conv = world.get::<InConversation>(agent);
-        let manager = world.resource::<ConversationManager>();
+        let engaged = world.get::<Engaged>(agent);
+        let registry = world.resource::<ConverseRegistry>();
 
-        let Some(in_conv) = in_conv else {
-            eprintln!("  (agent is not currently in a conversation)");
+        let Some(engaged) = engaged else {
+            eprintln!("  (agent is not currently engaged)");
             print_section_footer();
             return;
         };
 
-        let others: Vec<String> = manager
+        let others: Vec<String> = registry
             .conversations
-            .get(&in_conv.conversation_id)
+            .get(&engaged.id)
             .map(|conv| {
                 conv.participants
                     .iter()
@@ -2064,12 +2056,13 @@ impl TestWorld {
             .unwrap_or_default();
 
         eprintln!(
-            "  conversation_id={}  others=[{}]",
-            in_conv.conversation_id,
+            "  engagement_id={:?} kind={:?} others=[{}]",
+            engaged.id,
+            engaged.kind,
             others.join(", ")
         );
 
-        if let Some(conv) = manager.conversations.get(&in_conv.conversation_id) {
+        if let Some(conv) = registry.conversations.get(&engaged.id) {
             eprintln!(
                 "  State: {:?}  started=t{}  last_turn=t{}  turn_index={}  turns={}",
                 conv.state,
@@ -2700,10 +2693,10 @@ mod tests {
     }
 
     #[test]
-    fn print_conversation_does_not_panic_when_not_in_conversation() {
+    fn print_engagement_does_not_panic_when_not_in_conversation() {
         let mut world = TestWorld::with_seed(42);
         let agent = world.spawn_agent(AgentConfig::default());
-        world.print_conversation(agent);
+        world.print_engagement(agent);
     }
 
     #[test]

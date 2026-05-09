@@ -281,6 +281,11 @@ pub enum Predicate {
     // ─── Social ───
     Relationship, // (Self, Relationship, Bob) → Attitude(0.7)
     TrustsFor,    // (Bob, TrustsFor, FoodKnowledge)
+    /// (Entity, EngagedWith, Entity) — observer sees `subject` is currently
+    /// engaged with `object` (e.g. mid-conversation). Written by
+    /// `engagement::perception::perceive_engagements` for every visible
+    /// engaged peer.
+    EngagedWith,
 
     // ─── Commitment ───
     Committed, // (Self, Committed, Concept) - "I've promised to pursue this"

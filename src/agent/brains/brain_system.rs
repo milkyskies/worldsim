@@ -106,7 +106,7 @@ pub fn arbitrate_every_tick(
                 &VisibleObjects,
                 &crate::agent::mind::knowledge::MindGraph,
                 &crate::agent::actions::ActiveActions,
-                Option<&crate::agent::mind::conversation::InConversation>,
+                Option<&crate::agent::engagement::Engaged>,
                 Option<&crate::agent::inventory::EntityType>,
             ),
         ),
@@ -131,16 +131,16 @@ pub fn arbitrate_every_tick(
     all_transforms: Query<(&Transform, Option<&crate::agent::inventory::EntityType>)>,
     all_bodies: Query<&Body>,
     // Bundled into one slot — Bevy's SystemParam tuple impl caps the
-    // function at 16 parameters and adding the InConversation /
-    // cooldowns queries individually would push us over.
+    // function at 16 parameters and adding the Engaged / cooldowns
+    // queries individually would push us over.
     side_queries: (
         Query<&crate::agent::Cornered>,
         Query<&crate::agent::Dazed>,
-        Query<(), With<crate::agent::mind::conversation::InConversation>>,
+        Query<&crate::agent::engagement::Engaged>,
         Query<&SocialInitiationCooldowns>,
     ),
 ) {
-    let (cornered_query, dazed_query, in_conversation_query, social_cooldowns_query) = side_queries;
+    let (cornered_query, dazed_query, engaged_query, social_cooldowns_query) = side_queries;
     let woken = pending.drain();
 
     for (
@@ -150,7 +150,7 @@ pub fn arbitrate_every_tick(
         (mut plan_memory, cns),
         (physical, consciousness, drives),
         (emotions, body, personality, inventory),
-        (transform, visible, mind, active_actions, in_conversation, self_entity_type),
+        (transform, visible, mind, active_actions, engaged, self_entity_type),
     ) in query.iter_mut()
     {
         // Skip agents whose situation didn't change this tick — their
@@ -191,17 +191,22 @@ pub fn arbitrate_every_tick(
         );
 
         // Pre-resolve visible-entity positions, concept types, and
-        // InConversation status in one pass over the Query, parallel-
+        // Engaged status in one pass over the Query, parallel-
         // indexed so brain proposers can iterate them together without
         // re-querying ECS or the MindGraph ontology per visible entity.
         let mut visible_positions: Vec<(Entity, Vec2)> = Vec::with_capacity(visible.entities.len());
         let mut visible_types: Vec<Option<Concept>> = Vec::with_capacity(visible.entities.len());
-        let mut visible_in_conversation: Vec<bool> = Vec::with_capacity(visible.entities.len());
+        let mut visible_engaged_converse: Vec<bool> = Vec::with_capacity(visible.entities.len());
         for &e in &visible.entities {
             if let Ok((t, et)) = all_transforms.get(e) {
                 visible_positions.push((e, t.translation.truncate()));
                 visible_types.push(et.map(|et| et.0));
-                visible_in_conversation.push(in_conversation_query.contains(e));
+                visible_engaged_converse.push(
+                    engaged_query
+                        .get(e)
+                        .map(|eng| eng.kind == crate::agent::engagement::EngagementKind::Converse)
+                        .unwrap_or(false),
+                );
             }
         }
 
@@ -227,7 +232,7 @@ pub fn arbitrate_every_tick(
             visible_types: &visible_types,
             physical,
             drives,
-            in_conversation,
+            engaged,
             self_concept: self_entity_type.map(|t| t.0),
             agent_pos,
             fields: &fields,
@@ -237,7 +242,7 @@ pub fn arbitrate_every_tick(
             body,
             cornered,
             closest_threat,
-            visible_in_conversation: &visible_in_conversation,
+            visible_engaged_converse: &visible_engaged_converse,
             social_cooldowns,
             current_tick: tick.current,
         };

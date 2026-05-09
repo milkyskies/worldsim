@@ -7,8 +7,10 @@
 
 use super::actions::ActionType;
 use super::brains::proposal::{BrainPowers, BrainProposal, BrainType};
+use super::engagement::{EngagementEndReason, EngagementId, EngagementKind};
 use super::nervous_system::urgency::Urgency;
 use super::psyche::emotions::EmotionType;
+use crate::agent::engagement::converse::{Intent as ConverseIntent, Topic as ConverseTopic};
 use crate::agent::mind::knowledge::Concept;
 use bevy::prelude::*;
 use std::sync::Arc;
@@ -21,6 +23,21 @@ pub enum ConversationTopic {
     Feelings,  // Express emotions
     Gossip,    // Share beliefs about other agents
     Request,   // Ask for something
+}
+
+/// Per-kind payload for [`SimEventKind::EngagementBeat`]. Each kind owns
+/// its own variant with the data observers want from a single beat.
+#[derive(Debug, Clone, Reflect, serde::Serialize)]
+pub enum EngagementBeatPayload {
+    Converse {
+        #[serde(serialize_with = "crate::core::entity_serde::serialize_entity")]
+        speaker: Entity,
+        intent: ConverseIntent,
+        #[serde(skip)]
+        topic: ConverseTopic,
+        content_count: usize,
+        expects_response: bool,
+    },
 }
 
 #[derive(Event, Message, Debug, Clone, Reflect)]
@@ -278,43 +295,43 @@ pub enum SimEventKind {
         reason: crate::agent::brains::plan_memory::PlanAbandonReason,
     },
 
-    /// A conversation was started between participants.
-    ConversationStarted {
+    /// An engagement was started between participants. Generic over
+    /// kind — the first kind is `EngagementKind::Converse`; future
+    /// kinds (Hunt, Tend, Court, …) reuse the same variant.
+    EngagementStarted {
+        kind: EngagementKind,
+        engagement_id: EngagementId,
         #[serde(serialize_with = "crate::core::entity_serde::serialize_entity_vec")]
         participants: Vec<Entity>,
-        conversation_id: u64,
     },
 
-    /// A conversation ended.
-    ConversationEnded {
+    /// An engagement ended. Reason distinguishes natural close,
+    /// staleness, OOR, abandonment, and emotion-driven break.
+    EngagementEnded {
+        kind: EngagementKind,
+        engagement_id: EngagementId,
         #[serde(serialize_with = "crate::core::entity_serde::serialize_entity_vec")]
         participants: Vec<Entity>,
-        conversation_id: u64,
+        reason: EngagementEndReason,
     },
 
-    /// A new agent joined an existing conversation as an additional
-    /// participant (group grew from N to N+1).
-    ConversationJoined {
+    /// A new agent joined an existing engagement as an additional
+    /// participant.
+    EngagementJoined {
+        kind: EngagementKind,
+        engagement_id: EngagementId,
         #[serde(serialize_with = "crate::core::entity_serde::serialize_entity")]
         joiner: Entity,
-        conversation_id: u64,
     },
 
-    /// A single agent left a multi-agent conversation gracefully while
-    /// the rest kept talking. Distinct from `ConversationEnded` (whole
-    /// group broke up) and `ConversationAbandoned` (leaver ditched rudely).
-    ConversationLeft {
+    /// One inner-loop beat of an engagement (one conversation turn,
+    /// one hunt strike, etc). Payload is kind-specific.
+    EngagementBeat {
+        kind: EngagementKind,
+        engagement_id: EngagementId,
         #[serde(serialize_with = "crate::core::entity_serde::serialize_entity")]
-        leaver: Entity,
-        conversation_id: u64,
-    },
-
-    /// A conversation was abandoned rudely (no farewell).
-    ConversationAbandoned {
-        #[serde(serialize_with = "crate::core::entity_serde::serialize_entity")]
-        abandoner: Entity,
-        #[serde(serialize_with = "crate::core::entity_serde::serialize_entity")]
-        abandoned: Entity,
+        agent: Entity,
+        payload: EngagementBeatPayload,
     },
 
     /// A relationship dimension changed between two agents.

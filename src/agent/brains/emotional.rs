@@ -1,12 +1,12 @@
 //! Emotional brain: association-driven behavior based on feelings.
 //!
-//! Reads: EmotionalState, MindGraph, VisibleObjects, PsychologicalDrives, InConversation
+//! Reads: EmotionalState, MindGraph, VisibleObjects, PsychologicalDrives, Engaged
 //! Writes: BrainProposal
 //! Upstream: perception (VisibleObjects), psyche (EmotionalState)
 //! Downstream: brains::proposal (winner selection)
 //!
 //! Conversation continuation and turn-taking are handled by the
-//! [`CommunicationPlugin`](crate::agent::communication::CommunicationPlugin).
+//! [`ConversePlugin`](crate::agent::engagement::converse::ConversePlugin).
 //! The emotional brain only proposes the *initiation* of conversations
 //! (`ActionType::InitiateConversation`); once registered, the plugin owns the
 //! lifecycle.
@@ -16,7 +16,7 @@ use super::proposal::{BrainProposal, BrainType, Intent};
 use super::social_initiation::SocialInitiationCooldowns;
 use crate::agent::actions::ActionType;
 use crate::agent::body::needs::{PhysicalNeeds, PsychologicalDrives};
-use crate::agent::mind::conversation::InConversation;
+use crate::agent::engagement::Engaged;
 use crate::agent::mind::knowledge::{Concept, MindGraph, Node, Predicate, Value};
 use crate::agent::mind::perception::VisibleObjects;
 use crate::agent::psyche::emotions::{EmotionType, EmotionalState};
@@ -46,7 +46,7 @@ pub struct EmotionalInputs<'a> {
     pub visible_types: &'a [Option<Concept>],
     pub physical: &'a PhysicalNeeds,
     pub drives: Option<&'a PsychologicalDrives>,
-    pub in_conversation: Option<&'a InConversation>,
+    pub engaged: Option<&'a Engaged>,
     pub self_concept: Option<Concept>,
     pub agent_pos: Vec2,
     pub fields: &'a FieldGrids,
@@ -66,7 +66,7 @@ pub struct EmotionalInputs<'a> {
     /// Parallel to `visible_positions`. `true` when the entity is in
     /// someone else's conversation — used to skip `ConversationFull`
     /// initiations.
-    pub visible_in_conversation: &'a [bool],
+    pub visible_engaged_converse: &'a [bool],
     /// Per-target `InitiateConversation` failure cooldowns; `None` until
     /// the agent records its first failure.
     pub social_cooldowns: Option<&'a SocialInitiationCooldowns>,
@@ -174,9 +174,9 @@ pub fn emotional_brain_propose(inputs: &EmotionalInputs) -> Option<BrainProposal
     }
 
     // Social seeking — conversation path (humans only). Gated on
-    // in_conversation because a second conversation mid-chat is silly
+    // engaged because a second engagement mid-chat is silly
     // (channel costs alone can't block it: InitiateConversation is Focus 0).
-    if inputs.in_conversation.is_none()
+    if inputs.engaged.is_none()
         && inputs.self_concept == Some(Concept::Person)
         && let Some(d) = inputs.drives
         && let Some(proposal) =
@@ -187,7 +187,7 @@ pub fn emotional_brain_propose(inputs: &EmotionalInputs) -> Option<BrainProposal
     }
 
     // Reactive drift — score local tiles per drive, walk toward the best.
-    if inputs.in_conversation.is_none() {
+    if inputs.engaged.is_none() {
         let drift_ctx = DriftContext {
             agent_pos: inputs.agent_pos,
             self_concept: inputs.self_concept,
@@ -208,7 +208,7 @@ pub fn emotional_brain_propose(inputs: &EmotionalInputs) -> Option<BrainProposal
         }
     }
 
-    // Ambient drives (curiosity, territoriality) — not in_conversation-gated;
+    // Ambient drives (curiosity, territoriality) — not engagement-gated;
     // channel conflicts handle that (Explore Focus 0.15 coexists with
     // Converse Focus 0.6; Observe Focus 0.3 + Awareness 0.6 soft-conflicts).
     if let Some(proposal) = propose_curiosity(
@@ -344,7 +344,7 @@ const AFFECTION_RANK_WEIGHT: f32 = 6.0;
 /// person. Filters busy / unreachable / cooled-down candidates, then
 /// picks the closest-and-fondest survivor. Strangers are eligible —
 /// the first turn of any conversation is the greeting, owned by
-/// `CommunicationPlugin`.
+/// `ConversePlugin`.
 fn seek_social_initiation(
     social_drive: f32,
     inputs: &EmotionalInputs,
@@ -377,7 +377,7 @@ fn seek_social_initiation(
         }
 
         if inputs
-            .visible_in_conversation
+            .visible_engaged_converse
             .get(i)
             .copied()
             .unwrap_or(false)
@@ -842,7 +842,7 @@ mod tests {
             visible_types: &[],
             physical: &PhysicalNeeds::default(),
             drives: None,
-            in_conversation: None,
+            engaged: None,
             self_concept: None,
             agent_pos: Vec2::ZERO,
             fields: &FieldGrids::default(),
@@ -852,7 +852,7 @@ mod tests {
             body: None,
             cornered: false,
             closest_threat: None,
-            visible_in_conversation: &[],
+            visible_engaged_converse: &[],
             social_cooldowns: None,
             current_tick: 0,
         });
@@ -892,7 +892,7 @@ mod tests {
             visible_types: &[None],
             physical: &PhysicalNeeds::default(),
             drives: None,
-            in_conversation: None,
+            engaged: None,
             self_concept: None,
             agent_pos: Vec2::ZERO,
             fields: &FieldGrids::default(),
@@ -902,7 +902,7 @@ mod tests {
             body: None,
             cornered: false,
             closest_threat: None,
-            visible_in_conversation: &[],
+            visible_engaged_converse: &[],
             social_cooldowns: None,
             current_tick: 0,
         });
@@ -940,7 +940,7 @@ mod tests {
             visible_types: &[None],
             physical: &PhysicalNeeds::default(),
             drives: None,
-            in_conversation: None,
+            engaged: None,
             self_concept: None,
             agent_pos: Vec2::ZERO,
             fields: &FieldGrids::default(),
@@ -950,7 +950,7 @@ mod tests {
             body: None,
             cornered: false,
             closest_threat: None,
-            visible_in_conversation: &[],
+            visible_engaged_converse: &[],
             social_cooldowns: None,
             current_tick: 0,
         });
@@ -975,7 +975,7 @@ mod tests {
             visible_types: &[],
             physical: &PhysicalNeeds::default(),
             drives: None,
-            in_conversation: None,
+            engaged: None,
             self_concept: None,
             agent_pos: Vec2::ZERO,
             fields: &FieldGrids::default(),
@@ -985,7 +985,7 @@ mod tests {
             body: None,
             cornered: false,
             closest_threat: None,
-            visible_in_conversation: &[],
+            visible_engaged_converse: &[],
             social_cooldowns: None,
             current_tick: 0,
         });
@@ -1014,7 +1014,7 @@ mod tests {
             visible_types: &[],
             physical: &PhysicalNeeds::default(),
             drives: None,
-            in_conversation: None,
+            engaged: None,
             self_concept: None,
             agent_pos: Vec2::ZERO,
             fields: &FieldGrids::default(),
@@ -1024,7 +1024,7 @@ mod tests {
             body: None,
             cornered: false,
             closest_threat: None,
-            visible_in_conversation: &[],
+            visible_engaged_converse: &[],
             social_cooldowns: None,
             current_tick: 0,
         })
@@ -1084,7 +1084,7 @@ mod tests {
             &'a self,
             visible_positions: &'a [(Entity, Vec2)],
             visible_types: &'a [Option<Concept>],
-            visible_in_conversation: &'a [bool],
+            visible_engaged_converse: &'a [bool],
             social_cooldowns: Option<&'a SocialInitiationCooldowns>,
             current_tick: u64,
         ) -> EmotionalInputs<'a> {
@@ -1096,7 +1096,7 @@ mod tests {
                 visible_types,
                 physical: &self.physical,
                 drives: None,
-                in_conversation: None,
+                engaged: None,
                 self_concept: Some(Concept::Person),
                 agent_pos: Vec2::ZERO,
                 fields: &self.fields,
@@ -1106,7 +1106,7 @@ mod tests {
                 body: None,
                 cornered: false,
                 closest_threat: None,
-                visible_in_conversation,
+                visible_engaged_converse,
                 social_cooldowns,
                 current_tick,
             }
@@ -1141,11 +1141,11 @@ mod tests {
             Some(Concept::Person),
             Some(Concept::Person),
         ];
-        let visible_in_conversation = [false, true, false];
+        let visible_engaged_converse = [false, true, false];
         let inputs = fixture.inputs(
             &visible_positions,
             &visible_types,
-            &visible_in_conversation,
+            &visible_engaged_converse,
             None,
             0,
         );
@@ -1173,11 +1173,11 @@ mod tests {
             (busy, Vec2::new(TILE_SIZE, 0.0)),
         ];
         let visible_types = [Some(Concept::Person), Some(Concept::Person)];
-        let visible_in_conversation = [false, true];
+        let visible_engaged_converse = [false, true];
         let inputs = fixture.inputs(
             &visible_positions,
             &visible_types,
-            &visible_in_conversation,
+            &visible_engaged_converse,
             None,
             0,
         );
@@ -1195,7 +1195,7 @@ mod tests {
 
         let visible_positions = [(only_candidate, Vec2::new(TILE_SIZE, 0.0))];
         let visible_types = [Some(Concept::Person)];
-        let visible_in_conversation = [false];
+        let visible_engaged_converse = [false];
 
         let mut cooldowns = SocialInitiationCooldowns::default();
         cooldowns.record(only_candidate, 100);
@@ -1205,7 +1205,7 @@ mod tests {
         let inputs = fixture.inputs(
             &visible_positions,
             &visible_types,
-            &visible_in_conversation,
+            &visible_engaged_converse,
             Some(&cooldowns),
             100,
         );
@@ -1218,7 +1218,7 @@ mod tests {
         let inputs = fixture.inputs(
             &visible_positions,
             &visible_types,
-            &visible_in_conversation,
+            &visible_engaged_converse,
             Some(&cooldowns),
             100 + SOCIAL_INITIATION_COOLDOWN_TICKS,
         );
@@ -1246,11 +1246,11 @@ mod tests {
             (far_friend, Vec2::new(5.0 * TILE_SIZE, 0.0)),
         ];
         let visible_types = [Some(Concept::Person), Some(Concept::Person)];
-        let visible_in_conversation = [false, false];
+        let visible_engaged_converse = [false, false];
         let inputs = fixture.inputs(
             &visible_positions,
             &visible_types,
-            &visible_in_conversation,
+            &visible_engaged_converse,
             None,
             0,
         );

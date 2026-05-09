@@ -1,6 +1,6 @@
 //! Converse action — body-channel marker for being in a conversation.
 //!
-//! Inserted and removed by [`CommunicationPlugin`](crate::agent::communication::CommunicationPlugin);
+//! Inserted and removed by [`ConversePlugin`](crate::agent::engagement::converse::ConversePlugin);
 //! not proposed by brains. Exists so the conversation occupies the
 //! `Vocalization` channel like any other body activity — standard preemption
 //! rules end conversations when Sleep / Flee / Fight take over the body.
@@ -21,7 +21,7 @@ const CHANNELS: &[ChannelUsage] = &[
 
 pub static CONVERSE_DEF: ActionDefinition = ActionDefinition {
     action_type: ActionType::Converse,
-    // Indefinite — only the CommunicationPlugin removes it (or preemption).
+    // Indefinite — only the ConversePlugin removes it (or preemption).
     kind: ActionKind::Timed {
         duration_ticks: u32::MAX,
     },

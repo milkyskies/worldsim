@@ -15,8 +15,9 @@
 use bevy::math::Vec2;
 use worldsim::agent::actions::ActionType;
 use worldsim::agent::body::needs::PsychologicalDrives;
+use worldsim::agent::engagement::EngagementKind;
+use worldsim::agent::engagement::converse::{ConverseRegistry, Intent};
 use worldsim::agent::events::{SimEvent, SimEventKind};
-use worldsim::agent::mind::conversation::{ConversationManager, Intent};
 use worldsim::agent::mind::knowledge::{
     Concept, MemoryType, Metadata, MindGraph, Node, Predicate, Source, Triple, Value,
 };
@@ -87,7 +88,12 @@ fn initiation_emits_conversation_started_sim_event() {
         .iter()
         .find_map(|e| match e {
             SimEvent {
-                kind: SimEventKind::ConversationStarted { participants, .. },
+                kind:
+                    SimEventKind::EngagementStarted {
+                        kind: EngagementKind::Converse,
+                        participants,
+                        ..
+                    },
                 ..
             } => Some(participants.clone()),
             _ => None,
@@ -127,7 +133,10 @@ fn out_of_vision_agents_do_not_start_conversation() {
         matches!(
             e,
             SimEvent {
-                kind: SimEventKind::ConversationStarted { .. },
+                kind: SimEventKind::EngagementStarted {
+                    kind: EngagementKind::Converse,
+                    ..
+                },
                 ..
             }
         )
@@ -224,7 +233,10 @@ fn conversations_can_end_gracefully_after_enough_turns() {
             matches!(
                 e,
                 SimEvent {
-                    kind: SimEventKind::ConversationStarted { .. },
+                    kind: SimEventKind::EngagementStarted {
+                        kind: EngagementKind::Converse,
+                        ..
+                    },
                     ..
                 }
             )
@@ -238,7 +250,10 @@ fn conversations_can_end_gracefully_after_enough_turns() {
             matches!(
                 e,
                 SimEvent {
-                    kind: SimEventKind::ConversationEnded { .. },
+                    kind: SimEventKind::EngagementEnded {
+                        kind: EngagementKind::Converse,
+                        ..
+                    },
                     ..
                 }
             )
@@ -283,7 +298,7 @@ fn second_turn_intent_is_answer_after_greet() {
     let mut found_answer = false;
     for _ in 0..20 {
         world.tick(10);
-        let manager = world.app().world().resource::<ConversationManager>();
+        let manager = world.app().world().resource::<ConverseRegistry>();
         for conv in manager.conversations.values() {
             if conv.turns.iter().any(|t| t.intent == Intent::Answer) {
                 found_answer = true;
@@ -296,7 +311,7 @@ fn second_turn_intent_is_answer_after_greet() {
 
     let alice = agents["alice"];
     if !found_answer {
-        world.print_conversation(alice);
+        world.print_engagement(alice);
         world.print_recent_events(200);
     }
     assert!(
@@ -358,7 +373,10 @@ fn agent_warns_partner_about_personally_observed_danger() {
         matches!(
             e,
             SimEvent {
-                kind: SimEventKind::ConversationStarted { .. },
+                kind: SimEventKind::EngagementStarted {
+                    kind: EngagementKind::Converse,
+                    ..
+                },
                 ..
             }
         )
@@ -382,7 +400,7 @@ fn agent_warns_partner_about_personally_observed_danger() {
     });
 
     if !bob_received_warning {
-        world.print_conversation(alice);
+        world.print_engagement(alice);
         world.print_mind_graph(bob);
         panic!("bob should have received wolf-danger warning from alice as hearsay");
     }
@@ -426,9 +444,9 @@ fn three_social_agents_form_single_group_conversation() {
     }
 
     // And it should be the *same* conversation — one group, not three pairs.
-    let manager = world.app().world().resource::<ConversationManager>();
-    let active: Vec<&worldsim::agent::mind::conversation::Conversation> =
-        manager.active_conversations().collect();
+    let manager = world.app().world().resource::<ConverseRegistry>();
+    let active: Vec<&worldsim::agent::engagement::converse::Conversation> =
+        manager.active().collect();
     assert_eq!(
         active.len(),
         1,
@@ -475,7 +493,10 @@ fn third_agent_joining_emits_conversation_joined_event() {
         matches!(
             e,
             SimEvent {
-                kind: SimEventKind::ConversationJoined { .. },
+                kind: SimEventKind::EngagementJoined {
+                    kind: EngagementKind::Converse,
+                    ..
+                },
                 ..
             }
         )
@@ -546,7 +567,7 @@ fn shared_knowledge_broadcasts_to_all_group_listeners() {
     let carol_heard = received_from_alice(carol);
 
     if !bob_heard || !carol_heard {
-        world.print_conversation(alice);
+        world.print_engagement(alice);
         world.print_mind_graph(bob);
         world.print_mind_graph(carol);
         panic!(
@@ -560,7 +581,7 @@ fn shared_knowledge_broadcasts_to_all_group_listeners() {
 /// ends when the count drops below 2.
 #[test]
 fn group_shrinks_then_ends_as_participants_leave() {
-    use worldsim::agent::mind::conversation::{Conversation, ConversationManager};
+    use worldsim::agent::engagement::converse::{Conversation, ConverseRegistry};
 
     let (mut world, agents) = TestWorld::scenario(42)
         .map_size(64, 64)
@@ -584,8 +605,8 @@ fn group_shrinks_then_ends_as_participants_leave() {
 
     // All three should be in one conversation.
     {
-        let manager = world.app().world().resource::<ConversationManager>();
-        let group: Option<&Conversation> = manager.active_conversations().next();
+        let manager = world.app().world().resource::<ConverseRegistry>();
+        let group: Option<&Conversation> = manager.active().next();
         assert!(group.is_some(), "no active conversation after init phase");
         assert_eq!(
             group.unwrap().participants.len(),
@@ -602,8 +623,8 @@ fn group_shrinks_then_ends_as_participants_leave() {
     world.tick(5);
 
     {
-        let manager = world.app().world().resource::<ConversationManager>();
-        let active: Vec<&Conversation> = manager.active_conversations().collect();
+        let manager = world.app().world().resource::<ConverseRegistry>();
+        let active: Vec<&Conversation> = manager.active().collect();
         assert_eq!(
             active.len(),
             1,
@@ -624,8 +645,8 @@ fn group_shrinks_then_ends_as_participants_leave() {
         .translation = bevy::prelude::Vec3::new(700.0, 700.0, 0.0);
     world.tick(5);
 
-    let manager = world.app().world().resource::<ConversationManager>();
-    let active_count = manager.active_conversations().count();
+    let manager = world.app().world().resource::<ConverseRegistry>();
+    let active_count = manager.active().count();
     assert_eq!(
         active_count, 0,
         "conversation should have ended once only one participant remained"
@@ -662,7 +683,10 @@ fn conversation_reaches_active_state() {
         matches!(
             e,
             SimEvent {
-                kind: SimEventKind::ConversationStarted { .. },
+                kind: SimEventKind::EngagementStarted {
+                    kind: EngagementKind::Converse,
+                    ..
+                },
                 ..
             }
         )
@@ -671,14 +695,17 @@ fn conversation_reaches_active_state() {
         matches!(
             e,
             SimEvent {
-                kind: SimEventKind::ConversationEnded { .. },
+                kind: SimEventKind::EngagementEnded {
+                    kind: EngagementKind::Converse,
+                    ..
+                },
                 ..
             }
         )
     });
 
     if !had_conversation {
-        world.print_conversation(agents["alice"]);
+        world.print_engagement(agents["alice"]);
         world.print_recent_events(300);
     }
     assert!(had_conversation, "a conversation should have started");
@@ -715,12 +742,14 @@ fn conversation_average_turn_count() {
         // Track the highest turn count observed per conversation ID.
         // Conversations get removed on finalization so we sample every
         // few ticks to catch them at their peak.
-        let mut peak_turns: std::collections::HashMap<u64, usize> =
-            std::collections::HashMap::new();
+        let mut peak_turns: std::collections::HashMap<
+            worldsim::agent::engagement::EngagementId,
+            usize,
+        > = std::collections::HashMap::new();
 
         for _ in 0..40 {
             world.tick(40);
-            let manager = world.app().world().resource::<ConversationManager>();
+            let manager = world.app().world().resource::<ConverseRegistry>();
             for conv in manager.conversations.values() {
                 if conv.turns.len() >= 2 {
                     let entry = peak_turns.entry(conv.id).or_insert(0);
@@ -772,7 +801,10 @@ fn abandon_ratio_below_threshold() {
             matches!(
                 e,
                 SimEvent {
-                    kind: SimEventKind::ConversationEnded { .. },
+                    kind: SimEventKind::EngagementEnded {
+                        kind: EngagementKind::Converse,
+                        ..
+                    },
                     ..
                 }
             )
@@ -784,7 +816,11 @@ fn abandon_ratio_below_threshold() {
             matches!(
                 e,
                 SimEvent {
-                    kind: SimEventKind::ConversationAbandoned { .. },
+                    kind: SimEventKind::EngagementEnded {
+                        kind: EngagementKind::Converse,
+                        reason: worldsim::agent::engagement::EngagementEndReason::Abandoned,
+                        ..
+                    },
                     ..
                 }
             )
@@ -860,7 +896,7 @@ fn knowledge_flows_through_turn_content() {
     let bob_has_hearsay = bob_mind.iter().any(|t| t.meta.informant == Some(alice));
 
     if !bob_has_hearsay {
-        world.print_conversation(alice);
+        world.print_engagement(alice);
         world.print_mind_graph(bob);
     }
     assert!(

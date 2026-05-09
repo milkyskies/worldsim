@@ -1,6 +1,6 @@
 //! Continuous invariant assertions that catch silent state corruption.
 //!
-//! Reads: PhysicalNeeds, Consciousness, PsychologicalDrives, EmotionalState, Body, InConversation, ConversationManager
+//! Reads: PhysicalNeeds, Consciousness, PsychologicalDrives, EmotionalState, Body, Engaged, ConverseRegistry
 //! Writes: nothing (pure assertions; panics on violation)
 //! Upstream: agent::AgentPlugin (registered in `Last` schedule, debug builds only)
 //! Downstream: tests, debug runs (catches range/state-consistency bugs immediately)
@@ -11,7 +11,8 @@ use bevy::prelude::*;
 use crate::agent::Agent;
 use crate::agent::biology::body::Body;
 use crate::agent::body::needs::{Consciousness, PhysicalNeeds, PsychologicalDrives};
-use crate::agent::mind::conversation::{ConversationState, InConversation};
+use crate::agent::engagement::Engaged;
+use crate::agent::engagement::converse::{ConversationState, ConverseRegistry};
 use crate::agent::psyche::emotions::EmotionalState;
 
 /// Plugin that wires per-tick invariant checks into the simulation. The check
@@ -38,11 +39,11 @@ fn check_invariants_system(world: &mut World) {
 /// so failures aren't masked by mid-tick clamping in other systems.
 ///
 /// Walks every agent archetype exactly twice: once for component-only checks
-/// (which can use a fused tuple query) and once for `InConversation` checks
-/// (which need an additional `ConversationManager` resource borrow).
+/// (which can use a fused tuple query) and once for `Engaged` checks
+/// (which need an additional registry resource borrow).
 pub fn assert_invariants(world: &mut World) {
     check_components(world);
-    check_conversations(world);
+    check_engagements(world);
 }
 
 fn check_components(world: &mut World) {
@@ -158,33 +159,39 @@ fn check_components(world: &mut World) {
     }
 }
 
-fn check_conversations(world: &mut World) {
-    // Snapshot agent → conversation_id pairs first so the resource borrow
+fn check_engagements(world: &mut World) {
+    use crate::agent::engagement::EngagementKind;
+
+    // Snapshot agent → engagement pairs first so the resource borrow
     // doesn't conflict with the query borrow on `world`.
-    let mut query = world.query_filtered::<(Entity, &InConversation), With<Agent>>();
-    let snapshot: Vec<(Entity, u64)> = query
+    let mut query = world.query_filtered::<(Entity, &Engaged), With<Agent>>();
+    let snapshot: Vec<(
+        Entity,
+        EngagementKind,
+        crate::agent::engagement::EngagementId,
+    )> = query
         .iter(world)
-        .map(|(entity, in_conv)| (entity, in_conv.conversation_id))
+        .map(|(entity, engaged)| (entity, engaged.kind, engaged.id))
         .collect();
     if snapshot.is_empty() {
         return;
     }
 
-    let manager = world.resource::<crate::agent::mind::conversation::ConversationManager>();
-    for (entity, conversation_id) in snapshot {
-        let conversation = manager
-            .conversations
-            .get(&conversation_id)
-            .unwrap_or_else(|| {
-                panic!("agent {entity:?} references non-existent conversation {conversation_id}")
-            });
+    let registry = world.resource::<ConverseRegistry>();
+    for (entity, kind, id) in snapshot {
+        if kind != EngagementKind::Converse {
+            continue;
+        }
+        let conversation = registry.conversations.get(&id).unwrap_or_else(|| {
+            panic!("agent {entity:?} references non-existent conversation {id:?}")
+        });
         assert!(
             conversation.state != ConversationState::Ended,
-            "agent {entity:?} still attached to ended conversation {conversation_id}",
+            "agent {entity:?} still attached to ended conversation {id:?}",
         );
         assert!(
             conversation.participants.contains(&entity),
-            "agent {entity:?} marked InConversation {conversation_id} but is not a participant",
+            "agent {entity:?} marked Engaged with conversation {id:?} but is not a participant",
         );
     }
 }
@@ -284,9 +291,10 @@ mod tests {
             .app_mut()
             .world_mut()
             .entity_mut(a)
-            .insert(InConversation {
-                conversation_id: 9_999,
-            });
+            .insert(Engaged::new(
+                crate::agent::engagement::EngagementKind::Converse,
+                crate::agent::engagement::EngagementId(9_999),
+            ));
         assert_invariants(world.app_mut().world_mut());
     }
 }
