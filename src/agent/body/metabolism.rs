@@ -197,6 +197,9 @@ pub fn food_macros(concept: Concept) -> Option<FoodMacros> {
         Concept::RottenBerry => Some(FoodMacros::new(20.0, 0.0)),
         // Meat: no carbs, heavy fat — long-burn fuel that mostly fills reserves.
         Concept::Meat => Some(FoodMacros::new(0.0, 40.0)),
+        // Cooked meat: ~1.5x raw — cooking releases nutrients raw flesh
+        // hides, so the same mass yields more usable energy.
+        Concept::CookedMeat => Some(FoodMacros::new(0.0, 60.0)),
         _ => None,
     }
 }

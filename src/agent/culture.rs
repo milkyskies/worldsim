@@ -1,5 +1,5 @@
-use crate::agent::actions::action::BUILD_DEF;
-use crate::agent::actions::definition::Recipe;
+use crate::agent::actions::action::{BUILD_DEF, COOK_DEF};
+use crate::agent::actions::definition::{ActionDefinition, Recipe};
 use crate::agent::mind::knowledge::{
     Concept, MemoryType, Metadata, Node, Predicate, Quantity, Source, Triple, Value,
 };
@@ -61,16 +61,15 @@ pub fn create_cultural_knowledge(culture: Culture) -> Vec<Triple> {
 
     add(c(Thing), IsA, v(Physical));
 
-    // ─── Universal recipe knowledge (all cultures know these) ───
-    //
-    // Campfire's recipe comes from the Build action's declarative
-    // [`Recipe`], so the numbers (wood required, build time, provides
-    // traits) live in exactly one place — the action definition — and
-    // can't drift from the runtime. See
-    // `src/agent/actions/action/build.rs`.
-    if let Some(recipe) = BUILD_DEF.recipe.as_ref() {
-        for (p, o) in recipe_assertions(recipe) {
-            add(Node::Concept(recipe.concept), p, o);
+    // Universal recipe knowledge derived from the action definitions
+    // themselves — numbers (materials, build time, provides traits) live
+    // in one place per action and can't drift from runtime.
+    const RECIPE_DEFS: &[&ActionDefinition] = &[&BUILD_DEF, &COOK_DEF];
+    for def in RECIPE_DEFS {
+        if let Some(recipe) = def.recipe.as_ref() {
+            for (p, o) in recipe_assertions(recipe) {
+                add(Node::Concept(recipe.concept), p, o);
+            }
         }
     }
 
