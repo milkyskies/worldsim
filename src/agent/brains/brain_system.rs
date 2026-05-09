@@ -269,6 +269,35 @@ pub fn arbitrate_every_tick(
         proposals.extend(survival_proposals.into_iter().map(Some));
         proposals.push(emotional_proposal);
         proposals.extend(rational_proposals.into_iter().map(Some));
+
+        // Feasibility filter: every proposer routes through here so a
+        // proposal that would deterministically bounce off the runtime
+        // gate (no food in inventory, target tile in unreachable
+        // cache) gets dropped before arbitration.
+        for slot in proposals.iter_mut() {
+            let Some(proposal) = slot.as_ref() else {
+                continue;
+            };
+            let Some(action_def) = action_registry.get(proposal.action.action_type) else {
+                continue;
+            };
+            let action_ctx = crate::agent::actions::ActionContext {
+                inventory,
+                mind,
+                world_map: &world_map,
+                target_entity: proposal.action.target_entity,
+                target_position: proposal.action.target_position,
+                agent_position: agent_pos,
+                physical: Some(physical),
+                drives,
+                emotional: Some(emotions),
+                current_tick: tick.current,
+            };
+            if !action_def.is_feasible(&action_ctx) {
+                *slot = None;
+            }
+        }
+
         let capacities = crate::agent::actions::ChannelCapacities::compute(
             body,
             Some(physical),

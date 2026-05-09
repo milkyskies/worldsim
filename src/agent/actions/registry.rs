@@ -393,6 +393,21 @@ pub trait Action: Send + Sync + 'static {
         Ok(())
     }
 
+    /// Proposer-time feasibility check. Brains call this before emitting
+    /// a [`BrainProposal`] so a proposal that would deterministically
+    /// bounce off `can_start` (no food in inventory, target tile in the
+    /// unreachable cache, etc.) is filtered out before it reaches
+    /// arbitration.
+    ///
+    /// The default forwards to [`Self::can_start`] — making the runtime
+    /// gate the canonical source of truth. Override only when the
+    /// proposer-time check needs to be cheaper than the runtime check
+    /// (e.g. skipping inventory walks when the agent is far from its
+    /// own body).
+    fn is_feasible(&self, ctx: &ActionContext) -> bool {
+        self.can_start(ctx).is_ok()
+    }
+
     /// Unified satiation gate. Return `Some((kind, fullness))` when this
     /// action targets a specific `Need` that may already be satisfied —
     /// e.g. Eat returns `Some((Hunger, stomach_fraction))`, Drink returns

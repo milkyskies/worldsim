@@ -188,6 +188,19 @@ pub enum Gate {
     /// `threshold`. Used by Share Food. Missing belief = 0.0 affection.
     /// Maps failure to [`FailureReason::Interrupted`].
     TargetAffectionAtLeast(f32),
+    /// `target_position`'s tile is NOT in the agent's MindGraph
+    /// `Unreachable` belief (TTL-bounded by the same window the
+    /// planner uses). Used by Walk so proposers don't re-pick a tile
+    /// the agent already learned is blocked.
+    /// Maps failure to [`FailureReason::PathBlocked`].
+    TileReachable,
+    /// Agent does NOT believe `target_entity` is currently engaged
+    /// with anyone — i.e. no `(target, EngagedWith, ?)` triple in the
+    /// agent's MindGraph. Used by InitiateConversation so proposers
+    /// don't target partners the perception system already knows are
+    /// busy in someone else's chat.
+    /// Maps failure to [`FailureReason::ConversationFull`].
+    TargetNotEngaged,
 }
 
 // ============================================================================

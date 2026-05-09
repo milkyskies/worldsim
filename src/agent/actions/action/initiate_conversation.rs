@@ -40,9 +40,10 @@ pub static INITIATE_CONVERSATION_DEF: ActionDefinition = ActionDefinition {
     plan_consumes: &[],
     target_effects: TargetEffects::Static,
     plan_validity: PlanValidity::Always,
-    gates: &[Gate::TargetEntity(
-        crate::agent::events::FailureReason::NoTarget,
-    )],
+    gates: &[
+        Gate::TargetEntity(crate::agent::events::FailureReason::NoTarget),
+        Gate::TargetNotEngaged,
+    ],
     satiation: None,
     completion: CompletionPredicate::Never,
     on_complete_ops: &[],
