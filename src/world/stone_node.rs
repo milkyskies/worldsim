@@ -8,6 +8,7 @@
 use crate::agent::inventory::EntityType;
 use crate::agent::item_slots::ItemSlots;
 use crate::agent::mind::knowledge::Concept;
+use crate::outline::outline_bundle;
 use crate::palette::{Palette, PaletteColor};
 use crate::world::apple_tree::ResourceRegeneration;
 use crate::world::map::TILE_SIZE;
@@ -76,6 +77,7 @@ pub fn spawn_stone_node(
                 Transform::from_translation(Vec3::new(0.0, -base_size.y * 0.45, -0.05)),
             ));
 
+            parent.spawn(outline_bundle(base_size, Vec2::ZERO, 0.0));
             parent.spawn((
                 Sprite {
                     color: base_color,

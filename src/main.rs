@@ -16,6 +16,7 @@ use worldsim::headless;
 use worldsim::injuries::InjuriesPlugin;
 use worldsim::menu::MenuPlugin;
 use worldsim::palette::PalettePlugin;
+use worldsim::particles::ParticlesPlugin;
 use worldsim::silhouette::SilhouettePlugin;
 use worldsim::ui::UiPlugin;
 use worldsim::ui::camera::CameraPlugin;
@@ -136,6 +137,8 @@ fn run_windowed() {
         .add_plugins(EyesPlugin)
         // Body injury overlays - tints sprite parts toward blood reds.
         .add_plugins(InjuriesPlugin)
+        // Short-lived sprite particles (hop dust, blood splatter, etc.).
+        .add_plugins(ParticlesPlugin)
         // Domain plugins
         .add_plugins(WorldPlugin)
         .add_plugins(AgentPlugin)

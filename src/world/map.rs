@@ -1,4 +1,5 @@
 use crate::menu::{AppState, SimConfig};
+use crate::outline::OUTLINE_COLOR;
 use crate::palette::{Palette, PaletteColor};
 use crate::world::environment::BaseColor;
 use bevy::prelude::*;
@@ -81,6 +82,19 @@ impl TileType {
             TileType::Rock => 0.4,
             TileType::ShallowWater => 0.3,
             TileType::Water => 0.0,
+        }
+    }
+
+    /// Coarse group used by tile auto-tiling: outlines are only drawn
+    /// between different groups, not between members of the same group.
+    /// Keeps biome boundaries (water vs land, rock vs land) crisp without
+    /// littering every grass/dirt/sand transition with dark seams that
+    /// make scattered shore patches read as a checkerboard.
+    pub fn outline_group(&self) -> u8 {
+        match self {
+            TileType::Water | TileType::ShallowWater => 0,
+            TileType::Rock => 1,
+            TileType::Grass | TileType::Dirt | TileType::Gravel | TileType::Sand => 2,
         }
     }
 
@@ -827,6 +841,49 @@ pub fn setup_map(
                                     z,
                                 )),
                             ));
+
+                            // Auto-tiling: draw a thin band on each side where
+                            // the neighbor is a different tile type. Same flat
+                            // outline color used by silhouettes / objects so
+                            // every boundary in the world reads as one style.
+                            let edge_color = OUTLINE_COLOR;
+                            for (dx, dy, ex, ey, ew, eh) in [
+                                (
+                                    0_i32,
+                                    1_i32,
+                                    0.0_f32,
+                                    0.5_f32 * TILE_SIZE - 0.5,
+                                    TILE_SIZE,
+                                    1.0,
+                                ),
+                                (0, -1, 0.0, -0.5 * TILE_SIZE + 0.5, TILE_SIZE, 1.0),
+                                (1, 0, 0.5 * TILE_SIZE - 0.5, 0.0, 1.0, TILE_SIZE),
+                                (-1, 0, -0.5 * TILE_SIZE + 0.5, 0.0, 1.0, TILE_SIZE),
+                            ] {
+                                let nx = x as i32 + dx;
+                                let ny = y as i32 + dy;
+                                if nx < 0 || ny < 0 || nx >= width as i32 || ny >= height as i32 {
+                                    continue;
+                                }
+                                let n_idx = (ny as u32 * width + nx as u32) as usize;
+                                if terrain[n_idx].outline_group() == tile_type.outline_group() {
+                                    continue;
+                                }
+                                parent.spawn((
+                                    Name::new(format!("TileEdge ({},{})", x, y)),
+                                    Sprite {
+                                        color: edge_color,
+                                        custom_size: Some(Vec2::new(ew, eh)),
+                                        ..default()
+                                    },
+                                    BaseColor(edge_color),
+                                    Transform::from_translation(Vec3::new(
+                                        x as f32 * TILE_SIZE + ex,
+                                        screen_y + ey,
+                                        z + 0.005,
+                                    )),
+                                ));
+                            }
                         }
                     }
                 }

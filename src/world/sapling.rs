@@ -10,6 +10,7 @@ use crate::agent::events::{SimEvent, SimEventKind};
 use crate::agent::inventory::EntityType;
 use crate::agent::mind::knowledge::Concept;
 use crate::core::tick::TickCount;
+use crate::outline::outline_bundle;
 use crate::palette::{Palette, PaletteColor};
 use crate::world::apple_tree::spawn_apple_tree;
 use crate::world::berry_bush::spawn_berry_bush;
@@ -77,6 +78,7 @@ pub fn spawn_sapling(
                 },
                 Transform::from_translation(Vec3::new(0.0, -stem_size.y * 0.5, -0.05)),
             ));
+            parent.spawn(outline_bundle(stem_size, Vec2::ZERO, 0.0));
             parent.spawn((
                 Sprite {
                     color: stem_color,
@@ -86,13 +88,15 @@ pub fn spawn_sapling(
                 Transform::from_translation(Vec3::new(0.0, 0.0, 0.0)),
                 VisualSaplingStem,
             ));
+            let leaf_offset = Vec2::new(0.0, stem_size.y * 0.6);
+            parent.spawn(outline_bundle(leaf_size, leaf_offset, 0.1));
             parent.spawn((
                 Sprite {
                     color: leaf_color,
                     custom_size: Some(leaf_size),
                     ..default()
                 },
-                Transform::from_translation(Vec3::new(0.0, stem_size.y * 0.6, 0.1)),
+                Transform::from_translation(leaf_offset.extend(0.1)),
             ));
         })
         .id()

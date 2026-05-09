@@ -3,6 +3,7 @@
 use crate::agent::inventory::EntityType;
 use crate::agent::item_slots::ItemSlots;
 use crate::agent::mind::knowledge::Concept;
+use crate::outline::outline_bundle;
 use crate::palette::{Palette, PaletteColor};
 use crate::world::map::TILE_SIZE;
 use crate::world::property::HarvestableComponent;
@@ -89,6 +90,7 @@ pub fn spawn_apple_tree(
             ));
 
             // 1. TRUNK
+            parent.spawn(outline_bundle(trunk_size, Vec2::ZERO, 0.0));
             parent.spawn((
                 Sprite {
                     color: trunk_color,
@@ -100,6 +102,8 @@ pub fn spawn_apple_tree(
             ));
 
             // 2. LEAVES (The main "tree" part)
+            let leaves_offset = Vec2::new(0.0, trunk_size.y * 0.8);
+            parent.spawn(outline_bundle(leaf_size, leaves_offset, 0.1));
             parent
                 .spawn((
                     Sprite {
@@ -108,7 +112,7 @@ pub fn spawn_apple_tree(
                         ..default()
                     },
                     // Position leaves above trunk
-                    Transform::from_translation(Vec3::new(0.0, trunk_size.y * 0.8, 0.1)),
+                    Transform::from_translation(leaves_offset.extend(0.1)),
                     VisualLeaves,
                 ))
                 .with_children(|leaves| {

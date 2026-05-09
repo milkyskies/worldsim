@@ -72,7 +72,7 @@ pub fn human_silhouette(skin: PaletteColor, hair: PaletteColor) -> CreatureSilho
                 rotation: 0.0,
                 color: hair,
                 z_bias: 0,
-                role: PartRole::Marking,
+                role: PartRole::Body,
                 tint_with_environment: true,
             },
             // Torso - lower half of the blob.

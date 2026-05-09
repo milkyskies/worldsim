@@ -9,6 +9,8 @@ use bevy::prelude::*;
 use bevy::transform::TransformSystems;
 use std::collections::HashMap;
 
+use crate::palette::Palette;
+use crate::particles::spawn_dust_puff;
 use crate::world::map::{ELEVATION_LIFT, SEA_LEVEL, WorldMap};
 
 pub struct SpriteAnimationPlugin;
@@ -197,6 +199,9 @@ struct MoveTracker {
     /// otherwise so a stationary creature keeps the direction it last
     /// faced instead of snapping back to the default.
     facing: f32,
+    /// Last hop cycle position, used to detect the wrap from ~1.0 → 0.0
+    /// that marks a landing — that's when dust puffs.
+    prev_cycle: f32,
 }
 
 impl Default for MoveTracker {
@@ -205,13 +210,16 @@ impl Default for MoveTracker {
             prev_pos: None,
             last_moved_at: 0.0,
             facing: 1.0,
+            prev_cycle: 0.0,
         }
     }
 }
 
 fn animate_sprite_bodies(
+    mut commands: Commands,
     time: Res<Time>,
     world_map: Option<Res<WorldMap>>,
+    palette: Option<Res<Palette>>,
     body_query: Query<(Entity, &SpriteBody)>,
     shadow_query: Query<(Entity, &GroundShadow)>,
     name_tag_query: Query<(Entity, &NameTag)>,
@@ -260,6 +268,16 @@ fn animate_sprite_bodies(
                 let bounces_per_sec = 2.5 * modulators.hop_frequency;
                 let cycle = ((t * bounces_per_sec + body.phase) % 1.0).clamp(0.0, 1.0);
                 let (y, sx, sy) = bounce_frame(cycle, 3.0 * modulators.hop_amplitude);
+                let tracker = trackers.get_mut(&body.root).expect("inserted above");
+                if let Some(palette) = palette.as_deref()
+                    && tracker.prev_cycle > 0.7
+                    && cycle < 0.3
+                {
+                    let foot = Vec2::new(root_pos.x, root_pos.y - 6.0);
+                    let seed = (body.root.to_bits() ^ ((t * 1000.0) as u64)).wrapping_mul(0x9E37);
+                    spawn_dust_puff(&mut commands, palette, foot, seed);
+                }
+                tracker.prev_cycle = cycle;
                 (y, sx, sy)
             }
             AnimationPose::Idle => {

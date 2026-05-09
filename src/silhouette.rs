@@ -11,9 +11,17 @@
 use bevy::prelude::*;
 
 use crate::agent::biology::body::BodyNodeKind;
+use crate::outline::{OUTLINE_COLOR, OUTLINE_WIDTH};
 use crate::palette::{Palette, PaletteColor};
 use crate::ui::sprite_animation::{GroundShadow, SpriteBody};
 use crate::world::environment::{AgentBodySprite, BaseColor};
+
+/// Local z (within `SpriteBody`) for every silhouette outline. Sits below
+/// every part fill (lowest fill is `z_bias=0`, `index=0` -> 0.0) so that
+/// fills covering inner overlaps hide their outlines, leaving only the
+/// outer silhouette rim visible. Above the shadow at -0.05 so it doesn't
+/// poke under the agent's feet.
+const SILHOUETTE_OUTLINE_Z: f32 = -0.04;
 
 pub struct SilhouettePlugin;
 
@@ -175,6 +183,22 @@ fn spawn_part(
     // z_bias picks the layer (body=0, head=1, ears/eyes=2, ...); index is a
     // tiny tiebreaker so spawn order is stable within a layer.
     let z = (part.z_bias as f32) * 0.1 + (index as f32) * 0.001;
+
+    // Whole-creature outline: every non-decorative part contributes a
+    // darker, slightly-larger sibling pinned to the same back-most z.
+    // Fills at z >= 0 cover all internal overlaps, leaving only the union
+    // perimeter — a single silhouette rim instead of a rim per part.
+    if !matches!(part.role, PartRole::Eye | PartRole::Marking) {
+        body.spawn((
+            Sprite {
+                color: OUTLINE_COLOR,
+                custom_size: Some(part.size + Vec2::splat(OUTLINE_WIDTH * 2.0)),
+                ..default()
+            },
+            Transform::from_translation(part.offset.extend(SILHOUETTE_OUTLINE_Z)),
+        ));
+    }
+
     let transform = Transform {
         translation: Vec3::new(part.offset.x, part.offset.y, z),
         rotation: Quat::from_rotation_z(part.rotation),
