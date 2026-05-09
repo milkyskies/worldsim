@@ -6,12 +6,14 @@
 //! - Flee from humans (they know Person is Dangerous)
 //! - Have basic survival instincts
 
+use crate::agent::biology::body::BodyNodeKind;
 use crate::agent::body::genetics::founder::random_genome;
 use crate::agent::body::species::{Species, SpeciesProfile};
 use crate::agent::mind::knowledge::{Concept, MindGraph, Ontology};
 use crate::agent::naming::deer_name;
 use crate::agent::{Agent, Alive, inventory::EntityType, item_slots::ItemSlots};
-use crate::palette::{Palette, PaletteColor};
+use crate::palette::PaletteColor;
+use crate::silhouette::{CreatureSilhouette, PartRole, Shape, SilhouettePart};
 use bevy::prelude::*;
 use rand::Rng;
 
@@ -20,11 +22,60 @@ use rand::Rng;
 #[reflect(Component)]
 pub struct Deer;
 
+/// Canonical deer silhouette.
+pub fn deer_silhouette() -> CreatureSilhouette {
+    let fur = PaletteColor::SkinDark;
+    let leg_fur = PaletteColor::SkinDeep;
+    let leg = |x: f32| SilhouettePart {
+        body_node: None,
+        shape: Shape::Capsule,
+        size: Vec2::new(2.0, 5.0),
+        offset: Vec2::new(x, -5.0),
+        rotation: 0.0,
+        color: leg_fur,
+        z_bias: 0,
+        role: PartRole::Limb,
+        tint_with_environment: false,
+    };
+    CreatureSilhouette {
+        parts: vec![
+            SilhouettePart {
+                body_node: Some(BodyNodeKind::Torso),
+                shape: Shape::Ellipse,
+                size: Vec2::new(14.0, 8.0),
+                offset: Vec2::ZERO,
+                rotation: 0.0,
+                color: fur,
+                z_bias: 0,
+                role: PartRole::Body,
+                tint_with_environment: false,
+            },
+            SilhouettePart {
+                body_node: Some(BodyNodeKind::Head),
+                shape: Shape::Circle,
+                size: Vec2::new(6.0, 6.0),
+                offset: Vec2::new(8.0, 2.0),
+                rotation: 0.0,
+                color: fur,
+                z_bias: 1,
+                role: PartRole::Body,
+                tint_with_environment: false,
+            },
+            leg(-4.0),
+            leg(-1.0),
+            leg(2.0),
+            leg(5.0),
+        ],
+        shadow_size: Vec2::new(14.0, 5.0),
+        shadow_offset_y: -6.0,
+        hop_phase: 0.0,
+    }
+}
+
 /// Spawns a Deer (Animal Agent)
 pub fn spawn_deer<R: Rng>(
     commands: &mut Commands,
     ontology: Ontology,
-    palette: &Palette,
     position: Vec2,
     index: usize,
     rng: &mut R,
@@ -35,9 +86,6 @@ pub fn spawn_deer<R: Rng>(
 
     let mut mind = MindGraph::new(ontology);
     add_deer_knowledge(&mut mind);
-
-    let body_color = palette.srgb(PaletteColor::SkinDark);
-    let head_color = body_color;
 
     let entity = commands
         .spawn((
@@ -52,7 +100,6 @@ pub fn spawn_deer<R: Rng>(
             crate::agent::movement::MovementState::default(),
             inventory,
             genome,
-            // ROOT HAS NO SPRITE (Invisible Container)
             Transform::from_translation(position.extend(3.0)),
             GlobalTransform::default(),
         ))
@@ -69,9 +116,9 @@ pub fn spawn_deer<R: Rng>(
             InheritedVisibility::default(),
             ViewVisibility::default(),
             crate::ui::sprite_animation::VisualOffset::default(),
+            deer_silhouette().with_hop_phase(index as f32 * 1.618),
         ))
         .insert((
-            // Brains / Systems
             crate::agent::mind::memory::WorkingMemory::default(),
             crate::agent::brains::rational::RationalBrain,
             crate::agent::brains::plan_memory::PlanMemory::default(),
@@ -79,10 +126,6 @@ pub fn spawn_deer<R: Rng>(
             crate::agent::nervous_system::cns::CentralNervousSystem::default(),
             crate::agent::body::needs::PhysicalNeeds::default(),
             crate::agent::body::needs::Consciousness::default(),
-            // Deer need `PsychologicalDrives` so they can feel isolation
-            // stress and drift back toward herd-mates. Before #260 they had
-            // no drives at all — no social, no fun, no curiosity — and
-            // therefore no herd cohesion emerging from urgency.
             crate::agent::body::needs::PsychologicalDrives::default(),
             crate::agent::actions::ActiveActions::default(),
             crate::agent::psyche::emotions::EmotionalState::default(),
@@ -91,68 +134,6 @@ pub fn spawn_deer<R: Rng>(
         .id();
 
     commands.entity(entity).with_children(|parent| {
-        // Ground shadow — sits on the terrain, no bounce.
-        parent.spawn((
-            crate::ui::sprite_animation::GroundShadow::new(entity, Vec2::new(0.0, -6.0)),
-            Sprite {
-                color: palette.shadow(),
-                custom_size: Some(Vec2::new(14.0, 5.0)),
-                ..default()
-            },
-            Transform::from_translation(Vec3::new(0.0, -6.0, -0.05)),
-        ));
-
-        // SpriteBody wrapper — animated (hops)
-        parent
-            .spawn((
-                crate::ui::sprite_animation::SpriteBody::new(entity, index as f32 * 1.618),
-                Transform::default(),
-                GlobalTransform::default(),
-                Visibility::default(),
-                InheritedVisibility::default(),
-                ViewVisibility::default(),
-            ))
-            .with_children(|body| {
-                body.spawn((
-                    Sprite {
-                        color: body_color,
-                        custom_size: Some(Vec2::new(14.0, 8.0)),
-                        ..default()
-                    },
-                    Transform::from_translation(Vec3::new(0.0, 0.0, 0.0)),
-                ));
-
-                body.spawn((
-                    Sprite {
-                        color: head_color,
-                        custom_size: Some(Vec2::new(6.0, 6.0)),
-                        ..default()
-                    },
-                    Transform::from_translation(Vec3::new(8.0, 2.0, 0.1)),
-                ));
-
-                let leg_color = palette.srgb(PaletteColor::SkinDeep);
-                let leg_size = Vec2::new(2.0, 5.0);
-                let leg_positions = [
-                    Vec3::new(-4.0, -5.0, 0.0),
-                    Vec3::new(-1.0, -5.0, 0.0),
-                    Vec3::new(2.0, -5.0, 0.0),
-                    Vec3::new(5.0, -5.0, 0.0),
-                ];
-
-                for pos in leg_positions {
-                    body.spawn((
-                        Sprite {
-                            color: leg_color,
-                            custom_size: Some(leg_size),
-                            ..default()
-                        },
-                        Transform::from_translation(pos),
-                    ));
-                }
-            });
-
-        // NAME TAG — direct child of root, stays still
         parent.spawn((
             Text2d::new(deer_name(index)),
             TextFont {

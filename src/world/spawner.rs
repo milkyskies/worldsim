@@ -204,16 +204,7 @@ pub fn apply_layout(
     for (i, &pos) in layout.human_positions.iter().enumerate() {
         let culture = first_group_cultures[rng.random_range(0..first_group_cultures.len())];
         let knowledge = cultural_knowledge_map.get(&culture).unwrap().clone();
-        let entity = spawn_person(
-            commands,
-            ontology.clone(),
-            palette,
-            pos,
-            i,
-            culture,
-            knowledge,
-            rng,
-        );
+        let entity = spawn_person(commands, ontology.clone(), pos, i, culture, knowledge, rng);
         spawned.push(entity);
     }
 
@@ -224,7 +215,6 @@ pub fn apply_layout(
         let entity = spawn_person(
             commands,
             ontology.clone(),
-            palette,
             pos,
             offset + i,
             culture,
@@ -239,7 +229,7 @@ pub fn apply_layout(
         let members: Vec<Entity> = herd
             .iter()
             .map(|&pos| {
-                let entity = spawn_deer(commands, ontology.clone(), palette, pos, deer_index, rng);
+                let entity = spawn_deer(commands, ontology.clone(), pos, deer_index, rng);
                 deer_index += 1;
                 entity
             })
