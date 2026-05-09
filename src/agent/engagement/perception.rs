@@ -36,7 +36,7 @@ pub fn perceive_engagements(
             // Converse exists.
             let peers: Vec<Entity> = converse_registry
                 .get(engaged.id)
-                .map(|c| c.participants.iter().copied().collect())
+                .map(|c| c.participants.to_vec())
                 .unwrap_or_default();
             for peer in peers {
                 if peer == observed {
