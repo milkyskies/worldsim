@@ -1,6 +1,7 @@
-//! Food-security tick. Drains baseline always; recovers when the agent
-//! carries surplus food OR is near a known `StorageChest`. Same proximity-
-//! only recovery idiom as `tick_warmth` and `tick_rest_quality`.
+//! Food-security tick. Same proximity-only recovery idiom as
+//! `tick_warmth` and `tick_rest_quality`. Empty chests give no recovery
+//! — the drive is about access to a *stockpile*, not just a container,
+//! so depositing emerges as the way to satisfy the drive.
 
 use bevy::prelude::*;
 

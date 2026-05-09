@@ -442,6 +442,23 @@ impl ItemSlots {
         false
     }
 
+    /// Move every Thing of `concept` from `self` into `target`. Stops when
+    /// `self` runs out OR `target` rejects a deposit (capacity/filter), in
+    /// which case the rejected Thing is returned to `self`.
+    pub fn drain_concept_into(
+        &mut self,
+        target: &mut ItemSlots,
+        concept: Concept,
+        ontology: Option<&Ontology>,
+    ) {
+        while let Some(thing) = self.remove_thing(concept) {
+            if !target.deposit_thing(thing.clone(), ontology) {
+                self.add_thing(thing);
+                break;
+            }
+        }
+    }
+
     /// Returns `true` if no slot blocks extraction of `concept`
     /// (Construction slots have `extract_access: None`).
     pub fn can_extract(&self, concept: Concept) -> bool {

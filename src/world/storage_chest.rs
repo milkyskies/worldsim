@@ -1,6 +1,6 @@
-//! Storage chest spawner. Public-access `ItemSlots` so any agent can
-//! deposit and any agent can take. Same general shape as the campfire
-//! and shelter spawners.
+//! Storage chest spawner. The whole point is shared inventory: deposits
+//! and extractions are both `Public`-access so any agent in interaction
+//! range can stock it or take from it.
 
 use bevy::prelude::*;
 
@@ -9,9 +9,9 @@ use crate::agent::affordance::Affordance;
 use crate::agent::inventory::EntityType;
 use crate::agent::item_slots::{Access, ItemSlots, Slot, SlotFilter, SlotRole};
 use crate::agent::mind::knowledge::Concept;
+use crate::constants::actions::construct::INTERACTION_DISTANCE;
 use crate::constants::actions::storage_chest::{
     CAPACITY, DURABILITY_DECAY_PER_TICK, FLAMMABLE_BURN_TIME, INITIAL_DURABILITY,
-    INTERACTION_DISTANCE,
 };
 use crate::palette::{Palette, PaletteColor};
 use crate::world::map::TILE_SIZE;

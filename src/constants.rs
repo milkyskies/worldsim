@@ -359,9 +359,6 @@ pub mod actions {
         pub const CAPACITY: u32 = 20;
         /// Burn time once ignited, in seconds.
         pub const FLAMMABLE_BURN_TIME: f32 = 100.0;
-        /// Distance (pixels) at which an agent can deposit into / take from
-        /// the chest. Same value as `construct::INTERACTION_DISTANCE`.
-        pub const INTERACTION_DISTANCE: f32 = 32.0;
     }
 
     pub mod lean_to {

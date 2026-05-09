@@ -1,10 +1,6 @@
-//! StockChest action — move edible inventory into a nearby StorageChest.
-//!
-//! Drive satisfier for `FoodSecurity`. Targets a chest via
-//! `EntityIsAConcept(StorageChest)` so it doesn't conflict with `Take`'s
-//! claim on the chest's `Affordance` slot. The plan effect closes the
-//! food-security goal at planning time; the body system credits the
-//! actual recovery once the agent stands near the now-stocked chest.
+//! StockChest action — drive satisfier for `FoodSecurity`. Targets a
+//! chest via `EntityIsAConcept` because the chest's single `Affordance`
+//! slot is already claimed by `Take`.
 
 use crate::agent::actions::ActionType;
 use crate::agent::actions::channel::{Channel, ChannelUsage, Posture};
@@ -74,10 +70,6 @@ fn stock_chest_on_complete(ctx: &mut CompletionContext) {
         .find(|c| ctx.mind.ontology.has_trait(*c, Concept::Edible));
     let Some(concept) = edible else { return };
 
-    while let Some(thing) = ctx.inventory.remove_thing(concept) {
-        if !target_inv.deposit_thing(thing.clone(), Some(&ctx.mind.ontology)) {
-            ctx.inventory.add_thing(thing);
-            break;
-        }
-    }
+    ctx.inventory
+        .drain_concept_into(target_inv, concept, Some(&ctx.mind.ontology));
 }

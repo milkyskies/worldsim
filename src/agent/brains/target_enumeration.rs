@@ -71,18 +71,11 @@ fn enumerate_entities_isa_concept(
     let mut candidates = Vec::new();
     let mut seen = std::collections::HashSet::new();
 
-    for triple in mind.query(None, Some(Predicate::IsA), None) {
+    for triple in mind.query(None, Some(Predicate::IsA), Some(&Value::Concept(concept))) {
         let Node::Entity(entity) = triple.subject else {
             continue;
         };
         if !seen.insert(entity) {
-            continue;
-        }
-        if !mind.has(
-            &Node::Entity(entity),
-            Predicate::IsA,
-            &Value::Concept(concept),
-        ) {
             continue;
         }
         let Ok((transform, _, dead)) = affordances.get(entity) else {

@@ -274,13 +274,6 @@ fn check_gate(gate: &Gate, ctx: &ActionContext) -> Result<(), FailureReason> {
                 Err(FailureReason::TargetGone)
             }
         }
-        Gate::NearStorageChest => {
-            if is_near_concept(ctx.mind, Concept::StorageChest) {
-                Ok(())
-            } else {
-                Err(FailureReason::TargetGone)
-            }
-        }
         Gate::OnGrassTile => {
             if matches!(
                 ctx.world_map.tile_at(ctx.agent_position),
@@ -382,25 +375,6 @@ fn knows_any_death(mind: &MindGraph) -> bool {
         .is_empty()
 }
 
-/// Runtime check: true when a known entity classified as `concept` (via
-/// `IsA`) sits on self's tile. Concept-based variant of `is_near_trait`
-/// for actions whose precondition targets a specific entity type.
-fn is_near_concept(mind: &MindGraph, concept: Concept) -> bool {
-    let Some(Value::Tile(self_tile)) = mind.get(&Node::Self_, Predicate::LocatedAt).cloned() else {
-        return false;
-    };
-    mind.query(
-        None,
-        Some(Predicate::LocatedAt),
-        Some(&Value::Tile(self_tile)),
-    )
-    .iter()
-    .any(|t| {
-        matches!(t.subject, Node::Entity(_))
-            && mind.has(&t.subject, Predicate::IsA, &Value::Concept(concept))
-    })
-}
-
 /// Runtime check mirroring the planner's `(Self, Near, $trait)` relation:
 /// true when a known entity carrying `trait_concept` sits on self's tile.
 fn is_near_trait(mind: &MindGraph, trait_concept: Concept) -> bool {
@@ -444,7 +418,6 @@ fn evaluate_satiation(
         SatiationGate::HydrationValue => Some((need, physical.hydration.value)),
         SatiationGate::WarmthValue => Some((need, physical.warmth.value)),
         SatiationGate::RestQualityValue => Some((need, physical.rest_quality.value)),
-        SatiationGate::FoodSecurityValue => Some((need, physical.food_security.value)),
         SatiationGate::WakefulnessValue => Some((need, physical.wakefulness.value)),
         SatiationGate::StaminaAerobic => Some((need, physical.stamina.aerobic_fraction())),
     }
@@ -706,9 +679,6 @@ impl Action for GenericAction {
             CompletionPredicate::WarmthAtLeast(threshold) => physical.warmth.value >= threshold,
             CompletionPredicate::RestQualityAtLeast(threshold) => {
                 physical.rest_quality.value >= threshold
-            }
-            CompletionPredicate::FoodSecurityAtLeast(threshold) => {
-                physical.food_security.value >= threshold
             }
         }
     }
