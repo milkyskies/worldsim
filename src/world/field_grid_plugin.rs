@@ -61,9 +61,18 @@ impl Plugin for FieldGridPlugin {
 }
 
 fn update_thermal_ambient(light: Res<LightLevel>, mut grids: ResMut<FieldGrids>) {
-    let t = ((light.0 - LIGHT_AT_NIGHT) / (1.0 - LIGHT_AT_NIGHT)).clamp(0.0, 1.0);
-    let ambient = NIGHT_AMBIENT_C + (DAY_AMBIENT_C - NIGHT_AMBIENT_C) * t;
-    grids.temperature_mut().set_ambient(ambient);
+    grids
+        .temperature_mut()
+        .set_ambient(ambient_for_light(light.0));
+}
+
+/// Maps a light level (`LIGHT_AT_NIGHT..=1.0`) to the ambient air
+/// temperature it implies. Single source of truth for the night→day
+/// thermal blend — both the live grid and the closed-form
+/// [`crate::world::forecast::WorldForecast`] read through this.
+pub fn ambient_for_light(light: f32) -> f32 {
+    let t = ((light - LIGHT_AT_NIGHT) / (1.0 - LIGHT_AT_NIGHT)).clamp(0.0, 1.0);
+    NIGHT_AMBIENT_C + (DAY_AMBIENT_C - NIGHT_AMBIENT_C) * t
 }
 
 fn inject_heat_emitters(

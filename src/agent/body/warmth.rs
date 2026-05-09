@@ -71,10 +71,19 @@ pub fn tick_warmth(
     }
 }
 
+/// Project warmth value forward, assuming the agent is at the given
+/// future ambient cell temperature for `horizon_minutes`. Used by the
+/// anticipation primitive to estimate "how cold will I be at horizon
+/// if I stay exposed?". Closed-form: rate × duration.
+pub fn project_warmth_value(current_value: f32, future_temp_c: f32, horizon_minutes: f32) -> f32 {
+    let rate_per_minute = cell_temp_to_warmth_rate(future_temp_c);
+    (current_value + rate_per_minute * horizon_minutes).clamp(0.0, 1.0)
+}
+
 /// Translate a tile's Celsius temperature into a warmth delta per rate-
 /// second. Always includes the baseline drain; adds recovery above the
 /// comfort floor and exposure drain below the cold threshold.
-pub fn cell_temp_to_warmth_rate(temp_c: f32) -> f32 {
+fn cell_temp_to_warmth_rate(temp_c: f32) -> f32 {
     let recovery = if temp_c >= FULL_RECOVERY_C {
         HEAT_RECOVERY_PER_SEC
     } else if temp_c >= COMFORT_MIN_C {
