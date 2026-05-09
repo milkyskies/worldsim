@@ -27,6 +27,11 @@ paths:
 - Thin API wrappers — you'd be testing your mock
 - Single-line delegations or trivial getters
 - Serialization/deserialization already covered by derives
+- **Constant assertions** — `assert!(SOME_CONSTANT > 0.0)`, `assert_eq!(MAX_FOO, 42)`. The value lives one line above the test; the assertion catches nothing it could possibly fail on. Just delete the constant if you don't trust it, don't write a test for it.
+- **Static-data builders** — functions that return a hard-coded struct or list (default configs, fixture builders, layout specs). Asserting "returns N items" or "contains Foo" just transcribes the function body; the test changes in lockstep and adds no failure-detection. Add tests the moment real branching or transformation logic enters the function, not before.
+- **Render/output structure** — sprite hierarchies, panel layouts, gizmo overlays, animation tweens. Eyeballed at runtime, not asserted. Test the *inputs* to rendering (state machines, event emission) instead.
+
+**Default to no test.** Add one only when the function meets the "worth testing" criteria above. Volume of tests is not a quality signal — every redundant test is a future change-amplifier with zero failure-detection upside.
 
 ## How to write tests
 
