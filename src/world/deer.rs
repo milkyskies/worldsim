@@ -12,6 +12,7 @@ use crate::agent::body::species::{Species, SpeciesProfile};
 use crate::agent::mind::knowledge::{Concept, MindGraph, Ontology};
 use crate::agent::naming::deer_name;
 use crate::agent::{Agent, Alive, inventory::EntityType, item_slots::ItemSlots};
+use crate::markings::{Markings, apply_markings};
 use crate::palette::PaletteColor;
 use crate::silhouette::{CreatureSilhouette, PartRole, Shape, SilhouettePart};
 use bevy::prelude::*;
@@ -26,6 +27,17 @@ pub struct Deer;
 pub fn deer_silhouette() -> CreatureSilhouette {
     let fur = PaletteColor::SkinDark;
     let leg_fur = PaletteColor::SkinDeep;
+    let eye = |x: f32, y: f32| SilhouettePart {
+        body_node: None,
+        shape: Shape::Circle,
+        size: Vec2::new(1.2, 1.2),
+        offset: Vec2::new(x, y),
+        rotation: 0.0,
+        color: PaletteColor::FurBlack,
+        z_bias: 2,
+        role: PartRole::Eye,
+        tint_with_environment: false,
+    };
     let leg = |x: f32| SilhouettePart {
         body_node: None,
         shape: Shape::Capsule,
@@ -61,6 +73,8 @@ pub fn deer_silhouette() -> CreatureSilhouette {
                 role: PartRole::Body,
                 tint_with_environment: false,
             },
+            eye(7.0, 3.0),
+            eye(9.0, 3.0),
             leg(-4.0),
             leg(-1.0),
             leg(2.0),
@@ -83,6 +97,9 @@ pub fn spawn_deer<R: Rng>(
     let species_profile = SpeciesProfile::deer();
     let inventory = ItemSlots::agent_carry();
     let genome = random_genome(rng, Species::Deer);
+    let markings = Markings::from_genome(&genome);
+    let silhouette =
+        apply_markings(deer_silhouette(), &markings).with_hop_phase(index as f32 * 1.618);
 
     let mut mind = MindGraph::new(ontology);
     add_deer_knowledge(&mut mind);
@@ -116,7 +133,8 @@ pub fn spawn_deer<R: Rng>(
             InheritedVisibility::default(),
             ViewVisibility::default(),
             crate::ui::sprite_animation::VisualOffset::default(),
-            deer_silhouette().with_hop_phase(index as f32 * 1.618),
+            markings,
+            silhouette,
         ))
         .insert((
             crate::agent::mind::memory::WorkingMemory::default(),

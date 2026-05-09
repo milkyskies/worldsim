@@ -14,6 +14,7 @@ use crate::agent::item_slots::ItemSlots;
 use crate::agent::mind::knowledge::{Concept, MindGraph, Ontology};
 use crate::agent::naming::wolf_name;
 use crate::agent::{Agent, Alive};
+use crate::markings::{Markings, apply_markings};
 use crate::palette::{Palette, PaletteColor};
 use crate::silhouette::{CreatureSilhouette, PartRole, Shape, SilhouettePart};
 use crate::world::map::TILE_SIZE;
@@ -39,6 +40,17 @@ pub fn wolf_silhouette() -> CreatureSilhouette {
         color: leg_fur,
         z_bias: 0,
         role: PartRole::Limb,
+        tint_with_environment: false,
+    };
+    let eye = |x: f32, y: f32| SilhouettePart {
+        body_node: None,
+        shape: Shape::Circle,
+        size: Vec2::new(1.5, 1.5),
+        offset: Vec2::new(x, y),
+        rotation: 0.0,
+        color: PaletteColor::FurBlack,
+        z_bias: 2,
+        role: PartRole::Eye,
         tint_with_environment: false,
     };
     let ear = |x: f32| SilhouettePart {
@@ -76,6 +88,8 @@ pub fn wolf_silhouette() -> CreatureSilhouette {
                 role: PartRole::Body,
                 tint_with_environment: false,
             },
+            eye(7.5, 2.5),
+            eye(10.0, 2.5),
             ear(7.0),
             ear(10.0),
             leg(-5.0),
@@ -112,6 +126,9 @@ pub fn spawn_wolf<R: Rng>(
     let species_profile = SpeciesProfile::wolf();
     let inventory = ItemSlots::agent_carry();
     let genome = random_genome(rng, Species::Wolf);
+    let markings = Markings::from_genome(&genome);
+    let silhouette =
+        apply_markings(wolf_silhouette(), &markings).with_hop_phase(index as f32 * 1.618);
 
     let spawn_tile = (
         (position.x / TILE_SIZE) as i32,
@@ -149,7 +166,8 @@ pub fn spawn_wolf<R: Rng>(
             InheritedVisibility::default(),
             ViewVisibility::default(),
             crate::ui::sprite_animation::VisualOffset::default(),
-            wolf_silhouette().with_hop_phase(index as f32 * 1.618),
+            markings,
+            silhouette,
         ))
         .insert((
             crate::agent::mind::memory::WorkingMemory::default(),

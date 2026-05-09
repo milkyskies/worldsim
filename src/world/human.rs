@@ -7,6 +7,7 @@ use crate::agent::body::species::Species;
 use crate::agent::mind::knowledge::Ontology;
 use crate::agent::naming::human_name;
 use crate::agent::spawn_human::{PersonInit, build_person_logic};
+use crate::markings::{Markings, apply_markings};
 use crate::palette::PaletteColor;
 use crate::silhouette::{CreatureSilhouette, PartRole, Shape, SilhouettePart};
 use bevy::prelude::*;
@@ -80,11 +81,16 @@ pub fn spawn_person<R: Rng>(
     rng: &mut R,
 ) -> Entity {
     let display_name = human_name(index);
+    let genome = random_genome(rng, Species::Human);
+    let markings = Markings::from_genome(&genome);
+    let skin = HUMAN_SKIN_TONES[rng.random_range(0..HUMAN_SKIN_TONES.len())];
+    let silhouette =
+        apply_markings(human_silhouette(skin), &markings).with_hop_phase(index as f32 * 1.618);
     let (core, perception, brain) = build_person_logic(
         PersonInit {
             name: display_name.clone(),
             position,
-            genome: random_genome(rng, Species::Human),
+            genome,
             // Game agents spawn in the morning (START_HOUR = 06:00) after
             // a full night's sleep — empty stomach, moderate thirst. Tests
             // that want fresh-well-fed agents still use `PhysicalNeeds::default()`.
@@ -95,8 +101,6 @@ pub fn spawn_person<R: Rng>(
         ontology,
     );
 
-    let skin = HUMAN_SKIN_TONES[rng.random_range(0..HUMAN_SKIN_TONES.len())];
-
     let entity = commands
         .spawn(core)
         .insert(perception)
@@ -105,7 +109,8 @@ pub fn spawn_person<R: Rng>(
             InheritedVisibility::default(),
             ViewVisibility::default(),
             crate::ui::sprite_animation::VisualOffset::default(),
-            human_silhouette(skin).with_hop_phase(index as f32 * 1.618),
+            markings,
+            silhouette,
         ))
         .insert(brain)
         .id();

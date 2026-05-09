@@ -71,6 +71,85 @@ impl GroundShadow {
     }
 }
 
+/// Whole-body animation pose picked from the agent's current activity. The
+/// hop is the default; sleeping creatures slump; everything else gets a tiny
+/// breath-cycle idle. Per-emotion intensity (fear, joy) further modulates
+/// the active pose via [`PoseModulators`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum AnimationPose {
+    Hop,
+    Sleeping,
+    Idle,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct PoseModulators {
+    hop_frequency: f32,
+    hop_amplitude: f32,
+}
+
+impl Default for PoseModulators {
+    fn default() -> Self {
+        Self {
+            hop_frequency: 1.0,
+            hop_amplitude: 1.0,
+        }
+    }
+}
+
+fn pick_pose(
+    state: Option<(
+        &crate::agent::actions::registry::ActiveActions,
+        &crate::agent::psyche::emotions::EmotionalState,
+    )>,
+    is_moving: bool,
+) -> AnimationPose {
+    use crate::agent::actions::types::ActionType;
+    if let Some((active, _)) = state
+        && active.contains(ActionType::Sleep)
+    {
+        return AnimationPose::Sleeping;
+    }
+    if is_moving {
+        AnimationPose::Hop
+    } else {
+        AnimationPose::Idle
+    }
+}
+
+fn pose_modulators(
+    state: Option<(
+        &crate::agent::actions::registry::ActiveActions,
+        &crate::agent::psyche::emotions::EmotionalState,
+    )>,
+) -> PoseModulators {
+    use crate::agent::psyche::emotions::EmotionType;
+    let mut m = PoseModulators::default();
+    let Some((_, emotions)) = state else {
+        return m;
+    };
+    let fear = emotions
+        .active_emotions
+        .iter()
+        .find(|e| e.emotion_type == EmotionType::Fear)
+        .map(|e| e.intensity)
+        .unwrap_or(0.0);
+    let joy = emotions
+        .active_emotions
+        .iter()
+        .find(|e| e.emotion_type == EmotionType::Joy)
+        .map(|e| e.intensity)
+        .unwrap_or(0.0);
+    if fear > 0.6 {
+        m.hop_frequency *= 1.5;
+        m.hop_amplitude *= 0.7;
+    }
+    if joy > 0.5 {
+        m.hop_amplitude *= 1.15;
+    }
+    m
+}
+
 /// Bounce arc + squash-and-stretch from a normalized 0..1 cycle position.
 /// Returns (y_offset, x_scale, y_scale).
 fn bounce_frame(cycle: f32, height: f32) -> (f32, f32, f32) {
@@ -101,6 +180,10 @@ fn animate_sprite_bodies(
     world_map: Option<Res<WorldMap>>,
     body_query: Query<(Entity, &SpriteBody)>,
     shadow_query: Query<(Entity, &GroundShadow)>,
+    agent_state: Query<(
+        &crate::agent::actions::registry::ActiveActions,
+        &crate::agent::psyche::emotions::EmotionalState,
+    )>,
     mut transforms: Query<&mut Transform>,
     mut visual_offsets: Query<&mut VisualOffset>,
     mut trackers: Local<HashMap<Entity, MoveTracker>>,
@@ -128,12 +211,23 @@ fn animate_sprite_bodies(
         // Consider "moving" if position changed within the last 0.2 seconds
         let is_moving = (t - tracker.last_moved_at) < 0.2;
 
-        let (bounce_y, x_scale, y_scale) = if is_moving {
-            let bounces_per_sec = 2.5;
-            let cycle = ((t * bounces_per_sec + body.phase) % 1.0).clamp(0.0, 1.0);
-            bounce_frame(cycle, 3.0)
-        } else {
-            (0.0, 1.0, 1.0)
+        let pose = pick_pose(agent_state.get(body.root).ok(), is_moving);
+        let modulators = pose_modulators(agent_state.get(body.root).ok());
+
+        let (bounce_y, x_scale, y_scale) = match pose {
+            AnimationPose::Sleeping => (0.0, 1.15, 0.65),
+            AnimationPose::Hop => {
+                let bounces_per_sec = 2.5 * modulators.hop_frequency;
+                let cycle = ((t * bounces_per_sec + body.phase) % 1.0).clamp(0.0, 1.0);
+                let (y, sx, sy) = bounce_frame(cycle, 3.0 * modulators.hop_amplitude);
+                (y, sx, sy)
+            }
+            AnimationPose::Idle => {
+                // Subtle breath cycle: ±2% y-scale.
+                let phase = (t * 0.7 + body.phase) % std::f32::consts::TAU;
+                let breath = 1.0 + 0.02 * phase.sin();
+                (0.0, 1.0, breath)
+            }
         };
 
         // Lift the sprite body by the underlying tile's elevation so the
