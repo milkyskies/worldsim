@@ -155,6 +155,7 @@ pub enum NeedKind {
     Sleep,
     Stamina,
     Warmth,
+    RestQuality,
 
     // Psychological drives
     Social,

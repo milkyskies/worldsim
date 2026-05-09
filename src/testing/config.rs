@@ -34,6 +34,10 @@ pub struct AgentConfig {
     /// Thermal comfort (0.0 = hypothermic, 1.0 = warm). Default is 1.0
     /// so tests that don't exercise the warmth drive ignore it entirely.
     pub warmth: f32,
+    /// Sleep quality (0.0 = bone-tired from rough sleep, 1.0 = well-rested).
+    /// Default is 1.0 so tests that don't exercise the rest-quality drive
+    /// ignore it entirely.
+    pub rest_quality: f32,
     /// Optional override for baseline companionship satisfaction
     /// (0.0 = desperately lonely, 1.0 = content). `None` keeps the
     /// genome-derived value. `Some(v)` inserts a `SocialDriveOverride`
@@ -66,6 +70,7 @@ impl Default for AgentConfig {
             stamina: 100.0,
             wakefulness: 1.0,
             warmth: 1.0,
+            rest_quality: 1.0,
             social_drive: None,
             genome: Genome::default(),
             culture: Culture::default(),
@@ -110,6 +115,11 @@ impl AgentConfig {
 
     pub fn with_warmth(mut self, value: f32) -> Self {
         self.warmth = value;
+        self
+    }
+
+    pub fn with_rest_quality(mut self, value: f32) -> Self {
+        self.rest_quality = value;
         self
     }
 

@@ -392,6 +392,29 @@ impl Default for NervousSystemConfig {
                     bypasses_gating: false,
                     sleep_wake_threshold: None,
                 },
+                // REST QUALITY: sleep-comfort deficit. Same shape as Warmth —
+                // sigmoid lights up once `1 - rest_quality` crosses ~0.7,
+                // matching the urgent band (rest_quality < 0.3). Conscientious
+                // agents feel it sooner: a tidy person is more bothered by
+                // sleeping rough.
+                DriveConfig {
+                    name: "RestQuality".to_string(),
+                    source: UrgencySource::RestQuality,
+                    base_constant: 0.0,
+                    curve: ResponseCurve::Sigmoid {
+                        k: 10.0,
+                        midpoint: 0.7,
+                    },
+                    sensitivity: PersonalityMod {
+                        trait_type: PersonalityTrait::Conscientiousness,
+                        base: 0.7,
+                        scale: 0.4,
+                    },
+                    modifiers: vec![],
+                    min_threshold: crate::constants::brains::rest_quality::MIN_URGENCY_THRESHOLD,
+                    bypasses_gating: false,
+                    sleep_wake_threshold: None,
+                },
                 DriveConfig {
                     name: "Sleepiness".to_string(),
                     source: UrgencySource::Sleepiness,
@@ -429,6 +452,7 @@ impl Default for NervousSystemConfig {
                     UrgencySource::Pain,
                     UrgencySource::Thirst,
                     UrgencySource::Warmth,
+                    UrgencySource::RestQuality,
                 ],
             },
             exteroception: SensoryChannelConfig {

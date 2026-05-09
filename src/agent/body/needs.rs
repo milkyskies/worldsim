@@ -182,6 +182,12 @@ pub struct PhysicalNeeds {
     /// `HeatSource` radius or inside a `ShelterProvider`. Drives
     /// `UrgencySource::Warmth`.
     pub warmth: Need,
+    /// Sleep quality as a `Need` in `0..1` (1.0 = well-rested, 0.0 =
+    /// bone-tired from poor sleep). Drains slowly at baseline and faster
+    /// while sleeping outside a `ShelterProvider`; tops up while sleeping
+    /// inside one. Drives `UrgencySource::RestQuality`, which motivates
+    /// agents to build shelter.
+    pub rest_quality: Need,
 }
 
 impl PhysicalNeeds {
@@ -204,6 +210,7 @@ impl PhysicalNeeds {
             stamina: Stamina::default(),
             wakefulness: Need::full(),
             warmth: Need::full(),
+            rest_quality: Need::full(),
         }
     }
 
@@ -235,6 +242,11 @@ impl PhysicalNeeds {
 
     pub fn with_warmth(mut self, value: f32) -> Self {
         self.warmth = Need::new(value);
+        self
+    }
+
+    pub fn with_rest_quality(mut self, value: f32) -> Self {
+        self.rest_quality = Need::new(value);
         self
     }
 }

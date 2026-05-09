@@ -9,7 +9,9 @@ pub mod emits_effect;
 pub mod environment;
 pub mod field_grid;
 pub mod field_grid_plugin;
+pub mod house;
 pub mod human;
+pub mod lean_to;
 pub mod liquid;
 pub mod map;
 pub mod property;
@@ -35,6 +37,8 @@ impl Plugin for WorldPlugin {
             .register_type::<becomes::Becomes>()
             .register_type::<emits_effect::EmitsEffect>()
             .register_type::<construction_site::ConstructionSiteMarker>()
+            .register_type::<lean_to::LeanToMarker>()
+            .register_type::<house::HouseMarker>()
             .register_type::<sense_sources::SoundSource>()
             .add_plugins(map::MapPlugin)
             .add_plugins(environment::EnvironmentPlugin)

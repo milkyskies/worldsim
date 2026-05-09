@@ -161,6 +161,9 @@ pub enum Gate {
     /// A known heat-emitting entity sits on self's current tile.
     /// Maps failure to [`FailureReason::TargetGone`].
     NearHeatEmitter,
+    /// A known shelter-providing entity sits on self's current tile.
+    /// Maps failure to [`FailureReason::TargetGone`].
+    NearShelterProvider,
     /// Agent stands on a Grass tile.
     /// Maps failure to [`FailureReason::NoEdibleFood`].
     OnGrassTile,
@@ -183,6 +186,8 @@ pub enum SatiationGate {
     HydrationValue,
     /// WarmUp: `physical.warmth.value`.
     WarmthValue,
+    /// RestInShelter: `physical.rest_quality.value`.
+    RestQualityValue,
     /// Sleep: `physical.wakefulness.value`.
     WakefulnessValue,
     /// Rest: `physical.stamina.aerobic_fraction()`.
@@ -195,6 +200,7 @@ impl SatiationGate {
             SatiationGate::EatStomach | SatiationGate::HungerStomach => NeedKind::Hunger,
             SatiationGate::HydrationValue => NeedKind::Thirst,
             SatiationGate::WarmthValue => NeedKind::Warmth,
+            SatiationGate::RestQualityValue => NeedKind::RestQuality,
             SatiationGate::WakefulnessValue => NeedKind::Sleep,
             SatiationGate::StaminaAerobic => NeedKind::Stamina,
         }
@@ -217,6 +223,9 @@ pub enum CompletionPredicate {
     /// Complete when `physical.warmth.value >= threshold`. Used by WarmUp
     /// so the stance exits on goal-met, not on a fixed-duration timer.
     WarmthAtLeast(f32),
+    /// Complete when `physical.rest_quality.value >= threshold`. Used by
+    /// RestInShelter so the stance exits on goal-met, mirroring WarmUp.
+    RestQualityAtLeast(f32),
 }
 
 // ============================================================================

@@ -847,6 +847,20 @@ fn render_overview(ui: &mut egui::Ui, world: &World, entity: Entity) {
             "",
         );
         urgency_line(ui, "Warmth urgency", urgency_for(UrgencySource::Warmth));
+        vital_row_fraction_explained(
+            ui,
+            "Rest quality",
+            needs.rest_quality.value,
+            crate::constants::brains::rest_quality::URGENT_THRESHOLD,
+            crate::constants::brains::rest_quality::COMFORT_THRESHOLD,
+            None,
+            "",
+        );
+        urgency_line(
+            ui,
+            "Rest quality urgency",
+            urgency_for(UrgencySource::RestQuality),
+        );
 
         if let Some(cause) = body_ref.and_then(|b| b.death_cause()) {
             ui.label(
@@ -1298,6 +1312,20 @@ fn render_needs(ui: &mut egui::Ui, world: &World, entity: Entity) {
         ui,
         "Warmth urgency",
         urgency_for_f32(world, entity, UrgencySource::Warmth),
+    );
+    vital_row_fraction_explained(
+        ui,
+        "Rest quality",
+        needs.rest_quality.value,
+        crate::constants::brains::rest_quality::URGENT_THRESHOLD,
+        crate::constants::brains::rest_quality::COMFORT_THRESHOLD,
+        None,
+        "",
+    );
+    urgency_line(
+        ui,
+        "Rest quality urgency",
+        urgency_for_f32(world, entity, UrgencySource::RestQuality),
     );
     vital_row_explained(
         ui,

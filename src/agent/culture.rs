@@ -1,4 +1,4 @@
-use crate::agent::actions::action::{BUILD_DEF, COOK_DEF};
+use crate::agent::actions::action::{BUILD_DEF, BUILD_HOUSE_DEF, BUILD_LEAN_TO_DEF, COOK_DEF};
 use crate::agent::actions::definition::{ActionDefinition, Recipe};
 use crate::agent::mind::knowledge::{
     Concept, MemoryType, Metadata, Node, Predicate, Quantity, Source, Triple, Value,
@@ -64,7 +64,8 @@ pub fn create_cultural_knowledge(culture: Culture) -> Vec<Triple> {
     // Universal recipe knowledge derived from the action definitions
     // themselves — numbers (materials, build time, provides traits) live
     // in one place per action and can't drift from runtime.
-    const RECIPE_DEFS: &[&ActionDefinition] = &[&BUILD_DEF, &COOK_DEF];
+    const RECIPE_DEFS: &[&ActionDefinition] =
+        &[&BUILD_DEF, &BUILD_LEAN_TO_DEF, &BUILD_HOUSE_DEF, &COOK_DEF];
     for def in RECIPE_DEFS {
         if let Some(recipe) = def.recipe.as_ref() {
             for (p, o) in recipe_assertions(recipe) {
@@ -72,27 +73,6 @@ pub fn create_cultural_knowledge(culture: Culture) -> Vec<Triple> {
             }
         }
     }
-
-    // Lean-to shelter: Wood(5) + LargeLeaves(2) → provides Safety.
-    // No Build action for LeanTo yet, so the recipe still lives here as
-    // aspirational cultural knowledge. When a builder exists, move the
-    // data to its `ActionDefinition::recipe`.
-    add(
-        c(LeanTo),
-        Requires,
-        Value::Item(
-            Wood,
-            crate::constants::actions::build::LEAN_TO_WOOD_REQUIRED,
-        ),
-    );
-    add(c(LeanTo), Provides, v(Safety));
-    add(
-        c(LeanTo),
-        BuildTime,
-        Value::Quantity(Quantity::Exact(
-            crate::constants::actions::build::LEAN_TO_DURATION_TICKS as f32,
-        )),
-    );
 
     // ─── Specific Cultural Knowledge ───
 

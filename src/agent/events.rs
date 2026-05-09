@@ -408,6 +408,17 @@ pub enum SimEventKind {
         new_value: f32,
     },
 
+    /// An agent's rest-quality crossed a named threshold (comfort / urgent
+    /// / critical). Emitted by the rest-quality drain/recovery system.
+    RestQualityChanged {
+        #[serde(serialize_with = "crate::core::entity_serde::serialize_entity")]
+        agent: Entity,
+        /// Rest-quality satisfaction before the change (0..1, high = rested).
+        old_value: f32,
+        /// Rest-quality satisfaction after the change (0..1).
+        new_value: f32,
+    },
+
     /// An agent heard a sound (hearing sense).
     SoundPerceived {
         #[serde(serialize_with = "crate::core::entity_serde::serialize_entity")]

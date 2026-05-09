@@ -267,6 +267,13 @@ fn check_gate(gate: &Gate, ctx: &ActionContext) -> Result<(), FailureReason> {
                 Err(FailureReason::TargetGone)
             }
         }
+        Gate::NearShelterProvider => {
+            if is_near_shelter_provider(ctx.mind) {
+                Ok(())
+            } else {
+                Err(FailureReason::TargetGone)
+            }
+        }
         Gate::OnGrassTile => {
             if matches!(
                 ctx.world_map.tile_at(ctx.agent_position),
@@ -297,6 +304,24 @@ fn is_near_heat_emitter(mind: &MindGraph) -> bool {
     })
 }
 
+/// Runtime check mirroring the planner's `(Self, Near, ShelterProviding)`
+/// relation: true when a known shelter-providing entity sits on self's tile.
+fn is_near_shelter_provider(mind: &MindGraph) -> bool {
+    let Some(Value::Tile(self_tile)) = mind.get(&Node::Self_, Predicate::LocatedAt).cloned() else {
+        return false;
+    };
+    mind.query(
+        None,
+        Some(Predicate::LocatedAt),
+        Some(&Value::Tile(self_tile)),
+    )
+    .iter()
+    .any(|t| {
+        matches!(t.subject, Node::Entity(_))
+            && mind.has_trait(&t.subject, Concept::ShelterProviding)
+    })
+}
+
 // ============================================================================
 // SATIATION
 // ============================================================================
@@ -324,6 +349,7 @@ fn evaluate_satiation(
         SatiationGate::HungerStomach => Some((need, physical.metabolism.stomach_fraction())),
         SatiationGate::HydrationValue => Some((need, physical.hydration.value)),
         SatiationGate::WarmthValue => Some((need, physical.warmth.value)),
+        SatiationGate::RestQualityValue => Some((need, physical.rest_quality.value)),
         SatiationGate::WakefulnessValue => Some((need, physical.wakefulness.value)),
         SatiationGate::StaminaAerobic => Some((need, physical.stamina.aerobic_fraction())),
     }
@@ -583,6 +609,9 @@ impl Action for GenericAction {
                 physical.stamina.aerobic_fraction() >= threshold
             }
             CompletionPredicate::WarmthAtLeast(threshold) => physical.warmth.value >= threshold,
+            CompletionPredicate::RestQualityAtLeast(threshold) => {
+                physical.rest_quality.value >= threshold
+            }
         }
     }
 

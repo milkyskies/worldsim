@@ -31,6 +31,12 @@ pub fn spawn_concept_entity(
         Concept::Campfire => Some(crate::world::campfire::spawn_campfire(
             commands, palette, position,
         )),
+        Concept::LeanTo => Some(crate::world::lean_to::spawn_lean_to(
+            commands, palette, position,
+        )),
+        Concept::House => Some(crate::world::house::spawn_house(
+            commands, palette, position,
+        )),
         Concept::Corpse => Some(crate::world::corpse::spawn_corpse_headless(
             commands, position,
         )),
