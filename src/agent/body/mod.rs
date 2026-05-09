@@ -4,6 +4,7 @@ pub mod genetics;
 pub mod metabolism;
 pub mod need;
 pub mod needs;
+pub mod rest_quality;
 pub mod species;
 pub mod wakefulness;
 pub mod warmth;

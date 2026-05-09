@@ -207,12 +207,19 @@ pub mod actions {
         pub const CAMPFIRE_DURATION_TICKS: u32 = 120;
         /// Wood required to build a campfire.
         pub const CAMPFIRE_WOOD_REQUIRED: u32 = 3;
-        /// Ticks to build a lean-to shelter.
-        pub const LEAN_TO_DURATION_TICKS: u32 = 180;
-        /// Wood required to build a lean-to.
+        /// Wood required to start a lean-to construction site (consumed at
+        /// site placement). Site requires the same amount via deposit slots.
         pub const LEAN_TO_WOOD_REQUIRED: u32 = 5;
-        /// Large leaves required to build a lean-to.
-        pub const LEAN_TO_LEAVES_REQUIRED: u32 = 2;
+        /// Labor ticks needed to finish a lean-to construction site after
+        /// the wood slots are filled. ~150 ticks ≈ 2.5 game-minutes per
+        /// solo agent — visible commitment without dragging.
+        pub const LEAN_TO_LABOR_TICKS: u32 = 150;
+        /// Wood required to start a house construction site.
+        pub const HOUSE_WOOD_REQUIRED: u32 = 12;
+        /// Stone required to start a house construction site.
+        pub const HOUSE_STONE_REQUIRED: u32 = 6;
+        /// Labor ticks needed to finish a house construction site.
+        pub const HOUSE_LABOR_TICKS: u32 = 400;
     }
 
     pub mod cook {
@@ -325,6 +332,42 @@ pub mod actions {
         pub const STAMINA_GAIN: f32 = 5.0;
     }
 
+    pub mod rest_in_shelter {
+        /// Rest-quality value at which the stance auto-completes. Mirrors
+        /// `warm_up::COMPLETE_WARMTH_FRACTION` so re-entry hysteresis matches.
+        pub const COMPLETE_REST_QUALITY_FRACTION: f32 = 0.9;
+    }
+
+    pub mod lean_to {
+        /// Initial durability of a freshly-built lean-to, in arbitrary HP units.
+        pub const INITIAL_DURABILITY: f32 = 50.0;
+        /// Per-tick decay applied by `durability_system`. Tuned so a lean-to
+        /// despawns after roughly one game-week of neglect (~604,800 ticks).
+        pub const DURABILITY_DECAY_PER_TICK: f32 = 0.0001;
+        /// How many sleepers a lean-to can shelter at once.
+        pub const CAPACITY: u32 = 2;
+        /// Shelter-quality multiplier — feeds the rest-quality recovery rate
+        /// and the existing `shelter_system` aerobic bonus.
+        pub const PROTECTION: f32 = 1.5;
+        /// Burn time once ignited, in seconds.
+        pub const FLAMMABLE_BURN_TIME: f32 = 200.0;
+    }
+
+    pub mod house {
+        /// Initial durability of a freshly-built house. Far higher than
+        /// the lean-to so a real investment outlasts a season.
+        pub const INITIAL_DURABILITY: f32 = 200.0;
+        /// Per-tick decay applied by `durability_system`. Lower than the
+        /// lean-to's so a house lasts roughly five times as long.
+        pub const DURABILITY_DECAY_PER_TICK: f32 = 0.00002;
+        /// How many sleepers a house can shelter at once.
+        pub const CAPACITY: u32 = 4;
+        /// Shelter-quality multiplier.
+        pub const PROTECTION: f32 = 2.5;
+        /// Burn time once ignited, in seconds.
+        pub const FLAMMABLE_BURN_TIME: f32 = 500.0;
+    }
+
     pub mod rest {
         /// Aerobic fraction at which Rest self-completes. Matches the
         /// `WAKE_STAMINA_FRACTION` (0.9) spirit but slightly higher
@@ -370,6 +413,26 @@ pub mod brains {
         /// proper 6–8 game hour cycle from wake ≈ 0.15 → 0.95 instead of
         /// waking half-rested every ~2 game hours.
         pub const WAKE_WAKEFULNESS_THRESHOLD: f32 = 0.95;
+    }
+
+    /// Rest-quality drive: sleep-quality drain and recovery.
+    pub mod rest_quality {
+        /// Baseline satisfaction drain per rate-second. Slow trickle so an
+        /// agent who never sleeps in shelter notices it over a couple of
+        /// game-days.
+        pub const BASELINE_DRAIN_PER_SEC: f32 = 0.0003;
+        /// Recovery per rate-second per unit of `ShelterProvider.protection`
+        /// while near one. With LeanTo `PROTECTION = 1.5` this brings a
+        /// depleted agent back to comfort over a single sleep bout.
+        pub const SHELTER_RECOVERY_PER_SEC: f32 = 0.018;
+        /// Rest-quality above this value produces near-zero urgency.
+        pub const COMFORT_THRESHOLD: f32 = 0.6;
+        /// Rest-quality at or below this value produces urgent demand.
+        pub const URGENT_THRESHOLD: f32 = 0.3;
+        /// Rest-quality at or below this value is a long-term debility.
+        pub const CRITICAL_THRESHOLD: f32 = 0.1;
+        /// Minimum urgency below which the drive is suppressed.
+        pub const MIN_URGENCY_THRESHOLD: f32 = 0.05;
     }
 
     /// Warmth drive: thermal comfort drain and recovery.

@@ -40,6 +40,11 @@ pub enum UrgencySource {
     /// it rivals Hunger, below 0.1 it is life-threatening. Satisfied by
     /// the WarmUp action (which requires proximity to a HeatSource).
     Warmth,
+    /// Sleep quality deficit from `PhysicalNeeds::rest_quality`. Rises as
+    /// the agent accumulates nights of bad sleep without shelter. Satisfied
+    /// by the RestInShelter action (which requires proximity to a
+    /// ShelterProvider — currently a LeanTo).
+    RestQuality,
 }
 
 impl UrgencySource {
@@ -173,6 +178,10 @@ pub fn generate_urgency(
                 // below inverts it like Stamina/Sleepiness so cold (low
                 // value) maps to high urgency.
                 UrgencySource::Warmth => physical.warmth.value,
+                // RestQuality is satisfaction (high = well-rested); the
+                // loop below inverts it like Warmth so poor sleep (low
+                // value) maps to high urgency.
+                UrgencySource::RestQuality => physical.rest_quality.value,
                 // Commitment urgency is emitted directly below the drive
                 // loop, not through the source-value map, because its
                 // magnitude comes from PlanMemory not body/drive state.
@@ -200,6 +209,7 @@ pub fn generate_urgency(
                 UrgencySource::Stamina => 1.0 - base_input,
                 UrgencySource::Sleepiness => 1.0 - base_input,
                 UrgencySource::Warmth => 1.0 - base_input,
+                UrgencySource::RestQuality => 1.0 - base_input,
                 _ => base_input,
             };
 
@@ -310,6 +320,9 @@ pub fn generate_urgency(
                 crate::agent::actions::ActionType::Drink => Some(UrgencySource::Thirst),
                 crate::agent::actions::ActionType::Sleep => Some(UrgencySource::Sleepiness),
                 crate::agent::actions::ActionType::WarmUp => Some(UrgencySource::Warmth),
+                crate::agent::actions::ActionType::RestInShelter => {
+                    Some(UrgencySource::RestQuality)
+                }
                 crate::agent::actions::ActionType::Wander => Some(UrgencySource::Curiosity),
                 crate::agent::actions::ActionType::Explore => Some(UrgencySource::Curiosity),
                 crate::agent::actions::ActionType::Observe => Some(UrgencySource::Curiosity),

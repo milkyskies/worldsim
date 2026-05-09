@@ -261,7 +261,14 @@ fn check_gate(gate: &Gate, ctx: &ActionContext) -> Result<(), FailureReason> {
             }
         }
         Gate::NearHeatEmitter => {
-            if is_near_heat_emitter(ctx.mind) {
+            if is_near_trait(ctx.mind, Concept::HeatEmitting) {
+                Ok(())
+            } else {
+                Err(FailureReason::TargetGone)
+            }
+        }
+        Gate::NearShelterProvider => {
+            if is_near_trait(ctx.mind, Concept::ShelterProviding) {
                 Ok(())
             } else {
                 Err(FailureReason::TargetGone)
@@ -368,9 +375,9 @@ fn knows_any_death(mind: &MindGraph) -> bool {
         .is_empty()
 }
 
-/// Runtime check mirroring the planner's `(Self, Near, HeatEmitting)`
-/// relation: true when a known heat-emitting entity sits on self's tile.
-fn is_near_heat_emitter(mind: &MindGraph) -> bool {
+/// Runtime check mirroring the planner's `(Self, Near, $trait)` relation:
+/// true when a known entity carrying `trait_concept` sits on self's tile.
+fn is_near_trait(mind: &MindGraph, trait_concept: Concept) -> bool {
     let Some(Value::Tile(self_tile)) = mind.get(&Node::Self_, Predicate::LocatedAt).cloned() else {
         return false;
     };
@@ -380,9 +387,7 @@ fn is_near_heat_emitter(mind: &MindGraph) -> bool {
         Some(&Value::Tile(self_tile)),
     )
     .iter()
-    .any(|t| {
-        matches!(t.subject, Node::Entity(_)) && mind.has_trait(&t.subject, Concept::HeatEmitting)
-    })
+    .any(|t| matches!(t.subject, Node::Entity(_)) && mind.has_trait(&t.subject, trait_concept))
 }
 
 // ============================================================================
@@ -412,6 +417,7 @@ fn evaluate_satiation(
         SatiationGate::HungerStomach => Some((need, physical.metabolism.stomach_fraction())),
         SatiationGate::HydrationValue => Some((need, physical.hydration.value)),
         SatiationGate::WarmthValue => Some((need, physical.warmth.value)),
+        SatiationGate::RestQualityValue => Some((need, physical.rest_quality.value)),
         SatiationGate::WakefulnessValue => Some((need, physical.wakefulness.value)),
         SatiationGate::StaminaAerobic => Some((need, physical.stamina.aerobic_fraction())),
     }
@@ -671,6 +677,9 @@ impl Action for GenericAction {
                 physical.stamina.aerobic_fraction() >= threshold
             }
             CompletionPredicate::WarmthAtLeast(threshold) => physical.warmth.value >= threshold,
+            CompletionPredicate::RestQualityAtLeast(threshold) => {
+                physical.rest_quality.value >= threshold
+            }
         }
     }
 

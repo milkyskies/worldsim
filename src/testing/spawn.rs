@@ -74,7 +74,8 @@ pub(super) fn spawn_test_person(
                     ..Default::default()
                 })
                 .with_wakefulness(config.wakefulness)
-                .with_warmth(config.warmth),
+                .with_warmth(config.warmth)
+                .with_rest_quality(config.rest_quality),
             cultural_knowledge,
             extra_knowledge,
         },

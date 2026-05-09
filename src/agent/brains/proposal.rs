@@ -30,6 +30,8 @@ pub enum Intent {
     SatisfySleepiness,
     /// Thermal comfort: warm up by a heat source, build one if none exists.
     SatisfyWarmth,
+    /// Rest quality: sleep in a shelter, build one if none exists.
+    SatisfyRestQuality,
     /// Explore for its own sake, not to serve another drive.
     SatisfyCuriosity,
     /// Reserved for future reproduction drive.

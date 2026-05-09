@@ -150,6 +150,7 @@ pub enum Concept {
     // ─── Buildable entity types ───
     Campfire,
     LeanTo,
+    House,
 
     // ─── Remains / byproducts ───
     Ash,
@@ -278,6 +279,11 @@ pub enum Predicate {
     Pain,        // (Self, Pain, Int)
     SocialDrive, // (Self, SocialDrive, Int) - 0 = satisfied, 100 = lonely
     Warmth,      // (Self, Warmth, Quantity) - 0 = hypothermic, 100 = comfortable
+    /// `(Self, RestQuality, Quantity)` — 0 = bone-tired from poor sleep,
+    /// 100 = well-rested. Drains over time, drains faster when sleeping
+    /// without nearby shelter, recovers when sleeping near a
+    /// `ShelterProvider`. Drives `UrgencySource::RestQuality`.
+    RestQuality,
 
     // ─── Episodic Memory ───
     Actor,       // (Event42, Actor, Bob)
@@ -325,6 +331,7 @@ impl Predicate {
                 | Predicate::Thirst
                 | Predicate::Stamina
                 | Predicate::Warmth
+                | Predicate::RestQuality
                 | Predicate::RegenerationRate
                 | Predicate::LastObserved
                 | Predicate::Actor

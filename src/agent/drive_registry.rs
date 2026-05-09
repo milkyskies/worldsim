@@ -118,6 +118,20 @@ pub const DRIVE_REGISTRY: &[DriveEntry] = &[
         display_name: "Warmth",
     },
     DriveEntry {
+        urgency: UrgencySource::RestQuality,
+        need_kind: Some(NeedKind::RestQuality),
+        intent: Intent::SatisfyRestQuality,
+        satisfier: Some(ActionType::RestInShelter),
+        satiation_threshold: 0.95,
+        survival_weight: 70.0,
+        is_deprivation: true,
+        goal_pattern: Some(GoalPattern::SelfHas {
+            predicate: Predicate::RestQuality,
+            target_quantity: 100.0,
+        }),
+        display_name: "Rest Quality",
+    },
+    DriveEntry {
         urgency: UrgencySource::Stamina,
         need_kind: Some(NeedKind::Stamina),
         intent: Intent::SatisfyStamina,
@@ -232,6 +246,7 @@ mod tests {
             UrgencySource::Thirst,
             UrgencySource::Pain,
             UrgencySource::Warmth,
+            UrgencySource::RestQuality,
             UrgencySource::Stamina,
             UrgencySource::Sleepiness,
             UrgencySource::Fear,

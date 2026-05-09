@@ -349,6 +349,20 @@ fn format_sim_event(event: &SimEvent) -> String {
         SimEvent {
             tick,
             kind:
+                SimEventKind::RestQualityChanged {
+                    agent,
+                    old_value,
+                    new_value,
+                    ..
+                },
+            ..
+        } => {
+            format!("[t{tick}] RestQualityChanged agent={agent:?} {old_value:.2} -> {new_value:.2}")
+        }
+
+        SimEvent {
+            tick,
+            kind:
                 SimEventKind::SoundPerceived {
                     agent,
                     source,
@@ -986,6 +1000,23 @@ impl TestWorld {
             .id()
     }
 
+    /// Spawns a lean-to (logic-only) at the given position. Has
+    /// `ShelterProvider`, `Durability`, and `Flammable` components.
+    pub fn spawn_lean_to(&mut self, pos: Vec2) -> Entity {
+        self.app
+            .world_mut()
+            .spawn(crate::world::lean_to::lean_to_components(pos))
+            .id()
+    }
+
+    /// Spawns a house (logic-only) at the given position.
+    pub fn spawn_house(&mut self, pos: Vec2) -> Entity {
+        self.app
+            .world_mut()
+            .spawn(crate::world::house::house_components(pos))
+            .id()
+    }
+
     /// Spawns a bare entity with a SoundSource at the given position.
     /// The SoundSource is transient and will be cleaned up after one perception tick.
     pub fn spawn_sound_source(
@@ -1329,6 +1360,11 @@ impl TestWorld {
     /// Returns the agent's thermal comfort (0.0 = hypothermic, 1.0 = warm).
     pub fn agent_warmth(&self, agent: Entity) -> f32 {
         self.get::<PhysicalNeeds>(agent).warmth.value
+    }
+
+    /// Returns the agent's rest-quality (0.0 = bone-tired, 1.0 = well-rested).
+    pub fn agent_rest_quality(&self, agent: Entity) -> f32 {
+        self.get::<PhysicalNeeds>(agent).rest_quality.value
     }
 
     /// Returns true if the entity carries any of the given concept in its inventory.

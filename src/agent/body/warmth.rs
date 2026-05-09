@@ -3,6 +3,7 @@
 use bevy::prelude::*;
 
 use crate::agent::Agent;
+use crate::agent::body::need::crossed_threshold;
 use crate::agent::body::needs::PhysicalNeeds;
 use crate::agent::body::species::{Species, SpeciesProfile};
 use crate::agent::events::{SimEvent, SimEventKind};
@@ -56,7 +57,7 @@ pub fn tick_warmth(
         physical.warmth.apply_delta(rate_per_sec * dt);
         let new = physical.warmth.value;
 
-        if crossed_named_threshold(old, new) {
+        if crossed_threshold(old, new, NAMED_THRESHOLDS) {
             sim_events.write(SimEvent::single(
                 current_tick,
                 agent_entity,
@@ -93,15 +94,7 @@ fn cell_temp_to_warmth_rate(temp_c: f32) -> f32 {
     -BASELINE_DRAIN_PER_SEC + recovery + exposure
 }
 
-/// Returns `true` when `old` and `new` fall on opposite sides of any of
-/// the three named warmth thresholds (comfort / urgent / critical).
-/// Keeps the SimEvent stream sparse.
-fn crossed_named_threshold(old: f32, new: f32) -> bool {
-    const THRESHOLDS: &[f32] = &[COMFORT_THRESHOLD, URGENT_THRESHOLD, CRITICAL_THRESHOLD];
-    THRESHOLDS
-        .iter()
-        .any(|t| (old >= *t && new < *t) || (old < *t && new >= *t))
-}
+const NAMED_THRESHOLDS: &[f32] = &[COMFORT_THRESHOLD, URGENT_THRESHOLD, CRITICAL_THRESHOLD];
 
 #[cfg(test)]
 mod tests {
@@ -109,25 +102,25 @@ mod tests {
 
     #[test]
     fn crossing_comfort_threshold_fires() {
-        assert!(crossed_named_threshold(0.65, 0.55));
-        assert!(crossed_named_threshold(0.55, 0.65));
+        assert!(crossed_threshold(0.65, 0.55, NAMED_THRESHOLDS));
+        assert!(crossed_threshold(0.55, 0.65, NAMED_THRESHOLDS));
     }
 
     #[test]
     fn crossing_urgent_threshold_fires() {
-        assert!(crossed_named_threshold(0.35, 0.25));
+        assert!(crossed_threshold(0.35, 0.25, NAMED_THRESHOLDS));
     }
 
     #[test]
     fn crossing_critical_threshold_fires() {
-        assert!(crossed_named_threshold(0.15, 0.05));
+        assert!(crossed_threshold(0.15, 0.05, NAMED_THRESHOLDS));
     }
 
     #[test]
     fn not_crossing_any_threshold_is_quiet() {
-        assert!(!crossed_named_threshold(0.8, 0.75));
-        assert!(!crossed_named_threshold(0.5, 0.45));
-        assert!(!crossed_named_threshold(0.2, 0.15));
+        assert!(!crossed_threshold(0.8, 0.75, NAMED_THRESHOLDS));
+        assert!(!crossed_threshold(0.5, 0.45, NAMED_THRESHOLDS));
+        assert!(!crossed_threshold(0.2, 0.15, NAMED_THRESHOLDS));
     }
 
     /// At freezing, exposure drain is at its floor (full value) and
