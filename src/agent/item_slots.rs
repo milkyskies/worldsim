@@ -99,6 +99,9 @@ pub fn perishable_decay_rate(concept: Concept) -> Option<f32> {
         Concept::Berry => Some(0.020),
         Concept::Meat => Some(0.010),
         Concept::CookedMeat => Some(0.005),
+        // Fish spoils fastest of the proteins — fresh-water catch goes
+        // off in hours.
+        Concept::Fish => Some(0.015),
         _ => None,
     }
 }
