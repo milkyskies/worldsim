@@ -14,6 +14,7 @@ pub mod injuries;
 pub mod markings;
 pub mod menu;
 pub mod palette;
+pub mod particles;
 pub mod silhouette;
 pub mod testing;
 pub mod ui;

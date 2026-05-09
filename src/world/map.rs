@@ -827,6 +827,49 @@ pub fn setup_map(
                                     z,
                                 )),
                             ));
+
+                            // Auto-tiling: draw a thin darker band on each side
+                            // where the neighbor is a different tile type. Edges
+                            // sell the boundaries between biomes without needing
+                            // a full corner-aware tileset.
+                            let edge_color = darken(color, 0.65);
+                            for (dx, dy, ex, ey, ew, eh) in [
+                                (
+                                    0_i32,
+                                    1_i32,
+                                    0.0_f32,
+                                    0.5_f32 * TILE_SIZE - 0.5,
+                                    TILE_SIZE,
+                                    1.0,
+                                ),
+                                (0, -1, 0.0, -0.5 * TILE_SIZE + 0.5, TILE_SIZE, 1.0),
+                                (1, 0, 0.5 * TILE_SIZE - 0.5, 0.0, 1.0, TILE_SIZE),
+                                (-1, 0, -0.5 * TILE_SIZE + 0.5, 0.0, 1.0, TILE_SIZE),
+                            ] {
+                                let nx = x as i32 + dx;
+                                let ny = y as i32 + dy;
+                                if nx < 0 || ny < 0 || nx >= width as i32 || ny >= height as i32 {
+                                    continue;
+                                }
+                                let n_idx = (ny as u32 * width + nx as u32) as usize;
+                                if terrain[n_idx] == tile_type {
+                                    continue;
+                                }
+                                parent.spawn((
+                                    Name::new(format!("TileEdge ({},{})", x, y)),
+                                    Sprite {
+                                        color: edge_color,
+                                        custom_size: Some(Vec2::new(ew, eh)),
+                                        ..default()
+                                    },
+                                    BaseColor(edge_color),
+                                    Transform::from_translation(Vec3::new(
+                                        x as f32 * TILE_SIZE + ex,
+                                        screen_y + ey,
+                                        z + 0.005,
+                                    )),
+                                ));
+                            }
                         }
                     }
                 }
