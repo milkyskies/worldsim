@@ -57,9 +57,13 @@ fn apply_injury_overlays(
             .map(|i| i.severity * (1.0 - i.healed_amount))
             .sum::<f32>()
             .min(1.0);
-        sprite.color = if severity < 0.01 {
-            link.base_color
-        } else if severity < 0.5 {
+        if severity < 0.01 {
+            // Healthy parts are owned by `apply_sprite_lighting` (day/night
+            // tinting). Writing here would race with that system and flicker
+            // every frame — let the lighting system be authoritative.
+            continue;
+        }
+        sprite.color = if severity < 0.5 {
             lerp_srgb(link.base_color, blood_fresh, severity * 1.2)
         } else {
             lerp_srgb(link.base_color, blood_dried, (severity - 0.3).min(0.7))

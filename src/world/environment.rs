@@ -209,9 +209,9 @@ fn apply_sprite_lighting(
     >,
     mut agents: Query<(&mut Sprite, &BaseColor), With<AgentBodySprite>>,
 ) {
-    if !light.is_changed() && !tint.is_changed() {
-        return;
-    }
+    // Always run: agent body sprites can be transiently overwritten by
+    // injury overlays, so we have to restore the tinted base each frame
+    // for the healed-state to come back. Per-sprite cost is trivial.
 
     let light_level = light.0;
     let tint = tint.0;
