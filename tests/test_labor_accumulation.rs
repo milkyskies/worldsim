@@ -24,6 +24,7 @@ fn labor_test_app() -> App {
     let mut app = App::new();
     app.insert_resource(TickCount::default());
     app.add_message::<SimEvent>();
+    app.add_plugins(worldsim::palette::PalettePlugin);
     // Labor must run before becomes so a threshold crossing fires in the same tick.
     app.add_systems(
         Update,
