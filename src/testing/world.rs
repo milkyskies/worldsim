@@ -26,7 +26,7 @@ use crate::core::{GameLog, GameTime};
 use crate::testing::config::AgentConfig;
 use crate::testing::spawn::{
     spawn_test_apple_tree, spawn_test_berry_bush, spawn_test_deer, spawn_test_person,
-    spawn_test_stone_node, spawn_test_wolf, spawn_test_wood_log,
+    spawn_test_sapling, spawn_test_stone_node, spawn_test_wolf, spawn_test_wood_log,
 };
 use crate::world::environment::LightLevel;
 use crate::world::map::{
@@ -406,6 +406,18 @@ fn format_sim_event(event: &SimEvent) -> String {
 
         SimEvent {
             tick,
+            kind:
+                SimEventKind::PlantMatured {
+                    mature,
+                    matured_into,
+                },
+            ..
+        } => {
+            format!("[t{tick}] PlantMatured      mature={mature:?} into={matured_into:?}")
+        }
+
+        SimEvent {
+            tick,
             kind: SimEventKind::LaborContributed { agent, site, .. },
             ..
         } => {
@@ -767,6 +779,7 @@ impl TestWorld {
         app.add_plugins(AgentPlugin);
 
         app.add_systems(FixedUpdate, crate::world::apple_tree::regenerate_resources);
+        app.add_systems(FixedUpdate, crate::world::sapling::grow_saplings);
 
         app.add_plugins(crate::world::property::OntologyDerivationPlugin);
         app.add_plugins(crate::world::field_grid_plugin::FieldGridPlugin);
@@ -944,6 +957,18 @@ impl TestWorld {
     /// Spawns a berry bush at the given position with the specified berry count.
     pub fn spawn_berry_bush(&mut self, pos: Vec2, berries: u32) -> Entity {
         spawn_test_berry_bush(self.app.world_mut(), pos, berries)
+    }
+
+    /// Spawns a Sapling at the given position. After `mature_at` rate-units
+    /// elapse the sapling is replaced in place by a fully-visual mature
+    /// plant of the chosen concept (`AppleTree` or `BerryBush`).
+    pub fn spawn_sapling(
+        &mut self,
+        pos: Vec2,
+        matures_into: crate::agent::mind::knowledge::Concept,
+        mature_at: f32,
+    ) -> Entity {
+        spawn_test_sapling(self.app.world_mut(), pos, matures_into, mature_at)
     }
 
     /// Spawns an apple tree at the given position with the specified apple count.

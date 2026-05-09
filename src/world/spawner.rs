@@ -70,11 +70,14 @@ fn introduce_group_as_kin(commands: &mut Commands, members: Vec<Entity>, affecti
 // Re-export spawning functions for convenience
 pub use super::apple_tree::{
     ResourceRegeneration, VisualApple, VisualLeaves, regenerate_resources, spawn_apple_tree,
-    sync_apple_visuals,
+    sync_apple_visuals, sync_tree_depletion_color,
 };
-pub use super::berry_bush::{VisualBerry, VisualBushLeaves, spawn_berry_bush, sync_berry_visuals};
+pub use super::berry_bush::{
+    VisualBerry, VisualBushLeaves, spawn_berry_bush, sync_berry_visuals, sync_bush_depletion_color,
+};
 pub use super::deer::{Deer, spawn_deer};
 pub use super::human::spawn_person;
+pub use super::sapling::{Sapling, grow_saplings, spawn_sapling};
 pub use super::stone_node::{
     StoneNodeMarker, VisualStoneChunk, spawn_stone_node, sync_stone_visuals,
 };
@@ -89,6 +92,7 @@ impl Plugin for SpawnerPlugin {
         app.insert_resource(crate::agent::mind::knowledge::setup_ontology());
 
         app.register_type::<ResourceRegeneration>()
+            .register_type::<Sapling>()
             .register_type::<Deer>()
             .register_type::<Wolf>()
             .add_systems(
@@ -106,6 +110,7 @@ impl Plugin for SpawnerPlugin {
                 ),
             )
             .add_systems(FixedUpdate, regenerate_resources)
+            .add_systems(FixedUpdate, grow_saplings)
             .add_systems(
                 Update,
                 (
@@ -113,6 +118,8 @@ impl Plugin for SpawnerPlugin {
                     sync_berry_visuals,
                     sync_stone_visuals,
                     sync_wood_visuals,
+                    sync_bush_depletion_color,
+                    sync_tree_depletion_color,
                 ),
             );
     }
