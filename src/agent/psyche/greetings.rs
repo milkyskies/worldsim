@@ -1,6 +1,6 @@
 //! Social acknowledgments — lightweight passing greetings between agents.
 //!
-//! Reads: VisibleObjects, MindGraph, PsychologicalDrives, EmotionalState, InConversation
+//! Reads: VisibleObjects, MindGraph, PsychologicalDrives, EmotionalState, Engaged
 //! Writes: PsychologicalDrives (companionship bump), GameEvent (SocialInteraction), SimEvent (SocialAcknowledgment)
 //! Upstream: perception (VisibleObjects), recognition (relationship initialization)
 //! Downstream: relationships (consumes SocialInteraction), flocking (reads companionship)
@@ -16,8 +16,8 @@ use bevy::prelude::*;
 use crate::agent::Agent;
 use crate::agent::actions::ActionType;
 use crate::agent::body::needs::PsychologicalDrives;
+use crate::agent::engagement::Engaged;
 use crate::agent::events::{GameEvent, SimEvent, SimEventKind};
-use crate::agent::mind::conversation::InConversation;
 use crate::agent::mind::knowledge::{MindGraph, Node, Predicate};
 use crate::agent::mind::perception::VisibleObjects;
 use crate::agent::psyche::emotions::EmotionalState;
@@ -74,7 +74,7 @@ pub fn social_acknowledgments(
             &MindGraph,
             &mut PsychologicalDrives,
             &EmotionalState,
-            Option<&InConversation>,
+            Option<&Engaged>,
         ),
         With<Agent>,
     >,
@@ -85,13 +85,13 @@ pub fn social_acknowledgments(
 
     let mut greetings: Vec<(Entity, Entity, f32)> = Vec::new();
 
-    for (agent, visible, mind, _drives, emotions, in_conversation) in agents.iter() {
+    for (agent, visible, mind, _drives, emotions, engaged) in agents.iter() {
         if !tick.should_run(agent, CHECK_INTERVAL) {
             continue;
         }
 
-        // Agents already in a conversation don't need passing greetings.
-        if in_conversation.is_some() {
+        // Agents already mid-engagement (any kind) don't need passing greetings.
+        if engaged.is_some() {
             continue;
         }
 

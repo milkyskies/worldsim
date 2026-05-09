@@ -3,7 +3,7 @@
 //! Reads: MindGraph (speaker's triples), TheoryOfMind (speaker's belief about partner for novelty)
 //! Writes: nothing (pure scoring function — no Bevy types touched)
 //! Upstream: agent::mind::knowledge (Triple, Metadata, MemoryType, Source), agent::mind::theory_of_mind
-//! Downstream: agent::communication::select_turn_intent (#46 will use these to fill Turn::content)
+//! Downstream: agent::engagement::converse::select_turn_intent (#46 will use these to fill Turn::content)
 //!
 //! # Design
 //!

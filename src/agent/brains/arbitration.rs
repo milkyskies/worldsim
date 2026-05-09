@@ -10,9 +10,22 @@ use std::collections::HashMap;
 use super::proposal::{BrainPowers, BrainProposal, Intent};
 use crate::agent::actions::channel::ChannelCapacities;
 use crate::agent::body::needs::Consciousness;
+use crate::agent::engagement::EngagementKind;
 use crate::agent::nervous_system::cns::CentralNervousSystem;
 use crate::agent::psyche::emotions::EmotionalState;
 use crate::agent::psyche::personality::Personality;
+use crate::constants::brains::emotional::FLEE_RESPONSE_URGENCY_MULTIPLIER;
+
+/// Proposal urgency above which an `Engaged` agent admits a non-engagement
+/// action that would otherwise be blocked by the commitment gate. Tied
+/// to a saturated Flee proposal — `FLEE_RESPONSE_URGENCY_MULTIPLIER * 1.0`
+/// — so tuning the flee response automatically retunes the gate.
+pub const ENGAGEMENT_BREAK_URGENCY: f32 = FLEE_RESPONSE_URGENCY_MULTIPLIER;
+
+#[derive(Debug, Clone, Copy)]
+pub struct EngagementGuard {
+    pub kind: EngagementKind,
+}
 
 /// Calculate the current power level of each brain.
 ///
@@ -160,6 +173,7 @@ pub fn arbitrate_parallel(
     powers: &BrainPowers,
     capacities: &ChannelCapacities,
     registry: &crate::agent::actions::ActionRegistry,
+    engagement: Option<EngagementGuard>,
 ) -> ArbitrationResult {
     use crate::agent::actions::channel::ChannelLoad;
 
@@ -194,6 +208,18 @@ pub fn arbitrate_parallel(
             .iter()
             .any(|a| a.action.action_type == proposal.action.action_type)
         {
+            continue;
+        }
+
+        // Engagement-as-commitment gate. Movement-class proposals
+        // outside the kind's own action set are rejected unless their
+        // urgency crosses ENGAGEMENT_BREAK_URGENCY (acute fear / pain).
+        if let Some(guard) = engagement
+            && !guard.kind.owns_action(proposal.action.action_type)
+            && action_def.kind().is_movement_like()
+            && proposal.urgency < ENGAGEMENT_BREAK_URGENCY
+        {
+            rejected.push(proposal);
             continue;
         }
 
@@ -441,7 +467,8 @@ mod tests {
         );
 
         let proposals = [Some(walk), Some(explore), None];
-        let admitted = arbitrate_parallel(&proposals, &powers, &capacities, &registry).admitted;
+        let admitted =
+            arbitrate_parallel(&proposals, &powers, &capacities, &registry, None).admitted;
 
         assert_eq!(
             admitted.len(),
@@ -475,7 +502,8 @@ mod tests {
         let wander = make_proposal(BrainType::Rational, ActionType::Wander, 30.0, Intent::None);
 
         let proposals = [Some(walk), Some(wander), None];
-        let admitted = arbitrate_parallel(&proposals, &powers, &capacities, &registry).admitted;
+        let admitted =
+            arbitrate_parallel(&proposals, &powers, &capacities, &registry, None).admitted;
 
         let movement_count = admitted
             .iter()
@@ -520,7 +548,8 @@ mod tests {
         );
 
         let proposals = [Some(walk), Some(eat), None];
-        let admitted = arbitrate_parallel(&proposals, &powers, &capacities, &registry).admitted;
+        let admitted =
+            arbitrate_parallel(&proposals, &powers, &capacities, &registry, None).admitted;
 
         let kinds: Vec<_> = admitted.iter().map(|p| p.action.action_type).collect();
         assert!(
@@ -623,7 +652,8 @@ mod tests {
         let registry = ActionRegistry::new();
         let capacities = ChannelCapacities::full();
         let proposals = [Some(walk), Some(flee), None];
-        let admitted = arbitrate_parallel(&proposals, &powers, &capacities, &registry).admitted;
+        let admitted =
+            arbitrate_parallel(&proposals, &powers, &capacities, &registry, None).admitted;
 
         assert!(
             !admitted.is_empty(),
@@ -659,7 +689,8 @@ mod tests {
         // Same intent — only the higher-scoring proposal survives dedup.
         // The admitted action's behavior should carry the correct primitive.
         let proposals = [Some(walk), Some(eat), None];
-        let admitted = arbitrate_parallel(&proposals, &powers, &capacities, &registry).admitted;
+        let admitted =
+            arbitrate_parallel(&proposals, &powers, &capacities, &registry, None).admitted;
 
         assert!(!admitted.is_empty());
         assert_eq!(
@@ -667,5 +698,93 @@ mod tests {
             ActionPrimitive::Locomote,
             "Walk (Locomote) should win over Eat (Ingest) at higher urgency"
         );
+    }
+
+    // ─── Engagement-commitment gate ─────────────────────────────────────────
+
+    fn drift_walk_proposal(urgency: f32) -> BrainProposal {
+        make_proposal(
+            BrainType::Emotional,
+            ActionType::Walk,
+            urgency,
+            Intent::SatisfySocial,
+        )
+    }
+
+    fn flee_proposal(urgency: f32) -> BrainProposal {
+        make_proposal(
+            BrainType::Emotional,
+            ActionType::Flee,
+            urgency,
+            Intent::SatisfySafety,
+        )
+    }
+
+    fn baseline_powers() -> BrainPowers {
+        BrainPowers {
+            survival: 50.0,
+            emotional: 50.0,
+            rational: 50.0,
+        }
+    }
+
+    #[test]
+    fn engaged_agent_rejects_drift_social_walk() {
+        let registry = ActionRegistry::new();
+        let powers = baseline_powers();
+        let capacities = ChannelCapacities::default();
+        let walk = drift_walk_proposal(40.0);
+
+        let result = arbitrate_parallel(
+            &[Some(walk.clone())],
+            &powers,
+            &capacities,
+            &registry,
+            Some(EngagementGuard {
+                kind: EngagementKind::Converse,
+            }),
+        );
+        assert!(
+            result.admitted.is_empty(),
+            "Drift Social Walk must be rejected while Engaged"
+        );
+        assert_eq!(result.rejected.len(), 1);
+        assert_eq!(result.rejected[0].action.action_type, ActionType::Walk);
+    }
+
+    #[test]
+    fn unengaged_agent_admits_drift_social_walk() {
+        let registry = ActionRegistry::new();
+        let powers = baseline_powers();
+        let capacities = ChannelCapacities::default();
+        let walk = drift_walk_proposal(40.0);
+
+        let result = arbitrate_parallel(&[Some(walk)], &powers, &capacities, &registry, None);
+        assert_eq!(result.admitted.len(), 1);
+        assert_eq!(result.admitted[0].action.action_type, ActionType::Walk);
+    }
+
+    #[test]
+    fn engaged_agent_admits_flee_above_break_threshold() {
+        let registry = ActionRegistry::new();
+        let powers = baseline_powers();
+        let capacities = ChannelCapacities::default();
+        let flee = flee_proposal(95.0);
+
+        let result = arbitrate_parallel(
+            &[Some(flee)],
+            &powers,
+            &capacities,
+            &registry,
+            Some(EngagementGuard {
+                kind: EngagementKind::Converse,
+            }),
+        );
+        assert_eq!(
+            result.admitted.len(),
+            1,
+            "Flee above ENGAGEMENT_BREAK_URGENCY must displace the engagement"
+        );
+        assert_eq!(result.admitted[0].action.action_type, ActionType::Flee);
     }
 }

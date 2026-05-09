@@ -17,11 +17,12 @@ use crate::agent::body::needs::{Consciousness, PhysicalNeeds, PsychologicalDrive
 use crate::agent::body::species::SpeciesProfile;
 use crate::agent::brains::plan_memory::{PlanMemory, PlanState};
 use crate::agent::brains::proposal::{BrainState, BrainType};
+use crate::agent::engagement::Engaged;
+use crate::agent::engagement::converse::{
+    ConverseRegistry, Intent as ConvIntent, Topic as ConvTopic,
+};
 use crate::agent::events::ConversationTopic;
 use crate::agent::item_slots::ItemSlots;
-use crate::agent::mind::conversation::{
-    ConversationManager, InConversation, Intent as ConvIntent, Topic as ConvTopic,
-};
 use crate::agent::mind::knowledge::{Concept, MindGraph, Node, Predicate, Value};
 use crate::agent::mind::memory::WorkingMemory;
 use crate::agent::mind::perception::VisibleObjects;
@@ -1865,16 +1866,16 @@ fn render_social(ui: &mut egui::Ui, world: &World, entity: Entity) {
 
 fn render_current_conversation(ui: &mut egui::Ui, world: &World, entity: Entity, now: u64) {
     ui.heading("Conversation");
-    let Some(in_conv) = world.get::<InConversation>(entity) else {
-        placeholder(ui, "(not currently in a conversation)");
+    let Some(engaged) = world.get::<Engaged>(entity) else {
+        placeholder(ui, "(not currently engaged)");
         ui.add_space(6.0);
         return;
     };
-    let Some(manager) = world.get_resource::<ConversationManager>() else {
-        placeholder(ui, "(conversation manager unavailable)");
+    let Some(registry) = world.get_resource::<ConverseRegistry>() else {
+        placeholder(ui, "(conversation registry unavailable)");
         return;
     };
-    let Some(conv) = manager.get(in_conv.conversation_id) else {
+    let Some(conv) = registry.get(engaged.id) else {
         placeholder(ui, "(conversation record missing)");
         return;
     };
@@ -1919,7 +1920,7 @@ fn render_current_conversation(ui: &mut egui::Ui, world: &World, entity: Entity,
 fn render_conversation_turn(
     ui: &mut egui::Ui,
     world: &World,
-    turn: &crate::agent::mind::conversation::Turn,
+    turn: &crate::agent::engagement::converse::Turn,
     now: u64,
 ) {
     let speaker_name = world

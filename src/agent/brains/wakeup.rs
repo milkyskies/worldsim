@@ -2,15 +2,15 @@
 //! planner so they only run for agents whose situation actually changed.
 //!
 //! Reads: SimEvent (action lifecycle, mind-graph mutations), CentralNervousSystem
-//!        (urgency thresholds), VisibleObjects (new entities), InConversation
+//!        (urgency thresholds), VisibleObjects (new entities), Engaged
 //!        (added/removed/changed), Added<Agent> (initial wakeup).
 //! Writes: PendingBrainWakeups (drained by arbitrate_every_tick).
-//! Upstream: action lifecycle, perception, cns urgency, conversation lifecycle.
+//! Upstream: action lifecycle, perception, cns urgency, engagement lifecycle.
 //! Downstream: brains::brain_system, brains::rational.
 
 use crate::agent::Agent;
+use crate::agent::engagement::Engaged;
 use crate::agent::events::{SimEvent, SimEventKind};
-use crate::agent::mind::conversation::InConversation;
 use crate::agent::mind::perception::VisibleObjects;
 use crate::agent::nervous_system::cns::CentralNervousSystem;
 use crate::agent::nervous_system::urgency::UrgencySource;
@@ -163,9 +163,9 @@ pub fn emit_knowledge_change_wakeups(
     }
 }
 
-pub fn emit_conversation_state_wakeups(
-    changed: Query<Entity, (With<Agent>, Changed<InConversation>)>,
-    removed: RemovedComponents<InConversation>,
+pub fn emit_engagement_state_wakeups(
+    changed: Query<Entity, (With<Agent>, Changed<Engaged>)>,
+    removed: RemovedComponents<Engaged>,
     mut pending: ResMut<PendingBrainWakeups>,
 ) {
     for agent in changed.iter() {

@@ -1221,9 +1221,9 @@ fn render_social_ui(world: &mut World, ui: &mut egui::Ui, selected_entities: &[E
 
     // === ACTIVE CONVERSATIONS ===
     ui.collapsing("💬 Active Conversations", |ui| {
-        world.resource_scope::<crate::agent::mind::conversation::ConversationManager, _>(
+        world.resource_scope::<crate::agent::engagement::converse::ConverseRegistry, _>(
             |inner_world, cm| {
-                let active = cm.active_conversations();
+                let active = cm.active();
                 let my_conversations: Vec<_> = active
                     .filter(|c| c.participants.contains(&entity))
                     .collect();
@@ -1254,12 +1254,12 @@ fn render_social_ui(world: &mut World, ui: &mut egui::Ui, selected_entities: &[E
                                     .unwrap_or_else(|| format!("{:?}", turn.speaker));
 
                                 let intent_icon = match turn.intent {
-                                    crate::agent::mind::conversation::Intent::Greet => "👋",
-                                    crate::agent::mind::conversation::Intent::Ask => "❓",
-                                    crate::agent::mind::conversation::Intent::Share => "💡",
-                                    crate::agent::mind::conversation::Intent::Acknowledge => "✅",
-                                    crate::agent::mind::conversation::Intent::Thank => "🙏",
-                                    crate::agent::mind::conversation::Intent::Farewell => "👋",
+                                    crate::agent::engagement::converse::Intent::Greet => "👋",
+                                    crate::agent::engagement::converse::Intent::Ask => "❓",
+                                    crate::agent::engagement::converse::Intent::Share => "💡",
+                                    crate::agent::engagement::converse::Intent::Acknowledge => "✅",
+                                    crate::agent::engagement::converse::Intent::Thank => "🙏",
+                                    crate::agent::engagement::converse::Intent::Farewell => "👋",
                                     _ => "💬",
                                 };
 
@@ -1284,12 +1284,12 @@ fn render_social_ui(world: &mut World, ui: &mut egui::Ui, selected_entities: &[E
 
     // === PAST CONVERSATIONS ===
     ui.collapsing("📜 Past Conversations", |ui| {
-        world.resource_scope::<crate::agent::mind::conversation::ConversationManager, _>(
+        world.resource_scope::<crate::agent::engagement::converse::ConverseRegistry, _>(
             |inner_world, cm| {
                 let ended_conversations: Vec<_> = cm
                     .conversations
                     .values()
-                    .filter(|c| c.state == crate::agent::mind::conversation::ConversationState::Ended)
+                    .filter(|c| c.state == crate::agent::engagement::converse::ConversationState::Ended)
                     .filter(|c| c.participants.contains(&entity))
                     .collect();
 
@@ -1315,22 +1315,22 @@ fn render_social_ui(world: &mut World, ui: &mut egui::Ui, selected_entities: &[E
                                             partner_name,
                                             conv.turns.len()
                                         ));
-                                        ui.label(format!("ID: {}", conv.id));
+                                        ui.label(format!("ID: {:?}", conv.id));
                                     });
 
                                     // Show all turns
                                     for turn in &conv.turns {
                                         let intent_icon = match turn.intent {
-                                            crate::agent::mind::conversation::Intent::Greet => "👋",
-                                            crate::agent::mind::conversation::Intent::Ask => "❓",
-                                            crate::agent::mind::conversation::Intent::Answer => "💬",
-                                            crate::agent::mind::conversation::Intent::Share => "💡",
-                                            crate::agent::mind::conversation::Intent::Acknowledge => "✅",
-                                            crate::agent::mind::conversation::Intent::Thank => "🙏",
-                                            crate::agent::mind::conversation::Intent::Farewell => "👋",
-                                            crate::agent::mind::conversation::Intent::Empathize => "❤️",
-                                            crate::agent::mind::conversation::Intent::Agree => "👍",
-                                            crate::agent::mind::conversation::Intent::Disagree => "👎",
+                                            crate::agent::engagement::converse::Intent::Greet => "👋",
+                                            crate::agent::engagement::converse::Intent::Ask => "❓",
+                                            crate::agent::engagement::converse::Intent::Answer => "💬",
+                                            crate::agent::engagement::converse::Intent::Share => "💡",
+                                            crate::agent::engagement::converse::Intent::Acknowledge => "✅",
+                                            crate::agent::engagement::converse::Intent::Thank => "🙏",
+                                            crate::agent::engagement::converse::Intent::Farewell => "👋",
+                                            crate::agent::engagement::converse::Intent::Empathize => "❤️",
+                                            crate::agent::engagement::converse::Intent::Agree => "👍",
+                                            crate::agent::engagement::converse::Intent::Disagree => "👎",
                                         };
 
                                         let me = turn.speaker == entity;

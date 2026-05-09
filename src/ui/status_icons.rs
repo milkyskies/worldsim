@@ -1,6 +1,6 @@
 //! Floating status icons above agents.
 //!
-//! Reads: Agent, ActiveActions, EmotionalState, PhysicalNeeds, InConversation,
+//! Reads: Agent, ActiveActions, EmotionalState, PhysicalNeeds, Engaged,
 //!        Cornered, Lame, Dazed, Body (bleed/wounds), Camera Projection
 //! Writes: Text2d child entities (StatusIcon) spawned as children of agent root entities
 //! Upstream: agent (actions, emotions, needs, conversation, condition flags)
@@ -14,7 +14,7 @@ use crate::agent::Agent;
 use crate::agent::actions::{ActionType, ActiveActions};
 use crate::agent::biology::body::Body;
 use crate::agent::body::needs::PhysicalNeeds;
-use crate::agent::mind::conversation::InConversation;
+use crate::agent::engagement::Engaged;
 use crate::agent::psyche::emotions::{EmotionType, EmotionalState};
 use crate::constants::ui_status::{COLD_WARMTH, TIRED_AEROBIC_FRACTION};
 use bevy::prelude::*;
@@ -63,7 +63,7 @@ pub struct ConditionContext<'a> {
     pub emotions: &'a EmotionalState,
     pub needs: &'a PhysicalNeeds,
     pub body: Option<&'a Body>,
-    pub in_conversation: Option<&'a InConversation>,
+    pub engaged: Option<&'a Engaged>,
     pub cornered: bool,
     pub lame: bool,
     pub dazed: bool,
@@ -77,7 +77,7 @@ fn update_status_icons(
             &EmotionalState,
             &PhysicalNeeds,
             Option<&Body>,
-            Option<&InConversation>,
+            Option<&Engaged>,
             Option<&crate::agent::Cornered>,
             Option<&crate::agent::Lame>,
             Option<&crate::agent::Dazed>,
@@ -92,7 +92,7 @@ fn update_status_icons(
         .any(|p| matches!(p, Projection::Orthographic(o) if o.scale > HIDE_ZOOM_THRESHOLD));
 
     for (parent, mut text, mut visibility) in icons.iter_mut() {
-        let Ok((actions, emotions, needs, body, in_conversation, cornered, lame, dazed)) =
+        let Ok((actions, emotions, needs, body, engaged, cornered, lame, dazed)) =
             agents.get(parent.parent())
         else {
             if *visibility != Visibility::Hidden {
@@ -116,7 +116,7 @@ fn update_status_icons(
                 emotions,
                 needs,
                 body,
-                in_conversation,
+                engaged,
                 cornered: cornered.is_some(),
                 lame: lame.is_some(),
                 dazed: dazed.is_some(),
@@ -157,7 +157,7 @@ const CONDITIONS: &[Condition] = &[
     },
     Condition {
         icon: "...",
-        matches: |ctx| ctx.in_conversation.is_some(),
+        matches: |ctx| ctx.engaged.is_some(),
     },
     Condition {
         icon: "nom",
@@ -242,7 +242,7 @@ mod tests {
             emotions,
             needs,
             body: None,
-            in_conversation: None,
+            engaged: None,
             cornered: false,
             lame: false,
             dazed: false,
@@ -350,7 +350,10 @@ mod tests {
 
     #[test]
     fn talking_agent_shows_ellipsis() {
-        let dummy = InConversation { conversation_id: 0 };
+        let dummy = Engaged::new(
+            crate::agent::engagement::EngagementKind::Converse,
+            crate::agent::engagement::EngagementId(0),
+        );
         let actions = Box::leak(Box::new(ActiveActions::default()));
         let emotions = Box::leak(Box::new(EmotionalState::default()));
         let needs = Box::leak(Box::new(PhysicalNeeds::default()));
@@ -359,7 +362,7 @@ mod tests {
             emotions,
             needs,
             body: None,
-            in_conversation: Some(&dummy),
+            engaged: Some(&dummy),
             cornered: false,
             lame: false,
             dazed: false,

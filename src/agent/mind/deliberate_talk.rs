@@ -3,7 +3,7 @@
 //! Reads: MindGraph (speaker and partner), Goal (from RationalBrain)
 //! Writes: nothing (pure scoring function — returns owned Triples and a Topic)
 //! Upstream: agent::mind::knowledge (Triple, Metadata), agent::brains::thinking (Goal)
-//! Downstream: agent::communication::select_turn_intent (fills Turn::content)
+//! Downstream: agent::engagement::converse::select_turn_intent (fills Turn::content)
 //!
 //! # Design
 //!
@@ -16,7 +16,7 @@
 use bevy::prelude::Entity;
 
 use crate::agent::brains::thinking::Goal;
-use crate::agent::mind::conversation::Topic;
+use crate::agent::engagement::converse::Topic;
 use crate::agent::mind::knowledge::{
     Concept, MemoryType, MindGraph, Node, Predicate, Source, Triple, Value,
 };

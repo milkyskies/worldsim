@@ -73,7 +73,7 @@ impl Plugin for BrainPlugin {
                     wakeup::emit_drive_threshold_wakeups,
                     wakeup::emit_new_perception_wakeups,
                     wakeup::emit_knowledge_change_wakeups,
-                    wakeup::emit_conversation_state_wakeups,
+                    wakeup::emit_engagement_state_wakeups,
                     wakeup::emit_periodic_safety_wakeups,
                 )
                     .in_set(crate::core::PerfBucket::Brain)
@@ -103,7 +103,7 @@ impl Plugin for BrainPlugin {
                     .after(wakeup::emit_drive_threshold_wakeups)
                     .after(wakeup::emit_new_perception_wakeups)
                     .after(wakeup::emit_knowledge_change_wakeups)
-                    .after(wakeup::emit_conversation_state_wakeups)
+                    .after(wakeup::emit_engagement_state_wakeups)
                     .after(wakeup::emit_periodic_safety_wakeups)
                     .run_if(not_paused)
                     .run_if(brain_tick_due),

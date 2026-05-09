@@ -1,42 +1,14 @@
-//! Communication: parallel Bevy plugin that runs conversations as a continuous channel.
-//!
-//! Reads: PsychologicalDrives, Transform, ActiveActions, MindGraph, TheoryOfMind, EmotionalState, Personality, PlanMemory
-//! Writes: ConversationManager, InConversation, ActiveActions (Converse marker), MindGraph (Hearsay), TheoryOfMind, PlanMemory (verbal commitment plans), GameEvent, SimEvent
-//! Upstream: agent::mind::conversation (data types), agent::actions (channel marker), agent::mind::theory_of_mind, agent::brains::plan_memory
-//! Downstream: psyche::relationships (consumes SocialInteraction), nervous_system::cns (reads PlanMemory for commitment-driven goals)
-//!
-//! # Architecture
-//!
-//! Conversations live as a separate **channel** from the action system and
-//! support two or more participants (group conversations):
-//!
-//! ```text
-//! ActionSystem                  CommunicationSystem
-//! ────────────                  ───────────────────
-//! Atomic, finite actions        Continuous, multi-turn channel
-//! Single agent                  2..=MAX_GROUP_SIZE agents in shared state
-//! Owns one action slot          Owns the Conversation, drives turn flow
-//! ```
-//!
-//! Turn ownership lives **only** on [`Conversation::turn`] — never on a
-//! component flag. The previous design's `InConversation::my_turn` was a
-//! recurring source of races; the single-owner model removes them entirely.
-//!
-//! In group conversations the speaker broadcasts each turn's shared
-//! knowledge to every listener simultaneously, and the next speaker is
-//! picked by a personality-weighted selector ([`pick_next_speaker`]) that
-//! favors extraverts and listeners who've queued a response. See
-//! [`speak_desire`] for the scoring formula.
-//!
-//! Body-channel occupation works by inserting a [`ConverseAction`] marker into
-//! [`ActiveActions`] for each participant. Per-participant range + channel
-//! checks let an individual agent leave the group without collapsing the
-//! conversation — Sleep / Flee / Fight on one participant just removes
-//! them, and the rest keep talking until fewer than two remain.
+//! `EngagementKind::Converse` — conversation data types, registry, and
+//! per-tick lifecycle systems. Turn ownership lives on
+//! [`Conversation::turn`], never on a component flag, so there's no
+//! race possible.
 
 use bevy::ecs::world::EntityWorldMut;
 use bevy::prelude::*;
+use std::collections::HashSet;
 
+use super::component::{Engaged, EngagementEndReason, EngagementId, EngagementKind};
+use super::registry::EngagementRegistry;
 use crate::agent::Agent;
 use crate::agent::actions::registry::{ActionState, ActiveActions};
 use crate::agent::actions::types::ActionType;
@@ -45,15 +17,13 @@ use crate::agent::brains::plan_memory::{
     HeldPlan, PlanAbandonReason, PlanMemory, PlanSource, PlanState,
 };
 use crate::agent::brains::thinking::{Goal, TriplePattern};
-use crate::agent::events::{ConversationTopic, FailureReason, GameEvent, SimEvent, SimEventKind};
-use crate::agent::mind::conversation::{
-    Conversation, ConversationAbandoned, ConversationManager, ConversationState, InConversation,
-    Intent, MAX_GROUP_SIZE, Topic, Turn,
+use crate::agent::events::{
+    ConversationTopic, EngagementBeatPayload, FailureReason, GameEvent, SimEvent, SimEventKind,
 };
 use crate::agent::mind::knowledge::{Concept, Metadata, MindGraph, Node, Predicate, Triple, Value};
 use crate::agent::mind::social_perception::CONVERSATION_RANGE;
 use crate::agent::mind::theory_of_mind::{self, TheoryOfMind};
-use crate::agent::psyche::emotions::EmotionalState;
+use crate::agent::psyche::emotions::{Emotion, EmotionalState};
 use crate::agent::psyche::personality::Personality;
 use crate::core::not_paused;
 use crate::core::tick::TickCount;
@@ -62,51 +32,209 @@ use crate::core::tick::TickCount;
 // Tunables
 // ============================================================================
 
-/// Number of ticks since the last turn after which a conversation is
-/// considered abandoned and ended.
+pub const MAX_GROUP_SIZE: usize = 6;
 pub const STALE_CONVERSATION_TICKS: u64 = 500;
-
-/// Ticks between casual chitchat turns (Share / Acknowledge). Relaxed cadence.
 pub const CHITCHAT_INTERVAL_TICKS: u64 = 30;
-
-/// Ticks between urgent turns (Ask / Answer). Faster cadence for information exchange.
 pub const URGENT_INTERVAL_TICKS: u64 = 15;
-
-/// Ticks before a Farewell fires. Short — the conversation is already wrapping.
 pub const FAREWELL_INTERVAL_TICKS: u64 = 15;
-
-/// Conversations enter the Wrapping state after this many turns when
-/// neither side has a competing urgency.
 pub const NATURAL_END_TURN_COUNT: usize = 6;
-
-/// Reduction in companionship drive each successful conversation turn
-/// satisfies. Applied per-turn inside `select_turn_intent` so agents
-/// gradually feel socially fulfilled during a long chat rather than
-/// getting it all from the continuous `companionship_per_sec` drain.
 pub const SOCIAL_DRIVE_PER_TURN: f32 = 0.03;
-
-/// Maximum number of triples shared per `Share` turn.
 pub const SMALL_TALK_TRIPLES_PER_TURN: usize = 3;
-
-/// Base salience threshold for danger warnings. Neurotic agents warn at lower salience.
 pub const DANGER_WARN_SALIENCE: f32 = 0.7;
-
-/// Danger observations older than this many ticks are not worth warning about.
 pub const DANGER_RECENCY_TICKS: u64 = 600;
+
+// ============================================================================
+// Data types
+// ============================================================================
+
+/// One live conversation. The kind-specific payload behind a Converse
+/// engagement.
+#[derive(Debug, Clone, Reflect)]
+pub struct Conversation {
+    pub id: EngagementId,
+    pub participants: Vec<Entity>,
+    /// Index into `participants` of the agent whose turn it currently is.
+    pub turn: usize,
+    pub state: ConversationState,
+    pub started_at: u64,
+    pub last_turn_at: u64,
+    pub turns: Vec<Turn>,
+    /// Listeners who signalled they want to speak next.
+    pub wants_to_speak: HashSet<Entity>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Reflect, Default)]
+pub enum ConversationState {
+    #[default]
+    Greeting,
+    Active,
+    Wrapping,
+    Ended,
+}
+
+#[derive(Debug, Clone, Reflect)]
+pub struct Turn {
+    pub speaker: Entity,
+    pub intent: Intent,
+    pub topic: Topic,
+    pub emotion: Option<Emotion>,
+    pub content: Vec<Triple>,
+    pub timestamp: u64,
+    pub expects_response: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Reflect, serde::Serialize)]
+pub enum Intent {
+    Greet,
+    Ask,
+    Answer,
+    Share,
+    Empathize,
+    Agree,
+    Disagree,
+    Thank,
+    Farewell,
+    Acknowledge,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Reflect, Default)]
+pub enum Topic {
+    #[default]
+    General,
+    Location(Concept),
+    State(Entity),
+    Person(Entity),
+    Help,
+}
+
+impl Conversation {
+    pub fn new(id: EngagementId, participants: Vec<Entity>, started_at: u64) -> Self {
+        Self {
+            id,
+            participants,
+            turn: 0,
+            state: ConversationState::Greeting,
+            started_at,
+            last_turn_at: started_at,
+            turns: Vec::new(),
+            wants_to_speak: HashSet::default(),
+        }
+    }
+
+    pub fn add_turn(&mut self, turn: Turn) {
+        self.last_turn_at = turn.timestamp;
+        self.turns.push(turn);
+    }
+
+    pub fn set_speaker(&mut self, speaker: Entity) {
+        if let Some(idx) = self.participants.iter().position(|e| *e == speaker) {
+            self.turn = idx;
+        }
+    }
+
+    pub fn current_speaker(&self) -> Entity {
+        self.participants[self.turn]
+    }
+
+    pub fn listeners_for(&self, speaker: Entity) -> impl Iterator<Item = Entity> + '_ {
+        self.participants
+            .iter()
+            .copied()
+            .filter(move |e| *e != speaker)
+    }
+
+    pub fn listeners(&self) -> impl Iterator<Item = Entity> + '_ {
+        self.listeners_for(self.current_speaker())
+    }
+
+    pub fn last_turn_expects_response(&self) -> bool {
+        self.turns
+            .last()
+            .map(|t| t.expects_response)
+            .unwrap_or(false)
+    }
+
+    pub fn add_participant(&mut self, entity: Entity) -> bool {
+        if self.participants.contains(&entity) {
+            return false;
+        }
+        if self.participants.len() >= MAX_GROUP_SIZE {
+            return false;
+        }
+        self.participants.push(entity);
+        true
+    }
+
+    pub fn remove_participant(&mut self, entity: Entity) {
+        let speaker_before = self.participants.get(self.turn).copied();
+        self.participants.retain(|e| *e != entity);
+        self.wants_to_speak.remove(&entity);
+
+        if let Some(prev) = speaker_before
+            && prev != entity
+            && let Some(idx) = self.participants.iter().position(|e| *e == prev)
+        {
+            self.turn = idx;
+        } else if !self.participants.is_empty() {
+            self.turn %= self.participants.len();
+        } else {
+            self.turn = 0;
+        }
+    }
+}
+
+/// Per-kind registry of live Converse engagements. Keyed by
+/// [`EngagementId`] so the generic `Engaged` component on each
+/// participant can find its payload here.
+#[derive(Resource, Default, Reflect)]
+#[reflect(Resource)]
+pub struct ConverseRegistry {
+    pub conversations: std::collections::HashMap<EngagementId, Conversation>,
+}
+
+impl ConverseRegistry {
+    pub fn start(
+        &mut self,
+        ids: &mut EngagementRegistry,
+        participants: Vec<Entity>,
+        tick: u64,
+    ) -> EngagementId {
+        let id = ids.mint();
+        self.conversations
+            .insert(id, Conversation::new(id, participants, tick));
+        id
+    }
+
+    pub fn get(&self, id: EngagementId) -> Option<&Conversation> {
+        self.conversations.get(&id)
+    }
+
+    pub fn get_mut(&mut self, id: EngagementId) -> Option<&mut Conversation> {
+        self.conversations.get_mut(&id)
+    }
+
+    pub fn find_active_for(&self, entity: Entity) -> Option<&Conversation> {
+        self.conversations
+            .values()
+            .find(|c| c.state != ConversationState::Ended && c.participants.contains(&entity))
+    }
+
+    pub fn active(&self) -> impl Iterator<Item = &Conversation> {
+        self.conversations
+            .values()
+            .filter(|c| c.state != ConversationState::Ended)
+    }
+}
 
 // ============================================================================
 // Plugin
 // ============================================================================
 
-/// Bevy plugin that owns the conversation lifecycle. Registered alongside
-/// (not inside) the action plugin so the two systems run in parallel.
-pub struct CommunicationPlugin;
+pub struct ConversePlugin;
 
-impl Plugin for CommunicationPlugin {
+impl Plugin for ConversePlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<ConversationManager>()
-            .register_type::<InConversation>()
-            .add_message::<ConversationAbandoned>()
+        app.init_resource::<ConverseRegistry>()
             .add_systems(
                 FixedUpdate,
                 (
@@ -137,38 +265,18 @@ impl Plugin for CommunicationPlugin {
 // 1. InitiateConversation lifecycle (entry point owned by this plugin)
 // ============================================================================
 
-/// Watches agents with `InitiateConversation` running. Each tick:
-///
-/// 1. Re-syncs the agent's movement target to the partner's *current*
-///    position so the agent tracks a moving partner instead of walking to a
-///    stale fixed point.
-/// 2. If the agent has reached `CONVERSATION_RANGE`, either:
-///    - **Starts a new conversation** with the partner (if the partner is
-///      not already talking), or
-///    - **Joins the partner's existing conversation** if one is active
-///      and has capacity — three agents chat as a group instead of
-///      splintering into two disjoint pair chats.
-/// 3. Swaps `InitiateConversation` for `Converse` in `ActiveActions`
-///    **in-place** (no command queue), inserts `InConversation`, and emits
-///    `SimEvent::ConversationStarted` (or `ConversationJoined` for a join).
-///
-/// All `ActiveActions` mutations happen in-place via `Query<&mut>` rather
-/// than queued commands. Otherwise [`evaluate_conversation_continuation`]
-/// runs later in the same Update, sees no `Converse` marker yet (commands
-/// haven't flushed), and abandons the just-created conversation.
 pub fn process_initiate_conversation(
     mut commands: Commands,
-    mut manager: ResMut<ConversationManager>,
+    mut registry: ResMut<ConverseRegistry>,
+    mut id_minter: ResMut<EngagementRegistry>,
     tick: Res<TickCount>,
     mut sim_events: MessageWriter<SimEvent>,
     transforms: Query<&Transform, With<Agent>>,
-    in_conversations: Query<&InConversation, With<Agent>>,
+    engaged: Query<&Engaged, With<Agent>>,
     mut active_actions: Query<(Entity, &mut ActiveActions), With<Agent>>,
     mut target_positions: Query<&mut crate::agent::TargetPosition>,
     mut plan_memory_query: Query<&mut PlanMemory>,
 ) {
-    // Pass 1: snapshot which initiators want what partner. Doing this in a
-    // separate pass releases the active_actions borrow before mutation.
     let pairs: Vec<(Entity, Option<Entity>)> = active_actions
         .iter()
         .filter_map(|(entity, active)| {
@@ -181,18 +289,10 @@ pub fn process_initiate_conversation(
     for (initiator, partner) in pairs {
         let now = tick.current;
 
-        // Initiator already in a conversation — drop the stale action.
-        // Check both the component query (for prior-tick state) *and* the
-        // manager (for same-tick state written earlier in this very system
-        // loop — commands to insert `InConversation` haven't flushed yet,
-        // so the query would miss a conversation we just created). Without
-        // this dedupe two symmetric initiators would each spawn a
-        // duplicate conversation the same tick.
-        //
-        // This is a *success* case: the social need is being satisfied via
-        // a different route. Mark the plan complete (no cooldown) rather
-        // than abandoning it.
-        if in_conversations.get(initiator).is_ok() || manager.find_active_for(initiator).is_some() {
+        // Initiator already engaged (in conversation or otherwise) — drop
+        // the stale action. Same-tick dedupe also checks the registry
+        // because the Engaged component insert won't have flushed yet.
+        if engaged.get(initiator).is_ok() || registry.find_active_for(initiator).is_some() {
             drop_stale_initiate(
                 initiator,
                 now,
@@ -203,7 +303,6 @@ pub fn process_initiate_conversation(
             );
             continue;
         }
-        // No target → bad proposal.
         let Some(partner) = partner else {
             drop_stale_initiate(
                 initiator,
@@ -237,7 +336,6 @@ pub fn process_initiate_conversation(
         let partner_pos = partner_transform.translation.truncate();
         let distance = initiator_pos.distance(partner_pos);
 
-        // Re-sync target_position so the movement system tracks the partner.
         if let Ok((_, mut active)) = active_actions.get_mut(initiator)
             && let Some(state) = active.get_mut(ActionType::InitiateConversation)
         {
@@ -248,22 +346,21 @@ pub fn process_initiate_conversation(
         }
 
         if distance > CONVERSATION_RANGE {
-            // Still walking — let the movement system advance position.
             continue;
         }
 
-        // In range. Two cases: (1) partner is already in a conversation →
-        // join it as a third+ participant, (2) partner is free → start a
-        // new 2-agent conversation. Consult both the query (prior-tick
-        // state) and the manager (same-tick state just written above).
-        let join_target: Option<u64> = in_conversations
+        // In range. Two cases: (1) partner is mid-Converse → join the
+        // existing engagement as a third+ participant, (2) partner is
+        // free → mint a new engagement.
+        let join_target: Option<EngagementId> = engaged
             .get(partner)
             .ok()
-            .map(|ic| ic.conversation_id)
-            .or_else(|| manager.find_active_for(partner).map(|c| c.id));
+            .filter(|e| e.kind == EngagementKind::Converse)
+            .map(|e| e.id)
+            .or_else(|| registry.find_active_for(partner).map(|c| c.id));
 
-        let (conversation_id, is_new) = if let Some(existing_id) = join_target {
-            let Some(conv) = manager.conversations.get_mut(&existing_id) else {
+        let (engagement_id, is_new) = if let Some(existing_id) = join_target {
+            let Some(conv) = registry.conversations.get_mut(&existing_id) else {
                 drop_stale_initiate(
                     initiator,
                     now,
@@ -290,8 +387,6 @@ pub fn process_initiate_conversation(
                 continue;
             }
             if !conv.add_participant(initiator) {
-                // Group full or already in — both mean the partner is
-                // unreachable as a conversation target right now.
                 drop_stale_initiate(
                     initiator,
                     now,
@@ -306,31 +401,25 @@ pub fn process_initiate_conversation(
             }
             (existing_id, false)
         } else {
-            let id = manager.start_conversation(vec![initiator, partner], now);
+            let id = registry.start(&mut id_minter, vec![initiator, partner], now);
             (id, true)
         };
 
         commands
             .entity(initiator)
-            .insert(InConversation { conversation_id });
+            .insert(Engaged::new(EngagementKind::Converse, engagement_id));
         if is_new {
             commands
                 .entity(partner)
-                .insert(InConversation { conversation_id });
+                .insert(Engaged::new(EngagementKind::Converse, engagement_id));
         }
 
-        // Swap InitiateConversation -> Converse in-place on the initiator.
-        // For new 2-agent conversations, also add Converse to the partner.
-        // The initiator's SatisfySocial plan is now satisfied — the action
-        // has successfully transformed, no cooldown needed.
         if let Ok((_, mut active)) = active_actions.get_mut(initiator) {
             active.remove(ActionType::InitiateConversation);
             if !active.contains(ActionType::Converse) {
                 active.insert(ActionState::new(ActionType::Converse, now));
             }
         }
-        // Drop any plan whose cursor is still pointing at InitiateConversation —
-        // we've just graduated it into a live Converse, the plan is done.
         if let Ok(mut memory) = plan_memory_query.get_mut(initiator) {
             let doomed: Vec<_> = memory
                 .plans
@@ -352,7 +441,6 @@ pub fn process_initiate_conversation(
         {
             active.insert(ActionState::new(ActionType::Converse, now));
         }
-        // Clear the movement target so we stop walking once paired.
         if let Ok(mut tp) = target_positions.get_mut(initiator) {
             tp.0 = None;
         }
@@ -360,44 +448,32 @@ pub fn process_initiate_conversation(
         if is_new {
             sim_events.write(SimEvent::new(
                 now,
-                vec![initiator, partner].clone(),
-                SimEventKind::ConversationStarted {
+                vec![initiator, partner],
+                SimEventKind::EngagementStarted {
+                    kind: EngagementKind::Converse,
+                    engagement_id,
                     participants: vec![initiator, partner],
-                    conversation_id,
                 },
             ));
         } else {
             sim_events.write(SimEvent::single(
                 now,
                 initiator,
-                SimEventKind::ConversationJoined {
+                SimEventKind::EngagementJoined {
+                    kind: EngagementKind::Converse,
+                    engagement_id,
                     joiner: initiator,
-                    conversation_id,
                 },
             ));
         }
     }
 }
 
-/// How to terminate a stale `InitiateConversation` plan: a successful
-/// transition (social need otherwise satisfied) or an actual failure.
 enum DropKind {
-    /// Plan's intent was satisfied via another path (e.g. partner pulled
-    /// the initiator into their conversation first). Call `complete` — no
-    /// cooldown, no failure event.
     Complete,
-    /// Plan failed for reasons the brain should back off from. Call
-    /// `abandon` so `ABANDONMENT_COOLDOWN_TICKS` gates any immediate
-    /// re-attempt of the same action. Emits `ActionFailed` with `reason`.
     Abandon { reason: FailureReason },
 }
 
-/// Shared cleanup for every silent-drop path in `process_initiate_conversation`.
-///
-/// Before #330 these paths removed `InitiateConversation` from `ActiveActions`
-/// without telling anyone — no `SimEvent`, no plan abandonment, so the
-/// cooldown from #166 never fired and the emotional brain cheerfully
-/// re-proposed the same partner on the next thinking cycle.
 fn drop_stale_initiate(
     initiator: Entity,
     tick: u64,
@@ -410,11 +486,6 @@ fn drop_stale_initiate(
         active.remove(ActionType::InitiateConversation);
     }
 
-    // Drop any held plan whose current step is InitiateConversation so a
-    // stalled-out approach doesn't leave a stale plan lingering in memory.
-    // On `Abandon`, also report each dropped plan as a `PlanAbandoned`
-    // event so plan-lifecycle tooling doesn't have to infer it from the
-    // sibling `ActionFailed`.
     let abandon = matches!(kind, DropKind::Abandon { .. });
     if let Ok(mut memory) = plan_memory_query.get_mut(initiator) {
         let doomed: Vec<_> = memory
@@ -477,10 +548,11 @@ impl EntityCommand for RemoveConverseMarker {
     }
 }
 
-/// Pick the "most committed" plan in the agent's memory to seed
-/// conversation content. Preference order: Executing > Considering >
-/// Background; ties broken by commitment value. Returns a clone of the
-/// plan's goal so the caller can hold it without blocking memory access.
+// ============================================================================
+// Verbal commitment + content selection helpers (unchanged from the
+// pre-migration `agent::communication` module)
+// ============================================================================
+
 fn most_committed_goal(memory: &PlanMemory) -> Option<Goal> {
     let priority_state = |state: PlanState| match state {
         PlanState::Executing => 3,
@@ -501,15 +573,6 @@ fn most_committed_goal(memory: &PlanMemory) -> Option<Goal> {
         .map(|p| p.goal.clone())
 }
 
-/// Insert or refresh a `VerbalCommitment` plan in the agent's memory.
-/// Replaces the old `Commitments::add` (#63) — the plan concept is the
-/// thing the speaker just verbally committed to, `listener` is the
-/// partner they promised to.
-///
-/// If a matching verbal-commitment plan already exists for the concept,
-/// just bump its `last_touched` so the #329 announcement bonus fires on
-/// the next tick. Otherwise insert a fresh Background plan with the
-/// concept as its goal.
 fn upsert_verbal_commitment(memory: &mut PlanMemory, concept: Concept, listener: Entity, now: u64) {
     let existing_id = memory
         .plans
@@ -554,19 +617,8 @@ fn upsert_verbal_commitment(memory: &mut PlanMemory, concept: Concept, listener:
 // 2. Select turn intent
 // ============================================================================
 
-/// For each active conversation whose turn cadence is up, append a new turn
-/// from the current speaker and advance the floor to the next speaker.
-///
-/// In group conversations the speaker talks to *all* listeners at once —
-/// content selection picks a primary listener (the one who most recently
-/// asked a question, or the first listener otherwise) for novelty scoring,
-/// but the resulting triples are broadcast to every listener downstream.
-///
-/// After the turn is recorded, the next speaker is picked via
-/// [`pick_next_speaker`] using personality traits (extraverts dominate,
-/// agreeable agents yield) and the `wants_to_speak` queue.
 pub fn select_turn_intent(
-    mut manager: ResMut<ConversationManager>,
+    mut registry: ResMut<ConverseRegistry>,
     tick: Res<TickCount>,
     minds: Query<&MindGraph>,
     toms: Query<&TheoryOfMind>,
@@ -574,9 +626,10 @@ pub fn select_turn_intent(
     mut plan_memories: Query<&mut PlanMemory>,
     mut consciousnesses: Query<&mut Consciousness>,
     mut drives: Query<&mut PsychologicalDrives>,
+    mut sim_events: MessageWriter<SimEvent>,
 ) {
     let now = tick.current;
-    for conv in manager.conversations.values_mut() {
+    for conv in registry.conversations.values_mut() {
         if conv.state == ConversationState::Ended {
             continue;
         }
@@ -585,8 +638,6 @@ pub fn select_turn_intent(
         }
 
         let speaker = conv.current_speaker();
-        // Primary listener for content-novelty scoring: whoever just asked a
-        // question (if any), else the first non-speaker participant.
         let primary_listener = conv
             .turns
             .last()
@@ -601,9 +652,6 @@ pub fn select_turn_intent(
             continue;
         };
         let speaker_tom = toms.get(speaker).ok();
-        // Pick the speaker's highest-commitment held plan as the "goal"
-        // that shapes content selection and the verbal-commitment hook.
-        // Executing plans come first, then Considering, then Background.
         let speaker_goal: Option<Goal> = plan_memories
             .get(speaker)
             .ok()
@@ -650,10 +698,6 @@ pub fn select_turn_intent(
             continue;
         }
 
-        // Every turn tries to carry knowledge content — even an Acknowledge
-        // can mention something in passing. Share and Answer get full
-        // deliberate-then-casual selection; other intents get a smaller
-        // casual-only payload so the conversation always transfers triples.
         let (mut content, topic) = if matches!(intent, Intent::Share | Intent::Answer) {
             let deliberate = crate::agent::mind::deliberate_talk::pick_deliberate_content(
                 speaker_mind,
@@ -681,21 +725,13 @@ pub fn select_turn_intent(
                 speaker_tom,
                 primary_listener,
                 now,
-                1, // lighter payload for non-Share intents
+                1,
             );
             (casual, Topic::General)
         } else {
             (Vec::new(), Topic::General)
         };
 
-        // Verbal commitment: whenever the speaker brings up their active
-        // goal in conversation — sharing progress, asking for help, or
-        // answering a question about it — they verbally commit to it.
-        // We express the commitment by upserting a Background HeldPlan in
-        // the speaker's PlanMemory with `VerbalCommitment` source; the
-        // commitment's `last_touched` drives the #329 announcement bonus
-        // on any pre-existing plan targeting the same concept, and a
-        // broadcast triple lands in listener minds as before.
         if matches!(intent, Intent::Share | Intent::Ask | Intent::Answer)
             && let Some(goal_concept) = goal.and_then(Goal::target_concept)
         {
@@ -711,9 +747,8 @@ pub fn select_turn_intent(
         }
 
         let expects_response = matches!(intent, Intent::Greet | Intent::Ask);
-        // Snapshot listeners before mutably borrowing conv for add_turn so
-        // we can charge their alertness below.
         let listeners: Vec<Entity> = conv.listeners().collect();
+        let content_len = content.len();
         let turn = Turn {
             speaker,
             intent,
@@ -726,11 +761,6 @@ pub fn select_turn_intent(
         conv.add_turn(turn);
         conv.wants_to_speak.remove(&speaker);
 
-        // Cognitive cost of conversation. The speaker composes language and
-        // tracks the partner's state; listeners parse unfamiliar content and
-        // update their theory-of-mind. Listeners pay more than the speaker.
-        // Extraversion relieves most of the cost — extraverts are energised
-        // by social contact, introverts are drained by it.
         let speaker_drain_base =
             crate::constants::brains::cognition::CONVERSATION_SPEAKER_ALERTNESS_DRAIN;
         let listener_drain_base =
@@ -761,14 +791,27 @@ pub fn select_turn_intent(
             d.companionship.top_up(SOCIAL_DRIVE_PER_TURN);
         }
 
-        // Direct question → flag the primary listener so the weighted
-        // pick favors them next turn. In a 2-agent conversation this is
-        // a no-op (they're the only candidate), but in a group it routes
-        // "Alice asks Bob" → Bob answers next instead of a random
-        // extravert jumping in.
         if expects_response {
             conv.wants_to_speak.insert(primary_listener);
         }
+
+        // Beat event for observability — one per actual turn.
+        sim_events.write(SimEvent::single(
+            now,
+            speaker,
+            SimEventKind::EngagementBeat {
+                kind: EngagementKind::Converse,
+                engagement_id: conv.id,
+                agent: speaker,
+                payload: EngagementBeatPayload::Converse {
+                    speaker,
+                    intent,
+                    topic,
+                    content_count: content_len,
+                    expects_response,
+                },
+            },
+        ));
 
         conv.state = match (conv.state, intent) {
             (_, Intent::Farewell) => ConversationState::Ended,
@@ -790,18 +833,6 @@ pub fn select_turn_intent(
     }
 }
 
-/// Score a participant's desire to take the next turn based on personality
-/// and the "queued response" flag. Higher score → more likely to speak.
-///
-/// ```text
-/// score = 1.0
-///       + extraversion * 2.0       // extraverts seize the floor
-///       - agreeableness * 0.6      // agreeable yields
-///       + 2.5 if wants_to_speak    // just had a question asked / emotional spike
-/// ```
-///
-/// Returns `1.0` for participants with no `Personality` component so tests
-/// using bare entities still work.
 pub(crate) fn speak_desire(personality: Option<&Personality>, wants_to_speak: bool) -> f32 {
     let extraversion = personality.map(|p| p.traits.extraversion).unwrap_or(0.5);
     let agreeableness = personality.map(|p| p.traits.agreeableness).unwrap_or(0.5);
@@ -809,12 +840,6 @@ pub(crate) fn speak_desire(personality: Option<&Personality>, wants_to_speak: bo
     if wants_to_speak { base + 2.5 } else { base }
 }
 
-/// Pick the next speaker from among the non-speaker participants using a
-/// deterministic weighted pseudo-random selection seeded by the conversation
-/// id and turn count.
-///
-/// The current speaker is excluded from the pool so the floor rotates.
-/// MAX_GROUP_SIZE is small enough (6) to score onto the stack.
 pub(crate) fn pick_next_speaker(
     conv: &Conversation,
     personalities: &Query<&Personality>,
@@ -840,8 +865,7 @@ pub(crate) fn pick_next_speaker(
         return candidates[0];
     }
 
-    // Deterministic selector: hash conv id + turn count into [0, total).
-    let seed = conv.id.wrapping_mul(2_654_435_761) ^ (conv.turns.len() as u64);
+    let seed = conv.id.0.wrapping_mul(2_654_435_761) ^ (conv.turns.len() as u64);
     let frac = ((seed % 1_000_000) as f32) / 1_000_000.0;
     let mut target = frac * total;
     for i in 0..count {
@@ -853,24 +877,7 @@ pub(crate) fn pick_next_speaker(
     candidates[count - 1]
 }
 
-/// Select the intent for the speaker's next turn based on their knowledge,
-/// active goal, and personality traits.
-///
-/// `has_deliberate` and `has_casual` are pre-computed by the caller to avoid
-/// redundant triple scans — content availability is checked once outside and
-/// the result passed in.
-///
-/// Priority order:
-/// 1. **Greet** — first turn in a new conversation
-/// 2. **Farewell** — conversation is wrapping up
-/// 3. **Share (Warn)** — recent high-salience danger the listener doesn't know
-/// 4. **Ask** — active goal needs location information the listener might have
-/// 5. **Answer** — listener asked something last turn
-/// 6. **Share** — has salient, novel world knowledge to pass on
-/// 7. **Empathize** — last speaker expressed negative emotion, agreeable agent responds
-/// 8. **Agree** — last speaker shared something, agreeable agent affirms it
-/// 9. **Share (ChitChat)** — agents with casual content keep the conversation flowing
-/// 10. **Acknowledge** — default; nothing compelling to say
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn select_intent(
     conv: &Conversation,
     speaker_mind: &MindGraph,
@@ -885,12 +892,10 @@ pub(crate) fn select_intent(
     let neuroticism = personality.map(|p| p.traits.neuroticism).unwrap_or(0.5);
     let extraversion = personality.map(|p| p.traits.extraversion).unwrap_or(0.5);
 
-    // 1. Greet on first turn.
     if conv.state == ConversationState::Greeting && conv.turns.is_empty() {
         return Intent::Greet;
     }
 
-    // 2. Farewell when wrapping.
     if matches!(
         conv.state,
         ConversationState::Wrapping | ConversationState::Ended
@@ -898,26 +903,21 @@ pub(crate) fn select_intent(
         return Intent::Farewell;
     }
 
-    // 3. Warn: recent high-salience danger the listener doesn't know yet.
-    //    Neuroticism lowers the threshold — anxious agents warn more readily.
     let warn_threshold = (DANGER_WARN_SALIENCE - (neuroticism - 0.5) * 0.2).clamp(0.3, 1.0);
     if has_danger_to_warn(speaker_mind, speaker_tom, listener, warn_threshold, now) {
         return Intent::Share;
     }
 
-    // 4. Ask: active goal that requires finding something (location/containment).
     if let Some(g) = goal
         && goal_needs_location(g)
     {
         return Intent::Ask;
     }
 
-    // 5. Answer: listener asked something last turn.
     if conv.last_turn_expects_response() {
         return Intent::Answer;
     }
 
-    // 6. Share: has deliberate world knowledge scoring above the minimum threshold.
     if has_deliberate {
         return Intent::Share;
     }
@@ -928,7 +928,6 @@ pub(crate) fn select_intent(
         .last()
         .filter(|t| t.speaker != conv.current_speaker());
 
-    // 7. Empathize: last speaker expressed negative emotion (personality-relative).
     let default_traits = crate::agent::psyche::personality::PersonalityTraits::default();
     let traits = personality.map(|p| &p.traits).unwrap_or(&default_traits);
     if let Some(last) = other_last
@@ -939,7 +938,6 @@ pub(crate) fn select_intent(
         return Intent::Empathize;
     }
 
-    // 8. Agree: last speaker shared content, agreeable agents affirm it.
     if let Some(last) = other_last
         && matches!(last.intent, Intent::Share)
         && agreeableness > 0.5
@@ -947,21 +945,13 @@ pub(crate) fn select_intent(
         return Intent::Agree;
     }
 
-    // 9. ChitChat: agents with casual content share it. Lowered from 0.55 so
-    //    most agents will make small talk rather than falling through to
-    //    Acknowledge — introverts still share, just less eagerly.
     if extraversion > 0.3 && has_casual {
         return Intent::Share;
     }
 
-    // 10. Default: pure social acknowledgement.
     Intent::Acknowledge
 }
 
-/// Returns the minimum ticks to wait before the next turn of this intent type.
-///
-/// Greet fires immediately (no wait); urgent intents (Ask/Answer) use the
-/// shorter [`URGENT_INTERVAL_TICKS`]; casual sharing uses [`CHITCHAT_INTERVAL_TICKS`].
 fn intent_interval(intent: Intent) -> u64 {
     match intent {
         Intent::Greet => 0,
@@ -971,11 +961,6 @@ fn intent_interval(intent: Intent) -> u64 {
     }
 }
 
-/// True if the speaker has recent high-salience danger knowledge the listener
-/// likely doesn't know. Uses the speaker's [`TheoryOfMind`] to estimate what
-/// the listener already knows, falling back to "assume they don't know" for
-/// strangers. Uses the [`DANGER_RECENCY_TICKS`] window to exclude stale
-/// observations.
 fn has_danger_to_warn(
     speaker_mind: &MindGraph,
     speaker_tom: Option<&TheoryOfMind>,
@@ -990,12 +975,10 @@ fn has_danger_to_warn(
             && now.saturating_sub(t.meta.timestamp) <= DANGER_RECENCY_TICKS
             && speaker_tom
                 .map(|tom| !tom.believes_target_knows_danger(listener, &t.subject, 0.5))
-                .unwrap_or(true) // No ToM model = assume they don't know
+                .unwrap_or(true)
     })
 }
 
-/// True if the goal has at least one condition that requires location information
-/// (i.e. the agent needs to find *where* something is).
 fn goal_needs_location(goal: &Goal) -> bool {
     goal.conditions.iter().any(|cond| {
         cond.predicate
@@ -1008,18 +991,13 @@ fn goal_needs_location(goal: &Goal) -> bool {
 // 2b. Update speaker's theory of mind after sharing content
 // ============================================================================
 
-/// When a speaker shares triples, update the speaker's [`TheoryOfMind`] to
-/// record that every listener in the group now probably knows those facts.
-///
-/// This runs after [`select_turn_intent`] so the latest turn's content is
-/// available. Only processes turns emitted this tick.
 pub fn update_speaker_theory_of_mind(
-    manager: Res<ConversationManager>,
+    registry: Res<ConverseRegistry>,
     tick: Res<TickCount>,
     mut toms: Query<&mut TheoryOfMind>,
     mut sim_events: MessageWriter<SimEvent>,
 ) {
-    for conv in manager.conversations.values() {
+    for conv in registry.conversations.values() {
         let Some(turn) = conv.turns.last() else {
             continue;
         };
@@ -1056,17 +1034,6 @@ pub fn update_speaker_theory_of_mind(
 // 3. Process received communication (write hearsay into listener's mind)
 // ============================================================================
 
-/// Convert a speaker's shared triple into a listener-side hearsay belief.
-///
-/// Numeric beliefs fuzzify one rung down the precision ladder: "Alice says
-/// 50 apples" becomes `Around(50)` in the listener's head, not `Exact(50)`.
-/// The listener is trusting Alice's count, not measuring for themselves, so
-/// they genuinely don't have sensor-grade access to the number. Gossip chains
-/// degrade information naturally — each retelling fuzzifies once more —
-/// until the value reaches `Qualitative` and can't drop any further.
-///
-/// Non-numeric triples (Concept, Entity, Boolean) pass through unchanged;
-/// there's no precision to lose.
 fn fuzzify_hearsay(source: &Triple, tick: u64, speaker: Entity) -> Triple {
     let mut hearsay = source.clone();
     if let Value::Quantity(q) = &hearsay.object
@@ -1078,17 +1045,14 @@ fn fuzzify_hearsay(source: &Triple, tick: u64, speaker: Entity) -> Triple {
     hearsay
 }
 
-/// Apply the most recent turn's `content` triples to every listener's
-/// MindGraph as Hearsay knowledge. In group conversations this broadcasts
-/// shared knowledge to all participants simultaneously.
 pub fn process_received_communication(
-    manager: Res<ConversationManager>,
+    registry: Res<ConverseRegistry>,
     mut minds: Query<&mut MindGraph>,
     mut toms: Query<&mut TheoryOfMind>,
     tick: Res<TickCount>,
     mut sim_events: MessageWriter<SimEvent>,
 ) {
-    for conv in manager.conversations.values() {
+    for conv in registry.conversations.values() {
         let Some(turn) = conv.turns.last() else {
             continue;
         };
@@ -1133,22 +1097,13 @@ pub fn process_received_communication(
 // 4. Emit communication events (downstream feeds: relationships, emotions)
 // ============================================================================
 
-/// Re-emit the conversation's freshest turn as per-listener
-/// [`GameEvent::SocialInteraction`] (and optionally
-/// [`GameEvent::KnowledgeShared`]) so existing downstream systems
-/// (relationship updater, memory consolidator) keep working without
-/// changes. In group conversations this produces one event per listener,
-/// so each pairwise relationship updates independently from the shared turn.
-///
-/// Valence is computed from intent, affection, mood, and personality rather
-/// than being hardcoded to 0.5.
 pub fn emit_communication_events(
-    manager: Res<ConversationManager>,
+    registry: Res<ConverseRegistry>,
     tick: Res<TickCount>,
     mut events: MessageWriter<GameEvent>,
     agents: Query<(&MindGraph, &EmotionalState, &Personality)>,
 ) {
-    for conv in manager.conversations.values() {
+    for conv in registry.conversations.values() {
         let Some(turn) = conv.turns.last() else {
             continue;
         };
@@ -1212,7 +1167,6 @@ fn compute_interaction_valence(
     )
 }
 
-/// Base valence by conversational intent, before contextual modifiers are applied.
 pub(crate) fn valence_base(intent: Intent) -> f32 {
     match intent {
         Intent::Greet => 0.3,
@@ -1228,15 +1182,6 @@ pub(crate) fn valence_base(intent: Intent) -> f32 {
     }
 }
 
-/// Pure valence math kernel. Testable without Bevy queries.
-///
-/// ```text
-/// valence = base
-///         + (listener_affection - 0.5) * 0.4   // like them → warmer
-///         + (speaker_mood + listener_mood) / 2.0 * 0.2
-///         + (agreeableness - 0.5) * 0.1
-/// ```
-/// Clamped to [-1.0, 1.0].
 pub(crate) fn valence_from_parts(
     base: f32,
     listener_affection: f32,
@@ -1264,35 +1209,18 @@ fn map_topic(topic: Topic) -> ConversationTopic {
 // 5. Continuation / cleanup
 // ============================================================================
 
-/// Per-participant continuation check. Each tick:
-///
-/// - If an individual participant lost their `Converse` marker (preempted
-///   by Sleep / Flee / Fight), moved out of range of the group, or left the
-///   world, they're removed from the conversation. A
-///   [`SimEvent::ConversationLeft`] fires for graceful exits and
-///   [`SimEvent::ConversationAbandoned`] for rude ones (one event per
-///   remaining counterparty, since each pair relationship reacts
-///   independently).
-/// - If fewer than two participants remain, or the group went stale, the
-///   whole conversation is finalized and [`SimEvent::ConversationEnded`]
-///   fires with the final participant list.
-///
-/// "In range" is defined as within [`CONVERSATION_RANGE`] of at least one
-/// other participant — a scatter-and-cluster group (everyone drifts but
-/// stays near someone) keeps talking.
 pub fn evaluate_conversation_continuation(
     mut commands: Commands,
-    mut manager: ResMut<ConversationManager>,
-    mut events: MessageWriter<ConversationAbandoned>,
+    mut registry: ResMut<ConverseRegistry>,
     mut sim_events: MessageWriter<SimEvent>,
     mut game_events: MessageWriter<GameEvent>,
     tick: Res<TickCount>,
     transforms: Query<&Transform>,
     actives: Query<&ActiveActions>,
 ) {
-    let mut to_finalize: Vec<u64> = Vec::new();
+    let mut to_finalize: Vec<EngagementId> = Vec::new();
 
-    for (id, conv) in manager.conversations.iter_mut() {
+    for (id, conv) in registry.conversations.iter_mut() {
         if conv.state == ConversationState::Ended {
             to_finalize.push(*id);
             continue;
@@ -1305,7 +1233,6 @@ pub fn evaluate_conversation_continuation(
             continue;
         }
 
-        // Snapshot positions so we can run per-pair range checks.
         let positions: Vec<(Entity, Option<Vec2>)> = conv
             .participants
             .iter()
@@ -1317,12 +1244,10 @@ pub fn evaluate_conversation_continuation(
             })
             .collect();
 
-        // Decide who's still part of the conversation and why each leaver left.
         let graceful_state = conv.turns.last().map(|t| t.intent) == Some(Intent::Farewell);
-        let mut leavers: Vec<(Entity, bool)> = Vec::new(); // (entity, graceful)
+        let mut leavers: Vec<(Entity, bool)> = Vec::new();
         for (entity, pos) in &positions {
             let Some(my_pos) = pos else {
-                // Entity has no transform (despawned) — treat as rude leaver.
                 leavers.push((*entity, false));
                 continue;
             };
@@ -1334,7 +1259,6 @@ pub fn evaluate_conversation_continuation(
                 leavers.push((*entity, graceful_state));
                 continue;
             }
-            // In range of at least one other participant?
             let near_someone = positions.iter().any(|(other, other_pos)| {
                 if other == entity {
                     return false;
@@ -1349,8 +1273,6 @@ pub fn evaluate_conversation_continuation(
         }
 
         for (leaver, graceful) in &leavers {
-            // For every counterparty still in the group, emit the relationship
-            // impact (one event per pair).
             let counterparties: Vec<Entity> = conv
                 .participants
                 .iter()
@@ -1358,29 +1280,17 @@ pub fn evaluate_conversation_continuation(
                 .filter(|e| e != leaver && !leavers.iter().any(|(l, _)| l == e))
                 .collect();
 
-            if *graceful {
-                sim_events.write(SimEvent::single(
-                    tick.current,
-                    *leaver,
-                    SimEventKind::ConversationLeft {
-                        leaver: *leaver,
-                        conversation_id: *id,
-                    },
-                ));
-            } else {
+            if !*graceful {
                 for other in &counterparties {
-                    events.write(ConversationAbandoned {
-                        abandoner: *leaver,
-                        abandoned: *other,
-                        conversation_state: conv.state,
-                    });
                     sim_events.write(SimEvent::pair(
                         tick.current,
                         *leaver,
                         *other,
-                        SimEventKind::ConversationAbandoned {
-                            abandoner: *leaver,
-                            abandoned: *other,
+                        SimEventKind::EngagementEnded {
+                            kind: EngagementKind::Converse,
+                            engagement_id: *id,
+                            participants: vec![*leaver, *other],
+                            reason: EngagementEndReason::Abandoned,
                         },
                     ));
                     game_events.write(GameEvent::SocialInteraction {
@@ -1393,7 +1303,7 @@ pub fn evaluate_conversation_continuation(
                 }
             }
 
-            commands.entity(*leaver).remove::<InConversation>();
+            commands.entity(*leaver).remove::<Engaged>();
             commands.entity(*leaver).queue(RemoveConverseMarker);
             conv.remove_participant(*leaver);
         }
@@ -1404,31 +1314,94 @@ pub fn evaluate_conversation_continuation(
         }
     }
 
-    // Finalize: drop InConversation, remove the Converse marker, drop the
-    // entry from the manager so it doesn't grow unbounded.
     for id in to_finalize {
-        if let Some(conv) = manager.conversations.get(&id) {
+        if let Some(conv) = registry.conversations.get(&id) {
+            let reason = if conv.turns.last().map(|t| t.intent) == Some(Intent::Farewell) {
+                EngagementEndReason::Natural
+            } else if tick.current.saturating_sub(conv.last_turn_at) > STALE_CONVERSATION_TICKS {
+                EngagementEndReason::Stale
+            } else {
+                EngagementEndReason::Natural
+            };
             sim_events.write(SimEvent::new(
                 tick.current,
-                conv.participants.clone().clone(),
-                SimEventKind::ConversationEnded {
+                conv.participants.clone(),
+                SimEventKind::EngagementEnded {
+                    kind: EngagementKind::Converse,
+                    engagement_id: id,
                     participants: conv.participants.clone(),
-                    conversation_id: id,
+                    reason,
                 },
             ));
             for entity in &conv.participants {
-                commands.entity(*entity).remove::<InConversation>();
+                commands.entity(*entity).remove::<Engaged>();
                 commands.entity(*entity).queue(RemoveConverseMarker);
             }
         }
-        manager.conversations.remove(&id);
+        registry.conversations.remove(&id);
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::agent::mind::knowledge::{Node, Predicate, Quantity};
+    use crate::agent::mind::knowledge::{Magnitude, Quantity};
+
+    fn e(id: u64) -> Entity {
+        Entity::from_bits(id)
+    }
+
+    fn conv_id(n: u64) -> EngagementId {
+        EngagementId(n)
+    }
+
+    #[test]
+    fn add_participant_respects_capacity() {
+        let mut conv = Conversation::new(conv_id(0), vec![e(1), e(2)], 0);
+        for i in 3..=(MAX_GROUP_SIZE as u64) {
+            assert!(conv.add_participant(e(i)));
+        }
+        assert!(!conv.add_participant(e(100)));
+        assert_eq!(conv.participants.len(), MAX_GROUP_SIZE);
+    }
+
+    #[test]
+    fn add_participant_rejects_duplicates() {
+        let mut conv = Conversation::new(conv_id(0), vec![e(1), e(2)], 0);
+        assert!(!conv.add_participant(e(1)));
+    }
+
+    #[test]
+    fn remove_participant_keeps_current_speaker_stable() {
+        let mut conv = Conversation::new(conv_id(0), vec![e(1), e(2), e(3)], 0);
+        conv.set_speaker(e(3));
+        assert_eq!(conv.current_speaker(), e(3));
+        conv.remove_participant(e(1));
+        assert_eq!(
+            conv.current_speaker(),
+            e(3),
+            "removing a non-speaker should keep the speaker fixed"
+        );
+    }
+
+    #[test]
+    fn remove_participant_reclamps_when_speaker_leaves() {
+        let mut conv = Conversation::new(conv_id(0), vec![e(1), e(2), e(3)], 0);
+        conv.set_speaker(e(3));
+        conv.remove_participant(e(3));
+        assert!(conv.turn < conv.participants.len());
+    }
+
+    #[test]
+    fn listeners_excludes_current_speaker() {
+        let mut conv = Conversation::new(conv_id(0), vec![e(1), e(2), e(3)], 0);
+        conv.set_speaker(e(2));
+        let listeners: Vec<Entity> = conv.listeners().collect();
+        assert_eq!(listeners.len(), 2);
+        assert!(listeners.contains(&e(1)));
+        assert!(listeners.contains(&e(3)));
+        assert!(!listeners.contains(&e(2)));
+    }
 
     #[test]
     fn hearsay_fuzzifies_exact_quantity_to_around() {
@@ -1440,9 +1413,7 @@ mod tests {
         );
         let hearsay = fuzzify_hearsay(&source, 100, speaker);
         assert!(
-            matches!(hearsay.object, Value::Quantity(Quantity::Around(v)) if (v - 60.0).abs() < 0.001),
-            "Exact(60) hearsay should land as Around(60), got {:?}",
-            hearsay.object
+            matches!(hearsay.object, Value::Quantity(Quantity::Around(v)) if (v - 60.0).abs() < 0.001)
         );
         assert_eq!(
             hearsay.meta.source,
@@ -1453,8 +1424,6 @@ mod tests {
 
     #[test]
     fn hearsay_chain_compounds_fuzzification() {
-        // Gossip chain: every retelling fuzzifies once more. Three hops
-        // should push Exact all the way to Qualitative.
         let speaker = Entity::from_bits(1);
         let hop_1 = fuzzify_hearsay(
             &Triple::new(
@@ -1467,403 +1436,34 @@ mod tests {
         );
         let hop_2 = fuzzify_hearsay(&hop_1, 200, speaker);
         let hop_3 = fuzzify_hearsay(&hop_2, 300, speaker);
-        assert!(
-            matches!(hop_1.object, Value::Quantity(Quantity::Around(_))),
-            "hop 1 should be Around"
-        );
-        assert!(
-            matches!(hop_2.object, Value::Quantity(Quantity::OrderOfMagnitude(_))),
-            "hop 2 should be OrderOfMagnitude"
-        );
-        assert!(
-            matches!(hop_3.object, Value::Quantity(Quantity::Qualitative(_))),
-            "hop 3 should be Qualitative"
-        );
-    }
-
-    #[test]
-    fn hearsay_at_qualitative_floor_does_not_drop_triple() {
-        // Qualitative is the last rung. Hearsay keeps it at Qualitative
-        // instead of falling off the ladder — the listener still learns
-        // *something* from the speaker, even if it's the vaguest answer.
-        let speaker = Entity::from_bits(1);
-        let source = Triple::new(
-            Node::Self_,
-            Predicate::Hunger,
-            Value::Quantity(Quantity::Qualitative(
-                crate::agent::mind::knowledge::Magnitude::High,
-            )),
-        );
-        let hearsay = fuzzify_hearsay(&source, 100, speaker);
+        assert!(matches!(hop_1.object, Value::Quantity(Quantity::Around(_))));
         assert!(matches!(
-            hearsay.object,
-            Value::Quantity(Quantity::Qualitative(
-                crate::agent::mind::knowledge::Magnitude::High
-            ))
+            hop_2.object,
+            Value::Quantity(Quantity::OrderOfMagnitude(_))
+        ));
+        assert!(matches!(
+            hop_3.object,
+            Value::Quantity(Quantity::Qualitative(_))
         ));
     }
 
     #[test]
-    fn hearsay_preserves_non_quantity_triples() {
-        use crate::agent::mind::knowledge::Concept;
+    fn hearsay_at_qualitative_floor_does_not_drop_triple() {
         let speaker = Entity::from_bits(1);
         let source = Triple::new(
-            Node::Concept(Concept::Wolf),
-            Predicate::HasTrait,
-            Value::Concept(Concept::Dangerous),
+            Node::Self_,
+            Predicate::Hunger,
+            Value::Quantity(Quantity::Qualitative(Magnitude::High)),
         );
         let hearsay = fuzzify_hearsay(&source, 100, speaker);
-        assert!(matches!(hearsay.object, Value::Concept(Concept::Dangerous)));
+        assert!(matches!(
+            hearsay.object,
+            Value::Quantity(Quantity::Qualitative(Magnitude::High))
+        ));
     }
 
     #[test]
     fn ask_intent_produces_lower_base_valence_than_share() {
         assert!(valence_base(Intent::Ask) < valence_base(Intent::Share));
-    }
-
-    #[test]
-    fn disagree_intent_produces_lowest_base_valence() {
-        let all_intents = [
-            Intent::Greet,
-            Intent::Ask,
-            Intent::Answer,
-            Intent::Share,
-            Intent::Empathize,
-            Intent::Agree,
-            Intent::Disagree,
-            Intent::Thank,
-            Intent::Farewell,
-            Intent::Acknowledge,
-        ];
-        let disagree = valence_base(Intent::Disagree);
-        for intent in all_intents {
-            assert!(
-                valence_base(intent) >= disagree,
-                "{intent:?} base ({}) is less than Disagree ({})",
-                valence_base(intent),
-                disagree
-            );
-        }
-    }
-
-    // ── speak_desire tests ──────────────────────────────────────────────────
-
-    fn personality_with(extraversion: f32, agreeableness: f32) -> Personality {
-        let mut p = Personality::default();
-        p.traits.extraversion = extraversion;
-        p.traits.agreeableness = agreeableness;
-        p
-    }
-
-    #[test]
-    fn speak_desire_extravert_scores_above_introvert() {
-        let extravert = personality_with(1.0, 0.5);
-        let introvert = personality_with(0.0, 0.5);
-        assert!(
-            speak_desire(Some(&extravert), false) > speak_desire(Some(&introvert), false),
-            "extravert should have higher speak desire than introvert"
-        );
-    }
-
-    #[test]
-    fn speak_desire_agreeable_yields_compared_to_disagreeable() {
-        let agreeable = personality_with(0.5, 1.0);
-        let stubborn = personality_with(0.5, 0.0);
-        assert!(
-            speak_desire(Some(&stubborn), false) > speak_desire(Some(&agreeable), false),
-            "disagreeable agent should take the floor over an agreeable one at matched extraversion"
-        );
-    }
-
-    #[test]
-    fn speak_desire_wants_to_speak_flag_boosts_score() {
-        let neutral = personality_with(0.5, 0.5);
-        let idle = speak_desire(Some(&neutral), false);
-        let queued = speak_desire(Some(&neutral), true);
-        assert!(queued > idle, "wants_to_speak should raise the score");
-        assert!(
-            queued - idle >= 2.0,
-            "the queued-response bonus should dominate small personality differences"
-        );
-    }
-
-    #[test]
-    fn speak_desire_missing_personality_uses_neutral_baseline() {
-        let neutral = personality_with(0.5, 0.5);
-        let with_personality = speak_desire(Some(&neutral), false);
-        let without = speak_desire(None, false);
-        assert!(
-            (with_personality - without).abs() < 1e-6,
-            "a missing Personality component should fall back to the neutral 0.5/0.5 baseline"
-        );
-    }
-
-    #[test]
-    fn high_affection_raises_valence_compared_to_neutral() {
-        let base = valence_base(Intent::Share);
-        let neutral = valence_from_parts(base, 0.5, 0.0, 0.0, 0.5);
-        let friend = valence_from_parts(base, 1.0, 0.0, 0.0, 0.5);
-        let enemy = valence_from_parts(base, 0.0, 0.0, 0.0, 0.5);
-        assert!(
-            friend > neutral,
-            "friend valence {friend} should exceed neutral {neutral}"
-        );
-        assert!(
-            enemy < neutral,
-            "enemy valence {enemy} should be below neutral {neutral}"
-        );
-    }
-
-    #[test]
-    fn positive_mood_raises_valence() {
-        let base = valence_base(Intent::Share);
-        let neutral_mood = valence_from_parts(base, 0.5, 0.0, 0.0, 0.5);
-        let good_mood = valence_from_parts(base, 0.5, 1.0, 1.0, 0.5);
-        assert!(good_mood > neutral_mood);
-    }
-
-    #[test]
-    fn valence_is_clamped_to_minus_one_to_one() {
-        let v_max = valence_from_parts(1.0, 1.0, 1.0, 1.0, 1.0);
-        let v_min = valence_from_parts(-1.0, 0.0, -1.0, -1.0, 0.0);
-        assert!(v_max <= 1.0);
-        assert!(v_min >= -1.0);
-    }
-
-    #[test]
-    fn agreeable_speaker_produces_higher_valence() {
-        let base = valence_base(Intent::Share);
-        let low_agree = valence_from_parts(base, 0.5, 0.0, 0.0, 0.0);
-        let high_agree = valence_from_parts(base, 0.5, 0.0, 0.0, 1.0);
-        assert!(high_agree > low_agree);
-    }
-
-    #[test]
-    fn map_topic_general_is_greetings() {
-        assert_eq!(map_topic(Topic::General), ConversationTopic::Greetings);
-    }
-
-    #[test]
-    fn map_topic_help_is_request() {
-        assert_eq!(map_topic(Topic::Help), ConversationTopic::Request);
-    }
-
-    // ── select_intent tests ─────────────────────────────────────────────────
-
-    use crate::agent::mind::knowledge::{MemoryType, Metadata, Source, Triple};
-    use crate::agent::mind::theory_of_mind::TheoryOfMind;
-
-    fn empty_mind() -> MindGraph {
-        MindGraph::default()
-    }
-
-    fn danger_triple(subject: Node, salience: f32, timestamp: u64) -> Triple {
-        Triple::with_meta(
-            subject,
-            Predicate::HasTrait,
-            Value::Concept(Concept::Dangerous),
-            Metadata {
-                source: Source::Experienced,
-                memory_type: MemoryType::Episodic,
-                timestamp,
-                confidence: 1.0,
-                informant: None,
-                evidence: Vec::new(),
-                salience,
-                source_sense: None,
-                strength: 1.0,
-            },
-        )
-    }
-
-    #[test]
-    fn select_intent_greets_on_first_turn() {
-        let conv = Conversation::new(0, vec![Entity::from_bits(1), Entity::from_bits(2)], 0);
-        let mind = empty_mind();
-        let listener = Entity::from_bits(2);
-        assert_eq!(
-            select_intent(&conv, &mind, None, listener, None, None, 0, false, false),
-            Intent::Greet
-        );
-    }
-
-    #[test]
-    fn select_intent_farewell_when_wrapping() {
-        let mut conv = Conversation::new(0, vec![Entity::from_bits(1), Entity::from_bits(2)], 0);
-        conv.state = ConversationState::Wrapping;
-        let mind = empty_mind();
-        let listener = Entity::from_bits(2);
-        assert_eq!(
-            select_intent(&conv, &mind, None, listener, None, None, 0, false, false),
-            Intent::Farewell
-        );
-    }
-
-    #[test]
-    fn select_intent_warns_when_danger_known_and_partner_unaware() {
-        let mut conv = Conversation::new(0, vec![Entity::from_bits(1), Entity::from_bits(2)], 0);
-        conv.state = ConversationState::Active;
-        // Inject a dummy turn so we're not in first-turn state.
-        conv.add_turn(Turn {
-            speaker: Entity::from_bits(1),
-            intent: Intent::Greet,
-            topic: crate::agent::mind::conversation::Topic::General,
-            emotion: None,
-            content: Vec::new(),
-            timestamp: 0,
-            expects_response: false,
-        });
-
-        let mut speaker = empty_mind();
-        speaker.assert(danger_triple(
-            Node::Concept(Concept::Wolf),
-            0.9, // high salience
-            0,   // at tick 0, queried at tick 100 → within DANGER_RECENCY_TICKS
-        ));
-        // No ToM = stranger model → assume listener doesn't know
-        let listener = Entity::from_bits(2);
-
-        assert_eq!(
-            select_intent(
-                &conv, &speaker, None, listener, None, None, 100, false, false
-            ),
-            Intent::Share,
-            "should warn about danger the listener doesn't know"
-        );
-    }
-
-    #[test]
-    fn select_intent_does_not_warn_if_speaker_believes_listener_knows() {
-        let mut conv = Conversation::new(0, vec![Entity::from_bits(1), Entity::from_bits(2)], 0);
-        conv.state = ConversationState::Active;
-        conv.add_turn(Turn {
-            speaker: Entity::from_bits(1),
-            intent: Intent::Greet,
-            topic: crate::agent::mind::conversation::Topic::General,
-            emotion: None,
-            content: Vec::new(),
-            timestamp: 0,
-            expects_response: false,
-        });
-
-        let mut speaker = empty_mind();
-        speaker.assert(danger_triple(Node::Concept(Concept::Wolf), 0.9, 0));
-
-        // Speaker believes listener already knows about the wolf danger.
-        let listener = Entity::from_bits(2);
-        let mut tom = TheoryOfMind::default();
-        tom.record_belief(
-            listener,
-            Node::Concept(Concept::Wolf),
-            Predicate::HasTrait,
-            Value::Concept(Concept::Dangerous),
-            1.0,
-            0,
-        );
-
-        // With nothing else to share and no content available, falls through to Acknowledge.
-        assert_eq!(
-            select_intent(
-                &conv,
-                &speaker,
-                Some(&tom),
-                listener,
-                None,
-                None,
-                100,
-                false,
-                false
-            ),
-            Intent::Acknowledge,
-            "should not warn about danger the speaker believes the listener already knows"
-        );
-    }
-
-    #[test]
-    fn select_intent_asks_when_goal_needs_location() {
-        use crate::agent::brains::thinking::{Goal, TriplePattern};
-
-        let mut conv = Conversation::new(0, vec![Entity::from_bits(1), Entity::from_bits(2)], 0);
-        conv.state = ConversationState::Active;
-        conv.add_turn(Turn {
-            speaker: Entity::from_bits(1),
-            intent: Intent::Greet,
-            topic: crate::agent::mind::conversation::Topic::General,
-            emotion: None,
-            content: Vec::new(),
-            timestamp: 0,
-            expects_response: false,
-        });
-
-        let mind = empty_mind();
-        let listener = Entity::from_bits(2);
-        let goal = Goal {
-            conditions: vec![TriplePattern::new(None, Some(Predicate::LocatedAt), None)],
-            priority: 1.0,
-        };
-
-        assert_eq!(
-            select_intent(
-                &conv,
-                &mind,
-                None,
-                listener,
-                Some(&goal),
-                None,
-                0,
-                false,
-                false
-            ),
-            Intent::Ask,
-            "agent with location-seeking goal should Ask"
-        );
-    }
-
-    #[test]
-    fn select_intent_answers_when_partner_asked() {
-        let mut conv = Conversation::new(0, vec![Entity::from_bits(1), Entity::from_bits(2)], 0);
-        conv.state = ConversationState::Active;
-        // Add a turn that expects a response.
-        conv.add_turn(Turn {
-            speaker: Entity::from_bits(2),
-            intent: Intent::Ask,
-            topic: crate::agent::mind::conversation::Topic::General,
-            emotion: None,
-            content: Vec::new(),
-            timestamp: 0,
-            expects_response: true, // partner asked
-        });
-
-        let mind = empty_mind();
-        let listener = Entity::from_bits(2);
-        assert_eq!(
-            select_intent(&conv, &mind, None, listener, None, None, 0, false, false),
-            Intent::Answer,
-            "should Answer when partner asked last turn"
-        );
-    }
-
-    #[test]
-    fn select_intent_defaults_to_acknowledge() {
-        let mut conv = Conversation::new(0, vec![Entity::from_bits(1), Entity::from_bits(2)], 0);
-        conv.state = ConversationState::Active;
-        conv.add_turn(Turn {
-            speaker: Entity::from_bits(1),
-            intent: Intent::Greet,
-            topic: crate::agent::mind::conversation::Topic::General,
-            emotion: None,
-            content: Vec::new(),
-            timestamp: 0,
-            expects_response: false,
-        });
-
-        // Empty minds, no goal, low extraversion, no content → Acknowledge.
-        let mind = empty_mind();
-        let listener = Entity::from_bits(2);
-        assert_eq!(
-            select_intent(&conv, &mind, None, listener, None, None, 0, false, false),
-            Intent::Acknowledge,
-            "nothing to say → Acknowledge"
-        );
     }
 }

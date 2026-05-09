@@ -3,9 +3,9 @@ pub mod affordance;
 pub mod biology;
 pub mod body;
 pub mod brains;
-pub mod communication;
 pub mod culture;
 pub mod drive_registry;
+pub mod engagement;
 pub mod events;
 pub mod invariants;
 pub mod inventory;
@@ -137,7 +137,7 @@ impl Plugin for AgentPlugin {
             .add_plugins(nervous_system::NervousSystemPlugin)
             .add_plugins(invariants::InvariantPlugin)
             .init_resource::<psyche::greetings::GreetingCooldowns>()
-            .add_plugins(communication::CommunicationPlugin)
+            .add_plugins(engagement::EngagementPlugin)
             .add_systems(
                 FixedUpdate,
                 (

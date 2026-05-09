@@ -10,7 +10,7 @@ use bevy::prelude::*;
 use bevy_egui::{EguiContext, EguiPrimaryContextPass, PrimaryEguiContext, egui};
 use rand::Rng;
 
-use crate::agent::mind::conversation::ConversationManager;
+use crate::agent::engagement::converse::ConverseRegistry;
 use crate::core::{SimRng, TickCount};
 use crate::world::spatial_index::SpatialIndex;
 
@@ -154,13 +154,13 @@ fn close_pause_menu(mut pause: ResMut<PauseMenuOpen>, tick: Option<ResMut<TickCo
 /// doesn't access stale generations from the previous sim. Without this, a
 /// second "New Simulation" crashes because systems like
 /// `evaluate_conversation_continuation` try to apply commands against
-/// despawned agents whose IDs were still in `ConversationManager`.
+/// despawned agents whose IDs were still in `ConverseRegistry`.
 fn reset_sim_resources(
-    mut conversations: Option<ResMut<ConversationManager>>,
+    mut conversations: Option<ResMut<ConverseRegistry>>,
     mut spatial: Option<ResMut<SpatialIndex>>,
 ) {
     if let Some(conversations) = conversations.as_mut() {
-        **conversations = ConversationManager::default();
+        **conversations = ConverseRegistry::default();
     }
     if let Some(spatial) = spatial.as_mut() {
         **spatial = SpatialIndex::default();
@@ -593,15 +593,19 @@ mod tests {
     #[test]
     fn reset_sim_resources_clears_stale_conversation_entities() {
         let mut app = App::new();
-        app.init_resource::<ConversationManager>();
+        app.init_resource::<ConverseRegistry>();
         app.init_resource::<SpatialIndex>();
 
         // Seed the conversation manager with a fake participant — after
         // DespawnOnExit runs, its Entity id would be stale.
         let fake_entity = app.world_mut().spawn_empty().id();
         {
-            let mut conv = app.world_mut().resource_mut::<ConversationManager>();
-            conv.start_conversation(vec![fake_entity], 0);
+            use crate::agent::engagement::EngagementId;
+            use crate::agent::engagement::converse::Conversation;
+            let mut conv = app.world_mut().resource_mut::<ConverseRegistry>();
+            let id = EngagementId(0);
+            conv.conversations
+                .insert(id, Conversation::new(id, vec![fake_entity], 0));
         }
         {
             let mut spatial = app.world_mut().resource_mut::<SpatialIndex>();
@@ -613,10 +617,10 @@ mod tests {
 
         assert!(
             app.world()
-                .resource::<ConversationManager>()
+                .resource::<ConverseRegistry>()
                 .conversations
                 .is_empty(),
-            "ConversationManager should be empty after reset"
+            "ConverseRegistry should be empty after reset"
         );
     }
 }
