@@ -3,6 +3,7 @@
 use crate::agent::inventory::EntityType;
 use crate::agent::item_slots::ItemSlots;
 use crate::agent::mind::knowledge::Concept;
+use crate::outline::outline_bundle;
 use crate::palette::{Palette, PaletteColor};
 use crate::world::map::TILE_SIZE;
 use crate::world::property::HarvestableComponent;
@@ -79,6 +80,7 @@ pub fn spawn_berry_bush(
             ));
 
             // Bush body
+            parent.spawn(outline_bundle(bush_color, bush_size, Vec2::ZERO, 0.0));
             parent
                 .spawn((
                     Sprite {

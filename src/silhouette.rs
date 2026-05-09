@@ -11,6 +11,7 @@
 use bevy::prelude::*;
 
 use crate::agent::biology::body::BodyNodeKind;
+use crate::outline::outline_bundle;
 use crate::palette::{Palette, PaletteColor};
 use crate::ui::sprite_animation::{GroundShadow, SpriteBody};
 use crate::world::environment::{AgentBodySprite, BaseColor};
@@ -175,6 +176,14 @@ fn spawn_part(
     // z_bias picks the layer (body=0, head=1, ears/eyes=2, ...); index is a
     // tiny tiebreaker so spawn order is stable within a layer.
     let z = (part.z_bias as f32) * 0.1 + (index as f32) * 0.001;
+
+    // Skip outlines on Eye and Marking — they're decorative inserts inside
+    // a larger silhouette, and a dark rim on top of a head reads as a
+    // surprise/raccoon-mask rather than a chunky pixel outline.
+    if !matches!(part.role, PartRole::Eye | PartRole::Marking) {
+        body.spawn(outline_bundle(color, part.size, part.offset, z));
+    }
+
     let transform = Transform {
         translation: Vec3::new(part.offset.x, part.offset.y, z),
         rotation: Quat::from_rotation_z(part.rotation),

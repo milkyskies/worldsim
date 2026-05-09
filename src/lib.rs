@@ -13,6 +13,7 @@ pub mod headless;
 pub mod injuries;
 pub mod markings;
 pub mod menu;
+pub mod outline;
 pub mod palette;
 pub mod particles;
 pub mod silhouette;
