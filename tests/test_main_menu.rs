@@ -6,9 +6,7 @@
 
 use bevy::prelude::*;
 use worldsim::menu::{AppState, SimConfig, SimMode};
-use worldsim::world::map::{
-    DEFAULT_TERRAIN_SEED, MapPlugin, WORLD_HEIGHT, WORLD_WIDTH, WorldMap, generate_terrain,
-};
+use worldsim::world::map::{MapPlugin, WORLD_HEIGHT, WORLD_WIDTH, WorldMap, generate_terrain};
 
 fn build_test_app() -> App {
     let mut app = App::new();
