@@ -85,6 +85,19 @@ impl TileType {
         }
     }
 
+    /// Coarse group used by tile auto-tiling: outlines are only drawn
+    /// between different groups, not between members of the same group.
+    /// Keeps biome boundaries (water vs land, rock vs land) crisp without
+    /// littering every grass/dirt/sand transition with dark seams that
+    /// make scattered shore patches read as a checkerboard.
+    pub fn outline_group(&self) -> u8 {
+        match self {
+            TileType::Water | TileType::ShallowWater => 0,
+            TileType::Rock => 1,
+            TileType::Grass | TileType::Dirt | TileType::Gravel | TileType::Sand => 2,
+        }
+    }
+
     /// Palette slot used to render this tile type. The actual `Color` is
     /// resolved by the caller via the `Palette` resource.
     pub fn palette_slot(&self) -> PaletteColor {
@@ -853,7 +866,7 @@ pub fn setup_map(
                                     continue;
                                 }
                                 let n_idx = (ny as u32 * width + nx as u32) as usize;
-                                if terrain[n_idx] == tile_type {
+                                if terrain[n_idx].outline_group() == tile_type.outline_group() {
                                     continue;
                                 }
                                 parent.spawn((
