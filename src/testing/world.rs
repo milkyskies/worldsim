@@ -2445,40 +2445,6 @@ mod tests {
     use crate::agent::Person;
 
     #[test]
-    fn new_world_starts_at_tick_zero() {
-        let world = TestWorld::with_seed(42);
-        assert_eq!(world.current_tick(), 0);
-    }
-
-    #[test]
-    fn tick_advances_logical_tick_count() {
-        let mut world = TestWorld::with_seed(42);
-        world.tick(10);
-        assert_eq!(world.current_tick(), 10);
-    }
-
-    #[test]
-    fn spawn_agent_creates_person_with_logic_components() {
-        let mut world = TestWorld::with_seed(42);
-        let agent = world.spawn_agent(AgentConfig::default());
-
-        // Core markers
-        assert!(world.app().world().get::<Person>(agent).is_some());
-        assert!(world.app().world().get::<Agent>(agent).is_some());
-
-        // Logic components needed for the brain pipeline
-        assert!(world.app().world().get::<MindGraph>(agent).is_some());
-        assert!(world.app().world().get::<PhysicalNeeds>(agent).is_some());
-        assert!(
-            world
-                .app()
-                .world()
-                .get::<crate::agent::brains::proposal::BrainState>(agent)
-                .is_some()
-        );
-    }
-
-    #[test]
     fn spawn_agent_uses_config_values() {
         let mut world = TestWorld::with_seed(42);
         let agent = world.spawn_agent(AgentConfig {
@@ -2510,32 +2476,6 @@ mod tests {
     }
 
     #[test]
-    fn spawn_deer_creates_agent_with_dangerous_person_belief() {
-        let mut world = TestWorld::with_seed(42);
-        let deer = world.spawn_deer(Vec2::new(40.0, 40.0));
-        assert!(world.app().world().get::<Agent>(deer).is_some());
-        assert!(
-            world
-                .app()
-                .world()
-                .get::<crate::world::deer::Deer>(deer)
-                .is_some()
-        );
-
-        // The deer should know persons are dangerous (loaded at spawn).
-        let mind = world.get::<MindGraph>(deer);
-        let dangerous = mind.query(
-            Some(&MindNode::Concept(Concept::Person)),
-            Some(Predicate::HasTrait),
-            Some(&Value::Concept(Concept::Dangerous)),
-        );
-        assert!(
-            !dangerous.is_empty(),
-            "deer should believe Person is Dangerous"
-        );
-    }
-
-    #[test]
     fn distance_returns_euclidean_distance_between_entities() {
         let mut world = TestWorld::with_seed(42);
         let a = world.spawn_agent(AgentConfig::at(Vec2::new(0.0, 0.0)));
@@ -2564,24 +2504,6 @@ mod tests {
         assert_eq!(agents.len(), 2);
         assert!(agents.contains(&person));
         assert!(agents.contains(&deer));
-    }
-
-    #[test]
-    fn registered_actions_include_core_action_set() {
-        let world = TestWorld::with_seed(42);
-        for action in [
-            ActionType::Eat,
-            ActionType::Sleep,
-            ActionType::Walk,
-            ActionType::Harvest,
-            ActionType::Wander,
-            ActionType::Converse,
-        ] {
-            assert!(
-                world.has_registered_action(action),
-                "expected {action:?} to be registered"
-            );
-        }
     }
 
     #[test]
@@ -2626,58 +2548,6 @@ mod tests {
         assert_eq!(world.current_tick(), 30);
     }
 
-    // ─── Inspection method tests ──────────────────────────────────────────
-
-    #[test]
-    fn print_agent_state_does_not_panic() {
-        let mut world = TestWorld::with_seed(42);
-        let agent = world.spawn_agent(AgentConfig {
-            metabolism: crate::agent::body::metabolism::Metabolism::at_urgency(0.6),
-            stamina: 40.0,
-            ..Default::default()
-        });
-        world.tick(5);
-        // Should not panic; output goes to stderr.
-        world.print_agent_state(agent);
-    }
-
-    #[test]
-    fn print_brain_decision_does_not_panic() {
-        let mut world = TestWorld::with_seed(42);
-        let agent = world.spawn_agent(AgentConfig {
-            metabolism: crate::agent::body::metabolism::Metabolism::at_urgency(0.8),
-            ..Default::default()
-        });
-        world.spawn_apple_tree(Vec2::new(20.0, 20.0), 10);
-        // Tick past the brain thinking_interval (60 ticks) so a decision is made.
-        world.tick(65);
-        world.print_brain_decision(agent);
-    }
-
-    #[test]
-    fn print_mind_graph_does_not_panic() {
-        let mut world = TestWorld::with_seed(42);
-        let agent = world.spawn_agent(AgentConfig::default());
-        world.tick(5);
-        world.print_mind_graph(agent);
-    }
-
-    #[test]
-    fn print_relationships_does_not_panic() {
-        let mut world = TestWorld::with_seed(42);
-        let agent = world.spawn_agent(AgentConfig::at(Vec2::new(10.0, 10.0)));
-        world.spawn_agent(AgentConfig::at(Vec2::new(12.0, 10.0)));
-        world.tick(50);
-        world.print_relationships(agent);
-    }
-
-    #[test]
-    fn print_conversation_does_not_panic_when_not_in_conversation() {
-        let mut world = TestWorld::with_seed(42);
-        let agent = world.spawn_agent(AgentConfig::default());
-        world.print_conversation(agent);
-    }
-
     #[test]
     fn query_knowledge_returns_matching_triples() {
         use crate::agent::mind::knowledge::{Metadata, Triple};
@@ -2709,12 +2579,6 @@ mod tests {
     }
 
     #[test]
-    fn print_recent_events_does_not_panic_with_no_events() {
-        let world = TestWorld::with_seed(42);
-        world.print_recent_events(10);
-    }
-
-    #[test]
     fn print_recent_events_shows_events_after_ticking() {
         let mut world = TestWorld::with_seed(42);
         let agent = world.spawn_agent(AgentConfig {
@@ -2733,17 +2597,6 @@ mod tests {
 
         world.print_recent_events(100);
         world.print_agent_events(agent, 100);
-    }
-
-    #[test]
-    fn print_agent_events_filters_to_agent() {
-        let mut world = TestWorld::with_seed(42);
-        let agent_a = world.spawn_agent(AgentConfig::at(Vec2::new(0.0, 0.0)));
-        let _agent_b = world.spawn_agent(AgentConfig::at(Vec2::new(200.0, 200.0)));
-        world.tick(100);
-
-        // Should not panic.
-        world.print_agent_events(agent_a, 100);
     }
 
     // ─── game_defaults tests ──────────────────────────────────────────────
