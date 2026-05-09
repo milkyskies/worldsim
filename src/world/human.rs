@@ -99,9 +99,8 @@ pub fn human_silhouette(skin: PaletteColor, hair: PaletteColor) -> CreatureSilho
                 role: PartRole::Body,
                 tint_with_environment: true,
             },
-            // Eyes - subtly asymmetric to dodge the perfect-mirror look.
             eye(-1.6, 6.8),
-            eye(1.6, 7.0),
+            eye(1.6, 6.8),
         ],
         shadow_size: Vec2::new(8.0, 3.0),
         shadow_offset_y: -7.0,
