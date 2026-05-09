@@ -130,7 +130,7 @@ fn inject_radial(grid: &mut FieldGrid, origin: Vec2, radius_px: f32, peak_per_ti
 
 fn relax_fields_toward_ambient(tick: Res<TickCount>, mut grids: ResMut<FieldGrids>) {
     let retain = (1.0 - AMBIENT_RELAXATION_PER_SEC * tick.dt()).max(0.0);
-    for (_, chunk) in grids.temperature_mut().chunks_mut().iter_mut() {
+    for chunk in grids.temperature_mut().chunks_mut().values_mut() {
         for delta in chunk.deltas_mut().iter_mut() {
             *delta *= retain;
         }
