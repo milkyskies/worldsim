@@ -805,6 +805,7 @@ impl TestWorld {
 
         app.add_plugins(crate::world::property::OntologyDerivationPlugin);
         app.add_plugins(crate::world::field_grid_plugin::FieldGridPlugin);
+        app.init_resource::<crate::world::forecast::WorldForecast>();
 
         Self { app, seed }
     }

@@ -4,6 +4,7 @@ use bevy::prelude::*;
 pub mod cns;
 pub mod config;
 pub mod execution;
+pub mod forecast;
 pub mod metabolism;
 pub mod territoriality;
 pub mod urgency;

@@ -74,7 +74,7 @@ pub fn tick_warmth(
 /// Translate a tile's Celsius temperature into a warmth delta per rate-
 /// second. Always includes the baseline drain; adds recovery above the
 /// comfort floor and exposure drain below the cold threshold.
-fn cell_temp_to_warmth_rate(temp_c: f32) -> f32 {
+pub fn cell_temp_to_warmth_rate(temp_c: f32) -> f32 {
     let recovery = if temp_c >= FULL_RECOVERY_C {
         HEAT_RECOVERY_PER_SEC
     } else if temp_c >= COMFORT_MIN_C {

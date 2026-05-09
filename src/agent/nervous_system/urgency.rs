@@ -211,7 +211,7 @@ pub fn generate_urgency(
             // Hunger: High Value = High Need.
             // Stamina: Low Value = High Need.
 
-            let normalized_input = match drive_config.source {
+            let current_normalized_input = match drive_config.source {
                 // Satisfaction-polarity fields: high value = low urgency.
                 UrgencySource::Stamina => 1.0 - base_input,
                 UrgencySource::Sleepiness => 1.0 - base_input,
@@ -220,6 +220,24 @@ pub fn generate_urgency(
                 UrgencySource::FoodSecurity => 1.0 - base_input,
                 _ => base_input,
             };
+
+            // Forward-projected urgency (#735). Drives that opt into the
+            // forecast lift their input before a deficit lands; horizon
+            // scales with conscientiousness so careful planners act
+            // earlier than reactive ones.
+            let horizon_minutes = crate::agent::nervous_system::forecast::forecast_horizon_minutes(
+                &personality.traits,
+            );
+            let normalized_input =
+                match crate::agent::nervous_system::forecast::predicted_normalized_input(
+                    drive_config.source,
+                    physical,
+                    horizon_minutes,
+                    tick.current,
+                ) {
+                    Some(predicted) => current_normalized_input.max(predicted),
+                    None => current_normalized_input,
+                };
 
             // Sleep wake pathway: compare the pre-gated raw input against the
             // drive's wake threshold. This runs before gating/curves/sensitivity
