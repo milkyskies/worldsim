@@ -22,34 +22,82 @@ const HUMAN_SKIN_TONES: [PaletteColor; 6] = [
     PaletteColor::SkinDeep,
 ];
 
-/// Canonical human silhouette parameterized by skin tone (gene-driven).
-/// Body and head opt into agent-style day/night tinting; eyes do not, so
-/// they stay readable through dim hours.
-pub fn human_silhouette(skin: PaletteColor) -> CreatureSilhouette {
+const HUMAN_HAIR_COLORS: [PaletteColor; 4] = [
+    PaletteColor::FurBlack,
+    PaletteColor::FurCharcoal,
+    PaletteColor::SkinDeep,
+    PaletteColor::SkinDark,
+];
+
+/// Canonical chibi-style human silhouette: big round head, small body,
+/// stubby arms and legs, hair cap, simple face with two eyes and a tiny
+/// smile. Body parts get day/night agent tinting; face features (eyes,
+/// mouth) and hair stay readable through dim hours.
+pub fn human_silhouette(skin: PaletteColor, hair: PaletteColor) -> CreatureSilhouette {
     let eye = |x: f32| SilhouettePart {
         body_node: None,
         shape: Shape::Circle,
-        size: Vec2::new(2.0, 2.0),
-        offset: Vec2::new(x, 10.0),
+        size: Vec2::new(1.8, 1.8),
+        offset: Vec2::new(x, 9.5),
         rotation: 0.0,
         color: PaletteColor::FurBlack,
         z_bias: 2,
         role: PartRole::Eye,
         tint_with_environment: false,
     };
+    let arm = |x: f32| SilhouettePart {
+        body_node: None,
+        shape: Shape::Capsule,
+        size: Vec2::new(2.2, 6.0),
+        offset: Vec2::new(x, -1.5),
+        rotation: 0.0,
+        color: skin,
+        z_bias: 0,
+        role: PartRole::Limb,
+        tint_with_environment: true,
+    };
+    let leg = |x: f32| SilhouettePart {
+        body_node: None,
+        shape: Shape::Capsule,
+        size: Vec2::new(2.5, 5.0),
+        offset: Vec2::new(x, -7.5),
+        rotation: 0.0,
+        color: skin,
+        z_bias: 0,
+        role: PartRole::Limb,
+        tint_with_environment: true,
+    };
     CreatureSilhouette {
         parts: vec![
+            // Smaller torso - chibi proportions favor a big head over a big body.
             SilhouettePart {
                 body_node: Some(BodyNodeKind::Torso),
                 shape: Shape::Capsule,
-                size: Vec2::new(10.0, 12.0),
-                offset: Vec2::new(0.0, -2.0),
+                size: Vec2::new(7.0, 7.0),
+                offset: Vec2::new(0.0, -1.0),
                 rotation: 0.0,
                 color: skin,
                 z_bias: 0,
                 role: PartRole::Body,
                 tint_with_environment: true,
             },
+            arm(-4.5),
+            arm(4.5),
+            leg(-2.0),
+            leg(2.0),
+            // Tiny visible neck so the head doesn't sit directly on the chest.
+            SilhouettePart {
+                body_node: None,
+                shape: Shape::Capsule,
+                size: Vec2::new(3.0, 1.8),
+                offset: Vec2::new(0.0, 3.5),
+                rotation: 0.0,
+                color: skin,
+                z_bias: 0,
+                role: PartRole::Body,
+                tint_with_environment: true,
+            },
+            // Big chibi head.
             SilhouettePart {
                 body_node: Some(BodyNodeKind::Head),
                 shape: Shape::Circle,
@@ -61,11 +109,35 @@ pub fn human_silhouette(skin: PaletteColor) -> CreatureSilhouette {
                 role: PartRole::Body,
                 tint_with_environment: true,
             },
-            eye(-2.5),
-            eye(2.5),
+            // Hair cap on top of the head.
+            SilhouettePart {
+                body_node: None,
+                shape: Shape::Capsule,
+                size: Vec2::new(10.0, 4.0),
+                offset: Vec2::new(0.0, 12.5),
+                rotation: 0.0,
+                color: hair,
+                z_bias: 1,
+                role: PartRole::Marking,
+                tint_with_environment: true,
+            },
+            eye(-2.2),
+            eye(2.2),
+            // Tiny smile.
+            SilhouettePart {
+                body_node: None,
+                shape: Shape::Ellipse,
+                size: Vec2::new(2.0, 0.6),
+                offset: Vec2::new(0.0, 6.8),
+                rotation: 0.0,
+                color: PaletteColor::FurBlack,
+                z_bias: 2,
+                role: PartRole::Marking,
+                tint_with_environment: false,
+            },
         ],
-        shadow_size: Vec2::new(10.0, 4.0),
-        shadow_offset_y: -8.0,
+        shadow_size: Vec2::new(9.0, 3.5),
+        shadow_offset_y: -10.0,
         hop_phase: 0.0,
     }
 }
@@ -84,8 +156,9 @@ pub fn spawn_person<R: Rng>(
     let genome = random_genome(rng, Species::Human);
     let markings = Markings::from_genome(&genome);
     let skin = HUMAN_SKIN_TONES[rng.random_range(0..HUMAN_SKIN_TONES.len())];
-    let silhouette =
-        apply_markings(human_silhouette(skin), &markings).with_hop_phase(index as f32 * 1.618);
+    let hair = HUMAN_HAIR_COLORS[rng.random_range(0..HUMAN_HAIR_COLORS.len())];
+    let silhouette = apply_markings(human_silhouette(skin, hair), &markings)
+        .with_hop_phase(index as f32 * 1.618);
     let name_tag_y = silhouette.top_y() + 16.0;
     let (core, perception, brain) = build_person_logic(
         PersonInit {
