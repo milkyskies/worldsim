@@ -85,6 +85,27 @@ pub struct PlanCostContext {
 /// (tree chopped, obstacle despawned, etc.).
 pub const UNREACHABLE_BELIEF_TTL_TICKS: u64 = 500;
 
+/// Tiles the agent's MindGraph still considers `Unreachable` after the
+/// `UNREACHABLE_BELIEF_TTL_TICKS` cutoff. Shared between the planner's
+/// cost cache and the emotional brain's social-initiation proposer so
+/// both honour the same blocked-tile beliefs.
+pub fn collect_unreachable_tiles(mind: &MindGraph, current_tick: u64) -> Vec<(i32, i32)> {
+    let mut out = Vec::new();
+    for triple in mind.query(
+        None,
+        Some(Predicate::HasTrait),
+        Some(&Value::Concept(Concept::Unreachable)),
+    ) {
+        let MindNode::Tile(tile) = triple.subject else {
+            continue;
+        };
+        if current_tick.saturating_sub(triple.meta.timestamp) <= UNREACHABLE_BELIEF_TTL_TICKS {
+            out.push(tile);
+        }
+    }
+    out
+}
+
 impl PlanCostContext {
     /// All factors neutral — used in tests and as a fallback when no agent
     /// state is supplied. Reproduces the original base-cost behaviour.
@@ -167,23 +188,7 @@ impl<'a> PlanCostCache<'a> {
             };
             dangers.push(*tile);
         }
-        let mut unreachable_tiles = Vec::new();
-        for triple in mind.query(
-            None,
-            Some(Predicate::HasTrait),
-            Some(&Value::Concept(Concept::Unreachable)),
-        ) {
-            let MindNode::Tile(tile) = triple.subject else {
-                continue;
-            };
-            // TTL check: expire stale beliefs so the agent retries paths
-            // that may have opened up since the last block.
-            if ctx.current_tick.saturating_sub(triple.meta.timestamp)
-                <= UNREACHABLE_BELIEF_TTL_TICKS
-            {
-                unreachable_tiles.push(tile);
-            }
-        }
+        let unreachable_tiles = collect_unreachable_tiles(mind, ctx.current_tick);
         Self {
             ctx,
             dangers,
