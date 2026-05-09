@@ -1,21 +1,6 @@
-//! `EngagementKind::Converse`: persistent conversation between two or
-//! more agents. Hosts the conversation data types (turn, intent, topic),
-//! the per-tick lifecycle systems (start, continue, end), and the
-//! turn-taking inner loop.
-//!
-//! Reads: PsychologicalDrives, Transform, ActiveActions, MindGraph, TheoryOfMind, EmotionalState, Personality, PlanMemory, Engaged
-//! Writes: ConverseRegistry, Engaged (insert/remove), ActiveActions (Converse marker), MindGraph (Hearsay), TheoryOfMind, PlanMemory (verbal commitment plans), GameEvent, SimEvent
-//! Upstream: agent::engagement::component, agent::actions, agent::mind::theory_of_mind, agent::brains::plan_memory
-//! Downstream: psyche::relationships (consumes SocialInteraction + EngagementEnded { reason: Abandoned })
-//!
-//! # Architecture
-//!
-//! Each live conversation is one [`Conversation`] entry in
-//! [`ConverseRegistry`], keyed by [`EngagementId`]. Participants carry
-//! [`Engaged { kind: Converse, id }`](crate::agent::engagement::Engaged)
-//! and an `ActionType::Converse` marker in `ActiveActions` for body-channel
-//! occupation. Turn ownership lives only on
-//! [`Conversation::turn`] — never on a component flag — so there's no
+//! `EngagementKind::Converse` — conversation data types, registry, and
+//! per-tick lifecycle systems. Turn ownership lives on
+//! [`Conversation::turn`], never on a component flag, so there's no
 //! race possible.
 
 use bevy::ecs::world::EntityWorldMut;

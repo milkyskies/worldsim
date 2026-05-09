@@ -1,21 +1,21 @@
-//! `perceive_engagements`: write `(observed, EngagedWith, peer)` triples
-//! into the observer's MindGraph for every visible agent who carries an
-//! [`Engaged`] component.
-//!
-//! Lets `seek_social_initiation` filter visibly-busy partners through
-//! the standard MindGraph path instead of a special-case Component
-//! query — and gives downstream systems (kin reactions, "wait before
-//! joining a conversation") a perceivable handle on engagements they
-//! aren't part of.
+//! `perceive_engagements`: write `(observed, EngagedWith, peer)` into
+//! the observer's MindGraph so other systems can read engagement state
+//! through the standard belief path.
 
 use bevy::prelude::*;
 
-use super::component::Engaged;
+use super::component::{Engaged, EngagementKind};
 use super::converse::ConverseRegistry;
 use crate::agent::Agent;
 use crate::agent::mind::knowledge::{Metadata, MindGraph, Node, Predicate, Triple, Value};
 use crate::agent::mind::perception::VisibleObjects;
 use crate::core::tick::TickCount;
+
+/// Per-agent stagger interval. Engagements last seconds-to-minutes;
+/// 60-tick (~1 game-minute) refresh is plenty for the busy-partner
+/// filter to react and keeps the per-tick MindGraph mutation budget
+/// down.
+const PERCEPTION_INTERVAL_TICKS: u64 = 60;
 
 pub fn perceive_engagements(
     mut observers: Query<(Entity, &VisibleObjects, &mut MindGraph), With<Agent>>,
@@ -25,6 +25,9 @@ pub fn perceive_engagements(
 ) {
     let now = tick.current;
     for (observer, visible, mut mind) in observers.iter_mut() {
+        if !tick.should_run(observer, PERCEPTION_INTERVAL_TICKS) {
+            continue;
+        }
         for &observed in &visible.entities {
             if observed == observer {
                 continue;
@@ -32,13 +35,15 @@ pub fn perceive_engagements(
             let Ok(engaged) = engaged_lookup.get(observed) else {
                 continue;
             };
-            // Resolve peers via the kind-specific registry. Today only
-            // Converse exists.
-            let peers: Vec<Entity> = converse_registry
-                .get(engaged.id)
-                .map(|c| c.participants.to_vec())
-                .unwrap_or_default();
-            for peer in peers {
+            // Each kind owns peer resolution; arbitration / perception
+            // stay kind-agnostic. New kinds add their own arm.
+            let participants: &[Entity] = match engaged.kind {
+                EngagementKind::Converse => match converse_registry.get(engaged.id) {
+                    Some(c) => &c.participants,
+                    None => continue,
+                },
+            };
+            for &peer in participants {
                 if peer == observed {
                     continue;
                 }

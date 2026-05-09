@@ -1,9 +1,6 @@
-//! Generic engagement primitive: persistent, multi-tick interactions
-//! between two or more agents owned end-to-end by a kind-specific
-//! plugin.
-//!
-//! Conversation is the first kind. Hunt, Tend, Court, Nurse, etc. ship
-//! as their own kinds against this primitive.
+//! Generic engagement primitive — persistent multi-agent interactions
+//! owned by per-kind plugins (Converse today; Hunt / Tend / Court land
+//! as their own sub-modules).
 
 pub mod component;
 pub mod converse;
@@ -17,10 +14,6 @@ use bevy::prelude::*;
 
 use crate::core::not_paused;
 
-/// Top-level plugin for the engagement primitive. Hosts the id minter
-/// and the perception system that lets other agents see who's engaged
-/// with whom; each kind registers its own [`Plugin`] (e.g.
-/// [`converse::ConversePlugin`]) for inner-loop systems.
 pub struct EngagementPlugin;
 
 impl Plugin for EngagementPlugin {

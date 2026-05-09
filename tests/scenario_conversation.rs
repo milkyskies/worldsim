@@ -1,11 +1,11 @@
-//! Scenario tests for the CommunicationPlugin entry point.
+//! Scenario tests for the Converse engagement entry point.
 //!
 //! Verifies the InitiateConversation -> Conversation lifecycle:
 //! 1. Emotional brain proposes InitiateConversation when social drive is high
 //!    and a person is visible
 //! 2. The action walks the agent toward the partner
 //! 3. On arrival within CONVERSATION_RANGE the plugin registers a Conversation,
-//!    swaps InitiateConversation -> Converse, and inserts InConversation on both
+//!    swaps InitiateConversation -> Converse, and inserts Engaged on both
 //! 4. SimEvent::ConversationStarted/Ended fire on the observability bus
 //!
 //! Intent selection tests (issue #46):
@@ -98,7 +98,7 @@ fn initiation_emits_conversation_started_sim_event() {
             } => Some(participants.clone()),
             _ => None,
         })
-        .expect("CommunicationPlugin must emit SimEvent::ConversationStarted");
+        .expect("ConversePlugin must emit SimEvent::EngagementStarted");
 
     assert!(started_participants.contains(&alice));
     assert!(started_participants.contains(&bob));
@@ -717,7 +717,7 @@ fn conversation_reaches_active_state() {
 
 /// Over multiple seeds, the average conversation turn count should be at
 /// least 5 (acceptance criterion from #388). Samples turn counts from
-/// active conversations periodically since the ConversationManager removes
+/// active conversations periodically since the ConverseRegistry removes
 /// finalized ones.
 #[test]
 fn conversation_average_turn_count() {
@@ -891,7 +891,7 @@ fn knowledge_flows_through_turn_content() {
 
     // Bob should have received at least one triple from alice as hearsay.
     // This is the durable proof that knowledge flowed through turn content,
-    // since the ConversationManager drops finalized conversations.
+    // since the ConverseRegistry drops finalized conversations.
     let bob_mind = world.get::<MindGraph>(bob);
     let bob_has_hearsay = bob_mind.iter().any(|t| t.meta.informant == Some(alice));
 

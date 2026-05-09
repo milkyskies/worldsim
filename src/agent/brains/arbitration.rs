@@ -9,23 +9,19 @@ use std::collections::HashMap;
 
 use super::proposal::{BrainPowers, BrainProposal, Intent};
 use crate::agent::actions::channel::ChannelCapacities;
-use crate::agent::actions::types::ActionType;
 use crate::agent::body::needs::Consciousness;
 use crate::agent::engagement::EngagementKind;
 use crate::agent::nervous_system::cns::CentralNervousSystem;
 use crate::agent::psyche::emotions::EmotionalState;
 use crate::agent::psyche::personality::Personality;
+use crate::constants::brains::emotional::FLEE_RESPONSE_URGENCY_MULTIPLIER;
 
 /// Proposal urgency above which an `Engaged` agent admits a non-engagement
-/// action that would otherwise be blocked by the engagement-commitment
-/// gate. Acute fear (Flee) and acute pain (Defend) cross this naturally;
-/// drift / chitchat / curiosity stay below it.
-pub const ENGAGEMENT_BREAK_URGENCY: f32 = 70.0;
+/// action that would otherwise be blocked by the commitment gate. Tied
+/// to a saturated Flee proposal — `FLEE_RESPONSE_URGENCY_MULTIPLIER * 1.0`
+/// — so tuning the flee response automatically retunes the gate.
+pub const ENGAGEMENT_BREAK_URGENCY: f32 = FLEE_RESPONSE_URGENCY_MULTIPLIER;
 
-/// Per-tick view of the agent's active engagement, threaded into
-/// [`arbitrate_parallel`] so the gate can reject competing proposals
-/// while the engagement is held — except when the proposal's urgency
-/// crosses the break threshold (acute fear, acute pain).
 #[derive(Debug, Clone, Copy)]
 pub struct EngagementGuard {
     pub kind: EngagementKind,
@@ -215,15 +211,12 @@ pub fn arbitrate_parallel(
             continue;
         }
 
-        // Engagement-as-commitment gate: while the agent is mid-engagement,
-        // reject proposals on conflicting channels unless the proposal
+        // Engagement-as-commitment gate. Movement-class proposals
+        // outside the kind's own action set are rejected unless their
         // urgency crosses ENGAGEMENT_BREAK_URGENCY (acute fear / pain).
-        // The engagement's own action is always admitted; everything
-        // movement-class or posture-conflicting is rejected silently
-        // until the threshold is crossed.
         if let Some(guard) = engagement
-            && !proposal_part_of_engagement(proposal.action.action_type, guard.kind)
-            && proposal_conflicts_with_engagement(action_def)
+            && !guard.kind.owns_action(proposal.action.action_type)
+            && action_def.kind().is_movement_like()
             && proposal.urgency < ENGAGEMENT_BREAK_URGENCY
         {
             rejected.push(proposal);
@@ -300,27 +293,6 @@ fn score_proposal(
 /// score, while still letting ambient actions win when literally nothing
 /// else is proposed.
 const AMBIENT_SCORE_FACTOR: f32 = 0.5;
-
-/// True when `action_type` is part of the engagement's own action set —
-/// these stay admitted even while the engagement-commitment gate is
-/// active.
-fn proposal_part_of_engagement(action_type: ActionType, kind: EngagementKind) -> bool {
-    match kind {
-        EngagementKind::Converse => matches!(
-            action_type,
-            ActionType::Converse | ActionType::InitiateConversation
-        ),
-    }
-}
-
-/// True when admitting `action_def` would conflict with an active
-/// engagement — i.e. yank the agent away from the engagement's action.
-/// Today the test is "movement-class," which covers Walk / Wander /
-/// Explore / Flee / Drift; future kinds (Hunt, Tend) may carry more
-/// specific conflict rules.
-fn proposal_conflicts_with_engagement(action_def: &dyn crate::agent::actions::Action) -> bool {
-    action_def.kind().is_movement_like()
-}
 
 #[cfg(test)]
 mod tests {
