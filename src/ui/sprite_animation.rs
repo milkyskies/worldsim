@@ -71,6 +71,26 @@ impl GroundShadow {
     }
 }
 
+/// Marker on the floating name-tag text entity. Sits above the silhouette
+/// and tracks terrain elevation but not the hop, same contract as
+/// [`GroundShadow`]. `base_offset_y` is the y position above the root at
+/// sea level (callers derive it from `CreatureSilhouette::top_y`).
+#[derive(Component, Debug, Clone, Reflect)]
+#[reflect(Component)]
+pub struct NameTag {
+    pub root: Entity,
+    pub base_offset_y: f32,
+}
+
+impl NameTag {
+    pub fn new(root: Entity, base_offset_y: f32) -> Self {
+        Self {
+            root,
+            base_offset_y,
+        }
+    }
+}
+
 /// Whole-body animation pose picked from the agent's current activity. The
 /// hop is the default; sleeping creatures slump; everything else gets a tiny
 /// breath-cycle idle. Per-emotion intensity (fear, joy) further modulates
@@ -180,6 +200,7 @@ fn animate_sprite_bodies(
     world_map: Option<Res<WorldMap>>,
     body_query: Query<(Entity, &SpriteBody)>,
     shadow_query: Query<(Entity, &GroundShadow)>,
+    name_tag_query: Query<(Entity, &NameTag)>,
     agent_state: Query<(
         &crate::agent::actions::registry::ActiveActions,
         &crate::agent::psyche::emotions::EmotionalState,
@@ -257,6 +278,19 @@ fn animate_sprite_bodies(
         if let Ok(mut st) = transforms.get_mut(shadow_entity) {
             st.translation.x = shadow.base_offset.x;
             st.translation.y = shadow.base_offset.y + elevation_lift;
+        }
+    }
+
+    // Name tags follow elevation but not the hop, so they sit a fixed
+    // distance above the silhouette regardless of terrain height.
+    for (tag_entity, tag) in name_tag_query.iter() {
+        let root_pos = transforms
+            .get(tag.root)
+            .map(|tr| tr.translation.truncate())
+            .unwrap_or(Vec2::ZERO);
+        let elevation_lift = elevation_lift_at(world_map.as_deref(), root_pos);
+        if let Ok(mut tt) = transforms.get_mut(tag_entity) {
+            tt.translation.y = tag.base_offset_y + elevation_lift;
         }
     }
 

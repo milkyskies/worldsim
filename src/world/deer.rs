@@ -100,6 +100,7 @@ pub fn spawn_deer<R: Rng>(
     let markings = Markings::from_genome(&genome);
     let silhouette =
         apply_markings(deer_silhouette(), &markings).with_hop_phase(index as f32 * 1.618);
+    let name_tag_y = silhouette.top_y() + 16.0;
 
     let mut mind = MindGraph::new(ontology);
     add_deer_knowledge(&mut mind);
@@ -159,7 +160,8 @@ pub fn spawn_deer<R: Rng>(
                 ..default()
             },
             TextColor(Color::WHITE),
-            Transform::from_translation(Vec3::new(0.0, 12.0, 1.0)),
+            Transform::from_translation(Vec3::new(0.0, name_tag_y, 1.0)),
+            crate::ui::sprite_animation::NameTag::new(entity, name_tag_y),
         ));
     });
 

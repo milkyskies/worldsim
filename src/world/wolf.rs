@@ -129,6 +129,7 @@ pub fn spawn_wolf<R: Rng>(
     let markings = Markings::from_genome(&genome);
     let silhouette =
         apply_markings(wolf_silhouette(), &markings).with_hop_phase(index as f32 * 1.618);
+    let name_tag_y = silhouette.top_y() + 16.0;
 
     let spawn_tile = (
         (position.x / TILE_SIZE) as i32,
@@ -192,7 +193,8 @@ pub fn spawn_wolf<R: Rng>(
                 ..default()
             },
             TextColor(palette.srgb(PaletteColor::BloodFresh)),
-            Transform::from_translation(Vec3::new(0.0, 14.0, 1.0)),
+            Transform::from_translation(Vec3::new(0.0, name_tag_y, 1.0)),
+            crate::ui::sprite_animation::NameTag::new(entity, name_tag_y),
         ));
     });
 

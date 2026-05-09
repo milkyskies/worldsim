@@ -42,6 +42,16 @@ impl CreatureSilhouette {
         self.hop_phase = phase;
         self
     }
+
+    /// Highest y any rendered part reaches, in `SpriteBody`-local pixels.
+    /// Spawn fns use this to position the name tag clear of the head/ears
+    /// after markings have deformed the canonical silhouette.
+    pub fn top_y(&self) -> f32 {
+        self.parts
+            .iter()
+            .map(|p| p.offset.y + p.size.y * 0.5)
+            .fold(0.0_f32, f32::max)
+    }
 }
 
 #[derive(Clone, Debug)]

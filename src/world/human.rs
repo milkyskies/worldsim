@@ -86,6 +86,7 @@ pub fn spawn_person<R: Rng>(
     let skin = HUMAN_SKIN_TONES[rng.random_range(0..HUMAN_SKIN_TONES.len())];
     let silhouette =
         apply_markings(human_silhouette(skin), &markings).with_hop_phase(index as f32 * 1.618);
+    let name_tag_y = silhouette.top_y() + 16.0;
     let (core, perception, brain) = build_person_logic(
         PersonInit {
             name: display_name.clone(),
@@ -123,7 +124,8 @@ pub fn spawn_person<R: Rng>(
                 ..default()
             },
             TextColor(Color::WHITE),
-            Transform::from_translation(Vec3::new(0.0, 20.0, 1.0)),
+            Transform::from_translation(Vec3::new(0.0, name_tag_y, 1.0)),
+            crate::ui::sprite_animation::NameTag::new(entity, name_tag_y),
         ));
     });
 
