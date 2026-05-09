@@ -78,7 +78,7 @@ pub fn spawn_sapling(
                 },
                 Transform::from_translation(Vec3::new(0.0, -stem_size.y * 0.5, -0.05)),
             ));
-            parent.spawn(outline_bundle(stem_color, stem_size, Vec2::ZERO, 0.0));
+            parent.spawn(outline_bundle(stem_size, Vec2::ZERO, 0.0));
             parent.spawn((
                 Sprite {
                     color: stem_color,
@@ -89,7 +89,7 @@ pub fn spawn_sapling(
                 VisualSaplingStem,
             ));
             let leaf_offset = Vec2::new(0.0, stem_size.y * 0.6);
-            parent.spawn(outline_bundle(leaf_color, leaf_size, leaf_offset, 0.1));
+            parent.spawn(outline_bundle(leaf_size, leaf_offset, 0.1));
             parent.spawn((
                 Sprite {
                     color: leaf_color,

@@ -80,7 +80,7 @@ pub fn spawn_berry_bush(
             ));
 
             // Bush body
-            parent.spawn(outline_bundle(bush_color, bush_size, Vec2::ZERO, 0.0));
+            parent.spawn(outline_bundle(bush_size, Vec2::ZERO, 0.0));
             parent
                 .spawn((
                     Sprite {

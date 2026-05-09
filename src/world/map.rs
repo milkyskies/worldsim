@@ -1,4 +1,5 @@
 use crate::menu::{AppState, SimConfig};
+use crate::outline::OUTLINE_COLOR;
 use crate::palette::{Palette, PaletteColor};
 use crate::world::environment::BaseColor;
 use bevy::prelude::*;
@@ -828,11 +829,11 @@ pub fn setup_map(
                                 )),
                             ));
 
-                            // Auto-tiling: draw a thin darker band on each side
-                            // where the neighbor is a different tile type. Edges
-                            // sell the boundaries between biomes without needing
-                            // a full corner-aware tileset.
-                            let edge_color = darken(color, 0.65);
+                            // Auto-tiling: draw a thin band on each side where
+                            // the neighbor is a different tile type. Same flat
+                            // outline color used by silhouettes / objects so
+                            // every boundary in the world reads as one style.
+                            let edge_color = OUTLINE_COLOR;
                             for (dx, dy, ex, ey, ew, eh) in [
                                 (
                                     0_i32,

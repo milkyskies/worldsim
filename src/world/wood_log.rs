@@ -77,7 +77,7 @@ pub fn spawn_wood_log(
                 Transform::from_translation(Vec3::new(0.0, -log_size.y * 0.35, -0.05)),
             ));
 
-            parent.spawn(outline_bundle(log_color, log_size, Vec2::ZERO, 0.0));
+            parent.spawn(outline_bundle(log_size, Vec2::ZERO, 0.0));
             parent.spawn((
                 Sprite {
                     color: log_color,

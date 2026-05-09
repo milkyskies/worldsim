@@ -77,7 +77,7 @@ pub fn spawn_stone_node(
                 Transform::from_translation(Vec3::new(0.0, -base_size.y * 0.45, -0.05)),
             ));
 
-            parent.spawn(outline_bundle(base_color, base_size, Vec2::ZERO, 0.0));
+            parent.spawn(outline_bundle(base_size, Vec2::ZERO, 0.0));
             parent.spawn((
                 Sprite {
                     color: base_color,

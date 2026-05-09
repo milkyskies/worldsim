@@ -11,7 +11,7 @@
 use bevy::prelude::*;
 
 use crate::agent::biology::body::BodyNodeKind;
-use crate::outline::{OUTLINE_WIDTH, outline_color};
+use crate::outline::{OUTLINE_COLOR, OUTLINE_WIDTH};
 use crate::palette::{Palette, PaletteColor};
 use crate::ui::sprite_animation::{GroundShadow, SpriteBody};
 use crate::world::environment::{AgentBodySprite, BaseColor};
@@ -191,7 +191,7 @@ fn spawn_part(
     if !matches!(part.role, PartRole::Eye | PartRole::Marking) {
         body.spawn((
             Sprite {
-                color: outline_color(color),
+                color: OUTLINE_COLOR,
                 custom_size: Some(part.size + Vec2::splat(OUTLINE_WIDTH * 2.0)),
                 ..default()
             },

@@ -90,7 +90,7 @@ pub fn spawn_apple_tree(
             ));
 
             // 1. TRUNK
-            parent.spawn(outline_bundle(trunk_color, trunk_size, Vec2::ZERO, 0.0));
+            parent.spawn(outline_bundle(trunk_size, Vec2::ZERO, 0.0));
             parent.spawn((
                 Sprite {
                     color: trunk_color,
@@ -103,7 +103,7 @@ pub fn spawn_apple_tree(
 
             // 2. LEAVES (The main "tree" part)
             let leaves_offset = Vec2::new(0.0, trunk_size.y * 0.8);
-            parent.spawn(outline_bundle(leaf_color, leaf_size, leaves_offset, 0.1));
+            parent.spawn(outline_bundle(leaf_size, leaves_offset, 0.1));
             parent
                 .spawn((
                     Sprite {
