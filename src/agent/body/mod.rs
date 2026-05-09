@@ -1,5 +1,6 @@
 pub mod contributions;
 pub mod effort;
+pub mod food_security;
 pub mod genetics;
 pub mod metabolism;
 pub mod need;

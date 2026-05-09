@@ -37,6 +37,9 @@ pub fn spawn_concept_entity(
         Concept::House => Some(crate::world::house::spawn_house(
             commands, palette, position,
         )),
+        Concept::StorageChest => Some(crate::world::storage_chest::spawn_storage_chest(
+            commands, palette, position,
+        )),
         Concept::Corpse => Some(crate::world::corpse::spawn_corpse_headless(
             commands, position,
         )),

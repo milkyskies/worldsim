@@ -132,6 +132,22 @@ pub const DRIVE_REGISTRY: &[DriveEntry] = &[
         display_name: "Rest Quality",
     },
     DriveEntry {
+        urgency: UrgencySource::FoodSecurity,
+        need_kind: Some(NeedKind::FoodSecurity),
+        intent: Intent::SatisfyFoodSecurity,
+        satisfier: Some(ActionType::StockChest),
+        satiation_threshold: 0.95,
+        // Lower than acute drives: food-security is a tomorrow-concern
+        // and should lose arbitration to live hunger / thirst / pain.
+        survival_weight: 30.0,
+        is_deprivation: false,
+        goal_pattern: Some(GoalPattern::SelfHas {
+            predicate: Predicate::FoodSecurity,
+            target_quantity: 100.0,
+        }),
+        display_name: "Food Security",
+    },
+    DriveEntry {
         urgency: UrgencySource::Stamina,
         need_kind: Some(NeedKind::Stamina),
         intent: Intent::SatisfyStamina,
@@ -247,6 +263,7 @@ mod tests {
             UrgencySource::Pain,
             UrgencySource::Warmth,
             UrgencySource::RestQuality,
+            UrgencySource::FoodSecurity,
             UrgencySource::Stamina,
             UrgencySource::Sleepiness,
             UrgencySource::Fear,

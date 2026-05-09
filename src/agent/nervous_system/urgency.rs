@@ -45,6 +45,12 @@ pub enum UrgencySource {
     /// by the RestInShelter action (which requires proximity to a
     /// ShelterProvider — currently a LeanTo).
     RestQuality,
+    /// Stockpile-access deficit from `PhysicalNeeds::food_security`. Rises
+    /// when the agent has no surplus food and no nearby stocked chest.
+    /// Satisfied by `StockChest` (which requires proximity to a
+    /// `StorageChest`); the planner backward-chains through
+    /// `BuildStorageChest` when no chest exists yet.
+    FoodSecurity,
 }
 
 impl UrgencySource {
@@ -182,6 +188,7 @@ pub fn generate_urgency(
                 // loop below inverts it like Warmth so poor sleep (low
                 // value) maps to high urgency.
                 UrgencySource::RestQuality => physical.rest_quality.value,
+                UrgencySource::FoodSecurity => physical.food_security.value,
                 // Commitment urgency is emitted directly below the drive
                 // loop, not through the source-value map, because its
                 // magnitude comes from PlanMemory not body/drive state.
@@ -210,6 +217,7 @@ pub fn generate_urgency(
                 UrgencySource::Sleepiness => 1.0 - base_input,
                 UrgencySource::Warmth => 1.0 - base_input,
                 UrgencySource::RestQuality => 1.0 - base_input,
+                UrgencySource::FoodSecurity => 1.0 - base_input,
                 _ => base_input,
             };
 
@@ -323,6 +331,7 @@ pub fn generate_urgency(
                 crate::agent::actions::ActionType::RestInShelter => {
                     Some(UrgencySource::RestQuality)
                 }
+                crate::agent::actions::ActionType::StockChest => Some(UrgencySource::FoodSecurity),
                 crate::agent::actions::ActionType::Wander => Some(UrgencySource::Curiosity),
                 crate::agent::actions::ActionType::Explore => Some(UrgencySource::Curiosity),
                 crate::agent::actions::ActionType::Observe => Some(UrgencySource::Curiosity),

@@ -220,6 +220,10 @@ pub mod actions {
         pub const HOUSE_STONE_REQUIRED: u32 = 6;
         /// Labor ticks needed to finish a house construction site.
         pub const HOUSE_LABOR_TICKS: u32 = 400;
+        /// Wood required to start a storage chest construction site.
+        pub const STORAGE_CHEST_WOOD_REQUIRED: u32 = 4;
+        /// Labor ticks needed to finish a storage chest construction site.
+        pub const STORAGE_CHEST_LABOR_TICKS: u32 = 200;
     }
 
     pub mod cook {
@@ -338,6 +342,25 @@ pub mod actions {
         pub const COMPLETE_REST_QUALITY_FRACTION: f32 = 0.9;
     }
 
+    pub mod stock_chest {
+        /// Ticks the stocking action runs before completing. Long enough
+        /// to read on screen, short enough that depositing a single item
+        /// doesn't dominate a hunger window.
+        pub const DURATION_TICKS: u32 = 30;
+    }
+
+    pub mod storage_chest {
+        /// Initial durability — chests are sturdy infrastructure.
+        pub const INITIAL_DURABILITY: f32 = 100.0;
+        /// Per-tick decay. Slow — a chest lasts roughly five game-weeks
+        /// without maintenance.
+        pub const DURABILITY_DECAY_PER_TICK: f32 = 0.00005;
+        /// How many items the chest holds.
+        pub const CAPACITY: u32 = 20;
+        /// Burn time once ignited, in seconds.
+        pub const FLAMMABLE_BURN_TIME: f32 = 100.0;
+    }
+
     pub mod lean_to {
         /// Initial durability of a freshly-built lean-to, in arbitrary HP units.
         pub const INITIAL_DURABILITY: f32 = 50.0;
@@ -413,6 +436,33 @@ pub mod brains {
         /// proper 6–8 game hour cycle from wake ≈ 0.15 → 0.95 instead of
         /// waking half-rested every ~2 game hours.
         pub const WAKE_WAKEFULNESS_THRESHOLD: f32 = 0.95;
+    }
+
+    /// Food-security drive: stockpile-access drain and recovery.
+    pub mod food_security {
+        /// Baseline drain per rate-second. Slow — a fed agent without
+        /// stockpile access notices the deficit over a couple of game-days.
+        pub const BASELINE_DRAIN_PER_SEC: f32 = 0.0003;
+        /// Recovery per rate-second when near a `StorageChest` that has
+        /// at least one item in it. Empty chests grant no recovery — the
+        /// drive's whole point is access to a stockpile.
+        pub const STOCKED_CHEST_RECOVERY_PER_SEC: f32 = 0.012;
+        /// Recovery per rate-second when carrying surplus food in own
+        /// inventory. Slower than chest recovery because personal stash
+        /// gets eaten down quickly.
+        pub const SURPLUS_RECOVERY_PER_SEC: f32 = 0.006;
+        /// How many `IsA Food` items count as "surplus" — recovery from
+        /// inventory only kicks in when the agent carries at least this
+        /// many edible items.
+        pub const SURPLUS_THRESHOLD: u32 = 4;
+        /// Food-security above this value produces near-zero urgency.
+        pub const COMFORT_THRESHOLD: f32 = 0.6;
+        /// Food-security at or below this value produces urgent demand.
+        pub const URGENT_THRESHOLD: f32 = 0.3;
+        /// Food-security at or below this value is critical.
+        pub const CRITICAL_THRESHOLD: f32 = 0.1;
+        /// Minimum urgency below which the drive is suppressed.
+        pub const MIN_URGENCY_THRESHOLD: f32 = 0.05;
     }
 
     /// Rest-quality drive: sleep-quality drain and recovery.

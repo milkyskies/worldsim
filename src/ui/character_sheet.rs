@@ -862,6 +862,20 @@ fn render_overview(ui: &mut egui::Ui, world: &World, entity: Entity) {
             "Rest quality urgency",
             urgency_for(UrgencySource::RestQuality),
         );
+        vital_row_fraction_explained(
+            ui,
+            "Food security",
+            needs.food_security.value,
+            crate::constants::brains::food_security::URGENT_THRESHOLD,
+            crate::constants::brains::food_security::COMFORT_THRESHOLD,
+            None,
+            "",
+        );
+        urgency_line(
+            ui,
+            "Food security urgency",
+            urgency_for(UrgencySource::FoodSecurity),
+        );
 
         if let Some(cause) = body_ref.and_then(|b| b.death_cause()) {
             ui.label(
@@ -1327,6 +1341,20 @@ fn render_needs(ui: &mut egui::Ui, world: &World, entity: Entity) {
         ui,
         "Rest quality urgency",
         urgency_for_f32(world, entity, UrgencySource::RestQuality),
+    );
+    vital_row_fraction_explained(
+        ui,
+        "Food security",
+        needs.food_security.value,
+        crate::constants::brains::food_security::URGENT_THRESHOLD,
+        crate::constants::brains::food_security::COMFORT_THRESHOLD,
+        None,
+        "",
+    );
+    urgency_line(
+        ui,
+        "Food security urgency",
+        urgency_for_f32(world, entity, UrgencySource::FoodSecurity),
     );
     vital_row_explained(
         ui,

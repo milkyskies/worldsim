@@ -94,6 +94,12 @@ pub enum TargetSource {
     /// `Concept::Drinkable` so the planner can chain `Walk → Drink` against
     /// any known water tile.
     TileWithTrait(Concept),
+    /// Iterate every perceived entity whose `IsA` chain reaches the given
+    /// concept. Used when an action targets a specific entity type and
+    /// the entity already has an `Affordance` claimed by another action
+    /// (e.g. `StockChest` targets `StorageChest` while `Take` claims its
+    /// `Affordance`). Concept-typed counterpart of `EntityWithTrait`.
+    EntityIsAConcept(Concept),
 }
 
 // ============================================================================
@@ -914,12 +920,12 @@ impl ActiveActions {
 // ============================================================================
 
 use super::action::{
-    ATTACK_DEF, BITE_DEF, BUILD_DEF, BUILD_HOUSE_DEF, BUILD_LEAN_TO_DEF, CONSTRUCT_DEF,
-    CONVERSE_DEF, COOK_DEF, DANCE_DEF, DEFEND_SELF_DEF, DEPOSIT_DEF, DEVOUR_DEF, DRINK_DEF,
-    EAT_DEF, EXPLORE_DEF, FISH_DEF, FLEE_DEF, GRAZE_DEF, HARVEST_DEF, IDLE_DEF,
+    ATTACK_DEF, BITE_DEF, BUILD_DEF, BUILD_HOUSE_DEF, BUILD_LEAN_TO_DEF, BUILD_STORAGE_CHEST_DEF,
+    CONSTRUCT_DEF, CONVERSE_DEF, COOK_DEF, DANCE_DEF, DEFEND_SELF_DEF, DEPOSIT_DEF, DEVOUR_DEF,
+    DRINK_DEF, EAT_DEF, EXPLORE_DEF, FISH_DEF, FLEE_DEF, GRAZE_DEF, HARVEST_DEF, IDLE_DEF,
     INITIATE_CONVERSATION_DEF, LOOK_FOR_DEF, MOURN_DEF, OBSERVE_DEF, PICKUP_DEF, REST_DEF,
-    REST_IN_SHELTER_DEF, SHARE_FOOD_DEF, SIT_DEF, SLEEP_DEF, STAND_WATCH_DEF, TAKE_DEF,
-    TEND_WOUNDS_DEF, WAKE_UP_DEF, WALK_DEF, WANDER_DEF, WARM_UP_DEF, WAVE_DEF,
+    REST_IN_SHELTER_DEF, SHARE_FOOD_DEF, SIT_DEF, SLEEP_DEF, STAND_WATCH_DEF, STOCK_CHEST_DEF,
+    TAKE_DEF, TEND_WOUNDS_DEF, WAKE_UP_DEF, WALK_DEF, WANDER_DEF, WARM_UP_DEF, WAVE_DEF,
 };
 
 /// Every [`ActionDefinition`] in the game, in a single slice. Order is not
@@ -943,6 +949,7 @@ const ALL_DEFS: &[&ActionDefinition] = &[
     &BUILD_DEF,
     &BUILD_LEAN_TO_DEF,
     &BUILD_HOUSE_DEF,
+    &BUILD_STORAGE_CHEST_DEF,
     &COOK_DEF,
     &CONSTRUCT_DEF,
     &DEPOSIT_DEF,
@@ -952,6 +959,7 @@ const ALL_DEFS: &[&ActionDefinition] = &[
     &OBSERVE_DEF,
     &WARM_UP_DEF,
     &REST_IN_SHELTER_DEF,
+    &STOCK_CHEST_DEF,
     &INITIATE_CONVERSATION_DEF,
     &CONVERSE_DEF,
     &SIT_DEF,

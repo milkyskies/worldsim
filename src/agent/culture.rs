@@ -1,4 +1,6 @@
-use crate::agent::actions::action::{BUILD_DEF, BUILD_HOUSE_DEF, BUILD_LEAN_TO_DEF, COOK_DEF};
+use crate::agent::actions::action::{
+    BUILD_DEF, BUILD_HOUSE_DEF, BUILD_LEAN_TO_DEF, BUILD_STORAGE_CHEST_DEF, COOK_DEF,
+};
 use crate::agent::actions::definition::{ActionDefinition, Recipe};
 use crate::agent::mind::knowledge::{
     Concept, MemoryType, Metadata, Node, Predicate, Quantity, Source, Triple, Value,
@@ -64,8 +66,13 @@ pub fn create_cultural_knowledge(culture: Culture) -> Vec<Triple> {
     // Universal recipe knowledge derived from the action definitions
     // themselves — numbers (materials, build time, provides traits) live
     // in one place per action and can't drift from runtime.
-    const RECIPE_DEFS: &[&ActionDefinition] =
-        &[&BUILD_DEF, &BUILD_LEAN_TO_DEF, &BUILD_HOUSE_DEF, &COOK_DEF];
+    const RECIPE_DEFS: &[&ActionDefinition] = &[
+        &BUILD_DEF,
+        &BUILD_LEAN_TO_DEF,
+        &BUILD_HOUSE_DEF,
+        &BUILD_STORAGE_CHEST_DEF,
+        &COOK_DEF,
+    ];
     for def in RECIPE_DEFS {
         if let Some(recipe) = def.recipe.as_ref() {
             for (p, o) in recipe_assertions(recipe) {

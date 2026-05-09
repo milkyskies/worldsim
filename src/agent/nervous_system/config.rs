@@ -415,6 +415,32 @@ impl Default for NervousSystemConfig {
                     bypasses_gating: false,
                     sleep_wake_threshold: None,
                 },
+                // FOOD SECURITY: stockpile-access deficit. Sigmoid lights
+                // up once `1 - food_security` crosses ~0.7. High hunger
+                // urgency dampens the drive — a starving agent focuses on
+                // hunger first; food-security is a tomorrow-concern.
+                DriveConfig {
+                    name: "FoodSecurity".to_string(),
+                    source: UrgencySource::FoodSecurity,
+                    base_constant: 0.0,
+                    curve: ResponseCurve::Sigmoid {
+                        k: 10.0,
+                        midpoint: 0.7,
+                    },
+                    sensitivity: PersonalityMod {
+                        trait_type: PersonalityTrait::Conscientiousness,
+                        base: 0.7,
+                        scale: 0.4,
+                    },
+                    modifiers: vec![ContextModifier {
+                        input_source: UrgencySource::Hunger,
+                        operation: ModifierOp::DampenByHigh,
+                        factor: 1.0,
+                    }],
+                    min_threshold: crate::constants::brains::food_security::MIN_URGENCY_THRESHOLD,
+                    bypasses_gating: false,
+                    sleep_wake_threshold: None,
+                },
                 DriveConfig {
                     name: "Sleepiness".to_string(),
                     source: UrgencySource::Sleepiness,
@@ -453,6 +479,7 @@ impl Default for NervousSystemConfig {
                     UrgencySource::Thirst,
                     UrgencySource::Warmth,
                     UrgencySource::RestQuality,
+                    UrgencySource::FoodSecurity,
                 ],
             },
             exteroception: SensoryChannelConfig {

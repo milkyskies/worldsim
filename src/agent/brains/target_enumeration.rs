@@ -53,7 +53,44 @@ pub fn enumerate_targets(
             enumerate_entities_with_trait(*concept, mind, affordances, AliveOnly::No)
         }
         TargetSource::TileWithTrait(concept) => enumerate_tiles_with_trait(*concept, mind),
+        TargetSource::EntityIsAConcept(concept) => {
+            enumerate_entities_isa_concept(*concept, mind, affordances)
+        }
     }
+}
+
+/// Iterate perceived entities whose `IsA` chain reaches `concept`. Used
+/// when an action targets a specific entity type that already claims its
+/// `Affordance` for a different action (e.g. `StockChest` targets
+/// `StorageChest`, but the chest's `Affordance` is reserved for `Take`).
+fn enumerate_entities_isa_concept(
+    concept: Concept,
+    mind: &MindGraph,
+    affordances: &Query<(&GlobalTransform, Option<&Affordance>, Option<&Dead>)>,
+) -> Vec<TargetCandidate> {
+    let mut candidates = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+
+    for triple in mind.query(None, Some(Predicate::IsA), Some(&Value::Concept(concept))) {
+        let Node::Entity(entity) = triple.subject else {
+            continue;
+        };
+        if !seen.insert(entity) {
+            continue;
+        }
+        let Ok((transform, _, dead)) = affordances.get(entity) else {
+            continue;
+        };
+        if dead.is_some() {
+            continue;
+        }
+        candidates.push(TargetCandidate::Entity {
+            entity,
+            pos: transform.translation().truncate(),
+        });
+    }
+
+    candidates
 }
 
 /// Iterate perceived entities and keep the ones whose world `Affordance`

@@ -24,6 +24,7 @@ pub mod spawn_config;
 pub mod spawn_placement;
 pub mod spawner;
 pub mod stone_node;
+pub mod storage_chest;
 pub mod wolf;
 pub mod wood_log;
 

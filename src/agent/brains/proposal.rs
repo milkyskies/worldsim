@@ -32,6 +32,8 @@ pub enum Intent {
     SatisfyWarmth,
     /// Rest quality: sleep in a shelter, build one if none exists.
     SatisfyRestQuality,
+    /// Food security: build a stockpile chest, check on existing ones.
+    SatisfyFoodSecurity,
     /// Explore for its own sake, not to serve another drive.
     SatisfyCuriosity,
     /// Reserved for future reproduction drive.

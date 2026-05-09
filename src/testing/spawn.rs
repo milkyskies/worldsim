@@ -75,7 +75,8 @@ pub(super) fn spawn_test_person(
                 })
                 .with_wakefulness(config.wakefulness)
                 .with_warmth(config.warmth)
-                .with_rest_quality(config.rest_quality),
+                .with_rest_quality(config.rest_quality)
+                .with_food_security(config.food_security),
             cultural_knowledge,
             extra_knowledge,
         },

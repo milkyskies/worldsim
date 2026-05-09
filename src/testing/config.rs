@@ -38,6 +38,9 @@ pub struct AgentConfig {
     /// Default is 1.0 so tests that don't exercise the rest-quality drive
     /// ignore it entirely.
     pub rest_quality: f32,
+    /// Stockpile-access confidence (0.0 = insecure, 1.0 = secure). Default
+    /// is 1.0 so tests that don't exercise the food-security drive ignore it.
+    pub food_security: f32,
     /// Optional override for baseline companionship satisfaction
     /// (0.0 = desperately lonely, 1.0 = content). `None` keeps the
     /// genome-derived value. `Some(v)` inserts a `SocialDriveOverride`
@@ -71,6 +74,7 @@ impl Default for AgentConfig {
             wakefulness: 1.0,
             warmth: 1.0,
             rest_quality: 1.0,
+            food_security: 1.0,
             social_drive: None,
             genome: Genome::default(),
             culture: Culture::default(),
@@ -120,6 +124,11 @@ impl AgentConfig {
 
     pub fn with_rest_quality(mut self, value: f32) -> Self {
         self.rest_quality = value;
+        self
+    }
+
+    pub fn with_food_security(mut self, value: f32) -> Self {
+        self.food_security = value;
         self
     }
 

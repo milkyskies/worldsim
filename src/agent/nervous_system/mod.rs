@@ -30,6 +30,8 @@ impl Plugin for NervousSystemPlugin {
                     crate::agent::body::warmth::tick_warmth.after(metabolism::tick_metabolism),
                     crate::agent::body::rest_quality::tick_rest_quality
                         .after(metabolism::tick_metabolism),
+                    crate::agent::body::food_security::tick_food_security
+                        .after(metabolism::tick_metabolism),
                 )
                     .in_set(crate::core::PerfBucket::Biology)
                     .run_if(not_paused),

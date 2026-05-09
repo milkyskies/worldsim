@@ -64,10 +64,5 @@ fn deposit_on_complete(ctx: &mut CompletionContext) {
         .find(|&c| target_inv.slots.iter().any(|s| s.can_deposit(c, 1, None)));
     let Some(concept) = concept else { return };
 
-    while let Some(thing) = ctx.inventory.remove_thing(concept) {
-        if !target_inv.deposit_thing(thing.clone(), None) {
-            ctx.inventory.add_thing(thing);
-            break;
-        }
-    }
+    ctx.inventory.drain_concept_into(target_inv, concept, None);
 }

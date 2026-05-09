@@ -188,6 +188,12 @@ pub struct PhysicalNeeds {
     /// inside one. Drives `UrgencySource::RestQuality`, which motivates
     /// agents to build shelter.
     pub rest_quality: Need,
+    /// Stockpile-access confidence as a `Need` in `0..1` (1.0 = secure,
+    /// 0.0 = insecure). Drains slowly at baseline and tops up when the
+    /// agent is near a known `StorageChest` or carrying surplus food.
+    /// Drives `UrgencySource::FoodSecurity`, which motivates building
+    /// storage chests.
+    pub food_security: Need,
 }
 
 impl PhysicalNeeds {
@@ -211,6 +217,7 @@ impl PhysicalNeeds {
             wakefulness: Need::full(),
             warmth: Need::full(),
             rest_quality: Need::full(),
+            food_security: Need::full(),
         }
     }
 
@@ -247,6 +254,11 @@ impl PhysicalNeeds {
 
     pub fn with_rest_quality(mut self, value: f32) -> Self {
         self.rest_quality = Need::new(value);
+        self
+    }
+
+    pub fn with_food_security(mut self, value: f32) -> Self {
+        self.food_security = Need::new(value);
         self
     }
 }
