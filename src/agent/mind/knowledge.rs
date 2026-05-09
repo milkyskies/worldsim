@@ -114,6 +114,10 @@ pub enum Concept {
     AppleTree,
     Berry,
     BerryBush,
+    /// A young plant that grows over time and matures into a fixed target
+    /// concept (currently `BerryBush` or `AppleTree`). Has no `HarvestableComponent`
+    /// — saplings yield nothing until they mature.
+    Sapling,
     Wood,
     WoodLog,
     Water,
@@ -1980,6 +1984,7 @@ pub fn setup_ontology() -> Ontology {
 
     add(c(AppleTree), IsA, v(Plant));
     add(c(BerryBush), IsA, v(Plant));
+    add(c(Sapling), IsA, v(Plant));
 
     add(c(Deer), IsA, v(Animal));
 

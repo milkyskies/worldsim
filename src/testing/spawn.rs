@@ -224,6 +224,32 @@ pub(super) fn spawn_test_wolf(
 }
 
 /// Spawns a berry bush with the given starting berry count, no visuals.
+/// Spawns a Sapling component with no visual children. The sapling is
+/// despawned and replaced by a mature plant at the same position once
+/// `grow_saplings` advances the timer past `mature_at`.
+pub(super) fn spawn_test_sapling(
+    world: &mut World,
+    pos: Vec2,
+    matures_into: Concept,
+    mature_at: f32,
+) -> Entity {
+    use crate::world::sapling::Sapling;
+    world
+        .spawn((
+            Name::new("TestSapling"),
+            EntityType(Concept::Sapling),
+            Physical,
+            Transform::from_translation(pos.extend(1.0)),
+            GlobalTransform::default(),
+            Sapling {
+                growth_timer: 0.0,
+                mature_at,
+                matures_into,
+            },
+        ))
+        .id()
+}
+
 pub(super) fn spawn_test_berry_bush(world: &mut World, pos: Vec2, berries: u32) -> Entity {
     let mut inventory = ItemSlots::agent_carry();
     if berries > 0 {

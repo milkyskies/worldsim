@@ -443,6 +443,16 @@ pub enum SimEventKind {
         to: Concept,
     },
 
+    /// A sapling finished growing and was replaced in place by its mature
+    /// plant entity (e.g. `Sapling -> AppleTree`). Emitted once at the
+    /// transition; `mature` is the freshly spawned mature entity, since the
+    /// sapling itself has already been despawned.
+    PlantMatured {
+        #[serde(serialize_with = "crate::core::entity_serde::serialize_entity")]
+        mature: Entity,
+        matured_into: Concept,
+    },
+
     /// An environmental effect (aura, zone, emitter) was applied to an agent.
     /// Emitted once per agent per emitter per tick when the agent is in range.
     EffectApplied {

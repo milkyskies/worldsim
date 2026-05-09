@@ -8,7 +8,7 @@ use crate::world::map::TILE_SIZE;
 use crate::world::property::HarvestableComponent;
 use bevy::prelude::*;
 
-use super::apple_tree::ResourceRegeneration;
+use super::apple_tree::{ResourceRegeneration, depletion_color, depletion_fraction};
 
 /// Marker component for berry bush leaf visuals.
 #[derive(Component)]
@@ -173,5 +173,115 @@ pub fn sync_berry_visuals(
                 }
             }
         }
+    }
+}
+
+/// Updates the bush body color of every Berry Bush to reflect its inventory
+/// level. A full bush shows `LeafBush`; a depleted bush fades toward
+/// `SkinDeep` (brown), so empty bushes read as bare twigs.
+pub fn sync_bush_depletion_color(
+    palette: Res<Palette>,
+    bushes: Query<(&ItemSlots, &ResourceRegeneration, &Children)>,
+    mut leaves: Query<&mut Sprite, With<VisualBushLeaves>>,
+) {
+    let healthy = palette.srgb(PaletteColor::LeafBush);
+    let depleted = palette.srgb(PaletteColor::SkinDeep);
+
+    for (inventory, regen, children) in bushes.iter() {
+        if regen.item != Concept::Berry {
+            continue;
+        }
+        let fraction = depletion_fraction(inventory.count(regen.item), regen.max_amount);
+        let target = depletion_color(fraction, depleted, healthy);
+        for child in children.iter() {
+            if let Ok(mut sprite) = leaves.get_mut(child) {
+                sprite.color = target;
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::testing::TestWorld;
+    use bevy::math::Vec2;
+
+    fn bush_berry_count(world: &TestWorld, bush: bevy::ecs::entity::Entity) -> u32 {
+        let inv = world
+            .app()
+            .world()
+            .get::<ItemSlots>(bush)
+            .expect("bush should have ItemSlots");
+        inv.count(Concept::Berry)
+    }
+
+    #[test]
+    fn empty_bush_regenerates_to_at_least_one_berry_over_time() {
+        let mut world = TestWorld::with_seed(10);
+        let bush = world.spawn_berry_bush(Vec2::new(50.0, 50.0), 0);
+        assert_eq!(bush_berry_count(&world, bush), 0);
+
+        // Default berry bush regen interval is 8.0 rate-units. At test
+        // dt = 1/60, that is 480 ticks per +1 berry. Tick well past it.
+        world.tick(700);
+
+        let count = bush_berry_count(&world, bush);
+        assert!(
+            count >= 1,
+            "expected at least 1 berry to regenerate after 700 ticks, got {count}"
+        );
+    }
+
+    #[test]
+    fn full_bush_does_not_regenerate_above_max() {
+        let mut world = TestWorld::with_seed(11);
+        // Spawn already at the cap (15 = berry-bush max_amount).
+        let bush = world.spawn_berry_bush(Vec2::new(50.0, 50.0), 15);
+        assert_eq!(bush_berry_count(&world, bush), 15);
+
+        world.tick(2000);
+
+        let count = bush_berry_count(&world, bush);
+        assert_eq!(
+            count, 15,
+            "bush at max should not exceed max_amount, got {count}"
+        );
+    }
+
+    #[test]
+    fn fully_drained_bush_can_refill_to_max_given_enough_time() {
+        let mut world = TestWorld::with_seed(12);
+        let bush = world.spawn_berry_bush(Vec2::new(50.0, 50.0), 0);
+
+        // Run long enough to refill from 0 to the cap (15 * 480 + slack).
+        world.tick(15 * 480 + 200);
+
+        let count = bush_berry_count(&world, bush);
+        assert_eq!(count, 15, "depleted bush should refill back to max");
+    }
+
+    #[test]
+    fn manually_depleted_bush_starts_regenerating_again() {
+        let mut world = TestWorld::with_seed(13);
+        let bush = world.spawn_berry_bush(Vec2::new(50.0, 50.0), 5);
+
+        // Drain as if an agent harvested every berry.
+        {
+            let mut inv = world
+                .app_mut()
+                .world_mut()
+                .get_mut::<ItemSlots>(bush)
+                .unwrap();
+            assert!(inv.remove(Concept::Berry, 5));
+        }
+        assert_eq!(bush_berry_count(&world, bush), 0);
+
+        world.tick(700);
+        let count = bush_berry_count(&world, bush);
+        assert!(
+            count >= 1,
+            "drained bush should resume regenerating, got {count}"
+        );
     }
 }

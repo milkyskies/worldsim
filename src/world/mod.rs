@@ -13,6 +13,7 @@ pub mod human;
 pub mod liquid;
 pub mod map;
 pub mod property;
+pub mod sapling;
 pub mod sense_sources;
 pub mod severed_part;
 pub mod spatial_index;
