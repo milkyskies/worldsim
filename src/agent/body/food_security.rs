@@ -13,7 +13,7 @@ use crate::agent::inventory::EntityType;
 use crate::agent::item_slots::ItemSlots;
 use crate::agent::mind::knowledge::{Concept, Ontology};
 use crate::constants::brains::food_security::{
-    BASELINE_DRAIN_PER_SEC, CHEST_RECOVERY_PER_SEC, COMFORT_THRESHOLD, CRITICAL_THRESHOLD,
+    BASELINE_DRAIN_PER_SEC, COMFORT_THRESHOLD, CRITICAL_THRESHOLD, STOCKED_CHEST_RECOVERY_PER_SEC,
     SURPLUS_RECOVERY_PER_SEC, SURPLUS_THRESHOLD, URGENT_THRESHOLD,
 };
 use crate::core::tick::TickCount;
@@ -26,7 +26,7 @@ const CHEST_RANGE: f32 = TILE_SIZE * 3.0;
 pub fn tick_food_security(
     tick: Res<TickCount>,
     ontology: Res<Ontology>,
-    chests: Query<(&Transform, &EntityType)>,
+    chests: Query<(&Transform, &EntityType, &ItemSlots)>,
     mut agents: Query<
         (
             Entity,
@@ -48,13 +48,14 @@ pub fn tick_food_security(
         }
 
         let agent_pos = agent_transform.translation.truncate();
-        let near_chest = chests.iter().any(|(transform, entity_type)| {
+        let near_stocked_chest = chests.iter().any(|(transform, entity_type, slots)| {
             entity_type.0 == Concept::StorageChest
                 && transform.translation.truncate().distance(agent_pos) <= CHEST_RANGE
+                && slots.all_items().next().is_some()
         });
         let surplus = surplus_food_count(inventory, &ontology) >= SURPLUS_THRESHOLD;
 
-        let rate_per_sec = compute_food_security_rate(near_chest, surplus);
+        let rate_per_sec = compute_food_security_rate(near_stocked_chest, surplus);
 
         let old = physical.food_security.value;
         physical.food_security.apply_delta(rate_per_sec * dt);
@@ -81,9 +82,9 @@ fn surplus_food_count(inventory: &ItemSlots, ontology: &Ontology) -> u32 {
         .count() as u32
 }
 
-fn compute_food_security_rate(near_chest: bool, surplus: bool) -> f32 {
-    let recovery = match (near_chest, surplus) {
-        (true, _) => CHEST_RECOVERY_PER_SEC,
+fn compute_food_security_rate(near_stocked_chest: bool, surplus: bool) -> f32 {
+    let recovery = match (near_stocked_chest, surplus) {
+        (true, _) => STOCKED_CHEST_RECOVERY_PER_SEC,
         (false, true) => SURPLUS_RECOVERY_PER_SEC,
         (false, false) => 0.0,
     };
@@ -97,7 +98,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn no_chest_no_surplus_drains_baseline() {
+    fn no_stocked_chest_no_surplus_drains_baseline() {
         let rate = compute_food_security_rate(false, false);
         assert!((rate - (-BASELINE_DRAIN_PER_SEC)).abs() < 1e-6);
     }
@@ -111,18 +112,17 @@ mod tests {
     }
 
     #[test]
-    fn chest_recovers_faster_than_surplus() {
+    fn stocked_chest_recovers_faster_than_surplus() {
         let chest = compute_food_security_rate(true, false);
         let surplus = compute_food_security_rate(false, true);
         assert!(chest > surplus);
     }
 
     #[test]
-    fn chest_dominates_surplus_when_both_present() {
+    fn stocked_chest_dominates_surplus_when_both_present() {
         let both = compute_food_security_rate(true, true);
         let chest_only = compute_food_security_rate(true, false);
-        // Chest recovery is the ceiling — having surplus on top doesn't
-        // double-credit, since we treat them as alternative routes.
+        // Stocked-chest recovery is the ceiling — surplus doesn't add on top.
         assert!((both - chest_only).abs() < 1e-6);
     }
 

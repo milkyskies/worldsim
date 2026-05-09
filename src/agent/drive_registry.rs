@@ -135,7 +135,7 @@ pub const DRIVE_REGISTRY: &[DriveEntry] = &[
         urgency: UrgencySource::FoodSecurity,
         need_kind: Some(NeedKind::FoodSecurity),
         intent: Intent::SatisfyFoodSecurity,
-        satisfier: Some(ActionType::CheckOnStockpile),
+        satisfier: Some(ActionType::StockChest),
         satiation_threshold: 0.95,
         // Lower than acute drives: food-security is a tomorrow-concern
         // and should lose arbitration to live hunger / thirst / pain.

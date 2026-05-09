@@ -342,9 +342,11 @@ pub mod actions {
         pub const COMPLETE_REST_QUALITY_FRACTION: f32 = 0.9;
     }
 
-    pub mod check_on_stockpile {
-        /// Food-security value at which the stance auto-completes.
-        pub const COMPLETE_FOOD_SECURITY_FRACTION: f32 = 0.9;
+    pub mod stock_chest {
+        /// Ticks the stocking action runs before completing. Long enough
+        /// to read on screen, short enough that depositing a single item
+        /// doesn't dominate a hunger window.
+        pub const DURATION_TICKS: u32 = 30;
     }
 
     pub mod storage_chest {
@@ -357,6 +359,9 @@ pub mod actions {
         pub const CAPACITY: u32 = 20;
         /// Burn time once ignited, in seconds.
         pub const FLAMMABLE_BURN_TIME: f32 = 100.0;
+        /// Distance (pixels) at which an agent can deposit into / take from
+        /// the chest. Same value as `construct::INTERACTION_DISTANCE`.
+        pub const INTERACTION_DISTANCE: f32 = 32.0;
     }
 
     pub mod lean_to {
@@ -441,8 +446,10 @@ pub mod brains {
         /// Baseline drain per rate-second. Slow — a fed agent without
         /// stockpile access notices the deficit over a couple of game-days.
         pub const BASELINE_DRAIN_PER_SEC: f32 = 0.0003;
-        /// Recovery per rate-second when near a known `StorageChest`.
-        pub const CHEST_RECOVERY_PER_SEC: f32 = 0.012;
+        /// Recovery per rate-second when near a `StorageChest` that has
+        /// at least one item in it. Empty chests grant no recovery — the
+        /// drive's whole point is access to a stockpile.
+        pub const STOCKED_CHEST_RECOVERY_PER_SEC: f32 = 0.012;
         /// Recovery per rate-second when carrying surplus food in own
         /// inventory. Slower than chest recovery because personal stash
         /// gets eaten down quickly.

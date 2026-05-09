@@ -4,11 +4,14 @@
 
 use bevy::prelude::*;
 
+use crate::agent::actions::ActionType;
+use crate::agent::affordance::Affordance;
 use crate::agent::inventory::EntityType;
 use crate::agent::item_slots::{Access, ItemSlots, Slot, SlotFilter, SlotRole};
 use crate::agent::mind::knowledge::Concept;
 use crate::constants::actions::storage_chest::{
     CAPACITY, DURABILITY_DECAY_PER_TICK, FLAMMABLE_BURN_TIME, INITIAL_DURABILITY,
+    INTERACTION_DISTANCE,
 };
 use crate::palette::{Palette, PaletteColor};
 use crate::world::map::TILE_SIZE;
@@ -31,6 +34,17 @@ pub fn storage_chest_components(position: Vec2) -> impl Bundle {
         EntityType(Concept::StorageChest),
         ItemSlots {
             slots: vec![chest_slot()],
+        },
+        // The chest's single `Affordance` is `Take` so the existing hunger
+        // chain (Eat <- Self contains Food <- Take from Contains) reaches
+        // chest contents through normal target enumeration. `StockChest`
+        // enumerates chests via `TargetSource::EntityIsAConcept` instead,
+        // sidestepping the single-affordance limitation.
+        Affordance {
+            action_type: ActionType::Take,
+            cost: 2.0,
+            distance: INTERACTION_DISTANCE,
+            risk: 0.0,
         },
         Durability {
             current: INITIAL_DURABILITY,

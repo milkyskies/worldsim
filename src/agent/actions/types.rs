@@ -78,7 +78,7 @@ pub enum ActionType {
     /// Stand near a storage chest to recover food-security. The direct
     /// satisfier of `NeedKind::FoodSecurity` — same shape as RestInShelter
     /// for shelter and WarmUp for warmth.
-    CheckOnStockpile,
+    StockChest,
     /// Stand still and attend to a visible target. Satisfies curiosity
     /// without moving. A cat watching a bird, a wolf watching a deer
     /// from a distance, a human studying a stranger.
@@ -179,7 +179,7 @@ impl ActionType {
             ActionType::Rest => "Resting",
             ActionType::WarmUp => "Warming up by",
             ActionType::RestInShelter => "Resting inside",
-            ActionType::CheckOnStockpile => "Checking on stockpile",
+            ActionType::StockChest => "Stocking the chest",
             ActionType::Observe => "Watching",
             ActionType::Wave => "Waving at",
             ActionType::InitiateConversation => "Approaching",
@@ -227,7 +227,7 @@ impl ActionType {
             ActionType::Rest => "Rest",
             ActionType::WarmUp => "WarmUp",
             ActionType::RestInShelter => "RestInShelter",
-            ActionType::CheckOnStockpile => "CheckOnStockpile",
+            ActionType::StockChest => "StockChest",
             ActionType::Observe => "Observe",
             ActionType::Wave => "Wave",
             ActionType::InitiateConversation => "InitiateConversation",

@@ -47,7 +47,7 @@ pub enum UrgencySource {
     RestQuality,
     /// Stockpile-access deficit from `PhysicalNeeds::food_security`. Rises
     /// when the agent has no surplus food and no nearby stocked chest.
-    /// Satisfied by `CheckOnStockpile` (which requires proximity to a
+    /// Satisfied by `StockChest` (which requires proximity to a
     /// `StorageChest`); the planner backward-chains through
     /// `BuildStorageChest` when no chest exists yet.
     FoodSecurity,
@@ -331,9 +331,7 @@ pub fn generate_urgency(
                 crate::agent::actions::ActionType::RestInShelter => {
                     Some(UrgencySource::RestQuality)
                 }
-                crate::agent::actions::ActionType::CheckOnStockpile => {
-                    Some(UrgencySource::FoodSecurity)
-                }
+                crate::agent::actions::ActionType::StockChest => Some(UrgencySource::FoodSecurity),
                 crate::agent::actions::ActionType::Wander => Some(UrgencySource::Curiosity),
                 crate::agent::actions::ActionType::Explore => Some(UrgencySource::Curiosity),
                 crate::agent::actions::ActionType::Observe => Some(UrgencySource::Curiosity),

@@ -212,7 +212,7 @@ pub enum SatiationGate {
     WarmthValue,
     /// RestInShelter: `physical.rest_quality.value`.
     RestQualityValue,
-    /// CheckOnStockpile: `physical.food_security.value`.
+    /// StockChest: `physical.food_security.value`.
     FoodSecurityValue,
     /// Sleep: `physical.wakefulness.value`.
     WakefulnessValue,
@@ -254,7 +254,7 @@ pub enum CompletionPredicate {
     /// RestInShelter so the stance exits on goal-met, mirroring WarmUp.
     RestQualityAtLeast(f32),
     /// Complete when `physical.food_security.value >= threshold`. Used by
-    /// CheckOnStockpile so the stance exits on goal-met.
+    /// StockChest so the stance exits on goal-met.
     FoodSecurityAtLeast(f32),
 }
 
