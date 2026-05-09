@@ -42,7 +42,7 @@ pub static INITIATE_CONVERSATION_DEF: ActionDefinition = ActionDefinition {
     plan_validity: PlanValidity::Always,
     gates: &[
         Gate::TargetEntity(crate::agent::events::FailureReason::NoTarget),
-        Gate::TargetNotEngaged,
+        Gate::TargetNotEngaged(crate::agent::events::FailureReason::ConversationFull),
     ],
     satiation: None,
     completion: CompletionPredicate::Never,

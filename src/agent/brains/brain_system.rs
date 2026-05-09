@@ -270,10 +270,25 @@ pub fn arbitrate_every_tick(
         proposals.push(emotional_proposal);
         proposals.extend(rational_proposals.into_iter().map(Some));
 
-        // Feasibility filter: every proposer routes through here so a
-        // proposal that would deterministically bounce off the runtime
-        // gate (no food in inventory, target tile in unreachable
-        // cache) gets dropped before arbitration.
+        // Drop proposals whose runtime gate would deterministically
+        // fail (no food in inventory, target tile in unreachable
+        // cache, partner already engaged). Hoist the unreachable-tile
+        // list once per agent and reuse the context shell so each
+        // proposal pays only the per-target update + per-gate check.
+        let unreachable_tiles = super::planner::collect_unreachable_tiles(mind, tick.current);
+        let mut action_ctx = crate::agent::actions::ActionContext {
+            inventory,
+            mind,
+            world_map: &world_map,
+            target_entity: None,
+            target_position: None,
+            agent_position: agent_pos,
+            physical: Some(physical),
+            drives,
+            emotional: Some(emotions),
+            current_tick: tick.current,
+            unreachable_tiles: &unreachable_tiles,
+        };
         for slot in proposals.iter_mut() {
             let Some(proposal) = slot.as_ref() else {
                 continue;
@@ -281,18 +296,8 @@ pub fn arbitrate_every_tick(
             let Some(action_def) = action_registry.get(proposal.action.action_type) else {
                 continue;
             };
-            let action_ctx = crate::agent::actions::ActionContext {
-                inventory,
-                mind,
-                world_map: &world_map,
-                target_entity: proposal.action.target_entity,
-                target_position: proposal.action.target_position,
-                agent_position: agent_pos,
-                physical: Some(physical),
-                drives,
-                emotional: Some(emotions),
-                current_tick: tick.current,
-            };
+            action_ctx.target_entity = proposal.action.target_entity;
+            action_ctx.target_position = proposal.action.target_position;
             if !action_def.is_feasible(&action_ctx) {
                 *slot = None;
             }

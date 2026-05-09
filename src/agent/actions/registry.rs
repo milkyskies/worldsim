@@ -43,6 +43,13 @@ pub struct ActionContext<'a> {
     /// Watch) and recency-windowed actions (Mourn) ground without a
     /// dedicated `GameTime` resource read.
     pub current_tick: u64,
+    /// Tiles the agent's MindGraph still considers `Unreachable` after
+    /// the planner's TTL window. Hoisted once per agent in
+    /// `arbitrate_every_tick` so `Gate::TileReachable` doesn't re-walk
+    /// the MindGraph per Walk proposal. Empty for callers that don't
+    /// pre-compute it (runtime gate-check path) — `Gate::TileReachable`
+    /// silently passes when the slice is empty rather than re-querying.
+    pub unreachable_tiles: &'a [(i32, i32)],
 }
 
 // ============================================================================
@@ -393,17 +400,9 @@ pub trait Action: Send + Sync + 'static {
         Ok(())
     }
 
-    /// Proposer-time feasibility check. Brains call this before emitting
-    /// a [`BrainProposal`] so a proposal that would deterministically
-    /// bounce off `can_start` (no food in inventory, target tile in the
-    /// unreachable cache, etc.) is filtered out before it reaches
-    /// arbitration.
-    ///
-    /// The default forwards to [`Self::can_start`] — making the runtime
-    /// gate the canonical source of truth. Override only when the
-    /// proposer-time check needs to be cheaper than the runtime check
-    /// (e.g. skipping inventory walks when the agent is far from its
-    /// own body).
+    /// Proposer-time feasibility check called by `arbitrate_every_tick`
+    /// before passing proposals into arbitration. Default forwards to
+    /// `can_start` so the runtime gate stays the source of truth.
     fn is_feasible(&self, ctx: &ActionContext) -> bool {
         self.can_start(ctx).is_ok()
     }

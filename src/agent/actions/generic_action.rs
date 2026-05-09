@@ -26,6 +26,7 @@ use crate::agent::brains::thinking::TriplePattern;
 use crate::agent::events::FailureReason;
 use crate::agent::item_slots::ItemSlots;
 use crate::agent::mind::knowledge::{Concept, MindGraph, Node, Predicate, Quantity, Triple, Value};
+use crate::world::spatial_index::world_pos_to_tile;
 
 /// Wraps a static [`ActionDefinition`] and implements the [`Action`] trait by
 /// interpreting the definition's data. Registered with the [`ActionRegistry`]
@@ -349,21 +350,25 @@ fn check_gate(gate: &Gate, ctx: &ActionContext) -> Result<(), FailureReason> {
             let Some(pos) = ctx.target_position else {
                 return Ok(());
             };
-            let tile = (
-                (pos.x / crate::world::map::TILE_SIZE).floor() as i32,
-                (pos.y / crate::world::map::TILE_SIZE).floor() as i32,
-            );
-            let unreachable = crate::agent::brains::planner::collect_unreachable_tiles(
-                ctx.mind,
-                ctx.current_tick,
-            );
-            if unreachable.contains(&tile) {
+            let v = world_pos_to_tile(pos);
+            let tile = (v.x, v.y);
+            // Brain proposers pre-compute and pass the slice so the
+            // MindGraph isn't re-scanned per proposal. Runtime callers
+            // construct the context with an empty slice — fall back to a
+            // live query so the safety-net check still works there.
+            let hit = if ctx.unreachable_tiles.is_empty() {
+                crate::agent::brains::planner::collect_unreachable_tiles(ctx.mind, ctx.current_tick)
+                    .contains(&tile)
+            } else {
+                ctx.unreachable_tiles.contains(&tile)
+            };
+            if hit {
                 Err(FailureReason::PathBlocked { target_tile: tile })
             } else {
                 Ok(())
             }
         }
-        Gate::TargetNotEngaged => {
+        Gate::TargetNotEngaged(reason) => {
             let Some(target) = ctx.target_entity else {
                 return Ok(());
             };
@@ -375,11 +380,7 @@ fn check_gate(gate: &Gate, ctx: &ActionContext) -> Result<(), FailureReason> {
                     None,
                 )
                 .is_empty();
-            if busy {
-                Err(FailureReason::ConversationFull)
-            } else {
-                Ok(())
-            }
+            if busy { Err(reason.clone()) } else { Ok(()) }
         }
     }
 }
@@ -797,6 +798,7 @@ mod tests {
             drives: None,
             emotional: None,
             current_tick: 0,
+            unreachable_tiles: &[],
         }
     }
 

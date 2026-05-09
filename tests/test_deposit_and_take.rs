@@ -203,6 +203,7 @@ fn deposit_can_start_requires_target_entity() {
         drives: None,
         emotional: None,
         current_tick: 0,
+        unreachable_tiles: &[],
     };
     assert!(deposit.can_start(&no_target).is_err());
 
@@ -218,6 +219,7 @@ fn deposit_can_start_requires_target_entity() {
         drives: None,
         emotional: None,
         current_tick: 0,
+        unreachable_tiles: &[],
     };
     assert!(deposit.can_start(&with_target).is_ok());
 }
@@ -242,6 +244,7 @@ fn deposit_can_start_requires_non_empty_inventory() {
         drives: None,
         emotional: None,
         current_tick: 0,
+        unreachable_tiles: &[],
     };
     assert!(
         deposit.can_start(&ctx).is_err(),

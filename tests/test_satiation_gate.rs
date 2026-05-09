@@ -32,6 +32,7 @@ fn ctx_with_needs<'a>(
         drives: None,
         emotional: None,
         current_tick: 0,
+        unreachable_tiles: &[],
     }
 }
 

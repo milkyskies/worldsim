@@ -137,6 +137,7 @@ pub fn start_actions(
                 drives,
                 emotional,
                 current_tick: tick.current,
+                unreachable_tiles: &[],
             };
 
             // Defense-in-depth satiation gate. Survival brain pre-filters
