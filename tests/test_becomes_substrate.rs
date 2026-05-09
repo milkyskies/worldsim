@@ -23,6 +23,7 @@ fn becomes_test_app(starting_tick: u64) -> App {
         current: starting_tick,
         ..Default::default()
     });
+    app.add_plugins(worldsim::palette::PalettePlugin);
     app.add_systems(Update, becomes_system);
     app
 }
