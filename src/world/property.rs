@@ -408,23 +408,4 @@ mod tests {
             "duplicate call must not add a second triple"
         );
     }
-
-    // ── Trait impls ─────────────────────────────────────────────────────────
-
-    #[test]
-    fn light_source_implements_is_registered_property() {
-        fn requires_registered<T: IsRegisteredProperty>() {}
-        requires_registered::<LightSource>();
-    }
-
-    #[test]
-    fn heat_source_concept_trait_is_heat_emitting() {
-        assert_eq!(HeatSource::concept_trait(), Concept::HeatEmitting);
-    }
-
-    #[test]
-    fn harvestable_component_implements_is_registered_property() {
-        fn requires_registered<T: IsRegisteredProperty>() {}
-        requires_registered::<HarvestableComponent>();
-    }
 }

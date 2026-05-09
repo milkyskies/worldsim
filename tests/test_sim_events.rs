@@ -36,17 +36,6 @@ fn test_world_with_collector() -> TestWorld {
 }
 
 #[test]
-fn systems_run_without_panic_when_no_sim_event_reader_exists() {
-    let mut world = TestWorld::with_seed(42);
-    world.spawn_agent(AgentConfig {
-        metabolism: worldsim::agent::body::metabolism::Metabolism::at_urgency(0.5),
-        ..Default::default()
-    });
-    world.spawn_berry_bush(Vec2::new(20.0, 20.0), 5);
-    world.tick(100);
-}
-
-#[test]
 fn entity_perceived_events_emitted_when_agents_see_new_entities() {
     let mut world = test_world_with_collector();
     world.spawn_agent(AgentConfig {

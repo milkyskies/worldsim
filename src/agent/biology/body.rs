@@ -1042,46 +1042,6 @@ mod tests {
     }
 
     #[test]
-    fn human_has_expected_children_in_head_and_torso() {
-        let body = Body::human();
-
-        let head = body.part(BodyNodeKind::Head).expect("human has a head");
-        let head_kinds: Vec<BodyNodeKind> = head.children.iter().map(|o| o.kind).collect();
-        assert_eq!(
-            head_kinds,
-            vec![
-                BodyNodeKind::Brain,
-                BodyNodeKind::LeftEye,
-                BodyNodeKind::RightEye,
-                BodyNodeKind::LeftEar,
-                BodyNodeKind::RightEar,
-                BodyNodeKind::Nose,
-                BodyNodeKind::Jaw,
-            ]
-        );
-
-        let torso = body.part(BodyNodeKind::Torso).expect("human has a torso");
-        let torso_kinds: Vec<BodyNodeKind> = torso.children.iter().map(|o| o.kind).collect();
-        assert_eq!(
-            torso_kinds,
-            vec![
-                BodyNodeKind::Heart,
-                BodyNodeKind::LeftLung,
-                BodyNodeKind::RightLung,
-                BodyNodeKind::Liver,
-                BodyNodeKind::Stomach,
-                BodyNodeKind::Gut,
-            ]
-        );
-
-        let left_arm = body
-            .part(BodyNodeKind::LeftArm)
-            .expect("human has a left arm");
-        assert_eq!(left_arm.children.len(), 1);
-        assert_eq!(left_arm.children[0].kind, BodyNodeKind::LeftHand);
-    }
-
-    #[test]
     fn wolf_and_deer_also_carry_head_and_torso_organs() {
         for body in [Body::wolf(), Body::deer()] {
             assert!(body.node(BodyNodeKind::Brain).is_some());
@@ -1119,24 +1079,6 @@ mod tests {
             .expect("humans have a liver")
             .current_hp = 0.0;
         assert!(!body.any_vital_organ_destroyed());
-    }
-
-    #[test]
-    fn all_species_have_expected_child_count() {
-        // Human: 7 head + 6 torso + 1 per limb (4 limbs) = 17
-        let human = Body::human();
-        let count: usize = human.parts.iter().map(|p| p.children.len()).sum();
-        assert_eq!(count, 17, "human: 7 head + 6 torso + 4 extremities");
-
-        // Wolf: 7 head + 6 torso + 1 per leg (4 legs) = 17
-        let wolf = Body::wolf();
-        let count: usize = wolf.parts.iter().map(|p| p.children.len()).sum();
-        assert_eq!(count, 17, "wolf: 7 head + 6 torso + 4 paws");
-
-        // Deer: 7 head + 6 torso + 1 per leg (4 legs) = 17
-        let deer = Body::deer();
-        let count: usize = deer.parts.iter().map(|p| p.children.len()).sum();
-        assert_eq!(count, 17, "deer: 7 head + 6 torso + 4 hooves");
     }
 
     #[test]

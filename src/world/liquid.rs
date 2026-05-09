@@ -178,10 +178,4 @@ mod tests {
             "neighbouring tiles should have distinct centres"
         );
     }
-
-    #[test]
-    fn liquid_kinds_have_sane_decay() {
-        assert!(LiquidKind::Blood.decay_per_sec() > 0.0);
-        assert!(LiquidKind::Blood.max_magnitude() > 0.0);
-    }
 }

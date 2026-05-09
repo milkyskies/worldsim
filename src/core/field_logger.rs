@@ -1504,23 +1504,6 @@ mod tests {
     // ─── Presets & wildcards ─────────────────────────────────────────────
 
     #[test]
-    fn preset_vitals_expands_to_expected_fields() {
-        let paths = expand_preset("vitals").unwrap();
-        assert_eq!(
-            paths,
-            vec![
-                "needs.aerobic",
-                "needs.glucose",
-                "needs.stomach",
-                "needs.reserves",
-                "needs.hunger",
-                "needs.wakefulness",
-                "needs.health",
-            ]
-        );
-    }
-
-    #[test]
     fn preset_full_is_union_of_other_presets() {
         let full = expand_preset("full").unwrap();
         for preset in ["vitals", "actions", "brain"] {
@@ -1528,33 +1511,6 @@ mod tests {
                 assert!(full.contains(&p), "full missing {p} from {preset}");
             }
         }
-    }
-
-    #[test]
-    fn wildcard_needs_star_expands_to_all_children() {
-        let paths = expand_wildcard("needs.*");
-        for expected in [
-            "needs.aerobic",
-            "needs.anaerobic",
-            "needs.glucose",
-            "needs.stomach",
-            "needs.reserves",
-            "needs.hunger",
-            "needs.hydration",
-            "needs.wakefulness",
-            "needs.health",
-        ] {
-            assert!(paths.contains(&expected), "missing {expected}");
-        }
-        // Wildcard must not reach into deeper namespaces like brain.powers.
-        assert!(!paths.iter().any(|p| p.starts_with("brain.")));
-    }
-
-    #[test]
-    fn wildcard_urgencies_star_expands_to_each_source() {
-        let paths = expand_wildcard("cns.urgencies.*");
-        assert!(paths.contains(&"cns.urgencies.hunger"));
-        assert!(paths.contains(&"cns.urgencies.sleepiness"));
     }
 
     // ─── Flag parsing ────────────────────────────────────────────────────

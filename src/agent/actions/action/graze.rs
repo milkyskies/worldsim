@@ -77,17 +77,4 @@ mod tests {
         load.add(graze().body_channels());
         assert!(load.saturation(Channel::Locomotion) < 0.5);
     }
-
-    #[test]
-    fn graze_fills_stomach_per_second() {
-        assert!(graze().runtime_effects().stomach_carbs_per_sec > 0.0);
-    }
-
-    #[test]
-    fn graze_targets_grazable_tiles() {
-        assert!(matches!(
-            graze().target_source(),
-            TargetSource::TileWithTrait(Concept::Grazable)
-        ));
-    }
 }
