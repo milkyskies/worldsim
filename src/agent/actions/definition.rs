@@ -188,6 +188,11 @@ pub enum Gate {
     /// `threshold`. Used by Share Food. Missing belief = 0.0 affection.
     /// Maps failure to [`FailureReason::Interrupted`].
     TargetAffectionAtLeast(f32),
+    /// Target tile is not in the agent's `Unreachable` belief.
+    TileReachable,
+    /// Target entity has no `(target, EngagedWith, ?)` triple in the
+    /// agent's MindGraph.
+    TargetNotEngaged(FailureReason),
 }
 
 // ============================================================================

@@ -26,6 +26,7 @@ use crate::agent::brains::thinking::TriplePattern;
 use crate::agent::events::FailureReason;
 use crate::agent::item_slots::ItemSlots;
 use crate::agent::mind::knowledge::{Concept, MindGraph, Node, Predicate, Quantity, Triple, Value};
+use crate::world::spatial_index::world_pos_to_tile;
 
 /// Wraps a static [`ActionDefinition`] and implements the [`Action`] trait by
 /// interpreting the definition's data. Registered with the [`ActionRegistry`]
@@ -344,6 +345,32 @@ fn check_gate(gate: &Gate, ctx: &ActionContext) -> Result<(), FailureReason> {
             } else {
                 Err(FailureReason::Interrupted)
             }
+        }
+        Gate::TileReachable => {
+            let Some(pos) = ctx.target_position else {
+                return Ok(());
+            };
+            let v = world_pos_to_tile(pos);
+            let tile = (v.x, v.y);
+            if ctx.unreachable_tiles.contains(&tile) {
+                Err(FailureReason::PathBlocked { target_tile: tile })
+            } else {
+                Ok(())
+            }
+        }
+        Gate::TargetNotEngaged(reason) => {
+            let Some(target) = ctx.target_entity else {
+                return Ok(());
+            };
+            let busy = !ctx
+                .mind
+                .query(
+                    Some(&Node::Entity(target)),
+                    Some(Predicate::EngagedWith),
+                    None,
+                )
+                .is_empty();
+            if busy { Err(reason.clone()) } else { Ok(()) }
         }
     }
 }
@@ -717,5 +744,158 @@ impl Action for GenericAction {
         fn(&crate::agent::actions::definition::PreferenceContext, &[bevy::math::IVec2]) -> Vec<f32>,
     > {
         self.def.hooks.location_preference
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::agent::actions::action::{EAT_DEF, INITIATE_CONVERSATION_DEF, WALK_DEF};
+    use crate::agent::actions::registry::Action;
+    use crate::agent::body::needs::PhysicalNeeds;
+    use crate::agent::item_slots::ItemSlots;
+    use crate::agent::mind::knowledge::{
+        Concept, Metadata, MindGraph, Node, Predicate, Triple, Value, setup_ontology,
+    };
+    use crate::world::map::{TILE_SIZE, WorldMap};
+    use bevy::math::Vec2;
+    use bevy::prelude::Entity;
+
+    fn mind() -> MindGraph {
+        MindGraph::new(setup_ontology())
+    }
+
+    fn world_map() -> WorldMap {
+        WorldMap::new(32, 32)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn ctx<'a>(
+        inventory: &'a ItemSlots,
+        mind: &'a MindGraph,
+        world_map: &'a WorldMap,
+        physical: &'a PhysicalNeeds,
+        target_entity: Option<Entity>,
+        target_position: Option<Vec2>,
+        unreachable_tiles: &'a [(i32, i32)],
+    ) -> ActionContext<'a> {
+        ActionContext {
+            inventory,
+            mind,
+            world_map,
+            target_entity,
+            target_position,
+            agent_position: Vec2::ZERO,
+            physical: Some(physical),
+            drives: None,
+            emotional: None,
+            current_tick: 0,
+            unreachable_tiles,
+        }
+    }
+
+    #[test]
+    fn eat_is_infeasible_without_food_in_inventory() {
+        let inventory = ItemSlots::agent_carry();
+        let mind = mind();
+        let map = world_map();
+        let physical = PhysicalNeeds::default();
+        let ctx = ctx(&inventory, &mind, &map, &physical, None, None, &[]);
+        let eat = GenericAction::new(&EAT_DEF);
+        assert!(
+            !eat.is_feasible(&ctx),
+            "Eat must not propose when ItemSlots has no food"
+        );
+    }
+
+    #[test]
+    fn eat_is_feasible_with_food_in_inventory() {
+        let mut inventory = ItemSlots::agent_carry();
+        inventory.add(Concept::Apple, 1);
+        let mind = mind();
+        let map = world_map();
+        let physical = PhysicalNeeds::default();
+        let ctx = ctx(&inventory, &mind, &map, &physical, None, None, &[]);
+        let eat = GenericAction::new(&EAT_DEF);
+        assert!(
+            eat.is_feasible(&ctx),
+            "Eat must propose when ItemSlots holds an Apple"
+        );
+    }
+
+    #[test]
+    fn walk_is_infeasible_to_unreachable_tile() {
+        let inventory = ItemSlots::agent_carry();
+        let mind = mind();
+        let map = world_map();
+        let physical = PhysicalNeeds::default();
+        let target_pos = Some(Vec2::new(5.0 * TILE_SIZE, 5.0 * TILE_SIZE));
+        let unreachable = [(5, 5)];
+        let ctx = ctx(
+            &inventory,
+            &mind,
+            &map,
+            &physical,
+            None,
+            target_pos,
+            &unreachable,
+        );
+        let walk = GenericAction::new(&WALK_DEF);
+        assert!(
+            !walk.is_feasible(&ctx),
+            "Walk must not propose toward a tile in the Unreachable belief"
+        );
+    }
+
+    #[test]
+    fn walk_is_feasible_to_reachable_tile() {
+        let inventory = ItemSlots::agent_carry();
+        let mind = mind();
+        let map = world_map();
+        let physical = PhysicalNeeds::default();
+        let target_pos = Some(Vec2::new(5.0 * TILE_SIZE, 5.0 * TILE_SIZE));
+        let ctx = ctx(&inventory, &mind, &map, &physical, None, target_pos, &[]);
+        let walk = GenericAction::new(&WALK_DEF);
+        assert!(
+            walk.is_feasible(&ctx),
+            "Walk must propose toward a tile with no Unreachable belief"
+        );
+    }
+
+    #[test]
+    fn initiate_conversation_is_infeasible_when_target_engaged() {
+        let inventory = ItemSlots::agent_carry();
+        let mut mind = mind();
+        let target = Entity::from_bits(11);
+        let other = Entity::from_bits(12);
+        mind.assert(Triple::with_meta(
+            Node::Entity(target),
+            Predicate::EngagedWith,
+            Value::Entity(other),
+            Metadata::perception(0),
+        ));
+        let map = world_map();
+        let physical = PhysicalNeeds::default();
+        let ctx = ctx(&inventory, &mind, &map, &physical, Some(target), None, &[]);
+        let initiate = GenericAction::new(&INITIATE_CONVERSATION_DEF);
+        assert!(
+            !initiate.is_feasible(&ctx),
+            "InitiateConversation must not propose toward a target the agent perceives as engaged"
+        );
+    }
+
+    #[test]
+    fn initiate_conversation_is_feasible_when_target_free() {
+        let inventory = ItemSlots::agent_carry();
+        let mind = mind();
+        let map = world_map();
+        let physical = PhysicalNeeds::default();
+        let target = Entity::from_bits(11);
+        let ctx = ctx(&inventory, &mind, &map, &physical, Some(target), None, &[]);
+        let initiate = GenericAction::new(&INITIATE_CONVERSATION_DEF);
+        assert!(
+            initiate.is_feasible(&ctx),
+            "InitiateConversation must propose toward a target with no EngagedWith belief"
+        );
     }
 }

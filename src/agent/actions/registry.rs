@@ -43,6 +43,9 @@ pub struct ActionContext<'a> {
     /// Watch) and recency-windowed actions (Mourn) ground without a
     /// dedicated `GameTime` resource read.
     pub current_tick: u64,
+    /// Hoisted once per agent so `Gate::TileReachable` doesn't re-walk
+    /// the MindGraph per proposal.
+    pub unreachable_tiles: &'a [(i32, i32)],
 }
 
 // ============================================================================
@@ -302,6 +305,15 @@ pub struct CompletionContext<'a> {
 /// - Identity: action_type, name
 /// - Planning: preconditions, plan_effects, cost
 /// - Execution: kind, can_start, on_fail, runtime_effects
+///
+/// Three layered predicates filter when this action can be admitted:
+/// - [`Action::is_plan_time_viable`] runs in the rational-brain plan
+///   generator. Satiation only — fields the planner can't change.
+/// - [`Action::is_feasible`] runs in `arbitrate_every_tick` after
+///   collecting proposals. Defaults to `can_start(ctx).is_ok()` so
+///   the runtime gate is the source of truth.
+/// - [`Action::can_start`] runs in `nervous_system::execution` when
+///   the action actually tries to start. Safety net for races.
 pub trait Action: Send + Sync + 'static {
     // === IDENTITY ===
 
@@ -391,6 +403,13 @@ pub trait Action: Send + Sync + 'static {
     /// Default: always can start
     fn can_start(&self, _ctx: &ActionContext) -> Result<(), FailureReason> {
         Ok(())
+    }
+
+    /// Proposer-time feasibility check called by `arbitrate_every_tick`
+    /// before passing proposals into arbitration. Default forwards to
+    /// `can_start` so the runtime gate stays the source of truth.
+    fn is_feasible(&self, ctx: &ActionContext) -> bool {
+        self.can_start(ctx).is_ok()
     }
 
     /// Unified satiation gate. Return `Some((kind, fullness))` when this

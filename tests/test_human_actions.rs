@@ -42,6 +42,7 @@ fn make_ctx<'a>(
         drives: None,
         emotional: None,
         current_tick: 0,
+        unreachable_tiles: &[],
     }
 }
 

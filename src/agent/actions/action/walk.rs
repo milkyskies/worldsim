@@ -8,7 +8,7 @@
 use crate::agent::actions::ActionType;
 use crate::agent::actions::channel::{Channel, ChannelUsage, Posture};
 use crate::agent::actions::definition::{
-    ActionDefinition, CompletionPredicate, Hooks, PlanValidity, TargetEffects,
+    ActionDefinition, CompletionPredicate, Gate, Hooks, PlanValidity, TargetEffects,
 };
 use crate::agent::actions::motor::{ActionPrimitive, IntensityPolicy, Intent, TargetSelector};
 use crate::agent::actions::registry::{ActionKind, TargetSource};
@@ -39,7 +39,7 @@ pub static WALK_DEF: ActionDefinition = ActionDefinition {
     plan_consumes: &[],
     target_effects: TargetEffects::Static,
     plan_validity: PlanValidity::Always,
-    gates: &[],
+    gates: &[Gate::TileReachable],
     satiation: None,
     completion: CompletionPredicate::Never,
     on_complete_ops: &[],

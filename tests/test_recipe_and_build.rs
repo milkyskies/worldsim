@@ -209,6 +209,7 @@ fn build_action_consumes_wood() {
         drives: None,
         emotional: None,
         current_tick: 0,
+        unreachable_tiles: &[],
     };
 
     assert!(
@@ -279,6 +280,7 @@ fn build_fails_without_materials() {
         drives: None,
         emotional: None,
         current_tick: 0,
+        unreachable_tiles: &[],
     };
 
     assert!(
