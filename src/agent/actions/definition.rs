@@ -164,6 +164,9 @@ pub enum Gate {
     /// A known shelter-providing entity sits on self's current tile.
     /// Maps failure to [`FailureReason::TargetGone`].
     NearShelterProvider,
+    /// A known storage chest sits on self's current tile.
+    /// Maps failure to [`FailureReason::TargetGone`].
+    NearStorageChest,
     /// Agent stands on a Grass tile.
     /// Maps failure to [`FailureReason::NoEdibleFood`].
     OnGrassTile,
@@ -209,6 +212,8 @@ pub enum SatiationGate {
     WarmthValue,
     /// RestInShelter: `physical.rest_quality.value`.
     RestQualityValue,
+    /// CheckOnStockpile: `physical.food_security.value`.
+    FoodSecurityValue,
     /// Sleep: `physical.wakefulness.value`.
     WakefulnessValue,
     /// Rest: `physical.stamina.aerobic_fraction()`.
@@ -222,6 +227,7 @@ impl SatiationGate {
             SatiationGate::HydrationValue => NeedKind::Thirst,
             SatiationGate::WarmthValue => NeedKind::Warmth,
             SatiationGate::RestQualityValue => NeedKind::RestQuality,
+            SatiationGate::FoodSecurityValue => NeedKind::FoodSecurity,
             SatiationGate::WakefulnessValue => NeedKind::Sleep,
             SatiationGate::StaminaAerobic => NeedKind::Stamina,
         }
@@ -247,6 +253,9 @@ pub enum CompletionPredicate {
     /// Complete when `physical.rest_quality.value >= threshold`. Used by
     /// RestInShelter so the stance exits on goal-met, mirroring WarmUp.
     RestQualityAtLeast(f32),
+    /// Complete when `physical.food_security.value >= threshold`. Used by
+    /// CheckOnStockpile so the stance exits on goal-met.
+    FoodSecurityAtLeast(f32),
 }
 
 // ============================================================================

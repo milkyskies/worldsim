@@ -34,6 +34,9 @@ pub enum ActionType {
     /// Spawns a construction site that becomes a `House` once materials are
     /// deposited and labor is accumulated.
     BuildHouse,
+    /// Build a wooden storage chest at the agent's tile. Spawns a
+    /// construction site that becomes a public-access `StorageChest`.
+    BuildStorageChest,
     /// Move items from the agent's own slots into a target entity's slots.
     /// Polymorphic across construction sites, chests, furnaces, etc. — the
     /// target's `ItemSlots` filters and access rules decide what's accepted.
@@ -72,6 +75,10 @@ pub enum ActionType {
     /// of `NeedKind::RestQuality` — mirrors WarmUp: stays in place near a
     /// `ShelterProvider`, passively absorbs the drive-restoring effect.
     RestInShelter,
+    /// Stand near a storage chest to recover food-security. The direct
+    /// satisfier of `NeedKind::FoodSecurity` — same shape as RestInShelter
+    /// for shelter and WarmUp for warmth.
+    CheckOnStockpile,
     /// Stand still and attend to a visible target. Satisfies curiosity
     /// without moving. A cat watching a bird, a wolf watching a deer
     /// from a distance, a human studying a stranger.
@@ -160,6 +167,7 @@ impl ActionType {
             ActionType::Build => "Building",
             ActionType::BuildLeanTo => "Building lean-to",
             ActionType::BuildHouse => "Building house",
+            ActionType::BuildStorageChest => "Building storage chest",
             ActionType::Deposit => "Depositing into",
             ActionType::Take => "Taking from",
             ActionType::Cook => "Cooking",
@@ -171,6 +179,7 @@ impl ActionType {
             ActionType::Rest => "Resting",
             ActionType::WarmUp => "Warming up by",
             ActionType::RestInShelter => "Resting inside",
+            ActionType::CheckOnStockpile => "Checking on stockpile",
             ActionType::Observe => "Watching",
             ActionType::Wave => "Waving at",
             ActionType::InitiateConversation => "Approaching",
@@ -206,6 +215,7 @@ impl ActionType {
             ActionType::Build => "Build",
             ActionType::BuildLeanTo => "BuildLeanTo",
             ActionType::BuildHouse => "BuildHouse",
+            ActionType::BuildStorageChest => "BuildStorageChest",
             ActionType::Deposit => "Deposit",
             ActionType::Take => "Take",
             ActionType::Cook => "Cook",
@@ -217,6 +227,7 @@ impl ActionType {
             ActionType::Rest => "Rest",
             ActionType::WarmUp => "WarmUp",
             ActionType::RestInShelter => "RestInShelter",
+            ActionType::CheckOnStockpile => "CheckOnStockpile",
             ActionType::Observe => "Observe",
             ActionType::Wave => "Wave",
             ActionType::InitiateConversation => "InitiateConversation",

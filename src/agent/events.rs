@@ -436,6 +436,17 @@ pub enum SimEventKind {
         new_value: f32,
     },
 
+    /// An agent's food-security crossed a named threshold. Emitted by the
+    /// food-security drain/recovery system.
+    FoodSecurityChanged {
+        #[serde(serialize_with = "crate::core::entity_serde::serialize_entity")]
+        agent: Entity,
+        /// Food-security satisfaction before the change (0..1, high = secure).
+        old_value: f32,
+        /// Food-security satisfaction after the change (0..1).
+        new_value: f32,
+    },
+
     /// An agent heard a sound (hearing sense).
     SoundPerceived {
         #[serde(serialize_with = "crate::core::entity_serde::serialize_entity")]

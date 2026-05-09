@@ -151,6 +151,7 @@ pub enum Concept {
     Campfire,
     LeanTo,
     House,
+    StorageChest,
 
     // ─── Remains / byproducts ───
     Ash,
@@ -279,6 +280,10 @@ pub enum Predicate {
     Pain,        // (Self, Pain, Int)
     SocialDrive, // (Self, SocialDrive, Int) - 0 = satisfied, 100 = lonely
     Warmth,      // (Self, Warmth, Quantity) - 0 = hypothermic, 100 = comfortable
+    /// `(Self, FoodSecurity, Quantity)` — 0 = no stockpile access (food
+    /// for tomorrow uncertain), 100 = secure (carrying surplus or near a
+    /// stocked chest). Drives `UrgencySource::FoodSecurity`.
+    FoodSecurity,
     /// `(Self, RestQuality, Quantity)` — 0 = bone-tired from poor sleep,
     /// 100 = well-rested. Drains over time, drains faster when sleeping
     /// without nearby shelter, recovers when sleeping near a
@@ -332,6 +337,7 @@ impl Predicate {
                 | Predicate::Stamina
                 | Predicate::Warmth
                 | Predicate::RestQuality
+                | Predicate::FoodSecurity
                 | Predicate::RegenerationRate
                 | Predicate::LastObserved
                 | Predicate::Actor

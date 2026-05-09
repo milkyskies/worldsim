@@ -363,6 +363,22 @@ fn format_sim_event(event: &SimEvent) -> String {
         SimEvent {
             tick,
             kind:
+                SimEventKind::FoodSecurityChanged {
+                    agent,
+                    old_value,
+                    new_value,
+                    ..
+                },
+            ..
+        } => {
+            format!(
+                "[t{tick}] FoodSecurityChanged agent={agent:?} {old_value:.2} -> {new_value:.2}"
+            )
+        }
+
+        SimEvent {
+            tick,
+            kind:
                 SimEventKind::SoundPerceived {
                     agent,
                     source,
@@ -1017,6 +1033,15 @@ impl TestWorld {
             .id()
     }
 
+    /// Spawns a storage chest (logic-only) at the given position. Has a
+    /// public-access `ItemSlots` configured for general storage.
+    pub fn spawn_storage_chest(&mut self, pos: Vec2) -> Entity {
+        self.app
+            .world_mut()
+            .spawn(crate::world::storage_chest::storage_chest_components(pos))
+            .id()
+    }
+
     /// Spawns a bare entity with a SoundSource at the given position.
     /// The SoundSource is transient and will be cleaned up after one perception tick.
     pub fn spawn_sound_source(
@@ -1365,6 +1390,11 @@ impl TestWorld {
     /// Returns the agent's rest-quality (0.0 = bone-tired, 1.0 = well-rested).
     pub fn agent_rest_quality(&self, agent: Entity) -> f32 {
         self.get::<PhysicalNeeds>(agent).rest_quality.value
+    }
+
+    /// Returns the agent's food-security (0.0 = insecure, 1.0 = secure).
+    pub fn agent_food_security(&self, agent: Entity) -> f32 {
+        self.get::<PhysicalNeeds>(agent).food_security.value
     }
 
     /// Returns true if the entity carries any of the given concept in its inventory.
