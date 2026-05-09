@@ -11,7 +11,9 @@ use clap::Parser;
 use worldsim::agent::AgentPlugin;
 use worldsim::cli::CliArgs;
 use worldsim::core::CorePlugin;
+use worldsim::eyes::EyesPlugin;
 use worldsim::headless;
+use worldsim::injuries::InjuriesPlugin;
 use worldsim::menu::MenuPlugin;
 use worldsim::palette::PalettePlugin;
 use worldsim::silhouette::SilhouettePlugin;
@@ -130,6 +132,10 @@ fn run_windowed() {
         .add_plugins(PalettePlugin)
         // Reads CreatureSilhouette and renders the child sprite hierarchy.
         .add_plugins(SilhouettePlugin)
+        // Emotion-driven eye state (Open/Wide/Squint/Closed) per silhouette eye.
+        .add_plugins(EyesPlugin)
+        // Body injury overlays - tints sprite parts toward blood reds.
+        .add_plugins(InjuriesPlugin)
         // Domain plugins
         .add_plugins(WorldPlugin)
         .add_plugins(AgentPlugin)

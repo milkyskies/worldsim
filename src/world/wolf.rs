@@ -14,6 +14,7 @@ use crate::agent::item_slots::ItemSlots;
 use crate::agent::mind::knowledge::{Concept, MindGraph, Ontology};
 use crate::agent::naming::wolf_name;
 use crate::agent::{Agent, Alive};
+use crate::markings::{Markings, apply_markings};
 use crate::palette::{Palette, PaletteColor};
 use crate::silhouette::{CreatureSilhouette, PartRole, Shape, SilhouettePart};
 use crate::world::map::TILE_SIZE;
@@ -25,27 +26,28 @@ use rand::Rng;
 #[reflect(Component)]
 pub struct Wolf;
 
-/// Canonical wolf silhouette. Genes/markings deform this later; injury
-/// overlays read the per-part `body_node` link.
+/// Canonical wolf silhouette - long lean body, level snout-shaped head,
+/// pointy alert ears, bushy tail. Lower-slung profile than a deer (wolves
+/// carry their head level with the body, not raised).
 pub fn wolf_silhouette() -> CreatureSilhouette {
     let fur = PaletteColor::FurGrey;
     let leg_fur = PaletteColor::FurSlate;
     let leg = |x: f32| SilhouettePart {
         body_node: None,
         shape: Shape::Capsule,
-        size: Vec2::new(2.5, 5.0),
-        offset: Vec2::new(x, -6.0),
+        size: Vec2::new(2.0, 5.5),
+        offset: Vec2::new(x, -5.5),
         rotation: 0.0,
         color: leg_fur,
         z_bias: 0,
         role: PartRole::Limb,
         tint_with_environment: false,
     };
-    let ear = |x: f32| SilhouettePart {
+    let ear = |x: f32, y: f32| SilhouettePart {
         body_node: None,
         shape: Shape::Triangle,
-        size: Vec2::new(3.0, 4.0),
-        offset: Vec2::new(x, 6.0),
+        size: Vec2::new(2.5, 3.5),
+        offset: Vec2::new(x, y),
         rotation: 0.0,
         color: fur,
         z_bias: 2,
@@ -54,48 +56,89 @@ pub fn wolf_silhouette() -> CreatureSilhouette {
     };
     CreatureSilhouette {
         parts: vec![
+            // Torso - lean, lower-slung, longer than tall.
             SilhouettePart {
                 body_node: Some(BodyNodeKind::Torso),
                 shape: Shape::Ellipse,
-                size: Vec2::new(16.0, 9.0),
-                offset: Vec2::ZERO,
+                size: Vec2::new(15.0, 6.5),
+                offset: Vec2::new(0.0, -0.5),
                 rotation: 0.0,
                 color: fur,
                 z_bias: 0,
                 role: PartRole::Body,
                 tint_with_environment: false,
             },
+            // Scruff - short neck/shoulder hump connecting torso to head.
+            SilhouettePart {
+                body_node: None,
+                shape: Shape::Capsule,
+                size: Vec2::new(4.0, 4.0),
+                offset: Vec2::new(5.5, 1.5),
+                rotation: 0.0,
+                color: fur,
+                z_bias: 0,
+                role: PartRole::Body,
+                tint_with_environment: false,
+            },
+            // Head - elongated forward, wolf snout silhouette.
             SilhouettePart {
                 body_node: Some(BodyNodeKind::Head),
-                shape: Shape::Circle,
-                size: Vec2::new(8.0, 7.0),
-                offset: Vec2::new(9.0, 1.0),
+                shape: Shape::Ellipse,
+                size: Vec2::new(7.0, 4.5),
+                offset: Vec2::new(9.5, 3.0),
                 rotation: 0.0,
                 color: fur,
                 z_bias: 1,
                 role: PartRole::Body,
                 tint_with_environment: false,
             },
-            ear(7.0),
-            ear(10.0),
-            leg(-5.0),
-            leg(-2.0),
-            leg(2.0),
-            leg(5.0),
+            // Dark snout tip.
+            SilhouettePart {
+                body_node: None,
+                shape: Shape::Ellipse,
+                size: Vec2::new(2.5, 1.8),
+                offset: Vec2::new(12.5, 2.2),
+                rotation: 0.0,
+                color: PaletteColor::FurCharcoal,
+                z_bias: 2,
+                role: PartRole::Snout,
+                tint_with_environment: false,
+            },
+            // Cute eye, forward on the head.
+            SilhouettePart {
+                body_node: None,
+                shape: Shape::Circle,
+                size: Vec2::new(1.6, 1.6),
+                offset: Vec2::new(10.5, 3.7),
+                rotation: 0.0,
+                color: PaletteColor::FurBlack,
+                z_bias: 2,
+                role: PartRole::Eye,
+                tint_with_environment: false,
+            },
+            ear(7.5, 6.0),
+            ear(9.0, 6.5),
+            // Bushy tail - bigger than the old teardrop, dropped slightly low.
             SilhouettePart {
                 body_node: None,
                 shape: Shape::Teardrop,
-                size: Vec2::new(7.0, 3.0),
-                offset: Vec2::new(-10.0, 2.0),
+                size: Vec2::new(6.0, 4.0),
+                offset: Vec2::new(-9.5, 0.5),
                 rotation: 0.0,
                 color: fur,
                 z_bias: 0,
                 role: PartRole::Tail,
                 tint_with_environment: false,
             },
+            // Front leg pair (under shoulders, x positive = head side).
+            leg(3.5),
+            leg(5.0),
+            // Back leg pair (under hips, x negative = tail side).
+            leg(-5.0),
+            leg(-3.5),
         ],
-        shadow_size: Vec2::new(14.0, 5.0),
-        shadow_offset_y: -6.0,
+        shadow_size: Vec2::new(14.0, 4.5),
+        shadow_offset_y: -8.0,
         hop_phase: 0.0,
     }
 }
@@ -112,6 +155,10 @@ pub fn spawn_wolf<R: Rng>(
     let species_profile = SpeciesProfile::wolf();
     let inventory = ItemSlots::agent_carry();
     let genome = random_genome(rng, Species::Wolf);
+    let markings = Markings::from_genome(&genome);
+    let silhouette =
+        apply_markings(wolf_silhouette(), &markings).with_hop_phase(index as f32 * 1.618);
+    let name_tag_y = silhouette.top_y() + 16.0;
 
     let spawn_tile = (
         (position.x / TILE_SIZE) as i32,
@@ -149,7 +196,8 @@ pub fn spawn_wolf<R: Rng>(
             InheritedVisibility::default(),
             ViewVisibility::default(),
             crate::ui::sprite_animation::VisualOffset::default(),
-            wolf_silhouette().with_hop_phase(index as f32 * 1.618),
+            markings,
+            silhouette,
         ))
         .insert((
             crate::agent::mind::memory::WorkingMemory::default(),
@@ -174,7 +222,8 @@ pub fn spawn_wolf<R: Rng>(
                 ..default()
             },
             TextColor(palette.srgb(PaletteColor::BloodFresh)),
-            Transform::from_translation(Vec3::new(0.0, 14.0, 1.0)),
+            Transform::from_translation(Vec3::new(0.0, name_tag_y, 1.0)),
+            crate::ui::sprite_animation::NameTag::new(entity, name_tag_y),
         ));
     });
 

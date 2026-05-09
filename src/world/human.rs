@@ -7,6 +7,7 @@ use crate::agent::body::species::Species;
 use crate::agent::mind::knowledge::Ontology;
 use crate::agent::naming::human_name;
 use crate::agent::spawn_human::{PersonInit, build_person_logic};
+use crate::markings::{Markings, apply_markings};
 use crate::palette::PaletteColor;
 use crate::silhouette::{CreatureSilhouette, PartRole, Shape, SilhouettePart};
 use bevy::prelude::*;
@@ -21,15 +22,35 @@ const HUMAN_SKIN_TONES: [PaletteColor; 6] = [
     PaletteColor::SkinDeep,
 ];
 
-/// Canonical human silhouette parameterized by skin tone (gene-driven).
-/// Body and head opt into agent-style day/night tinting; eyes do not, so
-/// they stay readable through dim hours.
-pub fn human_silhouette(skin: PaletteColor) -> CreatureSilhouette {
-    let eye = |x: f32| SilhouettePart {
+const HUMAN_HAIR_COLORS: [PaletteColor; 4] = [
+    PaletteColor::FurBlack,
+    PaletteColor::FurCharcoal,
+    PaletteColor::SkinDeep,
+    PaletteColor::SkinDark,
+];
+
+/// Worldbox-flavored blob human: torso and head merge visually into one
+/// rounded shape (still tracked as two `BodyNode`s so injury overlays work),
+/// hair behind as a soft fringe, two simple eyes, tiny stubby legs poking
+/// out the bottom. No arms - the blob squashes cleanly under the hop
+/// animation without articulated limbs accordioning.
+pub fn human_silhouette(skin: PaletteColor, hair: PaletteColor) -> CreatureSilhouette {
+    let leg = |x: f32| SilhouettePart {
+        body_node: None,
+        shape: Shape::Capsule,
+        size: Vec2::new(2.0, 2.0),
+        offset: Vec2::new(x, -5.0),
+        rotation: 0.0,
+        color: skin,
+        z_bias: 0,
+        role: PartRole::Limb,
+        tint_with_environment: true,
+    };
+    let eye = |x: f32, y: f32| SilhouettePart {
         body_node: None,
         shape: Shape::Circle,
-        size: Vec2::new(2.0, 2.0),
-        offset: Vec2::new(x, 10.0),
+        size: Vec2::new(1.5, 1.5),
+        offset: Vec2::new(x, y),
         rotation: 0.0,
         color: PaletteColor::FurBlack,
         z_bias: 2,
@@ -38,33 +59,54 @@ pub fn human_silhouette(skin: PaletteColor) -> CreatureSilhouette {
     };
     CreatureSilhouette {
         parts: vec![
+            // Hair behind the blob, swept slightly to the back (left when
+            // facing right). The SpriteBody's x-scale flips with movement
+            // direction, so the sweep follows: hair always trails behind
+            // the direction of travel. This is what makes a front-facing
+            // chibi blob visibly "face" left or right.
+            SilhouettePart {
+                body_node: None,
+                shape: Shape::Ellipse,
+                size: Vec2::new(9.0, 7.0),
+                offset: Vec2::new(-1.5, 8.5),
+                rotation: 0.0,
+                color: hair,
+                z_bias: 0,
+                role: PartRole::Marking,
+                tint_with_environment: true,
+            },
+            // Torso - lower half of the blob.
             SilhouettePart {
                 body_node: Some(BodyNodeKind::Torso),
-                shape: Shape::Capsule,
-                size: Vec2::new(10.0, 12.0),
-                offset: Vec2::new(0.0, -2.0),
+                shape: Shape::Ellipse,
+                size: Vec2::new(9.0, 9.0),
+                offset: Vec2::new(0.0, 0.0),
                 rotation: 0.0,
                 color: skin,
                 z_bias: 0,
                 role: PartRole::Body,
                 tint_with_environment: true,
             },
+            leg(-2.2),
+            leg(2.2),
+            // Head - upper half of the blob, overlapping the torso so the
+            // two read as one continuous shape.
             SilhouettePart {
                 body_node: Some(BodyNodeKind::Head),
-                shape: Shape::Circle,
-                size: Vec2::new(10.0, 10.0),
-                offset: Vec2::new(0.0, 9.0),
+                shape: Shape::Ellipse,
+                size: Vec2::new(8.0, 7.0),
+                offset: Vec2::new(0.0, 6.5),
                 rotation: 0.0,
                 color: skin,
                 z_bias: 1,
                 role: PartRole::Body,
                 tint_with_environment: true,
             },
-            eye(-2.5),
-            eye(2.5),
+            eye(-1.6, 6.8),
+            eye(1.6, 6.8),
         ],
-        shadow_size: Vec2::new(10.0, 4.0),
-        shadow_offset_y: -8.0,
+        shadow_size: Vec2::new(8.0, 3.0),
+        shadow_offset_y: -7.0,
         hop_phase: 0.0,
     }
 }
@@ -80,11 +122,18 @@ pub fn spawn_person<R: Rng>(
     rng: &mut R,
 ) -> Entity {
     let display_name = human_name(index);
+    let genome = random_genome(rng, Species::Human);
+    let markings = Markings::from_genome(&genome);
+    let skin = HUMAN_SKIN_TONES[rng.random_range(0..HUMAN_SKIN_TONES.len())];
+    let hair = HUMAN_HAIR_COLORS[rng.random_range(0..HUMAN_HAIR_COLORS.len())];
+    let silhouette = apply_markings(human_silhouette(skin, hair), &markings)
+        .with_hop_phase(index as f32 * 1.618);
+    let name_tag_y = silhouette.top_y() + 16.0;
     let (core, perception, brain) = build_person_logic(
         PersonInit {
             name: display_name.clone(),
             position,
-            genome: random_genome(rng, Species::Human),
+            genome,
             // Game agents spawn in the morning (START_HOUR = 06:00) after
             // a full night's sleep — empty stomach, moderate thirst. Tests
             // that want fresh-well-fed agents still use `PhysicalNeeds::default()`.
@@ -95,8 +144,6 @@ pub fn spawn_person<R: Rng>(
         ontology,
     );
 
-    let skin = HUMAN_SKIN_TONES[rng.random_range(0..HUMAN_SKIN_TONES.len())];
-
     let entity = commands
         .spawn(core)
         .insert(perception)
@@ -105,7 +152,8 @@ pub fn spawn_person<R: Rng>(
             InheritedVisibility::default(),
             ViewVisibility::default(),
             crate::ui::sprite_animation::VisualOffset::default(),
-            human_silhouette(skin).with_hop_phase(index as f32 * 1.618),
+            markings,
+            silhouette,
         ))
         .insert(brain)
         .id();
@@ -118,7 +166,8 @@ pub fn spawn_person<R: Rng>(
                 ..default()
             },
             TextColor(Color::WHITE),
-            Transform::from_translation(Vec3::new(0.0, 20.0, 1.0)),
+            Transform::from_translation(Vec3::new(0.0, name_tag_y, 1.0)),
+            crate::ui::sprite_animation::NameTag::new(entity, name_tag_y),
         ));
     });
 

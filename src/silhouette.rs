@@ -2,10 +2,11 @@
 //! not a hand-rolled child sprite tree.
 //!
 //! Reads: CreatureSilhouette (component, attached at spawn), Palette (resource)
-//! Writes: child sprite hierarchy under each silhouette-tagged entity
+//! Writes: child sprite hierarchy under each silhouette-tagged entity, with each
+//!         child carrying a `SilhouettePartLink` so downstream systems (injury
+//!         overlays, eye-state, etc.) can find the right sprite by anatomy/role.
 //! Upstream: world::{wolf,deer,human} *_silhouette() builders attach the component
-//! Downstream: future markings (#694), injury overlays (#695), eyes (#697) read
-//!             the same data and modulate or layer onto these parts
+//! Downstream: injury overlays (read body_node), eye-state (filter role==Eye)
 
 use bevy::prelude::*;
 
@@ -40,6 +41,16 @@ impl CreatureSilhouette {
     pub fn with_hop_phase(mut self, phase: f32) -> Self {
         self.hop_phase = phase;
         self
+    }
+
+    /// Highest y any rendered part reaches, in `SpriteBody`-local pixels.
+    /// Spawn fns use this to position the name tag clear of the head/ears
+    /// after markings have deformed the canonical silhouette.
+    pub fn top_y(&self) -> f32 {
+        self.parts
+            .iter()
+            .map(|p| p.offset.y + p.size.y * 0.5)
+            .fold(0.0_f32, f32::max)
     }
 }
 
@@ -83,6 +94,23 @@ pub enum PartRole {
     Snout,
     Tail,
     Marking,
+}
+
+/// Per-sprite-child link back to the silhouette part it was rendered from.
+/// Downstream systems (injury overlays, eye-state) query for this to find
+/// "the wolf's left foreleg sprite" or "all eye sprites under this entity".
+#[derive(Component, Clone, Debug)]
+pub struct SilhouettePartLink {
+    pub body_node: Option<BodyNodeKind>,
+    pub role: PartRole,
+    /// Color the part was rendered with, before any runtime modulation
+    /// (injury tint, eye-state, day/night). Re-applying this is idempotent
+    /// per frame so dynamic systems can write back over it without drift.
+    pub base_color: Color,
+    /// Dimensions the part was rendered with, post-markings. Same idempotent
+    /// guarantee as `base_color` for size-modulating systems (eye state,
+    /// limp/droop, etc.).
+    pub base_size: Vec2,
 }
 
 fn render_added_silhouettes(
@@ -157,9 +185,15 @@ fn spawn_part(
         custom_size: Some(part.size),
         ..default()
     };
+    let link = SilhouettePartLink {
+        body_node: part.body_node,
+        role: part.role,
+        base_color: color,
+        base_size: part.size,
+    };
     if part.tint_with_environment {
-        body.spawn((sprite, BaseColor(color), AgentBodySprite, transform));
+        body.spawn((sprite, BaseColor(color), AgentBodySprite, transform, link));
     } else {
-        body.spawn((sprite, transform));
+        body.spawn((sprite, transform, link));
     }
 }

@@ -71,6 +71,105 @@ impl GroundShadow {
     }
 }
 
+/// Marker on the floating name-tag text entity. Sits above the silhouette
+/// and tracks terrain elevation but not the hop, same contract as
+/// [`GroundShadow`]. `base_offset_y` is the y position above the root at
+/// sea level (callers derive it from `CreatureSilhouette::top_y`).
+#[derive(Component, Debug, Clone, Reflect)]
+#[reflect(Component)]
+pub struct NameTag {
+    pub root: Entity,
+    pub base_offset_y: f32,
+}
+
+impl NameTag {
+    pub fn new(root: Entity, base_offset_y: f32) -> Self {
+        Self {
+            root,
+            base_offset_y,
+        }
+    }
+}
+
+/// Whole-body animation pose picked from the agent's current activity. The
+/// hop is the default; sleeping creatures slump; everything else gets a tiny
+/// breath-cycle idle. Per-emotion intensity (fear, joy) further modulates
+/// the active pose via [`PoseModulators`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum AnimationPose {
+    Hop,
+    Sleeping,
+    Idle,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct PoseModulators {
+    hop_frequency: f32,
+    hop_amplitude: f32,
+}
+
+impl Default for PoseModulators {
+    fn default() -> Self {
+        Self {
+            hop_frequency: 1.0,
+            hop_amplitude: 1.0,
+        }
+    }
+}
+
+fn pick_pose(
+    state: Option<(
+        &crate::agent::actions::registry::ActiveActions,
+        &crate::agent::psyche::emotions::EmotionalState,
+    )>,
+    is_moving: bool,
+) -> AnimationPose {
+    use crate::agent::actions::types::ActionType;
+    if let Some((active, _)) = state
+        && active.contains(ActionType::Sleep)
+    {
+        return AnimationPose::Sleeping;
+    }
+    if is_moving {
+        AnimationPose::Hop
+    } else {
+        AnimationPose::Idle
+    }
+}
+
+fn pose_modulators(
+    state: Option<(
+        &crate::agent::actions::registry::ActiveActions,
+        &crate::agent::psyche::emotions::EmotionalState,
+    )>,
+) -> PoseModulators {
+    use crate::agent::psyche::emotions::EmotionType;
+    let mut m = PoseModulators::default();
+    let Some((_, emotions)) = state else {
+        return m;
+    };
+    let fear = emotions
+        .active_emotions
+        .iter()
+        .find(|e| e.emotion_type == EmotionType::Fear)
+        .map(|e| e.intensity)
+        .unwrap_or(0.0);
+    let joy = emotions
+        .active_emotions
+        .iter()
+        .find(|e| e.emotion_type == EmotionType::Joy)
+        .map(|e| e.intensity)
+        .unwrap_or(0.0);
+    if fear > 0.6 {
+        m.hop_frequency *= 1.5;
+        m.hop_amplitude *= 0.7;
+    }
+    if joy > 0.5 {
+        m.hop_amplitude *= 1.15;
+    }
+    m
+}
+
 /// Bounce arc + squash-and-stretch from a normalized 0..1 cycle position.
 /// Returns (y_offset, x_scale, y_scale).
 fn bounce_frame(cycle: f32, height: f32) -> (f32, f32, f32) {
@@ -89,11 +188,25 @@ fn bounce_frame(cycle: f32, height: f32) -> (f32, f32, f32) {
 }
 
 /// Per-entity movement tracking.
-#[derive(Default)]
 struct MoveTracker {
     prev_pos: Option<Vec2>,
     /// Last wall-clock time the root position changed.
     last_moved_at: f32,
+    /// +1 facing right (default), -1 facing left. Updated whenever the
+    /// agent's horizontal movement crosses a small deadband, sticky
+    /// otherwise so a stationary creature keeps the direction it last
+    /// faced instead of snapping back to the default.
+    facing: f32,
+}
+
+impl Default for MoveTracker {
+    fn default() -> Self {
+        Self {
+            prev_pos: None,
+            last_moved_at: 0.0,
+            facing: 1.0,
+        }
+    }
 }
 
 fn animate_sprite_bodies(
@@ -101,6 +214,11 @@ fn animate_sprite_bodies(
     world_map: Option<Res<WorldMap>>,
     body_query: Query<(Entity, &SpriteBody)>,
     shadow_query: Query<(Entity, &GroundShadow)>,
+    name_tag_query: Query<(Entity, &NameTag)>,
+    agent_state: Query<(
+        &crate::agent::actions::registry::ActiveActions,
+        &crate::agent::psyche::emotions::EmotionalState,
+    )>,
     mut transforms: Query<&mut Transform>,
     mut visual_offsets: Query<&mut VisualOffset>,
     mut trackers: Local<HashMap<Entity, MoveTracker>>,
@@ -123,17 +241,33 @@ fn animate_sprite_bodies(
         if root_pos.distance(prev) > 0.01 {
             tracker.last_moved_at = t;
         }
+        let dx = root_pos.x - prev.x;
+        if dx.abs() > 0.05 {
+            tracker.facing = if dx >= 0.0 { 1.0 } else { -1.0 };
+        }
         tracker.prev_pos = Some(root_pos);
+        let facing = tracker.facing;
 
         // Consider "moving" if position changed within the last 0.2 seconds
         let is_moving = (t - tracker.last_moved_at) < 0.2;
 
-        let (bounce_y, x_scale, y_scale) = if is_moving {
-            let bounces_per_sec = 2.5;
-            let cycle = ((t * bounces_per_sec + body.phase) % 1.0).clamp(0.0, 1.0);
-            bounce_frame(cycle, 3.0)
-        } else {
-            (0.0, 1.0, 1.0)
+        let pose = pick_pose(agent_state.get(body.root).ok(), is_moving);
+        let modulators = pose_modulators(agent_state.get(body.root).ok());
+
+        let (bounce_y, x_scale, y_scale) = match pose {
+            AnimationPose::Sleeping => (0.0, 1.15, 0.65),
+            AnimationPose::Hop => {
+                let bounces_per_sec = 2.5 * modulators.hop_frequency;
+                let cycle = ((t * bounces_per_sec + body.phase) % 1.0).clamp(0.0, 1.0);
+                let (y, sx, sy) = bounce_frame(cycle, 3.0 * modulators.hop_amplitude);
+                (y, sx, sy)
+            }
+            AnimationPose::Idle => {
+                // Subtle breath cycle: ±2% y-scale.
+                let phase = (t * 0.7 + body.phase) % std::f32::consts::TAU;
+                let breath = 1.0 + 0.02 * phase.sin();
+                (0.0, 1.0, breath)
+            }
         };
 
         // Lift the sprite body by the underlying tile's elevation so the
@@ -144,7 +278,7 @@ fn animate_sprite_bodies(
 
         if let Ok(mut bt) = transforms.get_mut(body_entity) {
             bt.translation.y = total_y_offset;
-            bt.scale = Vec3::new(x_scale, y_scale, 1.0);
+            bt.scale = Vec3::new(x_scale * facing, y_scale, 1.0);
         }
 
         if let Ok(mut offset) = visual_offsets.get_mut(body.root) {
@@ -163,6 +297,19 @@ fn animate_sprite_bodies(
         if let Ok(mut st) = transforms.get_mut(shadow_entity) {
             st.translation.x = shadow.base_offset.x;
             st.translation.y = shadow.base_offset.y + elevation_lift;
+        }
+    }
+
+    // Name tags follow elevation but not the hop, so they sit a fixed
+    // distance above the silhouette regardless of terrain height.
+    for (tag_entity, tag) in name_tag_query.iter() {
+        let root_pos = transforms
+            .get(tag.root)
+            .map(|tr| tr.translation.truncate())
+            .unwrap_or(Vec2::ZERO);
+        let elevation_lift = elevation_lift_at(world_map.as_deref(), root_pos);
+        if let Ok(mut tt) = transforms.get_mut(tag_entity) {
+            tt.translation.y = tag.base_offset_y + elevation_lift;
         }
     }
 
