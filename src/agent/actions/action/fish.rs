@@ -26,7 +26,11 @@ pub static FISH_DEF: ActionDefinition = ActionDefinition {
     kind: ActionKind::Timed {
         duration_ticks: DURATION_TICKS,
     },
-    target_source: TargetSource::None,
+    // Tile-targeted on `Drinkable` (water): the planner only considers
+    // Fish when the agent knows a water tile. Without this, the cheaper
+    // 2-step `Fish → Eat` path crowds out the 4-step apple chain even
+    // for agents nowhere near water.
+    target_source: TargetSource::TileWithTrait(Concept::Drinkable),
     base_cost: 2.0,
     primitive: ActionPrimitive::Manipulate,
     target_selector: TargetSelector::InPlace,
