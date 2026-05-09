@@ -8,6 +8,7 @@
 use crate::agent::inventory::EntityType;
 use crate::agent::item_slots::{ItemSlots, Slot, Thing};
 use crate::agent::mind::knowledge::Concept;
+use crate::palette::{Palette, PaletteColor};
 use crate::world::emits_effect::{EffectKind, EmitsEffect};
 use crate::world::environment::CampfireGlowSprite;
 use crate::world::map::TILE_SIZE;
@@ -89,9 +90,9 @@ pub fn campfire_components(position: Vec2) -> impl Bundle {
 }
 
 /// Spawns a campfire entity at the given position (with sprites for the visual game).
-pub fn spawn_campfire(commands: &mut Commands, position: Vec2) -> Entity {
+pub fn spawn_campfire(commands: &mut Commands, palette: &Palette, position: Vec2) -> Entity {
     let fire_size = Vec2::new(TILE_SIZE * 0.8, TILE_SIZE * 0.8);
-    let fire_color = Color::srgb(1.0, 0.5, 0.1);
+    let fire_color = palette.srgb(PaletteColor::AccentFlame);
 
     commands
         .spawn((
@@ -104,7 +105,7 @@ pub fn spawn_campfire(commands: &mut Commands, position: Vec2) -> Entity {
             // Shadow — dark ellipse underneath the fire.
             parent.spawn((
                 Sprite {
-                    color: Color::srgba(0.0, 0.0, 0.0, 0.35),
+                    color: palette.shadow(),
                     custom_size: Some(Vec2::new(fire_size.x * 1.2, fire_size.y * 0.35)),
                     ..default()
                 },
@@ -120,10 +121,9 @@ pub fn spawn_campfire(commands: &mut Commands, position: Vec2) -> Entity {
                 },
                 Transform::from_translation(Vec3::new(0.0, 0.0, 0.0)),
             ));
-            // Bright core
             parent.spawn((
                 Sprite {
-                    color: Color::srgb(1.0, 0.9, 0.3),
+                    color: fire_color,
                     custom_size: Some(fire_size * 0.4),
                     ..default()
                 },

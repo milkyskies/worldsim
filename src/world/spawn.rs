@@ -9,6 +9,7 @@
 //! Add new branches here as new spawnable entity types come online.
 
 use crate::agent::mind::knowledge::Concept;
+use crate::palette::Palette;
 use bevy::prelude::*;
 
 /// Spawn an entity of the given concept at the given world position.
@@ -18,16 +19,18 @@ use bevy::prelude::*;
 ///
 /// Campfires use the sprited spawner so Build-produced campfires are visible
 /// in the windowed game — matching pre-placed ones from world init. Color-based
-/// sprites (no textures) are inert in headless, so tests don't regress. A
-/// unified visual-layering system for all artifacts is tracked in #608.
+/// sprites (no textures) are inert in headless, so tests don't regress.
 pub fn spawn_concept_entity(
     commands: &mut Commands,
+    palette: &Palette,
     concept: Concept,
     position: Vec2,
     _started_tick: u64,
 ) -> Option<Entity> {
     match concept {
-        Concept::Campfire => Some(crate::world::campfire::spawn_campfire(commands, position)),
+        Concept::Campfire => Some(crate::world::campfire::spawn_campfire(
+            commands, palette, position,
+        )),
         Concept::Corpse => Some(crate::world::corpse::spawn_corpse_headless(
             commands, position,
         )),

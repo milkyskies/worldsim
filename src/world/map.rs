@@ -1,4 +1,5 @@
 use crate::menu::{AppState, SimConfig};
+use crate::palette::{Palette, PaletteColor};
 use crate::world::environment::BaseColor;
 use bevy::prelude::*;
 use noise::{NoiseFn, Simplex};
@@ -8,6 +9,9 @@ pub struct MapPlugin;
 
 impl Plugin for MapPlugin {
     fn build(&self, app: &mut App) {
+        if !app.is_plugin_added::<crate::palette::PalettePlugin>() {
+            app.add_plugins(crate::palette::PalettePlugin);
+        }
         app.register_type::<TileMap>()
             .register_type::<Tile>()
             .register_type::<TileType>()
@@ -80,16 +84,17 @@ impl TileType {
         }
     }
 
-    /// Render color for this tile type.
-    pub fn color(&self) -> Color {
+    /// Palette slot used to render this tile type. The actual `Color` is
+    /// resolved by the caller via the `Palette` resource.
+    pub fn palette_slot(&self) -> PaletteColor {
         match self {
-            TileType::Grass => Color::srgb(0.34, 0.72, 0.30),
-            TileType::Dirt => Color::srgb(0.55, 0.40, 0.26),
-            TileType::Gravel => Color::srgb(0.58, 0.54, 0.48),
-            TileType::Rock => Color::srgb(0.50, 0.48, 0.46),
-            TileType::Sand => Color::srgb(0.88, 0.80, 0.55),
-            TileType::ShallowWater => Color::srgb(0.40, 0.65, 0.85),
-            TileType::Water => Color::srgb(0.15, 0.30, 0.70),
+            TileType::Grass => PaletteColor::LeafBright,
+            TileType::Dirt => PaletteColor::SkinDark,
+            TileType::Gravel => PaletteColor::FurGrey,
+            TileType::Rock => PaletteColor::FurSlate,
+            TileType::Sand => PaletteColor::SkinTan,
+            TileType::ShallowWater => PaletteColor::WaterShallow,
+            TileType::Water => PaletteColor::WaterDeep,
         }
     }
 }
@@ -566,8 +571,8 @@ fn hillshade(elevations: &[f32], width: u32, height: u32, x: u32, y: u32) -> f32
 }
 
 /// Mix a biome base color with elevation: high = lighter, low = darker.
-fn tile_base_color(tile_type: TileType, elevation: f32) -> Color {
-    let srgba = tile_type.color().to_srgba();
+fn tile_base_color(palette: &Palette, tile_type: TileType, elevation: f32) -> Color {
+    let srgba = palette.srgb(tile_type.palette_slot()).to_srgba();
     // -0.15 (valley) to +0.15 (peak), centered at mid-elevation (128).
     let factor = ((elevation - 128.0) / 128.0).clamp(-1.0, 1.0) * 0.15;
     if factor >= 0.0 {
@@ -715,6 +720,7 @@ fn carve_river(tiles: &mut [TileType], width: u32, height: u32, seed: u32) {
 pub fn setup_map(
     mut commands: Commands,
     mut map_resource: ResMut<WorldMap>,
+    palette: Res<Palette>,
     sim_config: Option<Res<SimConfig>>,
 ) {
     let width = map_resource.width;
@@ -767,8 +773,10 @@ pub fn setup_map(
                             let tile_type = terrain[idx];
                             let elevation = elevations[idx];
                             let shade = hillshade(&elevations, width, height, x, y);
-                            let color =
-                                apply_hillshade(tile_base_color(tile_type, elevation), shade);
+                            let color = apply_hillshade(
+                                tile_base_color(&palette, tile_type, elevation),
+                                shade,
+                            );
 
                             // Fake 3D: shift tile sprites up on the screen
                             // proportional to elevation above sea level. Lower
@@ -974,8 +982,9 @@ mod tests {
 
     #[test]
     fn tile_base_color_high_elevation_lighter_than_low() {
-        let low = tile_base_color(TileType::Grass, 0.0).to_srgba();
-        let high = tile_base_color(TileType::Grass, 255.0).to_srgba();
+        let palette = Palette::default();
+        let low = tile_base_color(&palette, TileType::Grass, 0.0).to_srgba();
+        let high = tile_base_color(&palette, TileType::Grass, 255.0).to_srgba();
         // All channels should be >= the low-elevation version (lighter).
         assert!(high.red >= low.red);
         assert!(high.green >= low.green);

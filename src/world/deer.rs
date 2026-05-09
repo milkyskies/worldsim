@@ -11,6 +11,7 @@ use crate::agent::body::species::{Species, SpeciesProfile};
 use crate::agent::mind::knowledge::{Concept, MindGraph, Ontology};
 use crate::agent::naming::deer_name;
 use crate::agent::{Agent, Alive, inventory::EntityType, item_slots::ItemSlots};
+use crate::palette::{Palette, PaletteColor};
 use bevy::prelude::*;
 use rand::Rng;
 
@@ -23,6 +24,7 @@ pub struct Deer;
 pub fn spawn_deer<R: Rng>(
     commands: &mut Commands,
     ontology: Ontology,
+    palette: &Palette,
     position: Vec2,
     index: usize,
     rng: &mut R,
@@ -31,15 +33,11 @@ pub fn spawn_deer<R: Rng>(
     let inventory = ItemSlots::agent_carry();
     let genome = random_genome(rng, Species::Deer);
 
-    // Initialize Mind with Ontology
     let mut mind = MindGraph::new(ontology);
-
-    // Add deer-specific innate knowledge
     add_deer_knowledge(&mut mind);
 
-    // Deer colors
-    let body_color = Color::srgb(0.6, 0.4, 0.2); // Brown
-    let head_color = Color::srgb(0.65, 0.45, 0.25); // Slightly lighter brown
+    let body_color = palette.srgb(PaletteColor::SkinDark);
+    let head_color = body_color;
 
     let entity = commands
         .spawn((
@@ -97,7 +95,7 @@ pub fn spawn_deer<R: Rng>(
         parent.spawn((
             crate::ui::sprite_animation::GroundShadow::new(entity, Vec2::new(0.0, -6.0)),
             Sprite {
-                color: Color::srgba(0.0, 0.0, 0.0, 0.35),
+                color: palette.shadow(),
                 custom_size: Some(Vec2::new(14.0, 5.0)),
                 ..default()
             },
@@ -133,7 +131,7 @@ pub fn spawn_deer<R: Rng>(
                     Transform::from_translation(Vec3::new(8.0, 2.0, 0.1)),
                 ));
 
-                let leg_color = Color::srgb(0.5, 0.35, 0.18);
+                let leg_color = palette.srgb(PaletteColor::SkinDeep);
                 let leg_size = Vec2::new(2.0, 5.0);
                 let leg_positions = [
                     Vec3::new(-4.0, -5.0, 0.0),

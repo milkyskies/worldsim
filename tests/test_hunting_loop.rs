@@ -260,11 +260,13 @@ fn spawn_concept_entity_corpse_creates_harvestable_meat_entity() {
 
     let corpse = {
         let world_mut = world.app_mut().world_mut();
+        let palette = world_mut.resource::<worldsim::palette::Palette>().clone();
         let mut queue = bevy::ecs::world::CommandQueue::default();
         let entity = {
             let mut commands = Commands::new(&mut queue, world_mut);
             worldsim::world::spawn::spawn_concept_entity(
                 &mut commands,
+                &palette,
                 Concept::Corpse,
                 Vec2::new(40.0, 40.0),
                 0,

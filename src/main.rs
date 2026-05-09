@@ -13,6 +13,7 @@ use worldsim::cli::CliArgs;
 use worldsim::core::CorePlugin;
 use worldsim::headless;
 use worldsim::menu::MenuPlugin;
+use worldsim::palette::PalettePlugin;
 use worldsim::ui::UiPlugin;
 use worldsim::ui::camera::CameraPlugin;
 use worldsim::world::WorldPlugin;
@@ -124,6 +125,8 @@ fn run_windowed() {
         // Menu first so AppState is registered before any other plugin
         // schedules systems on OnEnter(AppState::InSim).
         .add_plugins(MenuPlugin)
+        // Palette resource - loaded before any spawn system reads colors.
+        .add_plugins(PalettePlugin)
         // Domain plugins
         .add_plugins(WorldPlugin)
         .add_plugins(AgentPlugin)

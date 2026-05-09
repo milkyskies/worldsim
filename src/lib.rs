@@ -10,6 +10,7 @@ pub mod constants;
 pub mod core;
 pub mod headless;
 pub mod menu;
+pub mod palette;
 pub mod testing;
 pub mod ui;
 pub mod world;

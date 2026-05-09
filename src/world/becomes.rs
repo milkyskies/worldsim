@@ -213,6 +213,7 @@ pub fn becomes_system(
         Option<&BuiltBy>,
     )>,
     tick: Res<TickCount>,
+    palette: Res<crate::palette::Palette>,
 ) {
     for (entity, becomes, transform, slots, built_by) in query.iter() {
         if !becomes
@@ -226,9 +227,13 @@ pub fn becomes_system(
             BecomesMode::Replace => {
                 let position = transform.translation.truncate();
                 commands.entity(entity).despawn();
-                let Some(new_entity) =
-                    spawn_concept_entity(&mut commands, becomes.target, position, tick.current)
-                else {
+                let Some(new_entity) = spawn_concept_entity(
+                    &mut commands,
+                    &palette,
+                    becomes.target,
+                    position,
+                    tick.current,
+                ) else {
                     continue;
                 };
 

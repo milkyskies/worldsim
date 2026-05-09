@@ -405,6 +405,7 @@ pub fn tick_actions(
     registry: Res<ActionRegistry>,
     tick: Res<TickCount>,
     world_map: Res<WorldMap>,
+    palette: Res<crate::palette::Palette>,
     mut sim_rng: ResMut<crate::core::SimRng>,
     mut game_log: ResMut<GameLog>,
     mut sim_events: MessageWriter<crate::agent::events::SimEvent>,
@@ -742,6 +743,7 @@ pub fn tick_actions(
                     SpawnRequest::Entity { concept, position } => {
                         if crate::world::spawn::spawn_concept_entity(
                             &mut commands,
+                            &palette,
                             concept,
                             position,
                             tick.current,

@@ -3,6 +3,7 @@
 use crate::agent::inventory::EntityType;
 use crate::agent::item_slots::ItemSlots;
 use crate::agent::mind::knowledge::Concept;
+use crate::palette::{Palette, PaletteColor};
 use crate::world::map::TILE_SIZE;
 use crate::world::property::HarvestableComponent;
 use bevy::prelude::*;
@@ -26,7 +27,12 @@ pub struct ResourceRegeneration {
 }
 
 /// Spawns an Apple Tree with an Inventory
-pub fn spawn_apple_tree(commands: &mut Commands, position: Vec2, apples: u32) -> Entity {
+pub fn spawn_apple_tree(
+    commands: &mut Commands,
+    palette: &Palette,
+    position: Vec2,
+    apples: u32,
+) -> Entity {
     use rand::Rng;
     let mut rng = rand::rng();
 
@@ -35,11 +41,10 @@ pub fn spawn_apple_tree(commands: &mut Commands, position: Vec2, apples: u32) ->
         inventory.add(Concept::Apple, apples);
     }
 
-    // Tree Dimensions (Twice as big as before)
     let leaf_size = Vec2::new(TILE_SIZE * 1.6, TILE_SIZE * 1.6);
     let trunk_size = Vec2::new(TILE_SIZE * 0.4, TILE_SIZE * 0.8);
-    let trunk_color = Color::srgb(0.55, 0.27, 0.07); // SaddleBrown
-    let leaf_color = Color::srgb(0.13, 0.55, 0.13); // ForestGreen
+    let trunk_color = palette.srgb(PaletteColor::SkinDeep);
+    let leaf_color = palette.srgb(PaletteColor::LeafForest);
 
     // Spawn ECS Entity (Root Container)
 
@@ -76,7 +81,7 @@ pub fn spawn_apple_tree(commands: &mut Commands, position: Vec2, apples: u32) ->
             // 0. SHADOW — dark ellipse at the base of the trunk.
             parent.spawn((
                 Sprite {
-                    color: Color::srgba(0.0, 0.0, 0.0, 0.35),
+                    color: palette.shadow(),
                     custom_size: Some(Vec2::new(TILE_SIZE * 1.4, TILE_SIZE * 0.35)),
                     ..default()
                 },
@@ -109,7 +114,7 @@ pub fn spawn_apple_tree(commands: &mut Commands, position: Vec2, apples: u32) ->
                 .with_children(|leaves| {
                     // 3. APPLES (Visual only, data is in Inventory)
                     if apples > 0 {
-                        let apple_color = Color::srgb(0.8, 0.2, 0.2);
+                        let apple_color = palette.srgb(PaletteColor::BloodFresh);
                         let apple_size = Vec2::new(4.0, 4.0);
 
                         for _ in 0..apples.min(10) {
@@ -136,6 +141,7 @@ pub fn spawn_apple_tree(commands: &mut Commands, position: Vec2, apples: u32) ->
 /// Syncs the visual apple count with the inventory count.
 pub fn sync_apple_visuals(
     mut commands: Commands,
+    palette: Res<Palette>,
     mut tree_query: Query<(&ItemSlots, &Children)>,
     mut leaves_query: Query<(Entity, &Children), With<VisualLeaves>>,
     apples_query: Query<Entity, With<VisualApple>>,
@@ -143,7 +149,7 @@ pub fn sync_apple_visuals(
     use rand::Rng;
     let mut rng = rand::rng();
     let leaf_size = Vec2::new(TILE_SIZE * 1.6, TILE_SIZE * 1.6);
-    let apple_color = Color::srgb(0.8, 0.2, 0.2);
+    let apple_color = palette.srgb(PaletteColor::BloodFresh);
     let apple_size = Vec2::new(4.0, 4.0);
 
     for (inventory, children) in tree_query.iter_mut() {

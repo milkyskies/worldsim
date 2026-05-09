@@ -6,6 +6,7 @@ use crate::agent::body::species::Species;
 use crate::agent::mind::knowledge::Ontology;
 use crate::agent::naming::human_name;
 use crate::agent::spawn_human::{PersonInit, build_person_logic};
+use crate::palette::{Palette, PaletteColor};
 use crate::world::environment::{AgentBodySprite, BaseColor};
 use bevy::prelude::*;
 use rand::Rng;
@@ -14,6 +15,7 @@ use rand::Rng;
 pub fn spawn_person<R: Rng>(
     commands: &mut Commands,
     ontology: Ontology,
+    palette: &Palette,
     position: Vec2,
     index: usize,
     _culture: crate::agent::culture::Culture,
@@ -36,16 +38,15 @@ pub fn spawn_person<R: Rng>(
         ontology,
     );
 
-    // Random Skin Color
     let skin_tones = [
-        Color::srgb(1.0, 0.87, 0.76),  // Pale
-        Color::srgb(0.96, 0.80, 0.69), // Fair
-        Color::srgb(0.89, 0.70, 0.53), // Tan
-        Color::srgb(0.76, 0.57, 0.35), // Medium
-        Color::srgb(0.55, 0.38, 0.22), // Dark
-        Color::srgb(0.39, 0.25, 0.12), // Deep
+        PaletteColor::SkinPale,
+        PaletteColor::SkinFair,
+        PaletteColor::SkinTan,
+        PaletteColor::SkinMedium,
+        PaletteColor::SkinDark,
+        PaletteColor::SkinDeep,
     ];
-    let skin_color = skin_tones[rng.random_range(0..skin_tones.len())];
+    let skin_color = palette.srgb(skin_tones[rng.random_range(0..skin_tones.len())]);
 
     let entity = commands
         .spawn(core)
@@ -67,7 +68,7 @@ pub fn spawn_person<R: Rng>(
         parent.spawn((
             crate::ui::sprite_animation::GroundShadow::new(entity, Vec2::new(0.0, -8.0)),
             Sprite {
-                color: Color::srgba(0.0, 0.0, 0.0, 0.35),
+                color: palette.shadow(),
                 custom_size: Some(Vec2::new(10.0, 4.0)),
                 ..default()
             },
@@ -109,7 +110,7 @@ pub fn spawn_person<R: Rng>(
                     Transform::from_translation(Vec3::new(0.0, 9.0, 0.1)),
                 ))
                 .with_children(|head| {
-                    let eye_color = Color::BLACK;
+                    let eye_color = palette.srgb(PaletteColor::FurBlack);
                     let eye_size = Vec2::new(2.0, 2.0);
 
                     head.spawn((
