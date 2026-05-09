@@ -421,12 +421,9 @@ pub mod brains {
         /// agent who never sleeps in shelter notices it over a couple of
         /// game-days.
         pub const BASELINE_DRAIN_PER_SEC: f32 = 0.0003;
-        /// Extra drain per rate-second while sleeping without a nearby
-        /// `ShelterProvider` — exposure to weather, predators, broken sleep.
-        pub const EXPOSURE_SLEEP_DRAIN_PER_SEC: f32 = 0.0025;
         /// Recovery per rate-second per unit of `ShelterProvider.protection`
-        /// while sleeping inside one. With LeanTo `PROTECTION = 1.5` this
-        /// brings a depleted agent back to comfort over a single sleep bout.
+        /// while near one. With LeanTo `PROTECTION = 1.5` this brings a
+        /// depleted agent back to comfort over a single sleep bout.
         pub const SHELTER_RECOVERY_PER_SEC: f32 = 0.018;
         /// Rest-quality above this value produces near-zero urgency.
         pub const COMFORT_THRESHOLD: f32 = 0.6;

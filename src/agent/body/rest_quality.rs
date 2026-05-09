@@ -1,18 +1,17 @@
-//! Rest-quality tick. Drains baseline always; while sleeping, recovers
-//! proportional to the best nearby `ShelterProvider.protection` or pays
-//! an exposure penalty when no shelter is in range.
+//! Rest-quality tick. Drains baseline always; recovers proportional to
+//! the best nearby `ShelterProvider.protection`. Mirrors the proximity-
+//! only recovery pattern that `tick_warmth` uses for `HeatSource`.
 
 use bevy::prelude::*;
 
 use crate::agent::Agent;
-use crate::agent::actions::{ActionType, ActiveActions};
 use crate::agent::body::need::crossed_threshold;
 use crate::agent::body::needs::PhysicalNeeds;
 use crate::agent::body::species::{Species, SpeciesProfile};
 use crate::agent::events::{SimEvent, SimEventKind};
 use crate::constants::brains::rest_quality::{
-    BASELINE_DRAIN_PER_SEC, COMFORT_THRESHOLD, CRITICAL_THRESHOLD, EXPOSURE_SLEEP_DRAIN_PER_SEC,
-    SHELTER_RECOVERY_PER_SEC, URGENT_THRESHOLD,
+    BASELINE_DRAIN_PER_SEC, COMFORT_THRESHOLD, CRITICAL_THRESHOLD, SHELTER_RECOVERY_PER_SEC,
+    URGENT_THRESHOLD,
 };
 use crate::core::tick::TickCount;
 use crate::world::map::TILE_SIZE;
@@ -21,6 +20,7 @@ use crate::world::property::ShelterProvider;
 /// Matches `shelter_system`'s aerobic-bonus radius so both systems
 /// agree on what "inside a shelter" means.
 const SHELTER_RANGE: f32 = TILE_SIZE * 3.0;
+
 pub fn tick_rest_quality(
     tick: Res<TickCount>,
     shelter_providers: Query<(&Transform, &ShelterProvider)>,
@@ -29,7 +29,6 @@ pub fn tick_rest_quality(
             Entity,
             &Transform,
             &mut PhysicalNeeds,
-            &ActiveActions,
             Option<&SpeciesProfile>,
         ),
         With<Agent>,
@@ -39,16 +38,15 @@ pub fn tick_rest_quality(
     let dt = tick.dt();
     let current_tick = tick.current;
 
-    for (agent_entity, agent_transform, mut physical, active, species) in agents.iter_mut() {
+    for (agent_entity, agent_transform, mut physical, species) in agents.iter_mut() {
         if !matches!(species.map(|s| s.species), Some(Species::Human)) {
             continue;
         }
 
         let agent_pos = agent_transform.translation.truncate();
-        let sleeping = active.contains(ActionType::Sleep);
         let best_shelter = best_shelter_protection(agent_pos, &shelter_providers);
 
-        let rate_per_sec = compute_rest_quality_rate(sleeping, best_shelter);
+        let rate_per_sec = compute_rest_quality_rate(best_shelter);
 
         let old = physical.rest_quality.value;
         physical.rest_quality.apply_delta(rate_per_sec * dt);
@@ -79,16 +77,8 @@ fn best_shelter_protection(
         .fold(0.0_f32, f32::max)
 }
 
-fn compute_rest_quality_rate(sleeping: bool, best_shelter: f32) -> f32 {
-    let baseline = -BASELINE_DRAIN_PER_SEC;
-    if !sleeping {
-        return baseline;
-    }
-    if best_shelter > 0.0 {
-        baseline + SHELTER_RECOVERY_PER_SEC * best_shelter
-    } else {
-        baseline - EXPOSURE_SLEEP_DRAIN_PER_SEC
-    }
+fn compute_rest_quality_rate(best_shelter: f32) -> f32 {
+    -BASELINE_DRAIN_PER_SEC + SHELTER_RECOVERY_PER_SEC * best_shelter
 }
 
 const NAMED_THRESHOLDS: &[f32] = &[COMFORT_THRESHOLD, URGENT_THRESHOLD, CRITICAL_THRESHOLD];
@@ -98,39 +88,24 @@ mod tests {
     use super::*;
 
     #[test]
-    fn awake_agent_drains_baseline_only() {
-        let rate = compute_rest_quality_rate(false, 0.0);
+    fn no_shelter_drains_baseline() {
+        let rate = compute_rest_quality_rate(0.0);
         assert!((rate - (-BASELINE_DRAIN_PER_SEC)).abs() < 1e-6);
     }
 
     #[test]
-    fn awake_agent_near_shelter_still_drains_baseline() {
-        // Recovery is gated on actually sleeping — standing under a roof
-        // doesn't count as rest.
-        let rate = compute_rest_quality_rate(false, 1.5);
-        assert!((rate - (-BASELINE_DRAIN_PER_SEC)).abs() < 1e-6);
-    }
-
-    #[test]
-    fn sleeping_unsheltered_drains_baseline_plus_exposure() {
-        let rate = compute_rest_quality_rate(true, 0.0);
-        let expected = -BASELINE_DRAIN_PER_SEC - EXPOSURE_SLEEP_DRAIN_PER_SEC;
-        assert!((rate - expected).abs() < 1e-6);
-    }
-
-    #[test]
-    fn sleeping_in_shelter_recovers_proportional_to_protection() {
-        let rate = compute_rest_quality_rate(true, 1.5);
+    fn near_shelter_recovers_proportional_to_protection() {
+        let rate = compute_rest_quality_rate(1.5);
         let expected = -BASELINE_DRAIN_PER_SEC + SHELTER_RECOVERY_PER_SEC * 1.5;
         assert!((rate - expected).abs() < 1e-6);
-        // Recovery dominates — net positive even after baseline drain.
+        // Recovery dominates — net positive.
         assert!(rate > 0.0);
     }
 
     #[test]
-    fn sleeping_in_higher_quality_shelter_recovers_faster() {
-        let lean_to = compute_rest_quality_rate(true, 1.5);
-        let house = compute_rest_quality_rate(true, 2.5);
+    fn higher_quality_shelter_recovers_faster() {
+        let lean_to = compute_rest_quality_rate(1.5);
+        let house = compute_rest_quality_rate(2.5);
         assert!(house > lean_to);
     }
 
