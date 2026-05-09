@@ -456,7 +456,7 @@ fn arbitration_admits_walk_and_converse_in_parallel() {
     };
     let capacities = ChannelCapacities::full();
     let proposal_options: Vec<_> = proposals.into_iter().map(Some).collect();
-    let result = arbitrate_parallel(&proposal_options, &powers, &capacities, &registry);
+    let result = arbitrate_parallel(&proposal_options, &powers, &capacities, &registry, None);
 
     let admitted_kinds: Vec<_> = result
         .admitted
@@ -522,7 +522,7 @@ fn arbitration_rejects_competing_movement_plans() {
     let capacities = ChannelCapacities::full();
     let registry = ActionRegistry::new();
     let proposals = vec![Some(walk), Some(wander)];
-    let result = arbitrate_parallel(&proposals, &powers, &capacities, &registry);
+    let result = arbitrate_parallel(&proposals, &powers, &capacities, &registry, None);
 
     assert_eq!(
         result.admitted.len(),

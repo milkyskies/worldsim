@@ -276,7 +276,15 @@ pub fn arbitrate_every_tick(
             &mapping,
         );
 
-        let result = arbitrate_parallel(&proposals, &powers, &capacities, &action_registry);
+        let engagement_guard =
+            engaged.map(|e| super::arbitration::EngagementGuard { kind: e.kind });
+        let result = arbitrate_parallel(
+            &proposals,
+            &powers,
+            &capacities,
+            &action_registry,
+            engagement_guard,
+        );
         let rejected = result.rejected;
 
         // Action-prep pass: for each admitted proposal whose action has
