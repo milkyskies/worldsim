@@ -59,13 +59,16 @@ pub fn human_silhouette(skin: PaletteColor, hair: PaletteColor) -> CreatureSilho
     };
     CreatureSilhouette {
         parts: vec![
-            // Hair behind the blob - shows as fringe at the top/sides where
-            // it pokes past the head outline.
+            // Hair behind the blob, swept slightly to the back (left when
+            // facing right). The SpriteBody's x-scale flips with movement
+            // direction, so the sweep follows: hair always trails behind
+            // the direction of travel. This is what makes a front-facing
+            // chibi blob visibly "face" left or right.
             SilhouettePart {
                 body_node: None,
                 shape: Shape::Ellipse,
                 size: Vec2::new(9.0, 7.0),
-                offset: Vec2::new(0.0, 8.5),
+                offset: Vec2::new(-1.5, 8.5),
                 rotation: 0.0,
                 color: hair,
                 z_bias: 0,
