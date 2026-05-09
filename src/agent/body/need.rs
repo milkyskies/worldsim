@@ -132,6 +132,15 @@ impl Default for Need {
     }
 }
 
+/// Returns `true` when `old` and `new` straddle any threshold in `thresholds`
+/// (in either direction). Drive tick systems use this to emit a named-band
+/// SimEvent only when a value crosses a meaningful boundary.
+pub fn crossed_threshold(old: f32, new: f32, thresholds: &[f32]) -> bool {
+    thresholds
+        .iter()
+        .any(|t| (old >= *t && new < *t) || (old < *t && new >= *t))
+}
+
 // ─── NeedKind ────────────────────────────────────────────────────────────────
 
 /// Every appetitive need the simulation tracks. The enum is the canonical

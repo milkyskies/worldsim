@@ -1,16 +1,12 @@
-//! Rest-quality tick: sleep-comfort drive that motivates building shelter.
-//!
-//! Reads: `Transform`, `PhysicalNeeds`, `ActiveActions`, `SpeciesProfile`,
-//!        `ShelterProvider` + `Transform` for the candidate shelters
-//! Writes: `PhysicalNeeds::rest_quality`, emits `SimEvent::RestQualityChanged`
-//!         when crossing a named threshold
-//! Upstream: nervous_system biology bucket (runs alongside `tick_warmth`)
-//! Downstream: `UrgencySource::RestQuality`, character sheet UI
+//! Rest-quality tick. Drains baseline always; while sleeping, recovers
+//! proportional to the best nearby `ShelterProvider.protection` or pays
+//! an exposure penalty when no shelter is in range.
 
 use bevy::prelude::*;
 
 use crate::agent::Agent;
 use crate::agent::actions::{ActionType, ActiveActions};
+use crate::agent::body::need::crossed_threshold;
 use crate::agent::body::needs::PhysicalNeeds;
 use crate::agent::body::species::{Species, SpeciesProfile};
 use crate::agent::events::{SimEvent, SimEventKind};
@@ -22,18 +18,9 @@ use crate::core::tick::TickCount;
 use crate::world::map::TILE_SIZE;
 use crate::world::property::ShelterProvider;
 
-/// Range within which a sleeping agent counts as "inside" a shelter.
-/// Matches the existing `shelter_system` aerobic-bonus radius so both
-/// systems agree on what "inside" means.
+/// Matches `shelter_system`'s aerobic-bonus radius so both systems
+/// agree on what "inside a shelter" means.
 const SHELTER_RANGE: f32 = TILE_SIZE * 3.0;
-
-/// Per-tick drive update for rest-quality.
-///
-/// Always applies the slow baseline drain. While sleeping, the agent
-/// recovers proportional to the best nearby shelter's `protection`, or
-/// suffers an extra exposure drain when no shelter is in range. Emits a
-/// `SimEvent::RestQualityChanged` whenever the value crosses a named
-/// threshold so decision traces can see the drive pipeline fire.
 pub fn tick_rest_quality(
     tick: Res<TickCount>,
     shelter_providers: Query<(&Transform, &ShelterProvider)>,
@@ -67,7 +54,7 @@ pub fn tick_rest_quality(
         physical.rest_quality.apply_delta(rate_per_sec * dt);
         let new = physical.rest_quality.value;
 
-        if crossed_named_threshold(old, new) {
+        if crossed_threshold(old, new, NAMED_THRESHOLDS) {
             sim_events.write(SimEvent::single(
                 current_tick,
                 agent_entity,
@@ -81,8 +68,6 @@ pub fn tick_rest_quality(
     }
 }
 
-/// Best (highest-protection) `ShelterProvider` within range of `pos`.
-/// Returns `0.0` when no shelter is near.
 fn best_shelter_protection(
     pos: Vec2,
     shelter_providers: &Query<(&Transform, &ShelterProvider)>,
@@ -94,9 +79,6 @@ fn best_shelter_protection(
         .fold(0.0_f32, f32::max)
 }
 
-/// Per-rate-second delta. Always includes the baseline drain. While
-/// sleeping, adds either an exposure drain or a shelter recovery — never
-/// both. Awake agents are flat baseline-drain.
 fn compute_rest_quality_rate(sleeping: bool, best_shelter: f32) -> f32 {
     let baseline = -BASELINE_DRAIN_PER_SEC;
     if !sleeping {
@@ -109,14 +91,7 @@ fn compute_rest_quality_rate(sleeping: bool, best_shelter: f32) -> f32 {
     }
 }
 
-/// Returns `true` when `old` and `new` fall on opposite sides of any of
-/// the three named rest-quality thresholds.
-fn crossed_named_threshold(old: f32, new: f32) -> bool {
-    const THRESHOLDS: &[f32] = &[COMFORT_THRESHOLD, URGENT_THRESHOLD, CRITICAL_THRESHOLD];
-    THRESHOLDS
-        .iter()
-        .any(|t| (old >= *t && new < *t) || (old < *t && new >= *t))
-}
+const NAMED_THRESHOLDS: &[f32] = &[COMFORT_THRESHOLD, URGENT_THRESHOLD, CRITICAL_THRESHOLD];
 
 #[cfg(test)]
 mod tests {
@@ -161,13 +136,13 @@ mod tests {
 
     #[test]
     fn crossing_comfort_threshold_fires() {
-        assert!(crossed_named_threshold(0.65, 0.55));
-        assert!(crossed_named_threshold(0.55, 0.65));
+        assert!(crossed_threshold(0.65, 0.55, NAMED_THRESHOLDS));
+        assert!(crossed_threshold(0.55, 0.65, NAMED_THRESHOLDS));
     }
 
     #[test]
     fn not_crossing_any_threshold_is_quiet() {
-        assert!(!crossed_named_threshold(0.8, 0.75));
-        assert!(!crossed_named_threshold(0.5, 0.45));
+        assert!(!crossed_threshold(0.8, 0.75, NAMED_THRESHOLDS));
+        assert!(!crossed_threshold(0.5, 0.45, NAMED_THRESHOLDS));
     }
 }

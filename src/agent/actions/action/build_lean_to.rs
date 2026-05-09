@@ -1,10 +1,5 @@
-//! BuildLeanTo action — construct a lean-to shelter from wood.
-//!
-//! Mirrors `Build` (campfire) but spawns a labor-gated construction site:
-//! once the wood slot is filled, an agent must `Construct` for
-//! `LEAN_TO_LABOR_TICKS` ticks before the site transforms into the finished
-//! `LeanTo`. Recipe data (Requires/Provides/BuildTime) is auto-derived into
-//! cultural knowledge by `culture::create_cultural_knowledge`.
+//! BuildLeanTo action. Spawns a labor-gated construction site that
+//! becomes a `LeanTo` after `LEAN_TO_LABOR_TICKS` ticks of `Construct`.
 
 use crate::agent::actions::ActionType;
 use crate::agent::actions::channel::{Channel, ChannelUsage, Posture};
@@ -25,9 +20,8 @@ const CHANNELS: &[ChannelUsage] = &[
 const LEAN_TO_REQUIREMENTS: &[(Concept, u32)] = &[(Concept::Wood, LEAN_TO_WOOD_REQUIRED)];
 const LEAN_TO_PROVIDES: &[Concept] = &[Concept::ShelterProviding, Concept::Safety];
 
-/// "Build time" for the planner is the placement step — labor on the site
-/// is accounted separately by Construct. Keeping this short matches the
-/// instant-deposit feel of the campfire build action.
+/// Placement step duration. Labor on the site is accounted separately
+/// by `Construct`.
 const PLACEMENT_DURATION_TICKS: u32 = 30;
 
 pub static BUILD_LEAN_TO_DEF: ActionDefinition = ActionDefinition {

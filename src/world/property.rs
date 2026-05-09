@@ -137,6 +137,44 @@ define_property_component! {
     } => Concept::Degradable
 }
 
+/// Tunables for a buildable shelter — passed to `shelter_components` so
+/// each shelter type's spawner is just a thin wrapper around shared
+/// component construction.
+pub struct ShelterSpec {
+    pub name: &'static str,
+    pub concept: Concept,
+    pub capacity: u32,
+    pub protection: f32,
+    pub initial_durability: f32,
+    pub durability_decay_per_tick: f32,
+    pub flammable_burn_time: f32,
+}
+
+/// Shared bundle for buildable shelters (lean-to, house, future variants).
+/// Attaches `ShelterProvider`, `Durability`, `Flammable`, `EntityType`,
+/// and standard world placement components.
+pub fn shelter_components(spec: ShelterSpec, position: bevy::math::Vec2) -> impl Bundle {
+    (
+        Name::new(spec.name),
+        EntityType(spec.concept),
+        ShelterProvider {
+            capacity: spec.capacity,
+            protection: spec.protection,
+        },
+        Durability {
+            current: spec.initial_durability,
+            max: spec.initial_durability,
+            decay_rate: spec.durability_decay_per_tick,
+        },
+        Flammable {
+            burn_time: spec.flammable_burn_time,
+        },
+        crate::world::Physical,
+        Transform::from_translation(position.extend(1.0)),
+        GlobalTransform::default(),
+    )
+}
+
 // Harvestable is handled specially: it also derives a Produces triple from its
 // `yields` field.  Written manually (not via the macro) because the macro only
 // handles simple trait derivation; field-based derivation is the exception.

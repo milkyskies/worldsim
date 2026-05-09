@@ -1,10 +1,7 @@
-//! RestInShelter action — stance of resting inside a shelter.
-//!
-//! Mirrors `WarmUp`: the action itself does not restore rest-quality —
-//! recovery happens passively in `agent::body::rest_quality::tick_rest_quality`
-//! whenever a sleeping agent is within range of a `ShelterProvider`. The
-//! action just keeps the agent in place near a shelter so the recovery
-//! window has time to apply.
+//! RestInShelter action. Recovery happens passively in
+//! `body::rest_quality::tick_rest_quality`; this action just pins the
+//! agent near a `ShelterProvider` so the recovery window applies. Same
+//! shape as `WarmUp` for `HeatSource` proximity.
 
 use crate::agent::actions::ActionType;
 use crate::agent::actions::channel::{Channel, ChannelUsage, Posture};

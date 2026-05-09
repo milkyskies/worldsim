@@ -1,10 +1,6 @@
-//! BuildHouse action — construct a wooden house from wood and stone.
-//!
-//! Mirrors `BuildLeanTo` but with two required materials and a much higher
-//! labor cost. The construction site spawned on completion has two
-//! material slots; agents must Deposit the wood and stone (or carry them
-//! along) and then Construct for `HOUSE_LABOR_TICKS` ticks before the site
-//! becomes a finished `House`.
+//! BuildHouse action. Two required materials (wood + stone), higher
+//! labor cost than BuildLeanTo. Spawns a labor-gated construction site
+//! that becomes a `House` after `HOUSE_LABOR_TICKS` ticks of `Construct`.
 
 use crate::agent::actions::ActionType;
 use crate::agent::actions::channel::{Channel, ChannelUsage, Posture};

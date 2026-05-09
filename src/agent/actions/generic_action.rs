@@ -261,14 +261,14 @@ fn check_gate(gate: &Gate, ctx: &ActionContext) -> Result<(), FailureReason> {
             }
         }
         Gate::NearHeatEmitter => {
-            if is_near_heat_emitter(ctx.mind) {
+            if is_near_trait(ctx.mind, Concept::HeatEmitting) {
                 Ok(())
             } else {
                 Err(FailureReason::TargetGone)
             }
         }
         Gate::NearShelterProvider => {
-            if is_near_shelter_provider(ctx.mind) {
+            if is_near_trait(ctx.mind, Concept::ShelterProviding) {
                 Ok(())
             } else {
                 Err(FailureReason::TargetGone)
@@ -287,9 +287,9 @@ fn check_gate(gate: &Gate, ctx: &ActionContext) -> Result<(), FailureReason> {
     }
 }
 
-/// Runtime check mirroring the planner's `(Self, Near, HeatEmitting)`
-/// relation: true when a known heat-emitting entity sits on self's tile.
-fn is_near_heat_emitter(mind: &MindGraph) -> bool {
+/// Runtime check mirroring the planner's `(Self, Near, $trait)` relation:
+/// true when a known entity carrying `trait_concept` sits on self's tile.
+fn is_near_trait(mind: &MindGraph, trait_concept: Concept) -> bool {
     let Some(Value::Tile(self_tile)) = mind.get(&Node::Self_, Predicate::LocatedAt).cloned() else {
         return false;
     };
@@ -299,27 +299,7 @@ fn is_near_heat_emitter(mind: &MindGraph) -> bool {
         Some(&Value::Tile(self_tile)),
     )
     .iter()
-    .any(|t| {
-        matches!(t.subject, Node::Entity(_)) && mind.has_trait(&t.subject, Concept::HeatEmitting)
-    })
-}
-
-/// Runtime check mirroring the planner's `(Self, Near, ShelterProviding)`
-/// relation: true when a known shelter-providing entity sits on self's tile.
-fn is_near_shelter_provider(mind: &MindGraph) -> bool {
-    let Some(Value::Tile(self_tile)) = mind.get(&Node::Self_, Predicate::LocatedAt).cloned() else {
-        return false;
-    };
-    mind.query(
-        None,
-        Some(Predicate::LocatedAt),
-        Some(&Value::Tile(self_tile)),
-    )
-    .iter()
-    .any(|t| {
-        matches!(t.subject, Node::Entity(_))
-            && mind.has_trait(&t.subject, Concept::ShelterProviding)
-    })
+    .any(|t| matches!(t.subject, Node::Entity(_)) && mind.has_trait(&t.subject, trait_concept))
 }
 
 // ============================================================================
