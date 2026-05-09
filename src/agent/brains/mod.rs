@@ -10,6 +10,7 @@ pub mod plan_memory;
 pub mod planner;
 pub mod proposal;
 pub mod rational;
+pub mod social_initiation;
 pub mod survival;
 pub mod target_enumeration;
 pub mod thinking;
@@ -57,6 +58,7 @@ impl Plugin for BrainPlugin {
             .register_type::<proposal::BrainType>()
             .register_type::<proposal::BrainPowers>()
             .register_type::<history::BrainHistory>()
+            .register_type::<social_initiation::SocialInitiationCooldowns>()
             .init_resource::<BrainTickInterval>()
             .init_resource::<wakeup::PendingBrainWakeups>()
             .init_resource::<trace::TraceConfig>()
@@ -119,6 +121,14 @@ impl Plugin for BrainPlugin {
                     .in_set(crate::core::PerfBucket::Brain)
                     .in_set(crate::core::PerfSubBucket::BrainArbitration)
                     .after(brain_system::arbitrate_every_tick)
+                    .run_if(not_paused),
+            )
+            .add_systems(
+                FixedUpdate,
+                social_initiation::record_social_initiation_failures
+                    .in_set(crate::core::PerfBucket::Brain)
+                    .in_set(crate::core::PerfSubBucket::BrainArbitration)
+                    .after(crate::agent::nervous_system::execution::apply_action_effects)
                     .run_if(not_paused),
             )
             .add_systems(

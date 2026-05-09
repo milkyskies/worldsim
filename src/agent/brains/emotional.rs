@@ -13,6 +13,7 @@
 
 use super::drift::{BEHAVIORS, DriftContext, propose_drift};
 use super::proposal::{BrainProposal, BrainType, Intent};
+use super::social_initiation::SocialInitiationCooldowns;
 use crate::agent::actions::ActionType;
 use crate::agent::body::needs::{PhysicalNeeds, PsychologicalDrives};
 use crate::agent::mind::conversation::InConversation;
@@ -27,6 +28,8 @@ use crate::constants::brains::emotional::{
     SOCIAL_SEEK_THRESHOLD, SOCIAL_SEEK_URGENCY_MULTIPLIER, STAND_GROUND_BASE_URGENCY,
 };
 use crate::world::field_grid_plugin::FieldGrids;
+use crate::world::map::TILE_SIZE;
+use crate::world::spatial_index::world_pos_to_tile;
 use bevy::prelude::*;
 
 pub struct EmotionalInputs<'a> {
@@ -60,6 +63,14 @@ pub struct EmotionalInputs<'a> {
     /// by threat appraisal as the comparison target. None means "no
     /// pressing threat" → general-fear path runs instead.
     pub closest_threat: Option<ClosestThreat<'a>>,
+    /// Parallel to `visible_positions`. `true` when the entity is in
+    /// someone else's conversation — used to skip `ConversationFull`
+    /// initiations.
+    pub visible_in_conversation: &'a [bool],
+    /// Per-target `InitiateConversation` failure cooldowns; `None` until
+    /// the agent records its first failure.
+    pub social_cooldowns: Option<&'a SocialInitiationCooldowns>,
+    pub current_tick: u64,
 }
 
 pub struct ClosestThreat<'a> {
@@ -168,13 +179,8 @@ pub fn emotional_brain_propose(inputs: &EmotionalInputs) -> Option<BrainProposal
     if inputs.in_conversation.is_none()
         && inputs.self_concept == Some(Concept::Person)
         && let Some(d) = inputs.drives
-        && let Some(proposal) = seek_social_initiation(
-            d.companionship.deficit(),
-            inputs.visible,
-            inputs.mind,
-            inputs.action_registry,
-            best_urgency,
-        )
+        && let Some(proposal) =
+            seek_social_initiation(d.companionship.deficit(), inputs, best_urgency)
     {
         best_urgency = proposal.urgency;
         best = Some(proposal);
@@ -329,14 +335,19 @@ fn propose_patrol(
     })
 }
 
-/// Propose `InitiateConversation` toward a visible person if social drive is
-/// high enough. Skips strangers (the agent's recognition system handles those
-/// separately) — for now we accept any visible Person concept.
+/// Affection weight for candidate ranking, expressed in tile units so a
+/// maximally-fond partner outranks a stranger by roughly that many
+/// tiles of distance.
+const AFFECTION_RANK_WEIGHT: f32 = 6.0;
+
+/// Propose `InitiateConversation` toward the best-scoring visible
+/// person. Filters busy / unreachable / cooled-down candidates, then
+/// picks the closest-and-fondest survivor. Strangers are eligible —
+/// the first turn of any conversation is the greeting, owned by
+/// `CommunicationPlugin`.
 fn seek_social_initiation(
     social_drive: f32,
-    visible: &VisibleObjects,
-    mind: &MindGraph,
-    action_registry: &crate::agent::actions::ActionRegistry,
+    inputs: &EmotionalInputs,
     min_urgency: f32,
 ) -> Option<BrainProposal> {
     if social_drive <= SOCIAL_SEEK_THRESHOLD {
@@ -348,30 +359,68 @@ fn seek_social_initiation(
         return None;
     }
 
-    let action = action_registry.get(ActionType::InitiateConversation)?;
+    let action = inputs
+        .action_registry
+        .get(ActionType::InitiateConversation)?;
 
-    for &entity in &visible.entities {
-        // Must be a person.
-        let is_person = !mind
-            .query(
-                Some(&Node::Entity(entity)),
-                Some(Predicate::IsA),
-                Some(&Value::Concept(Concept::Person)),
-            )
-            .is_empty();
-        if !is_person {
+    // Lazy: skip the per-tick MindGraph scan for the common "not
+    // lonely / nobody around" path. Above the threshold and at this
+    // point in the function we know the proposer is going to do real
+    // work, so the scan is cheaper than threading the cache through.
+    let unreachable_tiles =
+        super::planner::collect_unreachable_tiles(inputs.mind, inputs.current_tick);
+
+    let mut best: Option<(Entity, f32)> = None;
+    for (i, &(entity, pos)) in inputs.visible_positions.iter().enumerate() {
+        if inputs.visible_types.get(i).and_then(|c| *c) != Some(Concept::Person) {
             continue;
         }
-        return Some(BrainProposal {
-            brain: BrainType::Emotional,
-            action: action.to_template(Some(entity)),
-            urgency,
-            intent: Intent::SatisfySocial,
-            reasoning: format!("I want to chat with {entity:?} (social: {social_drive:.2})"),
-        });
+
+        if inputs
+            .visible_in_conversation
+            .get(i)
+            .copied()
+            .unwrap_or(false)
+        {
+            continue;
+        }
+
+        let tile_v = world_pos_to_tile(pos);
+        if unreachable_tiles.contains(&(tile_v.x, tile_v.y)) {
+            continue;
+        }
+
+        if inputs
+            .social_cooldowns
+            .is_some_and(|c| c.is_on_cooldown(entity, inputs.current_tick))
+        {
+            continue;
+        }
+
+        let affection = mind_affection(inputs.mind, entity);
+        let distance = pos.distance(inputs.agent_pos) / TILE_SIZE;
+        let score = -distance + AFFECTION_RANK_WEIGHT * affection;
+
+        if best.map(|(_, prev)| score > prev).unwrap_or(true) {
+            best = Some((entity, score));
+        }
     }
 
-    None
+    let (target, _) = best?;
+    Some(BrainProposal {
+        brain: BrainType::Emotional,
+        action: action.to_template(Some(target)),
+        urgency,
+        intent: Intent::SatisfySocial,
+        reasoning: format!("I want to chat with {target:?} (social: {social_drive:.2})"),
+    })
+}
+
+fn mind_affection(mind: &MindGraph, entity: Entity) -> f32 {
+    mind.get(&Node::Entity(entity), Predicate::Affection)
+        .and_then(|v| v.as_quantity())
+        .map(|q| q.point_estimate())
+        .unwrap_or(0.0)
 }
 
 /// Closest visible entity the agent considers `Dangerous`, with its
@@ -803,6 +852,9 @@ mod tests {
             body: None,
             cornered: false,
             closest_threat: None,
+            visible_in_conversation: &[],
+            social_cooldowns: None,
+            current_tick: 0,
         });
 
         assert!(proposal.is_some());
@@ -850,6 +902,9 @@ mod tests {
             body: None,
             cornered: false,
             closest_threat: None,
+            visible_in_conversation: &[],
+            social_cooldowns: None,
+            current_tick: 0,
         });
 
         assert!(proposal.is_some());
@@ -895,6 +950,9 @@ mod tests {
             body: None,
             cornered: false,
             closest_threat: None,
+            visible_in_conversation: &[],
+            social_cooldowns: None,
+            current_tick: 0,
         });
 
         assert!(proposal.is_some());
@@ -927,6 +985,9 @@ mod tests {
             body: None,
             cornered: false,
             closest_threat: None,
+            visible_in_conversation: &[],
+            social_cooldowns: None,
+            current_tick: 0,
         });
 
         assert!(proposal.is_none());
@@ -963,6 +1024,9 @@ mod tests {
             body: None,
             cornered: false,
             closest_threat: None,
+            visible_in_conversation: &[],
+            social_cooldowns: None,
+            current_tick: 0,
         })
         .expect("should propose Flee");
 
@@ -976,6 +1040,227 @@ mod tests {
             behavior.intent,
             MotorIntent::Safety,
             "Flee should carry Safety intent"
+        );
+    }
+
+    // ─── seek_social_initiation ─────────────────────────────────────────────
+
+    use super::super::social_initiation::{
+        SOCIAL_INITIATION_COOLDOWN_TICKS, SocialInitiationCooldowns,
+    };
+
+    fn social_registry() -> crate::agent::actions::ActionRegistry {
+        let mut r = crate::agent::actions::ActionRegistry::default();
+        r.register_def(&crate::agent::actions::action::INITIATE_CONVERSATION_DEF);
+        r
+    }
+
+    /// Owns the borrowed-by-EmotionalInputs scaffolding so each test
+    /// can declare just the fields the social proposer reads.
+    struct SocialFixture {
+        emotions: EmotionalState,
+        mind: MindGraph,
+        visible: VisibleObjects,
+        physical: PhysicalNeeds,
+        cns: crate::agent::nervous_system::cns::CentralNervousSystem,
+        fields: FieldGrids,
+        registry: crate::agent::actions::ActionRegistry,
+    }
+
+    impl SocialFixture {
+        fn new(mind: MindGraph) -> Self {
+            Self {
+                emotions: EmotionalState::default(),
+                mind,
+                visible: VisibleObjects::default(),
+                physical: PhysicalNeeds::default(),
+                cns: Default::default(),
+                fields: FieldGrids::default(),
+                registry: social_registry(),
+            }
+        }
+
+        fn inputs<'a>(
+            &'a self,
+            visible_positions: &'a [(Entity, Vec2)],
+            visible_types: &'a [Option<Concept>],
+            visible_in_conversation: &'a [bool],
+            social_cooldowns: Option<&'a SocialInitiationCooldowns>,
+            current_tick: u64,
+        ) -> EmotionalInputs<'a> {
+            EmotionalInputs {
+                emotions: &self.emotions,
+                mind: &self.mind,
+                visible: &self.visible,
+                visible_positions,
+                visible_types,
+                physical: &self.physical,
+                drives: None,
+                in_conversation: None,
+                self_concept: Some(Concept::Person),
+                agent_pos: Vec2::ZERO,
+                fields: &self.fields,
+                cns: &self.cns,
+                action_registry: &self.registry,
+                personality: None,
+                body: None,
+                cornered: false,
+                closest_threat: None,
+                visible_in_conversation,
+                social_cooldowns,
+                current_tick,
+            }
+        }
+    }
+
+    /// Lonely enough that the proposer fires past `SOCIAL_SEEK_THRESHOLD`.
+    const LONELY_DRIVE: f32 = 1.0;
+
+    #[test]
+    fn social_initiation_skips_unreachable_in_conversation_and_picks_reachable() {
+        let mut mind = MindGraph::default();
+        // Mark tile (5, 5) Unreachable for the agent.
+        mind.assert(Triple::with_meta(
+            Node::Tile((5, 5)),
+            Predicate::HasTrait,
+            Value::Concept(Concept::Unreachable),
+            Metadata::experience(0),
+        ));
+        let fixture = SocialFixture::new(mind);
+
+        let unreachable = Entity::from_bits(11);
+        let busy = Entity::from_bits(12);
+        let reachable = Entity::from_bits(13);
+        let visible_positions = [
+            (unreachable, Vec2::new(5.0 * TILE_SIZE, 5.0 * TILE_SIZE)),
+            (busy, Vec2::new(TILE_SIZE, 0.0)),
+            (reachable, Vec2::new(2.0 * TILE_SIZE, 0.0)),
+        ];
+        let visible_types = [
+            Some(Concept::Person),
+            Some(Concept::Person),
+            Some(Concept::Person),
+        ];
+        let visible_in_conversation = [false, true, false];
+        let inputs = fixture.inputs(
+            &visible_positions,
+            &visible_types,
+            &visible_in_conversation,
+            None,
+            0,
+        );
+
+        let proposal = seek_social_initiation(LONELY_DRIVE, &inputs, 0.0)
+            .expect("should propose toward the reachable, available person");
+        assert_eq!(proposal.action.target_entity, Some(reachable));
+    }
+
+    #[test]
+    fn social_initiation_returns_none_when_all_candidates_filtered() {
+        let mut mind = MindGraph::default();
+        mind.assert(Triple::with_meta(
+            Node::Tile((5, 5)),
+            Predicate::HasTrait,
+            Value::Concept(Concept::Unreachable),
+            Metadata::experience(0),
+        ));
+        let fixture = SocialFixture::new(mind);
+
+        let unreachable = Entity::from_bits(11);
+        let busy = Entity::from_bits(12);
+        let visible_positions = [
+            (unreachable, Vec2::new(5.0 * TILE_SIZE, 5.0 * TILE_SIZE)),
+            (busy, Vec2::new(TILE_SIZE, 0.0)),
+        ];
+        let visible_types = [Some(Concept::Person), Some(Concept::Person)];
+        let visible_in_conversation = [false, true];
+        let inputs = fixture.inputs(
+            &visible_positions,
+            &visible_types,
+            &visible_in_conversation,
+            None,
+            0,
+        );
+
+        assert!(
+            seek_social_initiation(LONELY_DRIVE, &inputs, 0.0).is_none(),
+            "no candidates → no proposal, no spam"
+        );
+    }
+
+    #[test]
+    fn social_initiation_skips_target_inside_failure_cooldown() {
+        let fixture = SocialFixture::new(MindGraph::default());
+        let only_candidate = Entity::from_bits(7);
+
+        let visible_positions = [(only_candidate, Vec2::new(TILE_SIZE, 0.0))];
+        let visible_types = [Some(Concept::Person)];
+        let visible_in_conversation = [false];
+
+        let mut cooldowns = SocialInitiationCooldowns::default();
+        cooldowns.record(only_candidate, 100);
+
+        // Inside the cooldown window: skip even though it is the only
+        // candidate (rather than re-spamming an already-failed target).
+        let inputs = fixture.inputs(
+            &visible_positions,
+            &visible_types,
+            &visible_in_conversation,
+            Some(&cooldowns),
+            100,
+        );
+        assert!(
+            seek_social_initiation(LONELY_DRIVE, &inputs, 0.0).is_none(),
+            "cooled-down target must not be retried"
+        );
+
+        // After the cooldown window: candidate is re-eligible.
+        let inputs = fixture.inputs(
+            &visible_positions,
+            &visible_types,
+            &visible_in_conversation,
+            Some(&cooldowns),
+            100 + SOCIAL_INITIATION_COOLDOWN_TICKS,
+        );
+        let proposal = seek_social_initiation(LONELY_DRIVE, &inputs, 0.0)
+            .expect("expired cooldown should let the target through again");
+        assert_eq!(proposal.action.target_entity, Some(only_candidate));
+    }
+
+    #[test]
+    fn social_initiation_prefers_closer_and_fonder_candidate() {
+        let close_stranger = Entity::from_bits(20);
+        let far_friend = Entity::from_bits(21);
+
+        // Close stranger sits 2 tiles away with no affection. Far friend
+        // sits 5 tiles away with affection 1.0 — AFFECTION_RANK_WEIGHT
+        // (6.0) means the friend wins by ~3 tile-units.
+        let mut mind = MindGraph::default();
+        crate::agent::mind::recognition::init_relationship_dimensions(
+            &mut mind, far_friend, 0, 1.0,
+        );
+        let fixture = SocialFixture::new(mind);
+
+        let visible_positions = [
+            (close_stranger, Vec2::new(2.0 * TILE_SIZE, 0.0)),
+            (far_friend, Vec2::new(5.0 * TILE_SIZE, 0.0)),
+        ];
+        let visible_types = [Some(Concept::Person), Some(Concept::Person)];
+        let visible_in_conversation = [false, false];
+        let inputs = fixture.inputs(
+            &visible_positions,
+            &visible_types,
+            &visible_in_conversation,
+            None,
+            0,
+        );
+
+        let proposal =
+            seek_social_initiation(LONELY_DRIVE, &inputs, 0.0).expect("should propose someone");
+        assert_eq!(
+            proposal.action.target_entity,
+            Some(far_friend),
+            "affection should outweigh a few extra tiles of distance"
         );
     }
 }

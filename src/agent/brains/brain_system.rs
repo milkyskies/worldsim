@@ -11,6 +11,7 @@ use super::history::BrainHistory;
 use super::plan_memory::{PlanMemory, PlanState};
 use super::proposal::{BrainPowers, BrainState, BrainType};
 use super::rational::rational_brain_propose;
+use super::social_initiation::SocialInitiationCooldowns;
 use super::survival::{SurvivalBrainContext, survival_brain_propose};
 use crate::agent::biology::body::{Body, TagChannelMapping};
 use crate::agent::body::needs::{Consciousness, PhysicalNeeds, PsychologicalDrives};
@@ -131,6 +132,8 @@ pub fn arbitrate_every_tick(
     all_bodies: Query<&Body>,
     cornered_query: Query<&crate::agent::Cornered>,
     dazed_query: Query<&crate::agent::Dazed>,
+    in_conversation_query: Query<(), With<crate::agent::mind::conversation::InConversation>>,
+    social_cooldowns_query: Query<&SocialInitiationCooldowns>,
 ) {
     let woken = pending.drain();
 
@@ -181,19 +184,22 @@ pub fn arbitrate_every_tick(
             &action_registry,
         );
 
-        // Pre-resolve visible-entity positions and concept types so the
-        // tile scorer doesn't hit the Query per tile and so emotional
-        // proposers can ask the ontology by concept (skipping the
-        // wasted entity→IsA chain walk per visible-entity per
-        // arbitration).
+        // Pre-resolve visible-entity positions, concept types, and
+        // InConversation status in one pass over the Query, parallel-
+        // indexed so brain proposers can iterate them together without
+        // re-querying ECS or the MindGraph ontology per visible entity.
         let mut visible_positions: Vec<(Entity, Vec2)> = Vec::with_capacity(visible.entities.len());
         let mut visible_types: Vec<Option<Concept>> = Vec::with_capacity(visible.entities.len());
+        let mut visible_in_conversation: Vec<bool> = Vec::with_capacity(visible.entities.len());
         for &e in &visible.entities {
             if let Ok((t, et)) = all_transforms.get(e) {
                 visible_positions.push((e, t.translation.truncate()));
                 visible_types.push(et.map(|et| et.0));
+                visible_in_conversation.push(in_conversation_query.contains(e));
             }
         }
+
+        let social_cooldowns = social_cooldowns_query.get(entity).ok();
 
         let closest_threat = closest_dangerous.map(|(e, pos)| super::emotional::ClosestThreat {
             entity: e,
@@ -225,6 +231,9 @@ pub fn arbitrate_every_tick(
             body,
             cornered,
             closest_threat,
+            visible_in_conversation: &visible_in_conversation,
+            social_cooldowns,
+            current_tick: tick.current,
         };
         let emotional_proposal = emotional_brain_propose(&emotional_inputs);
 
