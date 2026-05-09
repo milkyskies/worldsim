@@ -23,64 +23,119 @@ use rand::Rng;
 #[reflect(Component)]
 pub struct Deer;
 
-/// Canonical deer silhouette.
+/// Canonical deer silhouette - Bambi-flavored: slender body, head + snout
+/// up and forward, tall thin legs in two pairs (front/back), perky ears,
+/// small upturned tail.
 pub fn deer_silhouette() -> CreatureSilhouette {
     let fur = PaletteColor::SkinDark;
     let leg_fur = PaletteColor::SkinDeep;
-    let eye = SilhouettePart {
-        body_node: None,
-        shape: Shape::Circle,
-        size: Vec2::new(1.2, 1.2),
-        offset: Vec2::new(9.5, 3.0),
-        rotation: 0.0,
-        color: PaletteColor::FurBlack,
-        z_bias: 2,
-        role: PartRole::Eye,
-        tint_with_environment: false,
-    };
     let leg = |x: f32| SilhouettePart {
         body_node: None,
         shape: Shape::Capsule,
-        size: Vec2::new(2.0, 5.0),
-        offset: Vec2::new(x, -5.0),
+        size: Vec2::new(1.4, 6.0),
+        offset: Vec2::new(x, -6.0),
         rotation: 0.0,
         color: leg_fur,
         z_bias: 0,
         role: PartRole::Limb,
         tint_with_environment: false,
     };
+    let ear = |x: f32, y: f32| SilhouettePart {
+        body_node: None,
+        shape: Shape::Triangle,
+        size: Vec2::new(1.8, 3.5),
+        offset: Vec2::new(x, y),
+        rotation: 0.0,
+        color: fur,
+        z_bias: 2,
+        role: PartRole::Ear,
+        tint_with_environment: false,
+    };
     CreatureSilhouette {
         parts: vec![
+            // Torso - slender, longer than tall, slightly elevated.
             SilhouettePart {
                 body_node: Some(BodyNodeKind::Torso),
                 shape: Shape::Ellipse,
-                size: Vec2::new(14.0, 8.0),
-                offset: Vec2::ZERO,
+                size: Vec2::new(13.0, 5.5),
+                offset: Vec2::new(0.0, -1.0),
                 rotation: 0.0,
                 color: fur,
                 z_bias: 0,
                 role: PartRole::Body,
                 tint_with_environment: false,
             },
+            // Neck rising forward-up from front of torso to base of head.
+            SilhouettePart {
+                body_node: None,
+                shape: Shape::Capsule,
+                size: Vec2::new(2.5, 5.0),
+                offset: Vec2::new(5.5, 2.5),
+                rotation: 0.0,
+                color: fur,
+                z_bias: 0,
+                role: PartRole::Body,
+                tint_with_environment: false,
+            },
+            // Head - elongated ellipse pointing forward (snout-shaped).
             SilhouettePart {
                 body_node: Some(BodyNodeKind::Head),
-                shape: Shape::Circle,
-                size: Vec2::new(6.0, 6.0),
-                offset: Vec2::new(8.0, 2.0),
+                shape: Shape::Ellipse,
+                size: Vec2::new(5.5, 3.5),
+                offset: Vec2::new(8.0, 5.5),
                 rotation: 0.0,
                 color: fur,
                 z_bias: 1,
                 role: PartRole::Body,
                 tint_with_environment: false,
             },
-            eye,
-            leg(-4.0),
-            leg(-1.0),
-            leg(2.0),
+            // Snout tip slightly darker.
+            SilhouettePart {
+                body_node: None,
+                shape: Shape::Ellipse,
+                size: Vec2::new(2.2, 1.6),
+                offset: Vec2::new(10.5, 4.8),
+                rotation: 0.0,
+                color: PaletteColor::SkinDeep,
+                z_bias: 2,
+                role: PartRole::Snout,
+                tint_with_environment: false,
+            },
+            // Big cute eye, forward on the head.
+            SilhouettePart {
+                body_node: None,
+                shape: Shape::Circle,
+                size: Vec2::new(1.4, 1.4),
+                offset: Vec2::new(9.0, 6.2),
+                rotation: 0.0,
+                color: PaletteColor::FurBlack,
+                z_bias: 2,
+                role: PartRole::Eye,
+                tint_with_environment: false,
+            },
+            ear(6.5, 8.5),
+            ear(8.0, 9.0),
+            // Tail - small upturned tuft at the back.
+            SilhouettePart {
+                body_node: None,
+                shape: Shape::Teardrop,
+                size: Vec2::new(2.2, 2.2),
+                offset: Vec2::new(-7.0, 1.0),
+                rotation: 0.0,
+                color: PaletteColor::FurWhite,
+                z_bias: 1,
+                role: PartRole::Tail,
+                tint_with_environment: false,
+            },
+            // Front leg pair (under shoulders, x positive = head side).
+            leg(3.5),
             leg(5.0),
+            // Back leg pair (under hips, x negative = tail side).
+            leg(-4.5),
+            leg(-3.0),
         ],
-        shadow_size: Vec2::new(14.0, 5.0),
-        shadow_offset_y: -6.0,
+        shadow_size: Vec2::new(14.0, 4.0),
+        shadow_offset_y: -8.5,
         hop_phase: 0.0,
     }
 }
