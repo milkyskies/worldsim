@@ -14,6 +14,7 @@ use worldsim::core::CorePlugin;
 use worldsim::headless;
 use worldsim::menu::MenuPlugin;
 use worldsim::palette::PalettePlugin;
+use worldsim::silhouette::SilhouettePlugin;
 use worldsim::ui::UiPlugin;
 use worldsim::ui::camera::CameraPlugin;
 use worldsim::world::WorldPlugin;
@@ -127,6 +128,8 @@ fn run_windowed() {
         .add_plugins(MenuPlugin)
         // Palette resource - loaded before any spawn system reads colors.
         .add_plugins(PalettePlugin)
+        // Reads CreatureSilhouette and renders the child sprite hierarchy.
+        .add_plugins(SilhouettePlugin)
         // Domain plugins
         .add_plugins(WorldPlugin)
         .add_plugins(AgentPlugin)

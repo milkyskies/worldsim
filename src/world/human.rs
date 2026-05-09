@@ -1,21 +1,78 @@
 //! Human (Person) spawning logic.
 
+use crate::agent::biology::body::BodyNodeKind;
 use crate::agent::body::genetics::founder::random_genome;
 use crate::agent::body::needs::PhysicalNeeds;
 use crate::agent::body::species::Species;
 use crate::agent::mind::knowledge::Ontology;
 use crate::agent::naming::human_name;
 use crate::agent::spawn_human::{PersonInit, build_person_logic};
-use crate::palette::{Palette, PaletteColor};
-use crate::world::environment::{AgentBodySprite, BaseColor};
+use crate::palette::PaletteColor;
+use crate::silhouette::{CreatureSilhouette, PartRole, Shape, SilhouettePart};
 use bevy::prelude::*;
 use rand::Rng;
+
+const HUMAN_SKIN_TONES: [PaletteColor; 6] = [
+    PaletteColor::SkinPale,
+    PaletteColor::SkinFair,
+    PaletteColor::SkinTan,
+    PaletteColor::SkinMedium,
+    PaletteColor::SkinDark,
+    PaletteColor::SkinDeep,
+];
+
+/// Canonical human silhouette parameterized by skin tone (gene-driven).
+/// Body and head opt into agent-style day/night tinting; eyes do not, so
+/// they stay readable through dim hours.
+pub fn human_silhouette(skin: PaletteColor) -> CreatureSilhouette {
+    let eye = |x: f32| SilhouettePart {
+        body_node: None,
+        shape: Shape::Circle,
+        size: Vec2::new(2.0, 2.0),
+        offset: Vec2::new(x, 10.0),
+        rotation: 0.0,
+        color: PaletteColor::FurBlack,
+        z_bias: 2,
+        role: PartRole::Eye,
+        tint_with_environment: false,
+    };
+    CreatureSilhouette {
+        parts: vec![
+            SilhouettePart {
+                body_node: Some(BodyNodeKind::Torso),
+                shape: Shape::Capsule,
+                size: Vec2::new(10.0, 12.0),
+                offset: Vec2::new(0.0, -2.0),
+                rotation: 0.0,
+                color: skin,
+                z_bias: 0,
+                role: PartRole::Body,
+                tint_with_environment: true,
+            },
+            SilhouettePart {
+                body_node: Some(BodyNodeKind::Head),
+                shape: Shape::Circle,
+                size: Vec2::new(10.0, 10.0),
+                offset: Vec2::new(0.0, 9.0),
+                rotation: 0.0,
+                color: skin,
+                z_bias: 1,
+                role: PartRole::Body,
+                tint_with_environment: true,
+            },
+            eye(-2.5),
+            eye(2.5),
+        ],
+        shadow_size: Vec2::new(10.0, 4.0),
+        shadow_offset_y: -8.0,
+        hop_phase: 0.0,
+    }
+}
 
 /// Spawns a Person (Human Agent)
 pub fn spawn_person<R: Rng>(
     commands: &mut Commands,
     ontology: Ontology,
-    palette: &Palette,
     position: Vec2,
     index: usize,
     _culture: crate::agent::culture::Culture,
@@ -38,102 +95,22 @@ pub fn spawn_person<R: Rng>(
         ontology,
     );
 
-    let skin_tones = [
-        PaletteColor::SkinPale,
-        PaletteColor::SkinFair,
-        PaletteColor::SkinTan,
-        PaletteColor::SkinMedium,
-        PaletteColor::SkinDark,
-        PaletteColor::SkinDeep,
-    ];
-    let skin_color = palette.srgb(skin_tones[rng.random_range(0..skin_tones.len())]);
+    let skin = HUMAN_SKIN_TONES[rng.random_range(0..HUMAN_SKIN_TONES.len())];
 
     let entity = commands
         .spawn(core)
         .insert(perception)
         .insert((
-            // Rendering visibility — needed by Bevy's visibility propagation,
-            // not part of the logic-only bundle since TestWorld skips it.
             Visibility::default(),
             InheritedVisibility::default(),
             ViewVisibility::default(),
             crate::ui::sprite_animation::VisualOffset::default(),
+            human_silhouette(skin).with_hop_phase(index as f32 * 1.618),
         ))
         .insert(brain)
         .id();
 
     commands.entity(entity).with_children(|parent| {
-        // Ground shadow — dark ellipse at the agent's feet. Tracks terrain
-        // elevation but not the bounce so the sprite visibly hops above it.
-        parent.spawn((
-            crate::ui::sprite_animation::GroundShadow::new(entity, Vec2::new(0.0, -8.0)),
-            Sprite {
-                color: palette.shadow(),
-                custom_size: Some(Vec2::new(10.0, 4.0)),
-                ..default()
-            },
-            Transform::from_translation(Vec3::new(0.0, -8.0, -0.05)),
-        ));
-
-        // SpriteBody wrapper — animated (hops), contains all visual sprite parts
-        parent
-            .spawn((
-                crate::ui::sprite_animation::SpriteBody::new(entity, index as f32 * 1.618),
-                Transform::default(),
-                GlobalTransform::default(),
-                Visibility::default(),
-                InheritedVisibility::default(),
-                ViewVisibility::default(),
-            ))
-            .with_children(|body| {
-                // BODY (Torso)
-                body.spawn((
-                    Sprite {
-                        color: skin_color,
-                        custom_size: Some(Vec2::new(10.0, 12.0)),
-                        ..default()
-                    },
-                    BaseColor(skin_color),
-                    AgentBodySprite,
-                    Transform::from_translation(Vec3::new(0.0, -2.0, 0.0)),
-                ));
-
-                // HEAD
-                body.spawn((
-                    Sprite {
-                        color: skin_color,
-                        custom_size: Some(Vec2::new(10.0, 10.0)),
-                        ..default()
-                    },
-                    BaseColor(skin_color),
-                    AgentBodySprite,
-                    Transform::from_translation(Vec3::new(0.0, 9.0, 0.1)),
-                ))
-                .with_children(|head| {
-                    let eye_color = palette.srgb(PaletteColor::FurBlack);
-                    let eye_size = Vec2::new(2.0, 2.0);
-
-                    head.spawn((
-                        Sprite {
-                            color: eye_color,
-                            custom_size: Some(eye_size),
-                            ..default()
-                        },
-                        Transform::from_translation(Vec3::new(-2.5, 1.0, 0.1)),
-                    ));
-
-                    head.spawn((
-                        Sprite {
-                            color: eye_color,
-                            custom_size: Some(eye_size),
-                            ..default()
-                        },
-                        Transform::from_translation(Vec3::new(2.5, 1.0, 0.1)),
-                    ));
-                });
-            });
-
-        // NAME TAG — direct child of root, stays still
         parent.spawn((
             Text2d::new(display_name.clone()),
             TextFont {

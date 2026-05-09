@@ -5,6 +5,7 @@
 //! Upstream: world::spawner (calls spawn_wolf), world::map (biome placement)
 //! Downstream: agent brains (fear/flee in humans/deer, anger/attack in wolves)
 
+use crate::agent::biology::body::BodyNodeKind;
 use crate::agent::body::genetics::founder::random_genome;
 use crate::agent::body::needs::PsychologicalDrives;
 use crate::agent::body::species::{Species, SpeciesProfile};
@@ -14,6 +15,7 @@ use crate::agent::mind::knowledge::{Concept, MindGraph, Ontology};
 use crate::agent::naming::wolf_name;
 use crate::agent::{Agent, Alive};
 use crate::palette::{Palette, PaletteColor};
+use crate::silhouette::{CreatureSilhouette, PartRole, Shape, SilhouettePart};
 use crate::world::map::TILE_SIZE;
 use bevy::prelude::*;
 use rand::Rng;
@@ -22,6 +24,81 @@ use rand::Rng;
 #[derive(Component, Reflect, Default)]
 #[reflect(Component)]
 pub struct Wolf;
+
+/// Canonical wolf silhouette. Genes/markings deform this later; injury
+/// overlays read the per-part `body_node` link.
+pub fn wolf_silhouette() -> CreatureSilhouette {
+    let fur = PaletteColor::FurGrey;
+    let leg_fur = PaletteColor::FurSlate;
+    let leg = |x: f32| SilhouettePart {
+        body_node: None,
+        shape: Shape::Capsule,
+        size: Vec2::new(2.5, 5.0),
+        offset: Vec2::new(x, -6.0),
+        rotation: 0.0,
+        color: leg_fur,
+        z_bias: 0,
+        role: PartRole::Limb,
+        tint_with_environment: false,
+    };
+    let ear = |x: f32| SilhouettePart {
+        body_node: None,
+        shape: Shape::Triangle,
+        size: Vec2::new(3.0, 4.0),
+        offset: Vec2::new(x, 6.0),
+        rotation: 0.0,
+        color: fur,
+        z_bias: 2,
+        role: PartRole::Ear,
+        tint_with_environment: false,
+    };
+    CreatureSilhouette {
+        parts: vec![
+            SilhouettePart {
+                body_node: Some(BodyNodeKind::Torso),
+                shape: Shape::Ellipse,
+                size: Vec2::new(16.0, 9.0),
+                offset: Vec2::ZERO,
+                rotation: 0.0,
+                color: fur,
+                z_bias: 0,
+                role: PartRole::Body,
+                tint_with_environment: false,
+            },
+            SilhouettePart {
+                body_node: Some(BodyNodeKind::Head),
+                shape: Shape::Circle,
+                size: Vec2::new(8.0, 7.0),
+                offset: Vec2::new(9.0, 1.0),
+                rotation: 0.0,
+                color: fur,
+                z_bias: 1,
+                role: PartRole::Body,
+                tint_with_environment: false,
+            },
+            ear(7.0),
+            ear(10.0),
+            leg(-5.0),
+            leg(-2.0),
+            leg(2.0),
+            leg(5.0),
+            SilhouettePart {
+                body_node: None,
+                shape: Shape::Teardrop,
+                size: Vec2::new(7.0, 3.0),
+                offset: Vec2::new(-10.0, 2.0),
+                rotation: 0.0,
+                color: fur,
+                z_bias: 0,
+                role: PartRole::Tail,
+                tint_with_environment: false,
+            },
+        ],
+        shadow_size: Vec2::new(14.0, 5.0),
+        shadow_offset_y: -6.0,
+        hop_phase: 0.0,
+    }
+}
 
 /// Spawns a Wolf (Predator Agent)
 pub fn spawn_wolf<R: Rng>(
@@ -43,9 +120,6 @@ pub fn spawn_wolf<R: Rng>(
 
     let mut mind = MindGraph::new(ontology);
     add_wolf_knowledge(&mut mind, spawn_tile);
-
-    let body_color = palette.srgb(PaletteColor::FurGrey);
-    let head_color = body_color;
 
     let entity = commands
         .spawn((
@@ -75,6 +149,7 @@ pub fn spawn_wolf<R: Rng>(
             InheritedVisibility::default(),
             ViewVisibility::default(),
             crate::ui::sprite_animation::VisualOffset::default(),
+            wolf_silhouette().with_hop_phase(index as f32 * 1.618),
         ))
         .insert((
             crate::agent::mind::memory::WorkingMemory::default(),
@@ -92,98 +167,6 @@ pub fn spawn_wolf<R: Rng>(
         .id();
 
     commands.entity(entity).with_children(|parent| {
-        // Ground shadow — sits on the terrain, no bounce.
-        parent.spawn((
-            crate::ui::sprite_animation::GroundShadow::new(entity, Vec2::new(0.0, -6.0)),
-            Sprite {
-                color: palette.shadow(),
-                custom_size: Some(Vec2::new(14.0, 5.0)),
-                ..default()
-            },
-            Transform::from_translation(Vec3::new(0.0, -6.0, -0.05)),
-        ));
-
-        // SpriteBody wrapper — animated (hops)
-        parent
-            .spawn((
-                crate::ui::sprite_animation::SpriteBody::new(entity, index as f32 * 1.618),
-                Transform::default(),
-                GlobalTransform::default(),
-                Visibility::default(),
-                InheritedVisibility::default(),
-                ViewVisibility::default(),
-            ))
-            .with_children(|body| {
-                body.spawn((
-                    Sprite {
-                        color: body_color,
-                        custom_size: Some(Vec2::new(16.0, 9.0)),
-                        ..default()
-                    },
-                    Transform::from_translation(Vec3::new(0.0, 0.0, 0.0)),
-                ));
-
-                body.spawn((
-                    Sprite {
-                        color: head_color,
-                        custom_size: Some(Vec2::new(8.0, 7.0)),
-                        ..default()
-                    },
-                    Transform::from_translation(Vec3::new(9.0, 1.0, 0.1)),
-                ));
-
-                // Ears
-                body.spawn((
-                    Sprite {
-                        color: body_color,
-                        custom_size: Some(Vec2::new(3.0, 4.0)),
-                        ..default()
-                    },
-                    Transform::from_translation(Vec3::new(7.0, 6.0, 0.2)),
-                ));
-
-                body.spawn((
-                    Sprite {
-                        color: body_color,
-                        custom_size: Some(Vec2::new(3.0, 4.0)),
-                        ..default()
-                    },
-                    Transform::from_translation(Vec3::new(10.0, 6.0, 0.2)),
-                ));
-
-                // Legs
-                let leg_color = palette.srgb(PaletteColor::FurSlate);
-                let leg_size = Vec2::new(2.5, 5.0);
-                let leg_positions = [
-                    Vec3::new(-5.0, -6.0, 0.0),
-                    Vec3::new(-2.0, -6.0, 0.0),
-                    Vec3::new(2.0, -6.0, 0.0),
-                    Vec3::new(5.0, -6.0, 0.0),
-                ];
-
-                for pos in leg_positions {
-                    body.spawn((
-                        Sprite {
-                            color: leg_color,
-                            custom_size: Some(leg_size),
-                            ..default()
-                        },
-                        Transform::from_translation(pos),
-                    ));
-                }
-
-                // Tail
-                body.spawn((
-                    Sprite {
-                        color: body_color,
-                        custom_size: Some(Vec2::new(7.0, 3.0)),
-                        ..default()
-                    },
-                    Transform::from_translation(Vec3::new(-10.0, 2.0, 0.0)),
-                ));
-            });
-
-        // Name tag — direct child of root, stays still
         parent.spawn((
             Text2d::new(wolf_name(index)),
             TextFont {
