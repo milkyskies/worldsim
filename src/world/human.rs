@@ -29,27 +29,16 @@ const HUMAN_HAIR_COLORS: [PaletteColor; 4] = [
     PaletteColor::SkinDark,
 ];
 
-/// Canonical chibi-style human silhouette: big round head, small body,
-/// stubby arms and legs, hair cap, simple face with two eyes and a tiny
-/// smile. Body parts get day/night agent tinting; face features (eyes,
-/// mouth) and hair stay readable through dim hours.
+/// Stardew-villager-flavored chibi human: big head, soft fringe of hair
+/// peeking around the top, stubby tucked arms, short legs, no mouth slit.
+/// Hair sits *behind* the head so it shows as a fringe at the top and
+/// sides only - no helmet effect, no chin hair.
 pub fn human_silhouette(skin: PaletteColor, hair: PaletteColor) -> CreatureSilhouette {
-    let eye = |x: f32| SilhouettePart {
-        body_node: None,
-        shape: Shape::Circle,
-        size: Vec2::new(1.8, 1.8),
-        offset: Vec2::new(x, 9.5),
-        rotation: 0.0,
-        color: PaletteColor::FurBlack,
-        z_bias: 2,
-        role: PartRole::Eye,
-        tint_with_environment: false,
-    };
     let arm = |x: f32| SilhouettePart {
         body_node: None,
         shape: Shape::Capsule,
-        size: Vec2::new(2.2, 6.0),
-        offset: Vec2::new(x, -1.5),
+        size: Vec2::new(2.0, 3.5),
+        offset: Vec2::new(x, -1.0),
         rotation: 0.0,
         color: skin,
         z_bias: 0,
@@ -59,8 +48,8 @@ pub fn human_silhouette(skin: PaletteColor, hair: PaletteColor) -> CreatureSilho
     let leg = |x: f32| SilhouettePart {
         body_node: None,
         shape: Shape::Capsule,
-        size: Vec2::new(2.5, 5.0),
-        offset: Vec2::new(x, -7.5),
+        size: Vec2::new(2.5, 3.5),
+        offset: Vec2::new(x, -6.5),
         rotation: 0.0,
         color: skin,
         z_bias: 0,
@@ -69,6 +58,19 @@ pub fn human_silhouette(skin: PaletteColor, hair: PaletteColor) -> CreatureSilho
     };
     CreatureSilhouette {
         parts: vec![
+            // Hair behind the head so it shows as a soft fringe at the top
+            // and sides where it pokes past the head outline.
+            SilhouettePart {
+                body_node: None,
+                shape: Shape::Ellipse,
+                size: Vec2::new(12.0, 9.0),
+                offset: Vec2::new(0.0, 11.0),
+                rotation: 0.0,
+                color: hair,
+                z_bias: 0,
+                role: PartRole::Marking,
+                tint_with_environment: true,
+            },
             // Smaller torso - chibi proportions favor a big head over a big body.
             SilhouettePart {
                 body_node: Some(BodyNodeKind::Torso),
@@ -81,15 +83,15 @@ pub fn human_silhouette(skin: PaletteColor, hair: PaletteColor) -> CreatureSilho
                 role: PartRole::Body,
                 tint_with_environment: true,
             },
-            arm(-4.5),
-            arm(4.5),
+            arm(-4.0),
+            arm(4.0),
             leg(-2.0),
             leg(2.0),
             // Tiny visible neck so the head doesn't sit directly on the chest.
             SilhouettePart {
                 body_node: None,
                 shape: Shape::Capsule,
-                size: Vec2::new(3.0, 1.8),
+                size: Vec2::new(3.0, 1.5),
                 offset: Vec2::new(0.0, 3.5),
                 rotation: 0.0,
                 color: skin,
@@ -97,7 +99,7 @@ pub fn human_silhouette(skin: PaletteColor, hair: PaletteColor) -> CreatureSilho
                 role: PartRole::Body,
                 tint_with_environment: true,
             },
-            // Big chibi head.
+            // Big chibi head, drawn over the hair so the hair becomes a fringe.
             SilhouettePart {
                 body_node: Some(BodyNodeKind::Head),
                 shape: Shape::Circle,
@@ -109,35 +111,33 @@ pub fn human_silhouette(skin: PaletteColor, hair: PaletteColor) -> CreatureSilho
                 role: PartRole::Body,
                 tint_with_environment: true,
             },
-            // Hair cap on top of the head.
+            // Eyes - subtly asymmetric (one a hair higher) to dodge the
+            // perfect-mirror dead-doll look.
             SilhouettePart {
                 body_node: None,
-                shape: Shape::Capsule,
-                size: Vec2::new(10.0, 4.0),
-                offset: Vec2::new(0.0, 12.5),
-                rotation: 0.0,
-                color: hair,
-                z_bias: 1,
-                role: PartRole::Marking,
-                tint_with_environment: true,
-            },
-            eye(-2.2),
-            eye(2.2),
-            // Tiny smile.
-            SilhouettePart {
-                body_node: None,
-                shape: Shape::Ellipse,
-                size: Vec2::new(2.0, 0.6),
-                offset: Vec2::new(0.0, 6.8),
+                shape: Shape::Circle,
+                size: Vec2::new(1.8, 1.8),
+                offset: Vec2::new(-2.2, 9.5),
                 rotation: 0.0,
                 color: PaletteColor::FurBlack,
                 z_bias: 2,
-                role: PartRole::Marking,
+                role: PartRole::Eye,
+                tint_with_environment: false,
+            },
+            SilhouettePart {
+                body_node: None,
+                shape: Shape::Circle,
+                size: Vec2::new(1.8, 1.8),
+                offset: Vec2::new(2.2, 9.7),
+                rotation: 0.0,
+                color: PaletteColor::FurBlack,
+                z_bias: 2,
+                role: PartRole::Eye,
                 tint_with_environment: false,
             },
         ],
         shadow_size: Vec2::new(9.0, 3.5),
-        shadow_offset_y: -10.0,
+        shadow_offset_y: -9.0,
         hop_phase: 0.0,
     }
 }
