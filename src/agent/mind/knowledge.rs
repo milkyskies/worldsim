@@ -132,6 +132,12 @@ pub enum Concept {
     RottenApple,
     RottenBerry,
 
+    // ─── Cooked variants ───
+    /// Raw `Meat` transformed by the `Cook` action near a `HeatEmitting`
+    /// entity. Better hunger satisfaction per unit and slower freshness
+    /// decay than its raw counterpart.
+    CookedMeat,
+
     // ─── Buildable entity types ───
     Campfire,
     LeanTo,
@@ -1981,6 +1987,9 @@ pub fn setup_ontology() -> Ontology {
 
     add(c(Meat), IsA, v(Food));
     add(c(Meat), IsA, v(Resource));
+
+    add(c(CookedMeat), IsA, v(Food));
+    add(c(CookedMeat), IsA, v(Resource));
 
     add(c(AppleTree), IsA, v(Plant));
     add(c(BerryBush), IsA, v(Plant));

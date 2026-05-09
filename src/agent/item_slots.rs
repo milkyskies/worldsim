@@ -89,12 +89,16 @@ impl Thing {
 /// or `None` if the concept does not decay.
 ///
 /// Decay rates (100-tick event):
-/// - Apple:  0.005  → ~200 events → 20 000 ticks to fully rot
-/// - Berry:  0.020  → ~50 events  → 5 000 ticks to fully rot
+/// - Apple:       0.005  → ~200 events → 20 000 ticks to fully rot
+/// - Berry:       0.020  → ~50 events  → 5 000 ticks to fully rot
+/// - Meat:        0.010  → ~100 events → 10 000 ticks to fully rot
+/// - CookedMeat:  0.005  → half the rate of raw meat (cooking preserves)
 pub fn perishable_decay_rate(concept: Concept) -> Option<f32> {
     match concept {
         Concept::Apple => Some(0.005),
         Concept::Berry => Some(0.020),
+        Concept::Meat => Some(0.010),
+        Concept::CookedMeat => Some(0.005),
         _ => None,
     }
 }
