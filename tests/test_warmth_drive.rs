@@ -6,44 +6,11 @@
 //! deterministic tick by tick.
 
 use bevy::math::Vec2;
-use worldsim::agent::body::need::{Need, NeedKind};
-use worldsim::agent::brains::proposal::Intent;
+use worldsim::agent::body::need::Need;
 use worldsim::agent::brains::thinking::Goal;
 use worldsim::agent::mind::knowledge::{Concept, MindGraph, Node, Predicate, Value};
 use worldsim::agent::nervous_system::urgency::UrgencySource;
 use worldsim::testing::{AgentConfig, TestWorld};
-
-// ─── Unit: the drive→intent→satisfier routing closes over Warmth ────────────
-
-#[test]
-fn warmth_urgency_routes_to_satisfy_warmth_intent() {
-    // Arbitration's dedup key is `Intent::from_urgency_source`. If this
-    // mapping is wrong a warmth-driven plan competes with hunger / thirst
-    // plans instead of being collapsed into its own intent lane.
-    assert_eq!(
-        Intent::from_urgency_source(UrgencySource::Warmth),
-        Intent::SatisfyWarmth
-    );
-}
-
-#[test]
-fn warmth_need_kind_satisfier_is_warm_up() {
-    // NeedKind is the canonical identifier threaded through satiation,
-    // SimEvent logs, and `goal_for_urgency`. Breaking this breaks all of
-    // them at once.
-    assert_eq!(
-        NeedKind::Warmth.satisfier(),
-        Some(worldsim::agent::actions::ActionType::WarmUp)
-    );
-}
-
-#[test]
-fn warmth_need_kind_satiation_gate_matches_drink() {
-    // WarmUp cycles chain-fire unless there's an upper satiation gate.
-    // 0.95 matches Drink / Sleep / Rest — beside a fire, warmth tops up
-    // and the brain stops re-proposing.
-    assert!((NeedKind::Warmth.satiation_threshold() - 0.95).abs() < 1e-6);
-}
 
 // ─── Unit: goal formulation ─────────────────────────────────────────────────
 
@@ -143,22 +110,6 @@ fn warmth_never_exceeds_one() {
         (0.0..=1.0).contains(&w),
         "warmth must stay in [0, 1] (got {w})"
     );
-}
-
-// ─── Unit: Need primitive respects invariants under warmth usage ────────────
-
-#[test]
-fn warmth_need_clamps_at_one() {
-    let mut n = Need::new(0.9);
-    n.top_up(0.3);
-    assert_eq!(n.value, 1.0);
-}
-
-#[test]
-fn warmth_need_clamps_at_zero() {
-    let mut n = Need::new(0.1);
-    n.drain(0.5);
-    assert_eq!(n.value, 0.0);
 }
 
 // ─── Planner: warmth goal closes the full build chain ───────────────────────

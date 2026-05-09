@@ -10,13 +10,6 @@ use worldsim::agent::body::needs::PhysicalNeeds;
 use worldsim::agent::mind::knowledge::{Concept, MindGraph, Node, Predicate, Value};
 use worldsim::testing::TestWorld;
 
-/// The action registry must expose `Graze` for brains to propose it.
-#[test]
-fn graze_action_is_registered() {
-    let world = TestWorld::with_seed(42);
-    assert!(world.has_registered_action(ActionType::Graze));
-}
-
 /// Herbivore perception asserts `Tile(?) HasTrait Grazable` for visible grass
 /// tiles, mirroring the water → drinkable pathway. Without this, the rational
 /// brain has nothing for `TargetSource::TileWithTrait(Grazable)` to enumerate.

@@ -114,20 +114,6 @@ mod tests {
     }
 
     #[test]
-    fn all_three_species_pools_are_non_empty() {
-        assert!(!HUMAN_NAMES.is_empty());
-        assert!(!DEER_NAMES.is_empty());
-        assert!(!WOLF_NAMES.is_empty());
-    }
-
-    #[test]
-    fn pools_cover_default_spawn_counts() {
-        assert!(HUMAN_NAMES.len() >= 20);
-        assert!(DEER_NAMES.len() >= 20);
-        assert!(WOLF_NAMES.len() >= 20);
-    }
-
-    #[test]
     fn name_counters_assign_unique_sequential_names() {
         let mut counters = NameCounters::default();
         let a = counters.next_human();

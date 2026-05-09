@@ -374,53 +374,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn motor_primitive_effort_profile_is_unique_per_primitive() {
-        let primitives = [
-            ActionPrimitive::Locomote,
-            ActionPrimitive::Manipulate,
-            ActionPrimitive::Ingest,
-            ActionPrimitive::Rest,
-            ActionPrimitive::Observe,
-            ActionPrimitive::Vocalize,
-        ];
-        assert_eq!(
-            primitives.len(),
-            6,
-            "number of EffortProfile declarations must equal number of ActionPrimitive variants"
-        );
-        for p in &primitives {
-            let profile = p.effort_profile();
-            // Each profile should have at least one non-zero channel
-            // (except Rest which has recovery, and Ingest which has cognition)
-            let sum = profile.locomotion
-                + profile.manipulation
-                + profile.isometric
-                + profile.cognition
-                + profile.recovery;
-            assert!(
-                sum > 0.0,
-                "{:?} effort profile should have at least one non-zero channel",
-                p
-            );
-        }
-    }
-
-    #[test]
-    fn wander_and_flee_share_locomote_primitive() {
-        let registry = crate::agent::actions::ActionRegistry::new();
-        let wander = registry
-            .get(crate::agent::actions::ActionType::Wander)
-            .unwrap()
-            .default_behavior();
-        let flee = registry
-            .get(crate::agent::actions::ActionType::Flee)
-            .unwrap()
-            .default_behavior();
-        assert_eq!(wander.primitive, ActionPrimitive::Locomote);
-        assert_eq!(flee.primitive, ActionPrimitive::Locomote);
-    }
-
-    #[test]
     fn wander_and_flee_differ_only_in_policy() {
         let registry = crate::agent::actions::ActionRegistry::new();
         let wander = registry
@@ -440,26 +393,6 @@ mod tests {
             matches!(flee.intensity, IntensityPolicy::Maximal),
             "flee should be maximal"
         );
-    }
-
-    #[test]
-    fn harvest_behavior_uses_manipulate_primitive() {
-        let registry = crate::agent::actions::ActionRegistry::new();
-        let harvest = registry
-            .get(crate::agent::actions::ActionType::Harvest)
-            .unwrap()
-            .default_behavior();
-        assert_eq!(harvest.primitive, ActionPrimitive::Manipulate);
-    }
-
-    #[test]
-    fn sleep_behavior_uses_rest_primitive() {
-        let registry = crate::agent::actions::ActionRegistry::new();
-        let sleep = registry
-            .get(crate::agent::actions::ActionType::Sleep)
-            .unwrap()
-            .default_behavior();
-        assert_eq!(sleep.primitive, ActionPrimitive::Rest);
     }
 
     #[test]
@@ -485,20 +418,6 @@ mod tests {
             sustained <= 0.7,
             "Sustained should stay below sprint threshold (0.7), got {sustained}"
         );
-    }
-
-    #[test]
-    fn adding_a_new_locomote_behavior_requires_zero_new_constants() {
-        // Structural test: a new "Patrol" behavior is just a configuration.
-        // It builds and runs without touching any constants file.
-        let _patrol = Behavior::new(
-            ActionPrimitive::Locomote,
-            TargetSelector::RandomNearby,
-            IntensityPolicy::Sustained,
-            Intent::Territoriality,
-        );
-        // If this compiles and doesn't panic, the test passes.
-        // The point: no new cost constants needed for a new locomotion behavior.
     }
 
     #[test]

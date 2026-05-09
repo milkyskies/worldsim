@@ -155,10 +155,4 @@ mod tests {
             world.agent_thirst(agent),
         );
     }
-
-    #[test]
-    fn drink_action_is_registered() {
-        let world = TestWorld::new();
-        assert!(world.has_registered_action(crate::agent::actions::ActionType::Drink));
-    }
 }

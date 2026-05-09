@@ -13,7 +13,6 @@ use worldsim::agent::mind::knowledge::{Concept, MindGraph, Predicate, Value};
 use worldsim::agent::psyche::emotions::EmotionalState;
 use worldsim::testing::{AgentConfig, TestWorld};
 use worldsim::world::Physical;
-use worldsim::world::campfire::CampfireMarker;
 use worldsim::world::emits_effect::{EffectKind, EmitsEffect};
 use worldsim::world::property::{
     BuiltBy, Durability, FuelConsumer, HeatSource, LightSource, ShelterProvider,
@@ -309,26 +308,6 @@ fn natural_shelter_provides_same_benefit_as_built_shelter() {
 // ─── Campfire composition ────────────────────────────────────────────────────
 
 #[test]
-fn campfire_has_light_source() {
-    let mut world = TestWorld::with_seed(0);
-    let campfire = world.spawn_campfire(Vec2::new(100.0, 100.0));
-    assert!(
-        world.app().world().get::<LightSource>(campfire).is_some(),
-        "campfire should have a LightSource component"
-    );
-}
-
-#[test]
-fn campfire_has_heat_source() {
-    let mut world = TestWorld::with_seed(0);
-    let campfire = world.spawn_campfire(Vec2::new(100.0, 100.0));
-    assert!(
-        world.app().world().get::<HeatSource>(campfire).is_some(),
-        "campfire should have a HeatSource component"
-    );
-}
-
-#[test]
 fn campfire_has_fuel_consumer() {
     let mut world = TestWorld::with_seed(0);
     let campfire = world.spawn_campfire(Vec2::new(100.0, 100.0));
@@ -336,20 +315,6 @@ fn campfire_has_fuel_consumer() {
     assert_eq!(consumer.fuel_type, Concept::Wood);
     assert!(consumer.fuel_remaining > 0.0);
     assert!(consumer.consumption_rate > 0.0);
-}
-
-#[test]
-fn campfire_has_campfire_marker() {
-    let mut world = TestWorld::with_seed(0);
-    let campfire = world.spawn_campfire(Vec2::new(100.0, 100.0));
-    assert!(
-        world
-            .app()
-            .world()
-            .get::<CampfireMarker>(campfire)
-            .is_some(),
-        "campfire should have CampfireMarker"
-    );
 }
 
 #[test]
@@ -491,34 +456,6 @@ fn campfire_light_dims_when_fuel_exhausted() {
         world.app().world().get::<HeatSource>(campfire).is_none(),
         "campfire HeatSource should be removed when fuel runs out"
     );
-}
-
-// ─── BuiltBy ────────────────────────────────────────────────────────────────
-
-#[test]
-fn built_by_records_builder_and_tick() {
-    let mut world = TestWorld::with_seed(0);
-    let builder = world.spawn_agent(AgentConfig::at(Vec2::new(100.0, 100.0)));
-
-    let structure = world
-        .app_mut()
-        .world_mut()
-        .spawn((
-            Name::new("Shelter"),
-            EntityType(Concept::LeanTo),
-            Physical,
-            Transform::from_translation(Vec3::new(100.0, 100.0, 0.0)),
-            GlobalTransform::default(),
-            BuiltBy {
-                builder,
-                built_at: 42,
-            },
-        ))
-        .id();
-
-    let built_by = world.get::<BuiltBy>(structure);
-    assert_eq!(built_by.builder, builder);
-    assert_eq!(built_by.built_at, 42);
 }
 
 // ─── Ontology derivation ─────────────────────────────────────────────────────

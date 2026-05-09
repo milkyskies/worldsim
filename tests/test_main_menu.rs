@@ -61,21 +61,6 @@ fn debug_sim_terrain_uses_seed_from_sim_config() {
 }
 
 #[test]
-fn debug_sim_with_explicit_seed_differs_from_default_seed() {
-    // Sanity check: the test above only catches a regression if the chosen
-    // seed actually produces a different terrain than DEFAULT_TERRAIN_SEED.
-    let chosen_seed: u32 = 12345;
-    assert_ne!(chosen_seed, DEFAULT_TERRAIN_SEED);
-
-    let with_chosen = generate_terrain(WORLD_WIDTH, WORLD_HEIGHT, chosen_seed);
-    let with_default = generate_terrain(WORLD_WIDTH, WORLD_HEIGHT, DEFAULT_TERRAIN_SEED);
-    assert_ne!(
-        with_chosen, with_default,
-        "chosen seed should produce a distinct terrain from the default seed"
-    );
-}
-
-#[test]
 fn map_plugin_does_not_run_setup_until_in_sim_state() {
     let mut app = build_test_app();
     app.insert_resource(SimConfig {

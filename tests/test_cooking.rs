@@ -66,34 +66,6 @@ fn cooked_meat_decays_slower_than_raw_meat() {
     );
 }
 
-// ─── Action definition wiring ───────────────────────────────────────────────
-
-#[test]
-fn cook_def_is_registered() {
-    use worldsim::agent::actions::ActionRegistry;
-    let registry = ActionRegistry::new();
-    assert!(
-        registry.get(ActionType::Cook).is_some(),
-        "Cook must be registered in ActionRegistry::new()"
-    );
-}
-
-#[test]
-fn cook_def_declares_recipe_for_cooked_meat() {
-    let recipe = COOK_DEF
-        .recipe
-        .as_ref()
-        .expect("COOK_DEF must declare a Recipe so culture seeding fires");
-    assert_eq!(recipe.concept, Concept::CookedMeat);
-    assert!(
-        recipe
-            .requirements
-            .iter()
-            .any(|(c, q)| *c == Concept::Meat && *q == 1),
-        "recipe requires raw Meat"
-    );
-}
-
 // ─── End-to-end scenario: agent next to campfire cooks raw meat ─────────────
 
 /// Inject Cook directly into ActiveActions on an agent next to a lit

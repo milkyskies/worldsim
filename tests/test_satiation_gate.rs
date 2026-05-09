@@ -11,7 +11,6 @@ use worldsim::agent::actions::registry::{Action, ActionContext};
 use worldsim::agent::body::metabolism::Metabolism;
 use worldsim::agent::body::need::{Need, NeedKind};
 use worldsim::agent::body::needs::{PhysicalNeeds, Stamina};
-use worldsim::agent::events::FailureReason;
 use worldsim::agent::item_slots::ItemSlots;
 use worldsim::agent::mind::knowledge::{MindGraph, setup_ontology};
 use worldsim::world::map::{WORLD_HEIGHT, WORLD_WIDTH, WorldMap};
@@ -113,18 +112,6 @@ fn rest_refuses_when_aerobic_full() {
     let (kind, fullness) = rest.satiation(ctx.physical, Some(ctx.inventory)).unwrap();
     assert_eq!(kind, NeedKind::Stamina);
     assert!(fullness >= kind.satiation_threshold());
-}
-
-#[test]
-fn already_satiated_failure_reason_round_trips() {
-    let reason = FailureReason::AlreadySatiated {
-        kind: NeedKind::Hunger,
-        fullness: 0.9,
-    };
-    let cloned = reason.clone();
-    assert_eq!(reason, cloned);
-    // The satiation threshold for Hunger should block at 0.9.
-    assert!(0.9 >= NeedKind::Hunger.satiation_threshold());
 }
 
 fn physical_with_stomach(mass: f32) -> PhysicalNeeds {

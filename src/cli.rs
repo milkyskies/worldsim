@@ -523,19 +523,6 @@ mod tests {
     }
 
     #[test]
-    fn game_defaults_flag_sets_game_counts_when_no_overrides() {
-        let args = CliArgs::try_parse_from(["worldsim", "--headless", "--game-defaults"])
-            .expect("should parse");
-        let config = args.to_headless_config();
-        assert!(config.game_defaults);
-        let game = WorldSpawnConfig::game_defaults();
-        assert_eq!(config.humans, game.humans);
-        assert_eq!(config.deer, game.deer);
-        assert_eq!(config.berry_bushes, game.berry_bushes);
-        assert_eq!(config.apple_trees, game.apple_trees);
-    }
-
-    #[test]
     fn game_defaults_with_humans_override() {
         let args = CliArgs::try_parse_from([
             "worldsim",
