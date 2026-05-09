@@ -2442,7 +2442,6 @@ fn deterministic_tick(mut tick: ResMut<TickCount>, mut game_time: ResMut<GameTim
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::agent::Person;
 
     #[test]
     fn spawn_agent_uses_config_values() {
