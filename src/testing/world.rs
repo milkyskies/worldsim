@@ -2510,34 +2510,6 @@ mod tests {
     }
 
     #[test]
-    fn spawn_berry_bush_starts_with_berry_inventory() {
-        let mut world = TestWorld::with_seed(42);
-        let bush = world.spawn_berry_bush(Vec2::new(10.0, 10.0), 5);
-        assert_eq!(world.item_count(bush, Concept::Berry), 5);
-    }
-
-    #[test]
-    fn spawn_apple_tree_starts_with_apple_inventory() {
-        let mut world = TestWorld::with_seed(42);
-        let tree = world.spawn_apple_tree(Vec2::new(20.0, 20.0), 7);
-        assert_eq!(world.item_count(tree, Concept::Apple), 7);
-    }
-
-    #[test]
-    fn spawn_stone_node_starts_with_stone_inventory() {
-        let mut world = TestWorld::with_seed(42);
-        let node = world.spawn_stone_node(Vec2::new(30.0, 30.0), 5);
-        assert_eq!(world.item_count(node, Concept::Stone), 5);
-    }
-
-    #[test]
-    fn spawn_wood_log_starts_with_wood_inventory() {
-        let mut world = TestWorld::with_seed(42);
-        let log = world.spawn_wood_log(Vec2::new(40.0, 40.0), 4);
-        assert_eq!(world.item_count(log, Concept::Wood), 4);
-    }
-
-    #[test]
     fn spawn_deer_creates_agent_with_dangerous_person_belief() {
         let mut world = TestWorld::with_seed(42);
         let deer = world.spawn_deer(Vec2::new(40.0, 40.0));

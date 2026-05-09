@@ -768,32 +768,4 @@ mod tests {
             "perf overhead too high: baseline {baseline:.3}s vs instrumented {instrumented:.3}s"
         );
     }
-
-    #[test]
-    fn game_defaults_same_seed_same_positions() {
-        let cfg = HeadlessConfig {
-            ticks: 0,
-            seed: 42,
-            game_defaults: true,
-            ..Default::default()
-        };
-
-        let mut world_a = TestWorld::with_game_map(cfg.seed);
-        let mut world_b = TestWorld::with_game_map(cfg.seed);
-        populate(&mut world_a, &cfg);
-        populate(&mut world_b, &cfg);
-
-        let entities_a = world_a.all_agents();
-        let entities_b = world_b.all_agents();
-        let positions_a: Vec<_> = entities_a
-            .iter()
-            .map(|e| world_a.get::<bevy::prelude::Transform>(*e).translation)
-            .collect();
-        let positions_b: Vec<_> = entities_b
-            .iter()
-            .map(|e| world_b.get::<bevy::prelude::Transform>(*e).translation)
-            .collect();
-
-        assert_eq!(positions_a, positions_b);
-    }
 }

@@ -472,21 +472,6 @@ mod tests {
         assert_eq!(parse_seed_or_random("  42  "), 42);
     }
 
-    #[test]
-    fn parse_seed_empty_input_returns_some_value() {
-        // Returning a random u32 — just verify it doesn't panic and returns
-        // a valid value. The randomness itself isn't testable.
-        let _ = parse_seed_or_random("");
-        let _ = parse_seed_or_random("   ");
-    }
-
-    #[test]
-    fn parse_seed_invalid_input_falls_through_to_random() {
-        // Should not panic. Any u32 result is acceptable.
-        let _ = parse_seed_or_random("not a number");
-        let _ = parse_seed_or_random("3.14");
-    }
-
     fn drive_start_simulation(form: CreateWorldForm) -> App {
         let mut app = App::new();
         app.add_plugins(bevy::state::app::StatesPlugin);
