@@ -111,6 +111,29 @@ pub enum ActionType {
     /// counterpart of `Attack`. Proposed by the emotional brain when
     /// accumulated Anger crosses a threshold.
     DefendSelf,
+
+    // Settled-life expressions (#269)
+    /// Idle stance with a seated visual — the "settlements look lived-in"
+    /// alternative to standing Idle. Light Locomotion gate so it mutexes
+    /// against Walk/Wander.
+    Sit,
+    /// Wait by water for a catch. Adjacent-to-water gated; produces a
+    /// `Fish` item on completion.
+    Fish,
+    /// Hand a food item to a nearby agent. The prosocial counterpart of
+    /// Deposit, gated on positive affection toward the recipient.
+    ShareFood,
+    /// First-aid stance: heal a nearby injured agent's wounds.
+    TendWounds,
+    /// Sentinel posture at night near a campfire. Replaces Sleep for one
+    /// agent so the rest of the camp can sleep safely.
+    StandWatch,
+    /// Group celebration when mood is high and social drive is satisfied —
+    /// emotional contagion radiates joy to nearby agents.
+    Dance,
+    /// Stationary grief processing after the agent's MindGraph records
+    /// the death of a known agent.
+    Mourn,
 }
 
 impl std::fmt::Display for ActionType {
@@ -157,6 +180,13 @@ impl ActionType {
             ActionType::Devour => "Devouring",
             ActionType::Flee => "Fleeing from",
             ActionType::DefendSelf => "Defending against",
+            ActionType::Sit => "Sitting",
+            ActionType::Fish => "Fishing",
+            ActionType::ShareFood => "Sharing food with",
+            ActionType::TendWounds => "Tending wounds of",
+            ActionType::StandWatch => "Standing watch",
+            ActionType::Dance => "Dancing",
+            ActionType::Mourn => "Mourning",
         }
     }
 
@@ -196,6 +226,13 @@ impl ActionType {
             ActionType::Devour => "Devour",
             ActionType::Flee => "Flee",
             ActionType::DefendSelf => "DefendSelf",
+            ActionType::Sit => "Sit",
+            ActionType::Fish => "Fish",
+            ActionType::ShareFood => "ShareFood",
+            ActionType::TendWounds => "TendWounds",
+            ActionType::StandWatch => "StandWatch",
+            ActionType::Dance => "Dance",
+            ActionType::Mourn => "Mourn",
         }
     }
 }

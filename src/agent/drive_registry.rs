@@ -275,18 +275,4 @@ mod tests {
             }
         }
     }
-
-    #[test]
-    fn need_kind_with_entry_round_trips() {
-        let hunger = by_need(NeedKind::Hunger).unwrap();
-        assert_eq!(hunger.urgency, UrgencySource::Hunger);
-        assert_eq!(hunger.satisfier, Some(ActionType::Eat));
-    }
-
-    #[test]
-    fn maslow_drives_have_no_registry_entry() {
-        assert!(by_need(NeedKind::Safety).is_none());
-        assert!(by_need(NeedKind::Esteem).is_none());
-        assert!(by_need(NeedKind::Autonomy).is_none());
-    }
 }

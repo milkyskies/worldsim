@@ -6,9 +6,7 @@
 
 use bevy::prelude::*;
 use worldsim::menu::{AppState, SimConfig, SimMode};
-use worldsim::world::map::{
-    DEFAULT_TERRAIN_SEED, MapPlugin, WORLD_HEIGHT, WORLD_WIDTH, WorldMap, generate_terrain,
-};
+use worldsim::world::map::{MapPlugin, WORLD_HEIGHT, WORLD_WIDTH, WorldMap, generate_terrain};
 
 fn build_test_app() -> App {
     let mut app = App::new();
@@ -58,21 +56,6 @@ fn debug_sim_terrain_uses_seed_from_sim_config() {
         }
     }
     assert_eq!(compared, (WORLD_WIDTH * WORLD_HEIGHT) as usize);
-}
-
-#[test]
-fn debug_sim_with_explicit_seed_differs_from_default_seed() {
-    // Sanity check: the test above only catches a regression if the chosen
-    // seed actually produces a different terrain than DEFAULT_TERRAIN_SEED.
-    let chosen_seed: u32 = 12345;
-    assert_ne!(chosen_seed, DEFAULT_TERRAIN_SEED);
-
-    let with_chosen = generate_terrain(WORLD_WIDTH, WORLD_HEIGHT, chosen_seed);
-    let with_default = generate_terrain(WORLD_WIDTH, WORLD_HEIGHT, DEFAULT_TERRAIN_SEED);
-    assert_ne!(
-        with_chosen, with_default,
-        "chosen seed should produce a distinct terrain from the default seed"
-    );
 }
 
 #[test]

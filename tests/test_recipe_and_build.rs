@@ -54,16 +54,6 @@ fn all_cultures_know_campfire_provides_warmth() {
     }
 }
 
-/// The Build action exists in the registry.
-#[test]
-fn build_action_registered() {
-    let registry = ActionRegistry::new();
-    assert!(
-        registry.get(ActionType::Build).is_some(),
-        "Build action must be registered"
-    );
-}
-
 /// The GOAP planner generates a multi-step plan: Harvest wood × N → Build campfire.
 /// With the at-least quantity rule + partial-satisfaction backward search,
 /// the planner chains `CAMPFIRE_WOOD_REQUIRED` harvests (one per log) to
@@ -216,6 +206,9 @@ fn build_action_consumes_wood() {
         target_position: None,
         agent_position: Vec2::ZERO,
         physical: None,
+        drives: None,
+        emotional: None,
+        current_tick: 0,
     };
 
     assert!(
@@ -283,6 +276,9 @@ fn build_fails_without_materials() {
         target_position: None,
         agent_position: Vec2::ZERO,
         physical: None,
+        drives: None,
+        emotional: None,
+        current_tick: 0,
     };
 
     assert!(

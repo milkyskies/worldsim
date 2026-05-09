@@ -125,8 +125,17 @@ pub enum Concept {
     StoneNode,
     Stick,
     Meat,
+    /// Aquatic protein source produced by the Fish action against a water
+    /// tile. Slots into the food economy alongside Meat.
+    Fish,
     Corpse,
     SeveredPart,
+
+    // ─── Episodic event subjects ───
+    /// Marker concept for death events recorded in episodic memory:
+    /// `(Event42, Action, Death)`. The Mourn action consults the
+    /// MindGraph for any recent triple of this shape.
+    Death,
 
     // ─── Rotten / spoiled variants ───
     RottenApple,
@@ -1997,6 +2006,9 @@ pub fn setup_ontology() -> Ontology {
 
     add(c(CookedMeat), IsA, v(Food));
     add(c(CookedMeat), IsA, v(Resource));
+
+    add(c(Fish), IsA, v(Food));
+    add(c(Fish), IsA, v(Resource));
 
     add(c(AppleTree), IsA, v(Plant));
     add(c(BerryBush), IsA, v(Plant));

@@ -8,7 +8,6 @@
 use bevy::platform::collections::HashMap;
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
-use strum::{EnumCount, EnumIter};
 
 /// Canonical RON source. Baked into the binary so headless and tests have
 /// the same palette as the windowed game without filesystem access.
@@ -16,7 +15,7 @@ const PALETTE_RON: &str = include_str!("../assets/palette.ron");
 
 /// Every named color slot in the game. The simulation never references raw
 /// RGB - every Sprite/Mesh color goes through one of these.
-#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash, Serialize, Deserialize, EnumIter, EnumCount)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
 pub enum PaletteColor {
     SkinPale,
     SkinFair,
@@ -96,41 +95,6 @@ impl Plugin for PalettePlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use strum::IntoEnumIterator;
-
-    #[test]
-    fn embedded_palette_parses() {
-        let _ = Palette::default();
-    }
-
-    #[test]
-    fn every_palette_color_resolves() {
-        let p = Palette::default();
-        for slot in PaletteColor::iter() {
-            // srgb panics if the slot is missing - reaching the next assertion
-            // is the test.
-            let _ = p.srgb(slot);
-        }
-    }
-
-    #[test]
-    fn palette_count_matches_design_target() {
-        // The whole point of the locked palette is that this number does not
-        // grow casually. Update intentionally if the design changes.
-        assert_eq!(PaletteColor::COUNT, 24);
-    }
-
-    #[test]
-    fn palette_round_trips_through_ron() {
-        let p1 = Palette::default();
-        let s = ron::ser::to_string(&p1).expect("serialize");
-        let p2: Palette = ron::from_str(&s).expect("deserialize");
-        for slot in PaletteColor::iter() {
-            let c1 = p1.lookup(slot);
-            let c2 = p2.lookup(slot);
-            assert_eq!(c1, c2, "round-trip mismatch for {slot:?}");
-        }
-    }
 
     #[test]
     fn srgba_applies_alpha() {

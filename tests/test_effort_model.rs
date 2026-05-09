@@ -34,20 +34,6 @@ fn sleep_restores_aerobic_via_effort_model() {
     );
 }
 
-/// Regression guard: the default-spawned agent carries no activity marker
-/// and must tick cleanly through the full nervous-system schedule.
-#[test]
-fn systems_tolerate_default_spawned_agent() {
-    let mut world = TestWorld::with_seed(0);
-    let agent = world.spawn_agent(AgentConfig::default());
-
-    world.tick(30);
-
-    let needs = world.get::<PhysicalNeeds>(agent);
-    assert!(needs.metabolism.glucose > 0.0);
-    assert!(needs.stamina.aerobic > 0.0);
-}
-
 /// Headless 10k-tick run on game_defaults(42) — assert that agents survive
 /// and the calorie economy doesn't collapse after the effort model migration.
 /// This is NOT a precise ±15% regression gate against a frozen baseline

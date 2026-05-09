@@ -167,6 +167,27 @@ pub enum Gate {
     /// Agent stands on a Grass tile.
     /// Maps failure to [`FailureReason::NoEdibleFood`].
     OnGrassTile,
+    /// Current sim hour falls in `[start_hour, 24) ∪ [0, end_hour)`.
+    /// Maps failure to [`FailureReason::Interrupted`].
+    Nighttime { start_hour: u32, end_hour: u32 },
+    /// Agent's `EmotionalState.current_mood` is at least `threshold`.
+    /// Maps failure to [`FailureReason::Interrupted`].
+    MoodAtLeast(f32),
+    /// Agent's `PsychologicalDrives.companionship` is at least `threshold`.
+    /// Maps failure to [`FailureReason::Interrupted`].
+    CompanionshipAtLeast(f32),
+    /// Agent believes the target entity is injured (carries the `Lame`
+    /// trait in the agent's MindGraph). Used by Tend Wounds.
+    /// Maps failure to [`FailureReason::TargetGone`].
+    TargetIsInjured,
+    /// Agent's MindGraph carries an event triple
+    /// `(?event, Action, Death)`. Used by Mourn.
+    /// Maps failure to [`FailureReason::Interrupted`].
+    KnowsRecentDeath,
+    /// Agent's `(Self, Affection, target)` belief is at least
+    /// `threshold`. Used by Share Food. Missing belief = 0.0 affection.
+    /// Maps failure to [`FailureReason::Interrupted`].
+    TargetAffectionAtLeast(f32),
 }
 
 // ============================================================================

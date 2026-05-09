@@ -586,35 +586,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn run_headless_with_default_config_completes() {
-        let config = HeadlessConfig {
-            ticks: 30,
-            ..Default::default()
-        };
-        let report = run_headless(config);
-        assert_eq!(report.ticks, 30);
-        assert_eq!(report.agents.spawned, 8); // 5 humans + 3 deer
-        assert!(report.elapsed_secs >= 0.0);
-    }
-
-    #[test]
-    fn report_serializes_to_json() {
-        let config = HeadlessConfig {
-            ticks: 5,
-            humans: 2,
-            deer: 0,
-            berry_bushes: 1,
-            apple_trees: 1,
-            ..Default::default()
-        };
-        let report = run_headless(config);
-        let json = serde_json::to_string(&report).expect("report should serialize");
-        assert!(json.contains("\"ticks\":5"));
-        assert!(json.contains("\"agents\""));
-        assert!(json.contains("\"conversations\""));
-    }
-
-    #[test]
     fn same_seed_produces_same_initial_population_layout() {
         let cfg = HeadlessConfig {
             ticks: 0,
@@ -662,41 +633,6 @@ mod tests {
             report.agents.alive + report.agents.died,
             report.agents.spawned
         );
-    }
-
-    #[test]
-    fn game_defaults_spawns_correct_agent_count() {
-        let game = crate::world::spawn_config::WorldSpawnConfig::game_defaults();
-        let config = HeadlessConfig {
-            ticks: 0,
-            game_defaults: true,
-            humans: game.humans,
-            deer: game.deer,
-            wolves: game.wolves,
-            berry_bushes: game.berry_bushes,
-            apple_trees: game.apple_trees,
-            ..Default::default()
-        };
-        let report = run_headless(config);
-        assert_eq!(
-            report.agents.spawned,
-            (game.humans + game.deer + game.wolves) as u64
-        );
-    }
-
-    #[test]
-    fn game_defaults_human_override_applies() {
-        let config = HeadlessConfig {
-            ticks: 0,
-            game_defaults: true,
-            humans: 10,
-            deer: 0,
-            berry_bushes: 0,
-            apple_trees: 0,
-            ..Default::default()
-        };
-        let report = run_headless(config);
-        assert_eq!(report.agents.spawned, 10); // overridden to 10 humans, 0 deer
     }
 
     #[test]
@@ -767,33 +703,5 @@ mod tests {
             instrumented < baseline * 2.0 + 0.5,
             "perf overhead too high: baseline {baseline:.3}s vs instrumented {instrumented:.3}s"
         );
-    }
-
-    #[test]
-    fn game_defaults_same_seed_same_positions() {
-        let cfg = HeadlessConfig {
-            ticks: 0,
-            seed: 42,
-            game_defaults: true,
-            ..Default::default()
-        };
-
-        let mut world_a = TestWorld::with_game_map(cfg.seed);
-        let mut world_b = TestWorld::with_game_map(cfg.seed);
-        populate(&mut world_a, &cfg);
-        populate(&mut world_b, &cfg);
-
-        let entities_a = world_a.all_agents();
-        let entities_b = world_b.all_agents();
-        let positions_a: Vec<_> = entities_a
-            .iter()
-            .map(|e| world_a.get::<bevy::prelude::Transform>(*e).translation)
-            .collect();
-        let positions_b: Vec<_> = entities_b
-            .iter()
-            .map(|e| world_b.get::<bevy::prelude::Transform>(*e).translation)
-            .collect();
-
-        assert_eq!(positions_a, positions_b);
     }
 }

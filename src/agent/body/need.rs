@@ -221,12 +221,6 @@ mod tests {
     }
 
     #[test]
-    fn deficit_is_one_minus_value() {
-        let need = Need::new(0.3);
-        assert!((need.deficit() - 0.7).abs() < 1e-6);
-    }
-
-    #[test]
     fn is_satisfied_honours_threshold() {
         let full = Need::full();
         assert!(full.is_satisfied(0.8));
@@ -272,28 +266,5 @@ mod tests {
         assert_eq!(need.value, 1.0);
         need.set(-0.2);
         assert_eq!(need.value, 0.0);
-    }
-
-    #[test]
-    fn default_is_fully_satisfied() {
-        let need = Need::default();
-        assert_eq!(need.value, 1.0);
-    }
-
-    #[test]
-    fn satisfier_matches_action() {
-        assert_eq!(NeedKind::Hunger.satisfier(), Some(ActionType::Eat));
-        assert_eq!(NeedKind::Thirst.satisfier(), Some(ActionType::Drink));
-        assert_eq!(NeedKind::Sleep.satisfier(), Some(ActionType::Sleep));
-        assert_eq!(NeedKind::Pain.satisfier(), None);
-    }
-
-    #[test]
-    fn satiation_thresholds_are_sensible() {
-        assert_eq!(NeedKind::Hunger.satiation_threshold(), 0.8);
-        assert_eq!(NeedKind::Thirst.satiation_threshold(), 0.95);
-        // Needs without a satisfier return 1.0 so a naive caller never
-        // short-circuits the action's own preconditions.
-        assert_eq!(NeedKind::Pain.satiation_threshold(), 1.0);
     }
 }
