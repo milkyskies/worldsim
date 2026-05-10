@@ -269,6 +269,9 @@ struct AgentSnapshot {
     conscientiousness: f32,
     skills: HashMap<SkillKind, f32>,
     active: Vec<ActionType>,
+    /// Cloned for the snapshot so the mutation pass can compute aspiration
+    /// XP bias without re-borrowing the agent query.
+    aspirations: Option<crate::agent::psyche::aspirations::Aspirations>,
 }
 
 /// System: process ActionCompleted events and award practice XP.
@@ -297,6 +300,7 @@ pub fn skill_progression_system(
             Option<&Personality>,
             &Transform,
             &ActiveActions,
+            Option<&crate::agent::psyche::aspirations::Aspirations>,
         ),
         With<Agent>,
     >,
@@ -326,7 +330,7 @@ pub fn skill_progression_system(
     let snapshots: Vec<AgentSnapshot> = agents
         .iter()
         .map(
-            |(entity, skills, personality, transform, active)| AgentSnapshot {
+            |(entity, skills, personality, transform, active, aspirations)| AgentSnapshot {
                 entity,
                 pos: transform.translation.truncate(),
                 conscientiousness: personality
@@ -334,6 +338,7 @@ pub fn skill_progression_system(
                     .unwrap_or(0.5),
                 skills: skills.levels.iter().map(|(k, s)| (*k, s.level)).collect(),
                 active: active.iter().map(|s| s.action_type).collect(),
+                aspirations: aspirations.cloned(),
             },
         )
         .collect();
@@ -364,9 +369,15 @@ pub fn skill_progression_system(
 
         let personality_mult = personality_learning_multiplier(learner.conscientiousness, &config);
         let mentorship_mult = mentorship_multiplier(learner_level, mentor_level, &config);
-        let delta = config.base_learning_rate * personality_mult * mentorship_mult;
+        let aspiration_mult = crate::agent::psyche::aspiration_modulator::skill_xp_multiplier(
+            learner.aspirations.as_ref(),
+            learner.conscientiousness,
+            skill_kind,
+        );
+        let delta =
+            config.base_learning_rate * personality_mult * mentorship_mult * aspiration_mult;
 
-        let Ok((_, mut skills, _, _, _)) = agents.get_mut(learner_entity) else {
+        let Ok((_, mut skills, _, _, _, _)) = agents.get_mut(learner_entity) else {
             continue;
         };
 
