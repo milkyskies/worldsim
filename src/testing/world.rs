@@ -2910,9 +2910,9 @@ mod tests {
 
         let p = world.get::<Personality>(deer);
         assert!(
-            p.traits.openness > 0.6,
+            p.traits.openness() > 0.6,
             "high openness genome should produce openness > 0.6, got {}",
-            p.traits.openness
+            p.traits.openness()
         );
     }
 

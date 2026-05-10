@@ -608,7 +608,7 @@ fn assess_threat(
 ) -> f32 {
     // Neuroticism amplifies fear; emotional stability dampens it.
     // 0.0 neuroticism → 0.7×, 0.5 (default) → 1.0×, 1.0 → 1.3×.
-    let personality_mod = 0.7 + personality.traits.neuroticism * 0.6;
+    let personality_mod = 0.7 + personality.traits.neuroticism() * 0.6;
 
     // Low health amplifies perceived threat — a wounded agent has more to lose.
     // Full health → 1.0×, zero health → 1.4×.
@@ -964,9 +964,10 @@ mod threat_tests {
     }
 
     fn personality_with_neuroticism(neuroticism: f32) -> Personality {
+        use crate::agent::psyche::personality::NeuroticismFacets;
         Personality {
             traits: PersonalityTraits {
-                neuroticism,
+                neuroticism: NeuroticismFacets::uniform(neuroticism),
                 ..Default::default()
             },
         }

@@ -59,7 +59,7 @@ pub fn calculate_brain_powers(
     // even without acute emotions.
     let instinct_base = 25.0;
     let emotional_intensity: f32 = emotions.active_emotions.iter().map(|e| e.intensity).sum();
-    let neuroticism_multiplier = 0.5 + personality.traits.neuroticism * 0.5;
+    let neuroticism_multiplier = 0.5 + personality.traits.neuroticism() * 0.5;
     let stress_factor = (emotions.stress_level / 100.0).clamp(0.0, 1.0);
     let stress_multiplier = 1.0 + stress_factor * 0.5;
 
@@ -68,7 +68,7 @@ pub fn calculate_brain_powers(
 
     // === RATIONAL POWER ===
     // Baseline from conscientiousness, reduced by stress and survival urgency.
-    let base_rational = 30.0 + personality.traits.conscientiousness * 40.0;
+    let base_rational = 30.0 + personality.traits.conscientiousness() * 40.0;
     let stress_penalty = stress_factor * 0.5;
 
     // High survival urgency makes it hard to think straight.
@@ -302,6 +302,7 @@ mod tests {
     use crate::agent::brains::thinking::ActionTemplate;
     use crate::agent::nervous_system::urgency::{Urgency, UrgencySource};
     use crate::agent::psyche::emotions::{Emotion, EmotionType};
+    use crate::agent::psyche::personality::NeuroticismFacets;
 
     fn make_proposal(
         brain: BrainType,
@@ -613,7 +614,7 @@ mod tests {
         emotions.add_emotion(Emotion::new(EmotionType::Fear, 0.8));
 
         let mut personality = Personality::default();
-        personality.traits.neuroticism = 1.0;
+        personality.traits.neuroticism = NeuroticismFacets::uniform(1.0);
 
         let powers = calculate_brain_powers(&cns, &consciousness, &emotions, &personality);
 

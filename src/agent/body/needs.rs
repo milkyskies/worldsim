@@ -348,16 +348,16 @@ impl PsychologicalDrives {
         Self {
             // Extraverts start unsatisfied (low companionship) so they
             // reach toward socializing sooner.
-            companionship: Need::new(1.0 - traits.extraversion),
+            companionship: Need::new(1.0 - traits.extraversion()),
             // Open personalities start understimulated, driving exploration.
-            stimulation: Need::new(1.0 - traits.openness),
+            stimulation: Need::new(1.0 - traits.openness()),
             // Neurotic agents feel less safe at baseline.
-            safety: Need::new(1.0 - traits.neuroticism),
+            safety: Need::new(1.0 - traits.neuroticism()),
             // Conscientious agents start with lower esteem (more to prove).
-            esteem: Need::new(1.0 - traits.conscientiousness),
+            esteem: Need::new(1.0 - traits.conscientiousness()),
             // Disagreeable agents start with low autonomy satisfaction
             // (feel constrained more easily).
-            autonomy: Need::new(traits.agreeableness),
+            autonomy: Need::new(traits.agreeableness()),
             enjoyment: Need::new(0.5),
             // Starts uncontested; territoriality system lowers this when
             // intruders appear.
@@ -369,12 +369,15 @@ impl PsychologicalDrives {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::agent::psyche::personality::PersonalityTraits;
+    use crate::agent::psyche::personality::{
+        AgreeablenessFacets, ExtraversionFacets, NeuroticismFacets, OpennessFacets,
+        PersonalityTraits,
+    };
 
     #[test]
     fn high_extraversion_lowers_baseline_companionship() {
         let traits = PersonalityTraits {
-            extraversion: 0.9,
+            extraversion: ExtraversionFacets::uniform(0.9),
             ..Default::default()
         };
         let drives = PsychologicalDrives::from_personality(&traits);
@@ -388,7 +391,7 @@ mod tests {
     #[test]
     fn low_extraversion_raises_baseline_companionship() {
         let traits = PersonalityTraits {
-            extraversion: 0.1,
+            extraversion: ExtraversionFacets::uniform(0.1),
             ..Default::default()
         };
         let drives = PsychologicalDrives::from_personality(&traits);
@@ -402,7 +405,7 @@ mod tests {
     #[test]
     fn high_openness_lowers_baseline_stimulation() {
         let traits = PersonalityTraits {
-            openness: 0.9,
+            openness: OpennessFacets::uniform(0.9),
             ..Default::default()
         };
         let drives = PsychologicalDrives::from_personality(&traits);
@@ -416,7 +419,7 @@ mod tests {
     #[test]
     fn high_neuroticism_lowers_baseline_safety() {
         let traits = PersonalityTraits {
-            neuroticism: 0.9,
+            neuroticism: NeuroticismFacets::uniform(0.9),
             ..Default::default()
         };
         let drives = PsychologicalDrives::from_personality(&traits);
@@ -430,7 +433,7 @@ mod tests {
     #[test]
     fn high_agreeableness_raises_baseline_autonomy() {
         let traits = PersonalityTraits {
-            agreeableness: 0.9,
+            agreeableness: AgreeablenessFacets::uniform(0.9),
             ..Default::default()
         };
         let drives = PsychologicalDrives::from_personality(&traits);

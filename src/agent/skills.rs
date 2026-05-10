@@ -330,7 +330,7 @@ pub fn skill_progression_system(
                 entity,
                 pos: transform.translation.truncate(),
                 conscientiousness: personality
-                    .map(|p| p.traits.conscientiousness)
+                    .map(|p| p.traits.conscientiousness())
                     .unwrap_or(0.5),
                 skills: skills.levels.iter().map(|(k, s)| (*k, s.level)).collect(),
                 active: active.iter().map(|s| s.action_type).collect(),
