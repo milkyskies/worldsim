@@ -18,9 +18,7 @@ use crate::agent::brains::proposal::BrainState;
 use crate::agent::engagement::Engaged;
 use crate::agent::engagement::converse::ConverseRegistry;
 use crate::agent::events::{SimEvent, SimEventKind};
-use crate::agent::mind::knowledge::{
-    Concept, MindGraph, Node as MindNode, Ontology, Predicate, Value, setup_ontology,
-};
+use crate::agent::mind::knowledge::{Concept, MindGraph, Ontology, setup_ontology};
 use crate::agent::psyche::emotions::EmotionalState;
 use crate::core::tick::TickCount;
 use crate::core::{GameLog, GameTime};
@@ -938,9 +936,7 @@ impl TestWorld {
     /// mirroring the bonds established by `setup_wolf_pack_bonds` in the real game.
     pub fn spawn_wolf_pack(&mut self, positions: &[Vec2]) -> Vec<Entity> {
         use crate::agent::body::genetics::genome::Genome;
-        use crate::agent::mind::knowledge::{
-            Concept, Metadata, Node, Predicate, Quantity, Triple, Value,
-        };
+        use crate::agent::mind::knowledge::{Concept, Metadata, Node, Predicate, Triple, Value};
 
         let ontology = self.app.world().resource::<Ontology>().clone();
         let entities: Vec<Entity> = positions
@@ -2501,6 +2497,7 @@ fn deterministic_tick(mut tick: ResMut<TickCount>, mut game_time: ResMut<GameTim
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::agent::mind::knowledge::{Node as MindNode, Predicate, Value};
 
     #[test]
     fn spawn_agent_uses_config_values() {
