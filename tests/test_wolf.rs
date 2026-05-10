@@ -306,11 +306,11 @@ fn wolf_pack_bonds_established_at_spawn() {
     let wolves = world.spawn_wolf_pack(&[Vec2::new(40.0, 40.0), Vec2::new(50.0, 50.0)]);
     let (wolf_a, wolf_b) = (wolves[0], wolves[1]);
 
-    let mind_a = world.get::<MindGraph>(wolf_a);
-    let trust = mind_a.query(Some(&Node::Entity(wolf_b)), Some(Predicate::Trust), None);
+    // Trust now lives on the central SocialGraph after #754.
+    let trust = world.agent_trust(wolf_a, wolf_b);
     assert!(
-        !trust.is_empty(),
-        "wolf_a should have a Trust triple for wolf_b (pack bond)"
+        trust > 0.5,
+        "wolf_a should hold high trust toward wolf_b (pack bond), got {trust}"
     );
 
     let mind_b = world.get::<MindGraph>(wolf_b);
