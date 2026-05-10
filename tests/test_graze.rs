@@ -1,25 +1,27 @@
 //! Integration tests for the Graze action (#259).
 //!
 //! Covers the end-to-end grazing loop: a hungry deer standing on grass must
-//! perceive the tile as `Grazable`, choose `Graze`, drift while nibbling, and
-//! reduce its hunger without ever needing to carry food in inventory.
+//! find a grazable tile, choose `Graze`, drift while nibbling, and reduce
+//! its hunger without ever needing to carry food in inventory.
 
 use bevy::prelude::*;
 use worldsim::agent::actions::ActionType;
 use worldsim::agent::body::needs::PhysicalNeeds;
-use worldsim::agent::mind::knowledge::{Concept, MindGraph, Node, Predicate, Value};
+use worldsim::agent::mind::knowledge::{Concept, MindGraph, Predicate, Value};
 use worldsim::testing::TestWorld;
 
-/// Herbivore perception asserts `Tile(?) HasTrait Grazable` for visible grass
-/// tiles, mirroring the water → drinkable pathway. Without this, the rational
-/// brain has nothing for `TargetSource::TileWithTrait(Grazable)` to enumerate.
+/// Per #739, terrain traits live in the world (terrain type + ontology),
+/// not in each agent's MindGraph. A grazing deer must never have
+/// `(Tile(_), HasTrait, Grazable)` triples written into its belief store
+/// — that was the per-agent duplication the refactor removed.
 #[test]
-fn deer_perceives_grass_tiles_as_grazable() {
+fn grazing_deer_has_no_per_tile_grazable_beliefs() {
     let mut world = TestWorld::with_seed(42);
     let deer = world.spawn_deer(Vec2::new(200.0, 200.0));
 
-    // Grass perception runs every 30 ticks per agent; tick well past that.
-    world.tick(60);
+    // Run long enough for the deer to perceive its surroundings, plan,
+    // and execute multiple graze drifts.
+    world.tick(400);
 
     let mind = world.get::<MindGraph>(deer);
     let grazable = mind.query(
@@ -27,43 +29,64 @@ fn deer_perceives_grass_tiles_as_grazable() {
         Some(Predicate::HasTrait),
         Some(&Value::Concept(Concept::Grazable)),
     );
-
     assert!(
-        !grazable.is_empty(),
-        "deer on a flat grass map should perceive at least one Grazable tile"
-    );
-    // And they should be Tile nodes, not entity or concept nodes.
-    assert!(
-        grazable.iter().all(|t| matches!(t.subject, Node::Tile(_))),
-        "Grazable must be asserted against tile nodes, got {:?}",
-        grazable.iter().map(|t| &t.subject).collect::<Vec<_>>()
+        grazable.is_empty(),
+        "Grazable is objective world state — agents must not store per-tile beliefs about it. Got {} triples",
+        grazable.len()
     );
 }
 
-/// Humans are omnivores — they must not perceive grass as grazable. Otherwise
-/// the rational planner would consider Graze as a food candidate for humans
-/// and pollute their MindGraph with useless tile-trait triples.
+/// Two deer in overlapping perception of the same grass area must both be
+/// able to plan against grazable tiles without either of them writing
+/// per-tile MindGraph beliefs. This is the core duplication-eliminating
+/// claim of #739: N agents perceiving the same tile produces 0 redundant
+/// triples, not N.
 #[test]
-fn humans_do_not_perceive_grass_as_grazable() {
+fn two_deer_both_graze_without_per_tile_beliefs() {
     let mut world = TestWorld::with_seed(42);
-    let human = world.spawn_agent(worldsim::testing::AgentConfig {
-        pos: Vec2::new(200.0, 200.0),
-        ..Default::default()
+    let deer_a = world.spawn_deer(Vec2::new(200.0, 200.0));
+    let deer_b = world.spawn_deer(Vec2::new(220.0, 200.0));
+
+    {
+        let mut needs = world.get_mut::<PhysicalNeeds>(deer_a);
+        needs.metabolism = worldsim::agent::body::metabolism::Metabolism::at_urgency(0.8);
+    }
+    {
+        let mut needs = world.get_mut::<PhysicalNeeds>(deer_b);
+        needs.metabolism = worldsim::agent::body::metabolism::Metabolism::at_urgency(0.8);
+    }
+
+    world.tick(400);
+
+    for deer in [deer_a, deer_b] {
+        let mind = world.get::<MindGraph>(deer);
+        let grazable = mind.query(
+            None,
+            Some(Predicate::HasTrait),
+            Some(&Value::Concept(Concept::Grazable)),
+        );
+        assert!(
+            grazable.is_empty(),
+            "deer {deer:?} should have no Grazable tile beliefs, got {}",
+            grazable.len()
+        );
+    }
+
+    let started_graze = world.sim_events().all().iter().any(|ev| {
+        matches!(
+            ev,
+            worldsim::agent::events::SimEvent {
+                kind: worldsim::agent::events::SimEventKind::ActionStarted {
+                    action: ActionType::Graze,
+                    ..
+                },
+                ..
+            }
+        )
     });
-
-    world.tick(60);
-
-    let mind = world.get::<MindGraph>(human);
-    let grazable = mind.query(
-        None,
-        Some(Predicate::HasTrait),
-        Some(&Value::Concept(Concept::Grazable)),
-    );
-
     assert!(
-        grazable.is_empty(),
-        "non-herbivores should never see Grazable triples; got {} entries",
-        grazable.len()
+        started_graze,
+        "at least one of the deer should have started grazing"
     );
 }
 

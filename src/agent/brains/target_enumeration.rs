@@ -1,6 +1,7 @@
 //! Generic target enumeration: turn a `TargetSource` into concrete `TargetCandidate`s.
 //!
-//! Reads: MindGraph (Contains/HasTrait beliefs), Affordance components on world entities
+//! Reads: MindGraph (Contains/IsA beliefs), WorldMap (terrain-trait spatial queries),
+//!        Affordance components on world entities
 //! Writes: Vec<TargetCandidate> for the rational brain
 //! Upstream: rational brain (asks "what targets does action X have?")
 //! Downstream: rational brain (turns candidates into ActionTemplates)
@@ -17,7 +18,14 @@ use crate::agent::Dead;
 use crate::agent::actions::{ActionType, TargetCandidate, TargetSource};
 use crate::agent::affordance::Affordance;
 use crate::agent::mind::knowledge::{Concept, MindGraph, Node, Predicate, Value};
-use crate::world::map::TILE_SIZE;
+use crate::world::map::WorldMap;
+
+/// Spatial scope for `TargetSource::TileWithTrait`: the planner walks all
+/// tiles within this radius of the agent and keeps the ones whose terrain
+/// type matches the requested trait. Sized to comfortably cover an agent's
+/// vision range plus a planning buffer so a thirsty deer doesn't keep
+/// missing the river one tile past sight.
+const TILE_TRAIT_SEARCH_RADIUS: f32 = 256.0;
 
 /// Resolve a `TargetSource` into the concrete list of candidates for a given
 /// action and agent mind.
@@ -28,8 +36,8 @@ use crate::world::map::TILE_SIZE;
 ///   declares `action_type`
 /// - `TargetSource::EntityWithTrait(c)` → every perceived entity whose
 ///   inherited traits include `c` (e.g. Attack/Bite finding `HasTrait Prey`)
-/// - `TargetSource::TileWithTrait(c)` → every known tile matching
-///   `Tile(?) HasTrait c` in the MindGraph
+/// - `TargetSource::TileWithTrait(c)` → every nearby tile whose terrain type
+///   satisfies `c` per [`crate::world::map::TileType::has_trait`]
 ///
 /// The `affordances` query is a bare `&Query<...>` so Bevy's elided
 /// WorldQuery lifetimes flow through to callers without a type alias
@@ -38,6 +46,8 @@ pub fn enumerate_targets(
     source: &TargetSource,
     action_type: ActionType,
     mind: &MindGraph,
+    agent_pos: Vec2,
+    world_map: &WorldMap,
     affordances: &Query<(&GlobalTransform, Option<&Affordance>, Option<&Dead>)>,
 ) -> Vec<TargetCandidate> {
     match source {
@@ -52,7 +62,9 @@ pub fn enumerate_targets(
         TargetSource::DeadEntityWithTrait(concept) => {
             enumerate_entities_with_trait(*concept, mind, affordances, AliveOnly::No)
         }
-        TargetSource::TileWithTrait(concept) => enumerate_tiles_with_trait(*concept, mind),
+        TargetSource::TileWithTrait(concept) => {
+            enumerate_tiles_with_trait(*concept, agent_pos, world_map)
+        }
         TargetSource::EntityIsAConcept(concept) => {
             enumerate_entities_isa_concept(*concept, mind, affordances)
         }
@@ -222,35 +234,21 @@ fn candidate_is_lame(candidate: &TargetCandidate, mind: &MindGraph) -> bool {
     mind.has_trait(&Node::Entity(*entity), Concept::Lame)
 }
 
-/// Iterate tiles matching `Tile(?) HasTrait <concept>` in the MindGraph and
-/// emit one candidate per known tile. The world position is the tile centre
-/// so the planner's distance heuristic and the implicit Walk generator both
-/// have something to chew on.
+/// Iterate tiles within [`TILE_TRAIT_SEARCH_RADIUS`] of `agent_pos` whose
+/// terrain type satisfies `concept` and emit one candidate per match.
 ///
-/// Drink uses this with `Concept::Drinkable`. Future tile-trait actions
-/// (Fish, Forage, Bathe, Sleep-in-shelter) plug in here without touching
-/// the brain.
-fn enumerate_tiles_with_trait(concept: Concept, mind: &MindGraph) -> Vec<TargetCandidate> {
-    let mut candidates = Vec::new();
-
-    for triple in mind.query(
-        None,
-        Some(Predicate::HasTrait),
-        Some(&Value::Concept(concept)),
-    ) {
-        let Node::Tile((tx, ty)) = triple.subject else {
-            continue;
-        };
-
-        let pos = Vec2::new(
-            tx as f32 * TILE_SIZE + TILE_SIZE / 2.0,
-            ty as f32 * TILE_SIZE + TILE_SIZE / 2.0,
-        );
-        candidates.push(TargetCandidate::Tile {
-            tile: (tx, ty),
-            pos,
-        });
-    }
-
-    candidates
+/// Drink/Fish use this with `Concept::Drinkable`, Graze with `Grazable`.
+/// The query reads the world map directly: terrain traits are objective
+/// facts (grass is grazable, water is drinkable), so we don't run them
+/// through the agent's subjective belief store.
+fn enumerate_tiles_with_trait(
+    concept: Concept,
+    agent_pos: Vec2,
+    world_map: &WorldMap,
+) -> Vec<TargetCandidate> {
+    world_map
+        .tiles_with_trait(agent_pos, TILE_TRAIT_SEARCH_RADIUS, concept)
+        .into_iter()
+        .map(|(tile, pos)| TargetCandidate::Tile { tile, pos })
+        .collect()
 }

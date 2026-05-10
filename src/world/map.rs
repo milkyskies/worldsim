@@ -1,3 +1,4 @@
+use crate::agent::mind::knowledge::Concept;
 use crate::menu::{AppState, SimConfig};
 use crate::outline::OUTLINE_COLOR;
 use crate::palette::{Palette, PaletteColor};
@@ -69,6 +70,19 @@ impl TileType {
     /// Whether agents can traverse this tile at all.
     pub fn is_walkable(&self) -> bool {
         !matches!(self, TileType::Water)
+    }
+
+    /// Whether this terrain type satisfies a concept-level trait (e.g. grass
+    /// is `Grazable`, water is `Drinkable`). Lets the rational brain query
+    /// "find tiles with trait X" directly against the world state instead of
+    /// requiring perception to mirror this objective fact into every agent's
+    /// MindGraph as a per-tile belief.
+    pub fn has_trait(&self, concept: Concept) -> bool {
+        match concept {
+            Concept::Grazable => matches!(self, TileType::Grass),
+            Concept::Drinkable => self.is_water(),
+            _ => false,
+        }
     }
 
     /// Movement speed multiplier for traversing this tile (1.0 = full speed).
@@ -246,6 +260,50 @@ impl WorldMap {
         self.tile_at(pos)
             .map(|t| t.speed_multiplier())
             .unwrap_or(0.0)
+    }
+
+    /// Find every tile within `radius` (world pixels) of `center` whose
+    /// terrain type satisfies `concept` (per [`TileType::has_trait`]).
+    ///
+    /// Returns tile coordinates plus the world-space tile-center position.
+    /// Replaces the old per-agent `(Tile(_), HasTrait, _)` MindGraph belief
+    /// path: terrain traits are objective world state, so the planner reads
+    /// them directly from the map instead of waiting for perception to
+    /// mirror them into every agent's belief store.
+    pub fn tiles_with_trait(
+        &self,
+        center: Vec2,
+        radius: f32,
+        concept: Concept,
+    ) -> Vec<((i32, i32), Vec2)> {
+        let mut out = Vec::new();
+        let radius_sq = radius * radius;
+        let tile_radius = (radius / TILE_SIZE).ceil() as i32;
+        let center_tx = (center.x / TILE_SIZE).floor() as i32;
+        let center_ty = (center.y / TILE_SIZE).floor() as i32;
+
+        for dy in -tile_radius..=tile_radius {
+            for dx in -tile_radius..=tile_radius {
+                let tx = center_tx + dx;
+                let ty = center_ty + dy;
+                if tx < 0 || ty < 0 {
+                    continue;
+                }
+                let Some(tile_type) = self.get_tile(tx as u32, ty as u32) else {
+                    continue;
+                };
+                if !tile_type.has_trait(concept) {
+                    continue;
+                }
+                let pos = self.tile_to_world(tx, ty);
+                if pos.distance_squared(center) > radius_sq {
+                    continue;
+                }
+                out.push(((tx, ty), pos));
+            }
+        }
+
+        out
     }
 
     /// Get pixel bounds of the map
@@ -1049,6 +1107,69 @@ mod tests {
     }
 
     // ─── Existing tests ──────────────────────────────────────────────────────
+
+    // ─── Terrain trait queries (#739) ───────────────────────────────────────
+
+    #[test]
+    fn terrain_trait_grass_is_grazable_water_is_drinkable() {
+        assert!(TileType::Grass.has_trait(Concept::Grazable));
+        assert!(TileType::Water.has_trait(Concept::Drinkable));
+        assert!(TileType::ShallowWater.has_trait(Concept::Drinkable));
+    }
+
+    #[test]
+    fn terrain_trait_dirt_is_neither_grazable_nor_drinkable() {
+        assert!(!TileType::Dirt.has_trait(Concept::Grazable));
+        assert!(!TileType::Dirt.has_trait(Concept::Drinkable));
+        assert!(!TileType::Rock.has_trait(Concept::Grazable));
+        assert!(!TileType::Sand.has_trait(Concept::Drinkable));
+    }
+
+    #[test]
+    fn tiles_with_trait_finds_grass_within_radius() {
+        let mut map = WorldMap::new(CHUNK_SIZE, CHUNK_SIZE);
+        map.chunks.insert(IVec2::new(0, 0), Chunk::new(0, 0));
+        // Default tiles in a fresh chunk are Grass, so paint the test
+        // boundary explicitly.
+        for x in 0..CHUNK_SIZE {
+            for y in 0..CHUNK_SIZE {
+                map.set_tile(x, y, TileType::Dirt);
+            }
+        }
+        map.set_tile(3, 3, TileType::Grass);
+        map.set_tile(10, 10, TileType::Grass);
+
+        let center = map.tile_to_world(3, 3);
+        let near: Vec<_> = map
+            .tiles_with_trait(center, TILE_SIZE * 2.0, Concept::Grazable)
+            .into_iter()
+            .map(|((tx, ty), _)| (tx, ty))
+            .collect();
+
+        assert_eq!(
+            near,
+            vec![(3, 3)],
+            "only the nearby grass tile should be returned"
+        );
+    }
+
+    #[test]
+    fn tiles_with_trait_returns_empty_when_no_match() {
+        let mut map = WorldMap::new(CHUNK_SIZE, CHUNK_SIZE);
+        map.chunks.insert(IVec2::new(0, 0), Chunk::new(0, 0));
+        for x in 0..CHUNK_SIZE {
+            for y in 0..CHUNK_SIZE {
+                map.set_tile(x, y, TileType::Rock);
+            }
+        }
+
+        let result =
+            map.tiles_with_trait(map.tile_to_world(5, 5), TILE_SIZE * 4.0, Concept::Drinkable);
+        assert!(
+            result.is_empty(),
+            "no water tiles → drinkable query must be empty"
+        );
+    }
 
     #[test]
     fn all_land_types_are_walkable() {

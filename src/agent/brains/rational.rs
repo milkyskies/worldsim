@@ -265,7 +265,7 @@ pub fn update_rational_planning(
     >,
     tick: Res<crate::core::tick::TickCount>,
     ns_config: Res<crate::agent::nervous_system::config::NervousSystemConfig>,
-    _world_map: Res<WorldMap>,
+    world_map: Res<WorldMap>,
     action_registry: Res<crate::agent::actions::ActionRegistry>,
     mut game_log: ResMut<crate::core::GameLog>,
     affordances: Query<(
@@ -610,6 +610,8 @@ pub fn update_rational_planning(
             let action_candidates = collect_planning_actions(
                 &action_registry,
                 mind,
+                transform.translation.truncate(),
+                &world_map,
                 &affordances,
                 PlanningMode::Generate,
                 &capacities,
@@ -940,6 +942,8 @@ impl TargetInclusionReason {
 fn collect_planning_actions(
     action_registry: &crate::agent::actions::ActionRegistry,
     mind: &MindGraph,
+    agent_pos: Vec2,
+    world_map: &WorldMap,
     affordances: &Query<(
         &GlobalTransform,
         Option<&crate::agent::affordance::Affordance>,
@@ -964,7 +968,14 @@ fn collect_planning_actions(
         }
 
         let source = action.target_source();
-        for candidate in enumerate_targets(&source, action.action_type(), mind, affordances) {
+        for candidate in enumerate_targets(
+            &source,
+            action.action_type(),
+            mind,
+            agent_pos,
+            world_map,
+            affordances,
+        ) {
             let reason = match mode {
                 PlanningMode::Generate => {
                     if action.is_plan_valid(&candidate, mind) {
