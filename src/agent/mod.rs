@@ -115,6 +115,7 @@ impl Plugin for AgentPlugin {
             .register_type::<body::needs::Consciousness>()
             .register_type::<body::needs::PsychologicalDrives>()
             .register_type::<body::needs::SocialDriveOverride>()
+            .register_type::<mind::affective_tom::AffectiveToM>()
             .register_type::<mind::memory::WorkingMemory>()
             .register_type::<psyche::emotions::EmotionalState>()
             .register_type::<mind::knowledge::MindGraph>()
@@ -209,6 +210,10 @@ impl Plugin for AgentPlugin {
                         .after(mind::social_perception::perceive_other_agents),
                     mind::theory_of_mind::update_shared_experience_tom
                         .after(mind::perception::write_perceptions_to_mind),
+                    mind::affective_tom::update_affective_tom
+                        .after(mind::social_perception::perceive_other_agents),
+                    mind::affective_tom::decay_affective_tom
+                        .after(mind::affective_tom::update_affective_tom),
                 )
                     .in_set(crate::core::PerfBucket::Perception)
                     .in_set(crate::core::PerfSubBucket::PerceptionSocial)

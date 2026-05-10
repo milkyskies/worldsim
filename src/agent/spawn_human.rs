@@ -70,6 +70,7 @@ pub struct PersonPerceptionBundle {
     pub social_identity: crate::agent::mind::social_identity::SocialIdentity,
     pub vision: Vision,
     pub visible: VisibleObjects,
+    pub affective_tom: crate::agent::mind::affective_tom::AffectiveToM,
 }
 
 /// Brains, drives, and the rest of the cognitive layer.
@@ -203,6 +204,7 @@ pub fn build_person_logic(
         social_identity: crate::agent::mind::social_identity::SocialIdentity::default(),
         vision: Vision { range: 100.0 },
         visible: VisibleObjects::default(),
+        affective_tom: crate::agent::mind::affective_tom::AffectiveToM::default(),
     };
 
     let brain = PersonBrainBundle {

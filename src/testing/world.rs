@@ -410,6 +410,14 @@ fn format_sim_event(event: &SimEvent) -> String {
 
         SimEvent {
             tick,
+            kind: SimEventKind::AffectiveToMUpdated { agent, about, .. },
+            ..
+        } => {
+            format!("[t{tick}] AffectiveToMUpdated agent={agent:?} about={about:?}")
+        }
+
+        SimEvent {
+            tick,
             kind: SimEventKind::ItemSpoiled {
                 agent, from, to, ..
             },
