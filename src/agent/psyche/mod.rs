@@ -1,3 +1,4 @@
+pub mod aspirations;
 pub mod emotions;
 pub mod flocking;
 pub mod greetings;

@@ -109,6 +109,7 @@ impl Plugin for AgentPlugin {
             .register_type::<inventory::EntityType>()
             .register_type::<psyche::personality::Personality>()
             .register_type::<psyche::values::Values>()
+            .register_type::<psyche::aspirations::Aspirations>()
             .register_type::<body::species::SpeciesProfile>()
             .register_type::<body::genetics::genome::Genome>()
             .register_type::<body::genetics::phenotype::Phenotype>()
