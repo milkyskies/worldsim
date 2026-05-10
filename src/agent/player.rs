@@ -7,6 +7,7 @@
 
 use bevy::prelude::*;
 
+use crate::agent::TargetPosition;
 use crate::agent::actions::{
     ActionType, ActiveActions,
     motor::{ActionPrimitive, Behavior, IntensityPolicy, Intent, TargetSelector},
@@ -41,18 +42,41 @@ pub fn release(commands: &mut Commands, entity: Entity) {
     commands.entity(entity).remove::<PlayerControlled>();
 }
 
-/// Translate held WASD/arrow keys into a Walk template aimed at the
-/// adjacent tile in the held direction.
+/// How far ahead of the agent the smooth-walk lookahead point sits.
+/// Long enough that the agent never reaches it while a directional key
+/// is held — the Walk action stays in `MoveResult::Moving` indefinitely
+/// — but short enough that releasing the key stops within ~1 tile of
+/// where the agent is, so the player doesn't overshoot.
+const SMOOTH_WALK_LOOKAHEAD: f32 = TILE_SIZE * 1.5;
+
+/// Translate held WASD/arrow keys into smooth movement by keeping the
+/// running Walk's target position pinned a short distance ahead of the
+/// player every frame.
 ///
-/// "Movement-state cooldown": we only queue a fresh walk while no Walk
-/// is currently in flight. As soon as the previous step lands and Walk
-/// drops out of `ActiveActions`, the next held-key tick re-fires —
-/// giving the existing speed model (`calculate_speed` × intensity ×
-/// terrain) authority over the per-step pacing.
+/// Why not "queue one Walk per tile"? That's what the first version did,
+/// and it produced a step / pause / step cadence — the agent walked one
+/// tile, the Walk action ended (`MoveResult::Arrived`), the next held-key
+/// tick had to spawn a fresh Walk, etc. The pause is the unsmooth.
+///
+/// Instead: write the Walk template once, then each frame mutate the
+/// active Walk's `target_position` to a moving point ahead of the agent.
+/// `move_toward` never sees `Arrived` while the key is held, so movement
+/// stays continuous at the existing speed-model rate (`calculate_speed`
+/// × intensity × terrain). When the key is released, the target stays
+/// where it last was and the agent walks to it and stops naturally —
+/// no abrupt halt mid-step.
 pub fn player_input(
     keyboard: Option<Res<ButtonInput<KeyCode>>>,
     map: Res<WorldMap>,
-    mut query: Query<(&Transform, &mut BrainState, &ActiveActions), With<PlayerControlled>>,
+    mut query: Query<
+        (
+            &Transform,
+            &mut BrainState,
+            &mut ActiveActions,
+            &mut TargetPosition,
+        ),
+        With<PlayerControlled>,
+    >,
 ) {
     // Headless and TestWorld runs don't add Bevy's InputPlugin, so the
     // keyboard resource is genuinely absent there. Silently no-op
@@ -66,20 +90,42 @@ pub fn player_input(
     // Adventure mode runs with one possessed agent at a time. If somehow
     // multiple are marked we ignore the input entirely rather than
     // double-stepping a stale one.
-    let Ok((transform, mut brain_state, active)) = query.single_mut() else {
+    let Ok((transform, mut brain_state, mut active, mut target_position)) = query.single_mut()
+    else {
         return;
     };
-    if active.contains(ActionType::Walk) {
-        return;
-    }
+
     let current_pos = transform.translation.truncate();
-    let target_pos = current_pos + direction * TILE_SIZE;
-    if !map.is_walkable(target_pos) {
+    let lookahead = current_pos + direction * SMOOTH_WALK_LOOKAHEAD;
+    // If the lookahead is into a wall, clamp to the agent's current tile
+    // edge in that direction so we don't ask the movement system to walk
+    // into rock. The `Gate::TileReachable` check inside Walk's admission
+    // path also catches this, but clamping here keeps behavior stable
+    // when the player is held against a wall.
+    let target_pos = if map.is_walkable(lookahead) {
+        lookahead
+    } else {
+        current_pos + direction * (TILE_SIZE * 0.4)
+    };
+    let (tx, ty) = map.world_to_tile(target_pos);
+
+    // If a Walk is already running, just refresh its target_position —
+    // start_actions would otherwise skip the new template and the old
+    // target keeps pulling the agent toward the original tile.
+    if let Some(state) = active.get_mut(ActionType::Walk) {
+        state.target_position = Some(target_pos);
+        target_position.0 = Some(target_pos);
+        // Keep chosen_actions in sync so the brain log and any debug
+        // overlays see the live target — `start_actions` will see Walk
+        // already running and short-circuit, so this is purely
+        // observability, not an admission path.
+        brain_state.chosen_actions = vec![build_walk_template(target_pos, (tx as i32, ty as i32))];
         return;
     }
-    let (tx, ty) = map.world_to_tile(target_pos);
-    let snapped = map.tile_to_world(tx as i32, ty as i32);
-    brain_state.chosen_actions = vec![build_walk_template(snapped, (tx as i32, ty as i32))];
+
+    // First step of a new walk burst: write the template so start_actions
+    // admits it. Subsequent frames take the in-flight branch above.
+    brain_state.chosen_actions = vec![build_walk_template(target_pos, (tx as i32, ty as i32))];
 }
 
 /// 8-direction unit vector from currently-held WASD/arrow keys, or None
