@@ -171,9 +171,14 @@ mod tests {
         let mut graph = SocialGraph::default();
         let alice = entity(1);
         let bob = entity(2);
-        let mut edge = RelationshipEdge::default();
-        edge.affection = 0.7;
-        graph.set(alice, bob, edge);
+        graph.set(
+            alice,
+            bob,
+            RelationshipEdge {
+                affection: 0.7,
+                ..Default::default()
+            },
+        );
 
         let stored = graph.get(alice, bob).expect("edge must round-trip");
         assert!((stored.affection - 0.7).abs() < 1e-6);
