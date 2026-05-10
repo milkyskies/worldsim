@@ -51,6 +51,14 @@ pub enum UrgencySource {
     /// `StorageChest`); the planner backward-chains through
     /// `BuildStorageChest` when no chest exists yet.
     FoodSecurity,
+    /// Other-regarding drive: rises when the observer has seen a peer
+    /// in distress (via `AffectiveToM`) and feels affection toward
+    /// them. One urgency emitted per qualifying target — the urgency's
+    /// `target` field carries the entity the observer is concerned for.
+    /// Satisfier actions (TendWounds / ShareFood / Comfort) are wired
+    /// in follow-ups once perceived-injury and perceived-hunger
+    /// channels land.
+    Compassion,
 }
 
 impl UrgencySource {
@@ -81,17 +89,44 @@ impl UrgencySource {
             .map(|e| e.is_deprivation)
             .unwrap_or(false)
     }
+
+    /// Whether this drive reads peer state (via Affective ToM) rather
+    /// than self state. Other-regarding drives emit one urgency per
+    /// qualifying target with `Urgency::target` set.
+    pub fn is_other_regarding(self) -> bool {
+        matches!(self, UrgencySource::Compassion)
+    }
 }
 
 #[derive(Debug, Clone, Reflect, serde::Serialize)]
 pub struct Urgency {
     pub source: UrgencySource,
     pub value: f32, // 0.0 to 1.0 (or higher if extreme)
+    /// The entity this urgency is *about*. `None` for self-regarding
+    /// drives (the default); `Some(other)` for other-regarding drives
+    /// like Compassion, where the urgency targets a peer's state.
+    #[serde(serialize_with = "crate::core::entity_serde::serialize_entity_opt")]
+    pub target: Option<Entity>,
 }
 
 impl Urgency {
+    /// Self-regarding urgency. `target` is `None`.
     pub fn new(source: UrgencySource, value: f32) -> Self {
-        Self { source, value }
+        Self {
+            source,
+            value,
+            target: None,
+        }
+    }
+
+    /// Other-regarding urgency targeting `target`. Used by Compassion
+    /// and other drives that read peer state through Affective ToM.
+    pub fn for_other(source: UrgencySource, value: f32, target: Entity) -> Self {
+        Self {
+            source,
+            value,
+            target: Some(target),
+        }
     }
 }
 
@@ -107,6 +142,7 @@ pub fn generate_urgency(
     ns_config: Res<NervousSystemConfig>,
     tick: Res<crate::core::tick::TickCount>,
     light: Res<crate::world::environment::LightLevel>,
+    channels: Res<crate::agent::nervous_system::other_regarding::OtherRegardingChannels>,
     mut query: Query<
         (
             Entity,
@@ -119,6 +155,10 @@ pub fn generate_urgency(
             &crate::agent::psyche::personality::Personality,
             &crate::agent::actions::ActiveActions,
             Option<&crate::agent::brains::plan_memory::PlanMemory>,
+            &crate::agent::mind::knowledge::MindGraph,
+            // Optional: only humans currently spawn with AffectiveToM, so
+            // animal agents fall through the Compassion emission below.
+            Option<&crate::agent::mind::affective_tom::AffectiveToM>,
         ),
         With<crate::agent::Agent>,
     >,
@@ -134,6 +174,8 @@ pub fn generate_urgency(
         personality,
         active_actions,
         plan_memory,
+        mind,
+        affective_tom,
     ) in query.iter_mut()
     {
         // Staggered: heavy thinking runs every N ticks, offset by entity ID
@@ -197,6 +239,9 @@ pub fn generate_urgency(
                 // loop, not through the source-value map, because its
                 // magnitude comes from PlanMemory not body/drive state.
                 UrgencySource::Commitment => 0.0,
+                // Compassion is other-regarding: emitted per-target by
+                // `emit_compassion_urgencies` after the self-drive loop.
+                UrgencySource::Compassion => 0.0,
             }
         };
 
@@ -334,6 +379,23 @@ pub fn generate_urgency(
             }
         }
 
+        // --- COMPASSION (other-regarding) ---
+        //
+        // Per-target urgency: perceived_deficit × Σ channel_contribution.
+        // Only fires for agents with an Affective ToM channel — animals
+        // currently skip; future PRs add the component to wolves/deer
+        // to model pack/herd protectiveness.
+        if let Some(affective_tom) = affective_tom {
+            emit_compassion_urgencies(
+                entity,
+                tick.current,
+                mind,
+                affective_tom,
+                &channels,
+                &mut cns.urgencies,
+            );
+        }
+
         // --- MOMENTUM & CONSCIOUSNESS ---
 
         // Multiple actions may run in parallel - any of them can grant momentum
@@ -406,6 +468,51 @@ fn apply_momentum_and_gating(
 
                 urgency.value *= channel_dampening;
             }
+        }
+    }
+}
+
+/// Minimum compassion-urgency magnitude required for emission. Below
+/// this the urgency is suppressed so trace-level distress in remote peers
+/// doesn't clutter every observer's urgency list.
+const COMPASSION_MIN_THRESHOLD: f32 = 0.05;
+
+/// Discount applied to a compassion urgency by Affective-ToM confidence
+/// — a fading memory of someone's distress generates a fading concern.
+fn emit_compassion_urgencies(
+    observer: Entity,
+    now: u64,
+    mind: &crate::agent::mind::knowledge::MindGraph,
+    affective_tom: &crate::agent::mind::affective_tom::AffectiveToM,
+    channels: &crate::agent::nervous_system::other_regarding::OtherRegardingChannels,
+    out: &mut Vec<Urgency>,
+) {
+    use crate::agent::nervous_system::other_regarding::ChannelContext;
+
+    if channels.channel_count() == 0 {
+        return;
+    }
+
+    for (target, mood) in affective_tom.iter() {
+        let perceived_deficit = mood.distress_score() * mood.confidence_at(now);
+        if perceived_deficit <= 0.0 {
+            continue;
+        }
+
+        let ctx = ChannelContext {
+            observer,
+            target,
+            drive: UrgencySource::Compassion,
+            mind,
+        };
+        let contribution = channels.total_contribution(&ctx);
+        if contribution <= 0.0 {
+            continue;
+        }
+
+        let value = perceived_deficit * contribution;
+        if value > COMPASSION_MIN_THRESHOLD {
+            out.push(Urgency::for_other(UrgencySource::Compassion, value, target));
         }
     }
 }

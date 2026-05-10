@@ -40,6 +40,10 @@ pub enum Intent {
     SatisfyReproduction,
     /// Fulfill a verbal promise made to another agent.
     FulfillCommitment,
+    /// Care for a peer in distress — the urgency target identifies which
+    /// peer. Satisfier actions (TendWounds, ShareFood, Comfort) wire in
+    /// once their effect channels land.
+    SatisfyCompassion,
     /// Idle, ambient, or "nothing specific" behavior.
     #[default]
     None,

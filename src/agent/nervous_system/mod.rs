@@ -6,6 +6,7 @@ pub mod config;
 pub mod execution;
 pub mod forecast;
 pub mod metabolism;
+pub mod other_regarding;
 pub mod territoriality;
 pub mod urgency;
 
@@ -22,6 +23,11 @@ impl Plugin for NervousSystemPlugin {
             .init_resource::<config::NervousSystemConfig>()
             .init_resource::<crate::agent::brains::planner::PlannerConfig>()
             .init_resource::<crate::agent::mind::memory::MemoryDecayConfig>()
+            .insert_resource({
+                let mut channels = other_regarding::OtherRegardingChannels::default();
+                other_regarding::register_default_channels(&mut channels);
+                channels
+            })
             .add_systems(
                 FixedUpdate,
                 (
