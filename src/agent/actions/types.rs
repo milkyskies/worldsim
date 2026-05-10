@@ -279,15 +279,19 @@ impl ActionType {
     /// True for engagement-internal beats that may only be inserted into
     /// `ActiveActions` by an engagement plugin — never proposed by a
     /// brain. Brain-side validation rejects any proposal of a beat.
+    ///
+    /// `Harvest` and `Devour` remain dual-classified during the
+    /// migration: they are owned by their engagements (HarvestPlugin,
+    /// DevourPlugin) but the rational brain's planner still emits them
+    /// as plan steps in chains (`Walk → Harvest → Eat`). Those planner
+    /// callsites move onto `InitiateHarvest`/`InitiateDevour` in a
+    /// follow-up; until then the beat classifier excludes them so the
+    /// debug-assert in arbitration doesn't fire on legitimate planner
+    /// proposals.
     pub fn is_beat(self) -> bool {
         matches!(
             self,
-            ActionType::Converse
-                | ActionType::Bite
-                | ActionType::Devour
-                | ActionType::Flee
-                | ActionType::Sleep
-                | ActionType::Harvest
+            ActionType::Converse | ActionType::Bite | ActionType::Flee | ActionType::Sleep
         )
     }
 

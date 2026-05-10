@@ -958,6 +958,13 @@ fn collect_planning_actions(
             continue;
         }
 
+        // #743: engagement-internal beats are owned by their plugin and
+        // must never appear as a plan step. The matching `InitiateX`
+        // proposable enumerates here instead.
+        if action.action_type().is_beat() {
+            continue;
+        }
+
         // Plan-time satiation filter — see `Action::is_plan_time_viable`.
         if !action.is_plan_time_viable(Some(physical), Some(inventory)) {
             continue;

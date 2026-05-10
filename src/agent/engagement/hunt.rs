@@ -21,7 +21,7 @@ use crate::agent::brains::plan_memory::{PlanAbandonReason, PlanMemory};
 use crate::agent::events::{
     EngagementBeatPayload, FailureReason, GameEvent, SimEvent, SimEventKind,
 };
-use crate::agent::mind::knowledge::{Concept, MindGraph, Node, Predicate};
+use crate::agent::mind::knowledge::{Concept, MindGraph, Node};
 use crate::agent::mind::perception::VisibleObjects;
 use crate::agent::psyche::emotions::EmotionalState;
 use crate::constants::actions::attack::DURATION_TICKS as STRIKE_COOLDOWN_TICKS;

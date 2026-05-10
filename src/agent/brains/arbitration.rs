@@ -177,7 +177,25 @@ pub fn arbitrate_parallel(
 ) -> ArbitrationResult {
     use crate::agent::actions::channel::ChannelLoad;
 
-    let collected: Vec<BrainProposal> = proposals.iter().flatten().cloned().collect();
+    // #743 typesafety: brains may not propose engagement-internal beats
+    // (Bite, Devour, Sleep, Harvest, Flee, Converse). The kind-specific
+    // engagement plugin owns those; brains route through the matching
+    // `InitiateX` action. In debug builds, panic on violation to surface
+    // the bug; in release, drop the proposal silently.
+    let collected: Vec<BrainProposal> = proposals
+        .iter()
+        .flatten()
+        .filter(|p| {
+            let is_beat = p.action.action_type.is_beat();
+            debug_assert!(
+                !is_beat,
+                "Brain {:?} proposed beat-only action {:?} — must route through an InitiateX",
+                p.brain, p.action.action_type,
+            );
+            !is_beat
+        })
+        .cloned()
+        .collect();
     let deduped = deduplicate_by_intent(collected, powers, registry);
 
     let mut scored: Vec<(f32, BrainProposal)> = deduped

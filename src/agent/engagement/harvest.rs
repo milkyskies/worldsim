@@ -15,7 +15,7 @@ use crate::agent::Agent;
 use crate::agent::actions::registry::{ActionState, ActiveActions};
 use crate::agent::actions::types::ActionType;
 use crate::agent::events::{
-    EngagementBeatPayload, FailureReason, GameEvent, SimEvent, SimEventKind,
+    EngagementBeatPayload, FailureReason, SimEvent, SimEventKind,
 };
 use crate::agent::psyche::emotions::EmotionalState;
 use crate::constants::actions::harvest::DURATION_TICKS as YIELD_COOLDOWN_TICKS;
