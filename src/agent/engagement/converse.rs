@@ -770,7 +770,7 @@ pub fn select_turn_intent(
         if let Ok(mut c) = consciousnesses.get_mut(speaker) {
             let extraversion = personalities
                 .get(speaker)
-                .map(|p| p.traits.extraversion)
+                .map(|p| p.traits.extraversion())
                 .unwrap_or(0.5);
             let drain = speaker_drain_base * (1.0 - extraversion * extraversion_relief);
             c.alertness = (c.alertness - drain).max(0.0);
@@ -779,7 +779,7 @@ pub fn select_turn_intent(
             if let Ok(mut c) = consciousnesses.get_mut(listener) {
                 let extraversion = personalities
                     .get(listener)
-                    .map(|p| p.traits.extraversion)
+                    .map(|p| p.traits.extraversion())
                     .unwrap_or(0.5);
                 let drain = listener_drain_base * (1.0 - extraversion * extraversion_relief);
                 c.alertness = (c.alertness - drain).max(0.0);
@@ -834,8 +834,8 @@ pub fn select_turn_intent(
 }
 
 pub(crate) fn speak_desire(personality: Option<&Personality>, wants_to_speak: bool) -> f32 {
-    let extraversion = personality.map(|p| p.traits.extraversion).unwrap_or(0.5);
-    let agreeableness = personality.map(|p| p.traits.agreeableness).unwrap_or(0.5);
+    let extraversion = personality.map(|p| p.traits.extraversion()).unwrap_or(0.5);
+    let agreeableness = personality.map(|p| p.traits.agreeableness()).unwrap_or(0.5);
     let base = 1.0 + extraversion * 2.0 - agreeableness * 0.6;
     if wants_to_speak { base + 2.5 } else { base }
 }
@@ -889,8 +889,8 @@ pub(crate) fn select_intent(
     has_deliberate: bool,
     has_casual: bool,
 ) -> Intent {
-    let neuroticism = personality.map(|p| p.traits.neuroticism).unwrap_or(0.5);
-    let extraversion = personality.map(|p| p.traits.extraversion).unwrap_or(0.5);
+    let neuroticism = personality.map(|p| p.traits.neuroticism()).unwrap_or(0.5);
+    let extraversion = personality.map(|p| p.traits.extraversion()).unwrap_or(0.5);
 
     if conv.state == ConversationState::Greeting && conv.turns.is_empty() {
         return Intent::Greet;
@@ -922,7 +922,7 @@ pub(crate) fn select_intent(
         return Intent::Share;
     }
 
-    let agreeableness = personality.map(|p| p.traits.agreeableness).unwrap_or(0.5);
+    let agreeableness = personality.map(|p| p.traits.agreeableness()).unwrap_or(0.5);
     let other_last = conv
         .turns
         .last()
@@ -1151,7 +1151,7 @@ fn compute_interaction_valence(
 
     let (speaker_mood, speaker_agreeableness) = agents
         .get(speaker)
-        .map(|(_, e, p)| (e.current_mood, p.traits.agreeableness))
+        .map(|(_, e, p)| (e.current_mood, p.traits.agreeableness()))
         .unwrap_or((0.0, 0.5));
     let listener_mood = agents
         .get(listener)

@@ -137,7 +137,7 @@ impl PlanCostContext {
         Self {
             stamina_aerobic: physical.stamina.aerobic_fraction().clamp(0.0, 1.0),
             alertness: consciousness.alertness.clamp(0.0, 1.0),
-            neuroticism: personality.traits.neuroticism.clamp(0.0, 1.0),
+            neuroticism: personality.traits.neuroticism().clamp(0.0, 1.0),
             current_tick,
             body_mass: species
                 .map(|s| s.mass_kg)

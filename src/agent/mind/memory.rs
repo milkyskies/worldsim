@@ -424,7 +424,7 @@ pub fn decay_stale_knowledge(
         let ln_semantic = decay_config.semantic_decay.ln();
 
         // Conscientious agents resist memory decay — they hold on to details longer.
-        let resist_mult = 1.0 + personality.traits.conscientiousness;
+        let resist_mult = 1.0 + personality.traits.conscientiousness();
 
         let decayed_count = mind.decay_pass(|triple| {
             let ln_base = match triple.meta.memory_type {

@@ -380,7 +380,7 @@ pub fn generate_urgency(
                 .fold(f32::NEG_INFINITY, f32::max);
             if strongest.is_finite() {
                 let priority = crate::agent::nervous_system::cns::VERBAL_COMMITMENT_PRIORITY_BASE
-                    + personality.traits.conscientiousness
+                    + personality.traits.conscientiousness()
                         * crate::agent::nervous_system::cns::VERBAL_COMMITMENT_PRIORITY_BONUS;
                 cns.urgencies
                     .push(Urgency::new(UrgencySource::Commitment, priority));

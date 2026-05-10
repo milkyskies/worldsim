@@ -7,6 +7,8 @@
 //!             mind::perception (vision range), nervous_system (Personality)
 
 use bevy::prelude::*;
+use rand_chacha::ChaCha8Rng;
+use rand_chacha::rand_core::SeedableRng;
 
 use crate::agent::body::genetics::genome::{
     AEROBIC_CAPACITY_START, AGREEABLENESS_START, ANAEROBIC_CAPACITY_START, BMR_START,
@@ -253,6 +255,18 @@ fn develop_personality(locus_sum: f32) -> f32 {
     (1.0 - H2_PERSONALITY) * 0.5 + H2_PERSONALITY * genetic_value
 }
 
+/// Deterministic 64-bit seed derived from the genome's locus bits. Used to
+/// drive facet-sampling RNG so identical genomes produce identical facet
+/// profiles run-to-run.
+fn genome_seed(genome: &Genome) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    for v in genome.maternal.iter().chain(genome.paternal.iter()) {
+        v.to_bits().hash(&mut hasher);
+    }
+    hasher.finish()
+}
+
 /// Runs once per entity when a [`Genome`] is added (at spawn).
 ///
 /// Inserts (or overwrites):
@@ -286,14 +300,16 @@ pub fn develop_phenotype_system(
 
         let vision_range = species.vision_range * phenotype.vision;
 
+        let mut facet_rng = ChaCha8Rng::seed_from_u64(genome_seed(genome));
         let personality = Personality {
-            traits: PersonalityTraits {
-                openness: phenotype.openness,
-                conscientiousness: phenotype.conscientiousness,
-                extraversion: phenotype.extraversion,
-                agreeableness: phenotype.agreeableness,
-                neuroticism: phenotype.neuroticism,
-            },
+            traits: PersonalityTraits::sample(
+                phenotype.openness,
+                phenotype.conscientiousness,
+                phenotype.extraversion,
+                phenotype.agreeableness,
+                phenotype.neuroticism,
+                &mut facet_rng,
+            ),
         };
 
         let mut drives = PsychologicalDrives::from_personality(&personality.traits);

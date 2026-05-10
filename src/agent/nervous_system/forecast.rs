@@ -24,7 +24,7 @@ pub const FORECAST_HORIZON_MAX_MINUTES: f32 = 240.0;
 
 /// Lookahead horizon in game-minutes, scaled linearly by conscientiousness.
 pub fn forecast_horizon_minutes(traits: &PersonalityTraits) -> f32 {
-    let c = traits.conscientiousness.clamp(0.0, 1.0);
+    let c = traits.conscientiousness().clamp(0.0, 1.0);
     FORECAST_HORIZON_MIN_MINUTES + c * (FORECAST_HORIZON_MAX_MINUTES - FORECAST_HORIZON_MIN_MINUTES)
 }
 
@@ -62,16 +62,16 @@ fn predicted_warmth_input(current_value: f32, current_tick: u64, horizon_minutes
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::agent::psyche::personality::PersonalityTraits;
+    use crate::agent::psyche::personality::{ConscientiousnessFacets, PersonalityTraits};
 
     #[test]
     fn horizon_scales_with_conscientiousness() {
         let lazy = PersonalityTraits {
-            conscientiousness: 0.0,
+            conscientiousness: ConscientiousnessFacets::uniform(0.0),
             ..Default::default()
         };
         let diligent = PersonalityTraits {
-            conscientiousness: 1.0,
+            conscientiousness: ConscientiousnessFacets::uniform(1.0),
             ..Default::default()
         };
         assert!((forecast_horizon_minutes(&lazy) - FORECAST_HORIZON_MIN_MINUTES).abs() < 1e-3);

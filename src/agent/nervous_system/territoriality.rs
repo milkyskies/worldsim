@@ -119,7 +119,7 @@ pub fn update_territoriality(
 
         // Less agreeable personalities feel territory violations more keenly.
         // Range: 0.7 (fully agreeable) to 1.3 (fully disagreeable).
-        let aggression = 1.0 - personality.traits.agreeableness;
+        let aggression = 1.0 - personality.traits.agreeableness();
         let personality_mod = 0.7 + aggression * 0.6;
 
         let dominion_value =

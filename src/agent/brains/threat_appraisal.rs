@@ -151,7 +151,7 @@ pub fn boldness_score(personality: Option<&PersonalityTraits>) -> f32 {
     let Some(p) = personality else {
         return 0.5;
     };
-    let timid = p.neuroticism * 0.6 + p.agreeableness * 0.4;
+    let timid = p.neuroticism() * 0.6 + p.agreeableness() * 0.4;
     (1.0 - timid).clamp(0.0, 1.0)
 }
 
@@ -240,14 +240,15 @@ mod tests {
     #[test]
     fn bold_personality_fights_at_lower_anger_than_timid() {
         let physical = PhysicalNeeds::default();
+        use crate::agent::psyche::personality::{AgreeablenessFacets, NeuroticismFacets};
         let bold = PersonalityTraits {
-            neuroticism: 0.05,
-            agreeableness: 0.05,
+            agreeableness: AgreeablenessFacets::uniform(0.05),
+            neuroticism: NeuroticismFacets::uniform(0.05),
             ..Default::default()
         };
         let timid = PersonalityTraits {
-            neuroticism: 0.95,
-            agreeableness: 0.95,
+            agreeableness: AgreeablenessFacets::uniform(0.95),
+            neuroticism: NeuroticismFacets::uniform(0.95),
             ..Default::default()
         };
 
@@ -285,14 +286,15 @@ mod tests {
 
     #[test]
     fn boldness_score_scales_inversely_with_neuroticism() {
+        use crate::agent::psyche::personality::{AgreeablenessFacets, NeuroticismFacets};
         let timid = PersonalityTraits {
-            neuroticism: 0.9,
-            agreeableness: 0.9,
+            agreeableness: AgreeablenessFacets::uniform(0.9),
+            neuroticism: NeuroticismFacets::uniform(0.9),
             ..Default::default()
         };
         let bold = PersonalityTraits {
-            neuroticism: 0.1,
-            agreeableness: 0.1,
+            agreeableness: AgreeablenessFacets::uniform(0.1),
+            neuroticism: NeuroticismFacets::uniform(0.1),
             ..Default::default()
         };
         assert!(boldness_score(Some(&bold)) > boldness_score(Some(&timid)));

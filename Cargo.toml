@@ -49,6 +49,7 @@ strum = { version = "0.28.0", features = ["derive"] }
 tracing-tracy = { version = "0.11", optional = true }
 tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter"], optional = true }
 ron = "0.12.1"
+rand_distr = "0.5"
 
 # Enable a small amount of optimization in the dev profile.
 [profile.dev]
@@ -63,6 +64,13 @@ opt-level = 3
 [profile.test]
 opt-level = 3
 debug = 0
+
+# Match dev's dep settings so Bevy + friends share fingerprints across
+# `cargo run` and `cargo nextest run`. Without this, profile.test's
+# `debug = 0` propagates to deps and forks the cache.
+[profile.test.package."*"]
+opt-level = 3
+debug = 2
 
 # CI profile: drop opt-level overrides so compile is fast.
 # CI doesn't need fast runtime, just fast compile + test.
