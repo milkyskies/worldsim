@@ -17,9 +17,7 @@ use super::registry::EngagementRegistry;
 use crate::agent::Agent;
 use crate::agent::actions::registry::{ActionState, ActiveActions};
 use crate::agent::actions::types::ActionType;
-use crate::agent::events::{
-    EngagementBeatPayload, FailureReason, SimEvent, SimEventKind,
-};
+use crate::agent::events::{EngagementBeatPayload, FailureReason, SimEvent, SimEventKind};
 use crate::agent::mind::knowledge::{Concept, MindGraph, Node};
 use crate::agent::psyche::emotions::EmotionalState;
 use crate::constants::actions::devour::DURATION_TICKS as BITE_COOLDOWN_TICKS;
