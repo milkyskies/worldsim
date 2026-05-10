@@ -25,6 +25,11 @@ pub struct ActionContext<'a> {
     pub inventory: &'a ItemSlots,
     pub mind: &'a MindGraph,
     pub world_map: &'a crate::world::map::WorldMap,
+    /// Static-object position snapshot (#756). `is_near_trait` and any
+    /// gate that needs to know "is the agent on a tile with a campfire /
+    /// lean-to / chest" reads from here — those positions are objective
+    /// world facts, not subjective beliefs.
+    pub world_positions: &'a crate::world::entity_positions::WorldEntityPositions,
     pub target_entity: Option<Entity>,
     pub target_position: Option<Vec2>,
     pub agent_position: Vec2,
@@ -200,7 +205,9 @@ pub enum LegResult {
 pub struct LegCompleteContext<'a> {
     pub agent_position: bevy::prelude::Vec2,
     pub world_map: &'a crate::world::map::WorldMap,
+    pub world_positions: &'a crate::world::entity_positions::WorldEntityPositions,
     pub mind: &'a MindGraph,
+    pub explored: &'a crate::agent::mind::explored_tiles::ExploredTiles,
     pub physical: &'a crate::agent::body::needs::PhysicalNeeds,
     pub target_entity: Option<bevy::prelude::Entity>,
     pub target_position: Option<bevy::prelude::Vec2>,
@@ -466,6 +473,14 @@ pub trait Action: Send + Sync + 'static {
             Some((kind, fullness)) => fullness < kind.satiation_threshold(),
             None => true,
         }
+    }
+
+    /// Diets for which this action is plannable. Empty slice = all diets
+    /// allowed. Filters the rational brain so a wolf doesn't enumerate
+    /// Graze targets and a deer doesn't plan against carnivore prey.
+    /// Default: empty (no diet restriction).
+    fn eligible_diets(&self) -> &'static [crate::agent::body::species::Diet] {
+        &[]
     }
 
     /// Planning check - is this action valid for this target/context?

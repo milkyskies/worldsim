@@ -1,3 +1,4 @@
+use crate::agent::mind::knowledge::Concept;
 use crate::menu::{AppState, SimConfig};
 use crate::outline::OUTLINE_COLOR;
 use crate::palette::{Palette, PaletteColor};
@@ -69,6 +70,19 @@ impl TileType {
     /// Whether agents can traverse this tile at all.
     pub fn is_walkable(&self) -> bool {
         !matches!(self, TileType::Water)
+    }
+
+    /// Whether this terrain type satisfies a concept-level trait (e.g. grass
+    /// is `Grazable`, water is `Drinkable`). Lets the rational brain query
+    /// "find tiles with trait X" directly against the world state instead of
+    /// requiring perception to mirror this objective fact into every agent's
+    /// MindGraph as a per-tile belief.
+    pub fn has_trait(&self, concept: Concept) -> bool {
+        match concept {
+            Concept::Grazable => matches!(self, TileType::Grass),
+            Concept::Drinkable => self.is_water(),
+            _ => false,
+        }
     }
 
     /// Movement speed multiplier for traversing this tile (1.0 = full speed).
@@ -246,6 +260,50 @@ impl WorldMap {
         self.tile_at(pos)
             .map(|t| t.speed_multiplier())
             .unwrap_or(0.0)
+    }
+
+    /// Find every tile within `radius` (world pixels) of `center` whose
+    /// terrain type satisfies `concept` (per [`TileType::has_trait`]).
+    ///
+    /// Returns tile coordinates plus the world-space tile-center position.
+    /// Replaces the old per-agent `(Tile(_), HasTrait, _)` MindGraph belief
+    /// path: terrain traits are objective world state, so the planner reads
+    /// them directly from the map instead of waiting for perception to
+    /// mirror them into every agent's belief store.
+    pub fn tiles_with_trait(
+        &self,
+        center: Vec2,
+        radius: f32,
+        concept: Concept,
+    ) -> Vec<((i32, i32), Vec2)> {
+        let mut out = Vec::new();
+        let radius_sq = radius * radius;
+        let tile_radius = (radius / TILE_SIZE).ceil() as i32;
+        let center_tx = (center.x / TILE_SIZE).floor() as i32;
+        let center_ty = (center.y / TILE_SIZE).floor() as i32;
+
+        for dy in -tile_radius..=tile_radius {
+            for dx in -tile_radius..=tile_radius {
+                let tx = center_tx + dx;
+                let ty = center_ty + dy;
+                if tx < 0 || ty < 0 {
+                    continue;
+                }
+                let Some(tile_type) = self.get_tile(tx as u32, ty as u32) else {
+                    continue;
+                };
+                if !tile_type.has_trait(concept) {
+                    continue;
+                }
+                let pos = self.tile_to_world(tx, ty);
+                if pos.distance_squared(center) > radius_sq {
+                    continue;
+                }
+                out.push(((tx, ty), pos));
+            }
+        }
+
+        out
     }
 
     /// Get pixel bounds of the map
@@ -453,8 +511,98 @@ pub fn generate_terrain(width: u32, height: u32, seed: u32) -> Vec<TileType> {
         }
     }
     carve_river(&mut tiles, width, height, seed);
+    carve_lake(&mut tiles, width, height, seed);
     place_rocky_outcrops(&mut tiles, width, height, seed);
     tiles
+}
+
+/// Lake placement constants. Sized to be substantially bigger than the
+/// noise-generated ponds (which top out around ~30 tiles) so a school of
+/// minnows + a few pike actually has room to swim. Always lands on one
+/// side of the river so the river is preserved as a separate feature.
+const LAKE_RADIUS_MIN: i32 = 6;
+const LAKE_RADIUS_MAX: i32 = 9;
+/// Tiles of buffer between the lake center and the river center line at
+/// the chosen y, so the lake doesn't merge into the river and become
+/// indistinguishable from "river got fatter."
+const LAKE_RIVER_BUFFER_TILES: i32 = 14;
+
+/// Carves a single roughly-circular lake into the terrain. The center is
+/// chosen deterministically from the seed and offset to one side of the
+/// river so it reads as a distinct water feature. Edges are perturbed by
+/// low-frequency noise so the lake doesn't read as a perfect disc.
+fn carve_lake(tiles: &mut [TileType], width: u32, height: u32, seed: u32) {
+    use rand::SeedableRng;
+    use rand_chacha::ChaCha8Rng;
+
+    let mut rng = ChaCha8Rng::seed_from_u64(seed.wrapping_add(303) as u64);
+    let edge_noise = Simplex::new(seed.wrapping_add(304));
+
+    // Pick a y first, then offset the center away from the river meander at
+    // that row by at least LAKE_RIVER_BUFFER_TILES tiles. Stay clear of map
+    // edges so the lake fits.
+    let radius = rand::Rng::random_range(&mut rng, LAKE_RADIUS_MIN..=LAKE_RADIUS_MAX);
+    let margin = (radius as u32) + 2;
+    if width < margin * 2 || height < margin * 2 {
+        return;
+    }
+
+    let cy = rand::Rng::random_range(&mut rng, margin..(height - margin));
+    let river_cx = river_center_x(cy, width, seed) as i32;
+    // Decide a side and place the center at least LAKE_RIVER_BUFFER_TILES
+    // tiles from the river. If both sides are too tight (very narrow map),
+    // fall back to whichever side has room.
+    let left_room = river_cx - LAKE_RIVER_BUFFER_TILES - margin as i32;
+    let right_room = (width as i32) - river_cx - LAKE_RIVER_BUFFER_TILES - margin as i32;
+    let pick_left = if left_room > 0 && right_room > 0 {
+        rand::Rng::random_bool(&mut rng, 0.5)
+    } else {
+        right_room <= 0
+    };
+    let cx = if pick_left {
+        if left_room <= 0 {
+            return;
+        }
+        rand::Rng::random_range(
+            &mut rng,
+            margin as i32..=(river_cx - LAKE_RIVER_BUFFER_TILES),
+        )
+    } else {
+        if right_room <= 0 {
+            return;
+        }
+        rand::Rng::random_range(
+            &mut rng,
+            (river_cx + LAKE_RIVER_BUFFER_TILES)..=((width as i32) - margin as i32),
+        )
+    };
+
+    let radius_f = radius as f64;
+    let inner_sq = (radius_f - 1.5).max(1.0).powi(2);
+    let outer_sq = (radius_f + 0.5).powi(2);
+
+    for dy in -radius..=radius {
+        for dx in -radius..=radius {
+            let nx = cx + dx;
+            let ny = cy as i32 + dy;
+            if nx < 0 || ny < 0 || nx >= width as i32 || ny >= height as i32 {
+                continue;
+            }
+            // Perturb the radial distance with low-frequency noise so the
+            // shore isn't a perfect circle.
+            let edge = edge_noise.get([nx as f64 * 0.18, ny as f64 * 0.18]) * 1.6;
+            let r_sq = (dx as f64 + edge * 0.4).powi(2) + (dy as f64 + edge * 0.4).powi(2);
+            if r_sq > outer_sq {
+                continue;
+            }
+            let idx = (ny as u32 * width + nx as u32) as usize;
+            tiles[idx] = if r_sq < inner_sq {
+                TileType::Water
+            } else {
+                TileType::ShallowWater
+            };
+        }
+    }
 }
 
 /// How many rocky outcrops to place per 256×256 map area. Scales with map
@@ -1050,6 +1198,69 @@ mod tests {
 
     // ─── Existing tests ──────────────────────────────────────────────────────
 
+    // ─── Terrain trait queries (#739) ───────────────────────────────────────
+
+    #[test]
+    fn terrain_trait_grass_is_grazable_water_is_drinkable() {
+        assert!(TileType::Grass.has_trait(Concept::Grazable));
+        assert!(TileType::Water.has_trait(Concept::Drinkable));
+        assert!(TileType::ShallowWater.has_trait(Concept::Drinkable));
+    }
+
+    #[test]
+    fn terrain_trait_dirt_is_neither_grazable_nor_drinkable() {
+        assert!(!TileType::Dirt.has_trait(Concept::Grazable));
+        assert!(!TileType::Dirt.has_trait(Concept::Drinkable));
+        assert!(!TileType::Rock.has_trait(Concept::Grazable));
+        assert!(!TileType::Sand.has_trait(Concept::Drinkable));
+    }
+
+    #[test]
+    fn tiles_with_trait_finds_grass_within_radius() {
+        let mut map = WorldMap::new(CHUNK_SIZE, CHUNK_SIZE);
+        map.chunks.insert(IVec2::new(0, 0), Chunk::new(0, 0));
+        // Default tiles in a fresh chunk are Grass, so paint the test
+        // boundary explicitly.
+        for x in 0..CHUNK_SIZE {
+            for y in 0..CHUNK_SIZE {
+                map.set_tile(x, y, TileType::Dirt);
+            }
+        }
+        map.set_tile(3, 3, TileType::Grass);
+        map.set_tile(10, 10, TileType::Grass);
+
+        let center = map.tile_to_world(3, 3);
+        let near: Vec<_> = map
+            .tiles_with_trait(center, TILE_SIZE * 2.0, Concept::Grazable)
+            .into_iter()
+            .map(|((tx, ty), _)| (tx, ty))
+            .collect();
+
+        assert_eq!(
+            near,
+            vec![(3, 3)],
+            "only the nearby grass tile should be returned"
+        );
+    }
+
+    #[test]
+    fn tiles_with_trait_returns_empty_when_no_match() {
+        let mut map = WorldMap::new(CHUNK_SIZE, CHUNK_SIZE);
+        map.chunks.insert(IVec2::new(0, 0), Chunk::new(0, 0));
+        for x in 0..CHUNK_SIZE {
+            for y in 0..CHUNK_SIZE {
+                map.set_tile(x, y, TileType::Rock);
+            }
+        }
+
+        let result =
+            map.tiles_with_trait(map.tile_to_world(5, 5), TILE_SIZE * 4.0, Concept::Drinkable);
+        assert!(
+            result.is_empty(),
+            "no water tiles → drinkable query must be empty"
+        );
+    }
+
     #[test]
     fn all_land_types_are_walkable() {
         assert!(TileType::Grass.is_walkable());
@@ -1209,6 +1420,62 @@ mod tests {
         assert!(
             sand_count >= 20,
             "expected plenty of sand shores along the river, got {sand_count}"
+        );
+    }
+
+    #[test]
+    fn lake_carving_produces_a_contiguous_water_blob() {
+        // Lake placement is deterministic per seed. Find every connected
+        // water region and assert at least one is large enough to be the
+        // lake (substantially bigger than incidental noise ponds).
+        let tiles = generate_terrain(WORLD_WIDTH, WORLD_HEIGHT, DEFAULT_TERRAIN_SEED);
+        let w = WORLD_WIDTH as usize;
+        let h = WORLD_HEIGHT as usize;
+        let mut visited = vec![false; tiles.len()];
+        let mut largest_off_river_blob = 0usize;
+        for start in 0..tiles.len() {
+            if visited[start] || !tiles[start].is_water() {
+                continue;
+            }
+            // Flood-fill BFS over 4-connected water tiles.
+            let mut queue = vec![start];
+            let mut size = 0usize;
+            let mut touches_top_or_bottom = false;
+            while let Some(idx) = queue.pop() {
+                if visited[idx] || !tiles[idx].is_water() {
+                    continue;
+                }
+                visited[idx] = true;
+                size += 1;
+                let x = idx % w;
+                let y = idx / w;
+                if y == 0 || y == h - 1 {
+                    touches_top_or_bottom = true;
+                }
+                if x > 0 {
+                    queue.push(idx - 1);
+                }
+                if x + 1 < w {
+                    queue.push(idx + 1);
+                }
+                if y > 0 {
+                    queue.push(idx - w);
+                }
+                if y + 1 < h {
+                    queue.push(idx + w);
+                }
+            }
+            // The river is the only blob that spans top to bottom; ignore it
+            // when looking for the lake.
+            if !touches_top_or_bottom && size > largest_off_river_blob {
+                largest_off_river_blob = size;
+            }
+        }
+        // Lake radius range gives ~80-200 tiles depending on seed + edge noise.
+        // Assert the largest non-river blob is well above the noise-pond floor.
+        assert!(
+            largest_off_river_blob >= 50,
+            "expected a lake of >=50 tiles; largest non-river blob was {largest_off_river_blob}"
         );
     }
 

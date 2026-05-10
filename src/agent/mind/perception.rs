@@ -216,6 +216,7 @@ pub fn update_body_perception(
             &crate::agent::body::needs::Consciousness,
             &Transform,
             &mut MindGraph,
+            &mut crate::agent::mind::explored_tiles::ExploredTiles,
         ),
         With<Agent>,
     >,
@@ -223,7 +224,7 @@ pub fn update_body_perception(
 ) {
     let current_time = tick.current;
 
-    for (_entity, consciousness, transform, mut mind) in agents.iter_mut() {
+    for (_entity, consciousness, transform, mut mind, mut explored) in agents.iter_mut() {
         // Rule 1: Location
         let pos = transform.translation.truncate();
         let tile_x = (pos.x / TILE_SIZE).floor() as i32;
@@ -234,16 +235,13 @@ pub fn update_body_perception(
             current_time,
         );
 
-        // Rule 2: Explored Areas (Semantic Memory)
+        // Rule 2: Explored Areas — record visited chunk in the typed
+        // component. Replaces the old `(Chunk, Explored, Boolean(true))`
+        // MindGraph triples (#757): set-membership belongs in a bitset/
+        // map, not the triple store.
         let chunk_x = (pos.x / (CHUNK_SIZE as f32 * TILE_SIZE)).floor() as i32;
         let chunk_y = (pos.y / (CHUNK_SIZE as f32 * TILE_SIZE)).floor() as i32;
-
-        mind.assert(Triple::with_meta(
-            Node::Chunk((chunk_x, chunk_y)),
-            Predicate::Explored,
-            Value::Boolean(true),
-            Metadata::semantic(current_time),
-        ));
+        explored.mark_explored((chunk_x, chunk_y), current_time);
 
         // Rule 4: Consciousness
         let is_awake = consciousness.alertness > 0.2;
@@ -276,6 +274,7 @@ pub fn update_body_perception(
 pub fn write_perceptions_to_mind(
     mut agents: Query<(Entity, &Name, &Transform, &VisibleObjects, &mut MindGraph), With<Agent>>,
     transforms: Query<&Transform>,
+    mobile_entities: Query<(), With<Agent>>,
     inventories: Query<&crate::agent::item_slots::ItemSlots>,
     entity_types: Query<&crate::agent::inventory::EntityType>,
     becomes_components: Query<&crate::world::becomes::Becomes>,
@@ -284,14 +283,21 @@ pub fn write_perceptions_to_mind(
 ) {
     let current_time = tick.current;
 
-    for (agent_entity, _, agent_transform, visible, mut mind) in agents.iter_mut() {
+    for (_agent_entity, _, agent_transform, visible, mut mind) in agents.iter_mut() {
         let agent_pos = agent_transform.translation.truncate();
 
         for &entity in &visible.entities {
             let confidence = calc_confidence(agent_pos, transforms.get(entity).ok());
 
-            // 1. Perceive Location
-            if let Ok(transform) = transforms.get(entity) {
+            // 1. Perceive Location — only for mobile entities (#756).
+            // Static-object positions are objective world facts, served
+            // from `WorldEntityPositions`. Mobile entities (other agents)
+            // keep their `LocatedAt` triples here because position is
+            // genuinely subjective for them ("I last saw Bob at the
+            // river" remains a meaningful belief after Bob has moved).
+            if mobile_entities.get(entity).is_ok()
+                && let Ok(transform) = transforms.get(entity)
+            {
                 let pos = transform.translation.truncate();
                 let tile_x = (pos.x / TILE_SIZE).floor() as i32;
                 let tile_y = (pos.y / TILE_SIZE).floor() as i32;
@@ -355,17 +361,11 @@ pub fn write_perceptions_to_mind(
             }
         }
 
-        // 4. Perceive Self Inventory
-        if let Ok(self_inventory) = inventories.get(agent_entity) {
-            perceive_inventory(
-                agent_entity,
-                self_inventory,
-                &mut mind,
-                current_time,
-                1.0,
-                true,
-            );
-        }
+        // Self-inventory used to be mirrored here as `(Self_, Contains, ...)`
+        // triples. That mirror was redundant — `ItemSlots` is the canonical
+        // store and the planner now queries it directly (#755). The mirror
+        // was also drifting: ~10% of `Contains` mutations were redundant
+        // re-inserts because two write paths fought for sync.
     }
 }
 
@@ -452,130 +452,6 @@ fn perceive_inventory(
                 Value::Item(concept, 0),
                 Metadata::semantic(time),
             ));
-        }
-    }
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
-// WATER PERCEPTION — Detect water tiles in vision range
-// ═══════════════════════════════════════════════════════════════════════════
-
-/// Water tiles are static terrain — scan infrequently (every 30 ticks per agent).
-pub fn perceive_water_tiles(
-    mut agents: Query<(Entity, &Transform, &Vision, &mut MindGraph), With<Agent>>,
-    world_map: Res<crate::world::map::WorldMap>,
-    light_level: Res<LightLevel>,
-    tick: Res<TickCount>,
-) {
-    let current_time = tick.current;
-
-    for (entity, transform, vision, mut mind) in agents.iter_mut() {
-        if !tick.should_run(entity, 30) {
-            continue;
-        }
-
-        let pos = transform.translation.truncate();
-        let view_range = vision.range * light_level.0;
-        let tile_range = (view_range / TILE_SIZE).ceil() as i32;
-
-        let center_tx = (pos.x / TILE_SIZE).floor() as i32;
-        let center_ty = (pos.y / TILE_SIZE).floor() as i32;
-
-        for dx in -tile_range..=tile_range {
-            for dy in -tile_range..=tile_range {
-                let tx = center_tx + dx;
-                let ty = center_ty + dy;
-                if tx < 0 || ty < 0 {
-                    continue;
-                }
-
-                let tile_world = world_map.tile_to_world(tx, ty);
-                if pos.distance(tile_world) > view_range {
-                    continue;
-                }
-
-                if let Some(tile_type) = world_map.get_tile(tx as u32, ty as u32)
-                    && tile_type.is_water()
-                {
-                    mind.assert(Triple::with_meta(
-                        Node::Tile((tx, ty)),
-                        Predicate::HasTrait,
-                        Value::Concept(Concept::Drinkable),
-                        Metadata::semantic(current_time),
-                    ));
-                }
-            }
-        }
-    }
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
-// GRASS PERCEPTION — Detect grazable tiles for herbivores
-// ═══════════════════════════════════════════════════════════════════════════
-
-/// Grass tiles are static terrain — scan infrequently (every 30 ticks per agent).
-///
-/// Gated to herbivores so the planner only considers grazing for species that
-/// would actually do it. Carnivores and omnivores never get `HasTrait Grazable`
-/// asserted, keeping their MindGraph free of useless noise and their rational
-/// brain from enumerating grass tiles as food candidates.
-pub fn perceive_grass_tiles(
-    mut agents: Query<
-        (
-            Entity,
-            &Transform,
-            &Vision,
-            &crate::agent::body::species::SpeciesProfile,
-            &mut MindGraph,
-        ),
-        With<Agent>,
-    >,
-    world_map: Res<crate::world::map::WorldMap>,
-    light_level: Res<LightLevel>,
-    tick: Res<TickCount>,
-) {
-    use crate::agent::body::species::Diet;
-    use crate::world::map::TileType;
-
-    let current_time = tick.current;
-
-    for (entity, transform, vision, species, mut mind) in agents.iter_mut() {
-        if !matches!(species.diet, Diet::Herbivore) {
-            continue;
-        }
-        if !tick.should_run(entity, 30) {
-            continue;
-        }
-
-        let pos = transform.translation.truncate();
-        let view_range = vision.range * light_level.0;
-        let tile_range = (view_range / TILE_SIZE).ceil() as i32;
-
-        let center_tx = (pos.x / TILE_SIZE).floor() as i32;
-        let center_ty = (pos.y / TILE_SIZE).floor() as i32;
-
-        for dx in -tile_range..=tile_range {
-            for dy in -tile_range..=tile_range {
-                let tx = center_tx + dx;
-                let ty = center_ty + dy;
-                if tx < 0 || ty < 0 {
-                    continue;
-                }
-
-                let tile_world = world_map.tile_to_world(tx, ty);
-                if pos.distance(tile_world) > view_range {
-                    continue;
-                }
-
-                if let Some(TileType::Grass) = world_map.get_tile(tx as u32, ty as u32) {
-                    mind.assert(Triple::with_meta(
-                        Node::Tile((tx, ty)),
-                        Predicate::HasTrait,
-                        Value::Concept(Concept::Grazable),
-                        Metadata::semantic(current_time),
-                    ));
-                }
-            }
         }
     }
 }

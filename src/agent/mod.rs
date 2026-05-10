@@ -108,6 +108,8 @@ impl Plugin for AgentPlugin {
             .register_type::<item_slots::ThingProperties>()
             .register_type::<inventory::EntityType>()
             .register_type::<psyche::personality::Personality>()
+            .register_type::<psyche::values::Values>()
+            .register_type::<psyche::aspirations::Aspirations>()
             .register_type::<body::species::SpeciesProfile>()
             .register_type::<body::genetics::genome::Genome>()
             .register_type::<body::genetics::phenotype::Phenotype>()
@@ -116,6 +118,7 @@ impl Plugin for AgentPlugin {
             .register_type::<body::needs::PsychologicalDrives>()
             .register_type::<body::needs::SocialDriveOverride>()
             .register_type::<mind::affective_tom::AffectiveToM>()
+            .register_type::<mind::explored_tiles::ExploredTiles>()
             .register_type::<mind::memory::WorkingMemory>()
             .register_type::<psyche::emotions::EmotionalState>()
             .register_type::<mind::knowledge::MindGraph>()
@@ -186,8 +189,6 @@ impl Plugin for AgentPlugin {
                 FixedUpdate,
                 (
                     mind::perception::update_body_perception,
-                    mind::perception::perceive_water_tiles,
-                    mind::perception::perceive_grass_tiles,
                     mind::perception::perceive_temperature,
                     mind::perception::perceive_hearing,
                     mind::perception::emit_alarm_calls,

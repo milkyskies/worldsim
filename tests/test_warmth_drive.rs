@@ -144,17 +144,14 @@ fn cold_agent_with_wood_plans_build_for_warmth_goal() {
         Value::Tile((0, 0)),
     ));
 
-    // Agent is carrying the full Build recipe amount. The planner's
-    // at-least quantity rule lets stored Item(Wood, n) satisfy any
-    // precondition asking for <= n units.
-    mind.assert(Triple::new(
-        Node::Self_,
-        Predicate::Contains,
-        Value::Item(
-            Concept::Wood,
-            worldsim::constants::actions::build::CAMPFIRE_WOOD_REQUIRED,
-        ),
-    ));
+    // Agent is carrying the full Build recipe amount in `ItemSlots` (the
+    // canonical store post-#755 — self-inventory no longer mirrors into
+    // MindGraph).
+    let mut inventory = worldsim::agent::item_slots::ItemSlots::agent_carry();
+    inventory.add(
+        Concept::Wood,
+        worldsim::constants::actions::build::CAMPFIRE_WOOD_REQUIRED,
+    );
 
     let registry = ActionRegistry::new();
     let build_template = registry
@@ -177,7 +174,14 @@ fn cold_agent_with_wood_plans_build_for_warmth_goal() {
         priority: 80.0,
     };
 
-    let (plan, stats) = regressive_plan(&mind, &goal, &available, &PlanCostContext::neutral());
+    let (plan, stats) = regressive_plan(
+        &mind,
+        Some(&inventory),
+        &worldsim::world::entity_positions::WorldEntityPositions::default(),
+        &goal,
+        &available,
+        &PlanCostContext::neutral(),
+    );
     let plan = plan.unwrap_or_else(|| {
         panic!(
             "Planner must close warmth goal via WarmUp + Build chain; unmet: {:?}",
@@ -266,7 +270,14 @@ fn agent_on_known_campfire_plans_warm_up_without_build() {
         priority: 80.0,
     };
 
-    let (plan, _) = regressive_plan(&mind, &goal, &available, &PlanCostContext::neutral());
+    let (plan, _) = regressive_plan(
+        &mind,
+        None,
+        &worldsim::world::entity_positions::WorldEntityPositions::default(),
+        &goal,
+        &available,
+        &PlanCostContext::neutral(),
+    );
     let plan = plan.expect("Planner must close warmth goal when already at a campfire");
 
     assert!(
@@ -401,6 +412,15 @@ fn warmup_stance_runs_until_warmth_threshold() {
     world
         .get_mut::<ActiveActions>(agent)
         .insert(ActionState::new(ActionType::WarmUp, 0));
+
+    // Daze so the brain doesn't preempt the injected WarmUp.
+    world
+        .app_mut()
+        .world_mut()
+        .entity_mut(agent)
+        .insert(worldsim::agent::Dazed {
+            until_tick: u64::MAX,
+        });
 
     for _ in 0..4000 {
         world.get_mut::<bevy::prelude::Transform>(agent).translation =

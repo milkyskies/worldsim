@@ -173,6 +173,8 @@ pub enum Concept {
     // ─── Animal types ───
     Deer,
     Wolf,
+    Minnow,
+    Pike,
 
     // ─── Sound kinds (perceived via hearing) ───
     Howl,
@@ -2028,6 +2030,9 @@ pub fn setup_ontology() -> Ontology {
     add(c(Deer), IsA, v(Animal));
 
     add(c(Wolf), IsA, v(Animal));
+
+    add(c(Minnow), IsA, v(Animal));
+    add(c(Pike), IsA, v(Animal));
 
     add(c(Wood), IsA, v(Resource));
     add(c(Water), IsA, v(Resource));

@@ -40,10 +40,19 @@ fn walk_snaps_to_target_when_arriving_near_tile_boundary() {
     let mut world = TestWorld::with_seed(42);
     let agent = world.spawn_agent(AgentConfig::at(start));
 
-    // At tick 0, entity_id 0 satisfies (0+0)%60==0 so the brain always fires,
-    // starts Explore, and sets TargetPosition to a random direction. Advance
-    // one tick first to exhaust that firing, then clear all actions and the
-    // brain's chosen_actions so start_actions doesn't restart Explore.
+    // Daze the agent so the brain doesn't repropose Explore during the
+    // 5-tick walk — the test verifies snap-to-tile logic in the movement
+    // system, not brain selection.
+    world
+        .app_mut()
+        .world_mut()
+        .entity_mut(agent)
+        .insert(worldsim::agent::Dazed {
+            until_tick: u64::MAX,
+        });
+
+    // Tick once so any state attached at spawn settles, then clear all
+    // actions and chosen_actions before injecting Walk.
     world.tick(1);
     {
         let w = world.app_mut().world_mut();

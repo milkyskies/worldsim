@@ -50,6 +50,7 @@ pub fn start_actions(
     registry: Res<ActionRegistry>,
     tick: Res<TickCount>,
     world_map: Res<WorldMap>,
+    world_positions: Res<crate::world::entity_positions::WorldEntityPositions>,
     mut sim_rng: ResMut<SimRng>,
     mut game_log: ResMut<GameLog>,
     mut agents: Query<(
@@ -60,6 +61,7 @@ pub fn start_actions(
         &mut ActiveActions,
         &BrainState,
         &MindGraph,
+        &crate::agent::mind::explored_tiles::ExploredTiles,
         &ItemSlots,
         (
             Option<&Body>,
@@ -85,6 +87,7 @@ pub fn start_actions(
         mut active,
         brain_state,
         mind,
+        explored,
         inventory,
         (body, physical, drives, emotional, consciousness),
         plan_memory,
@@ -122,6 +125,7 @@ pub fn start_actions(
                 inventory,
                 mind,
                 world_map: &world_map,
+                world_positions: &world_positions,
                 target_entity: action_template.target_entity,
                 target_position: action_template.target_position,
                 agent_position: transform.translation.truncate(),
@@ -270,7 +274,7 @@ pub fn start_actions(
                     ActionType::Explore => {
                         crate::agent::actions::action::explore::pick_explore_target(
                             pos,
-                            mind,
+                            explored,
                             &world_map,
                             tick.current,
                             rng,
@@ -280,6 +284,8 @@ pub fn start_actions(
                         crate::agent::actions::action::look_for::pick_look_for_target(
                             pos,
                             mind,
+                            explored,
+                            &world_positions,
                             &world_map,
                             tick.current,
                             action_template.search_filter,
@@ -403,6 +409,7 @@ pub fn tick_actions(
     registry: Res<ActionRegistry>,
     tick: Res<TickCount>,
     world_map: Res<WorldMap>,
+    world_positions: Res<crate::world::entity_positions::WorldEntityPositions>,
     palette: Res<crate::palette::Palette>,
     mut sim_rng: ResMut<crate::core::SimRng>,
     mut game_log: ResMut<GameLog>,
@@ -420,6 +427,7 @@ pub fn tick_actions(
             Option<&mut crate::agent::body::needs::PsychologicalDrives>,
             Option<&Body>,
             &crate::agent::mind::knowledge::MindGraph,
+            &crate::agent::mind::explored_tiles::ExploredTiles,
             Option<&crate::agent::skills::Skills>,
             Option<&SpeciesProfile>,
             Option<&Phenotype>,
@@ -444,6 +452,7 @@ pub fn tick_actions(
         mut drives,
         body,
         mind,
+        explored,
         skills,
         species,
         phenotype,
@@ -526,7 +535,9 @@ pub fn tick_actions(
                             let leg_ctx = LegCompleteContext {
                                 agent_position: current_pos,
                                 world_map: &world_map,
+                                world_positions: &world_positions,
                                 mind,
+                                explored,
                                 physical: &physical,
                                 target_entity: action_state.target_entity,
                                 target_position: Some(target_position),
@@ -620,7 +631,9 @@ pub fn tick_actions(
                                         let leg_ctx = LegCompleteContext {
                                             agent_position: arrived_pos,
                                             world_map: &world_map,
+                                            world_positions: &world_positions,
                                             mind,
+                                            explored,
                                             physical: &physical,
                                             target_entity: action_state.target_entity,
                                             target_position: Some(target_position),

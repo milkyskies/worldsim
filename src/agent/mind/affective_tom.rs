@@ -28,9 +28,15 @@ pub const CONFIDENCE_DECAY_TICKS: u64 = 24 * GameTime::TICKS_PER_HOUR;
 /// Confidence floor below which an entry is pruned during decay.
 pub const MIN_CONFIDENCE: f32 = 0.1;
 
-/// Mood at or below this counts as "distressed" even when no acute
-/// emotion is active — captures the drained / numb / stressed-out band.
-const DISTRESSED_MOOD: f32 = -0.3;
+/// `distress_score` value at or above which `has_seen_distressed`
+/// returns true. -0.3 mood, 30% stress, or any acute negative emotion
+/// each cross this floor.
+const DISTRESS_THRESHOLD: f32 = 0.3;
+
+/// Distress contribution from any acute negative dominant emotion
+/// (Sadness, Fear, Anger). Strong but not saturating, so simultaneous
+/// high stress / very low mood still dominate.
+const NEGATIVE_EMOTION_DISTRESS: f32 = 0.7;
 
 /// Snapshot of another agent's affective state at a single observation.
 /// Confidence is derived from `observed_at` via `confidence_at(now)` —
@@ -50,6 +56,21 @@ impl PerceivedMood {
     pub fn confidence_at(&self, now: u64) -> f32 {
         let age = now.saturating_sub(self.observed_at) as f32;
         (1.0 - age / CONFIDENCE_DECAY_TICKS as f32).clamp(0.0, 1.0)
+    }
+
+    /// Continuous distress signal in [0, 1]. Max-of-three shape lets any
+    /// single strong cue (negative mood, elevated stress, acute negative
+    /// emotion) trip the signal even when the others are quiet.
+    pub fn distress_score(&self) -> f32 {
+        let mood_distress = (-self.mood).clamp(0.0, 1.0);
+        let stress_distress = (self.stress / 100.0).clamp(0.0, 1.0);
+        let emotion_distress = match self.dominant_emotion {
+            Some(EmotionType::Sadness | EmotionType::Fear | EmotionType::Anger) => {
+                NEGATIVE_EMOTION_DISTRESS
+            }
+            _ => 0.0,
+        };
+        mood_distress.max(stress_distress).max(emotion_distress)
     }
 }
 
@@ -100,20 +121,19 @@ impl AffectiveToM {
         self.beliefs.get(&target)
     }
 
-    /// True iff the last observation of `target` shows distress: a
-    /// negative-valence dominant emotion, or — when no acute emotion is
-    /// active — a mood at or below `DISTRESSED_MOOD`. The mood-only
-    /// branch catches "drained / quietly miserable", which has no
-    /// acute-emotion signature.
+    /// Iterate all `(target, mood)` pairs the observer holds beliefs for.
+    /// Lets other-regarding drives walk the social graph without exposing
+    /// the underlying HashMap.
+    pub fn iter(&self) -> impl Iterator<Item = (Entity, &PerceivedMood)> {
+        self.beliefs.iter().map(|(e, m)| (*e, m))
+    }
+
+    /// True iff the last observation of `target` crosses the distress
+    /// threshold — boolean form of `distress_score`.
     pub fn has_seen_distressed(&self, target: Entity) -> bool {
-        let Some(mood) = self.beliefs.get(&target) else {
-            return false;
-        };
-        let by_emotion = matches!(
-            mood.dominant_emotion,
-            Some(EmotionType::Sadness | EmotionType::Fear | EmotionType::Anger)
-        );
-        by_emotion || mood.mood <= DISTRESSED_MOOD
+        self.beliefs
+            .get(&target)
+            .is_some_and(|m| m.distress_score() >= DISTRESS_THRESHOLD)
     }
 
     pub fn target_count(&self) -> usize {

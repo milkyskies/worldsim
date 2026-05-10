@@ -1,7 +1,7 @@
 //! Phenotype component: traits derived from Genome + SpeciesProfile.
 //!
 //! Reads: Genome, SpeciesProfile (at spawn, via Added<Genome> trigger)
-//! Writes: Phenotype (inserted), Personality (overwritten), Vision (overwritten)
+//! Writes: Phenotype, Personality, Values, Aspirations, Vision (all inserted)
 //! Upstream: genetics::genome (Genome), body::species (SpeciesProfile)
 //! Downstream: nervous_system::execution (speed multiplier),
 //!             mind::perception (vision range), nervous_system (Personality)
@@ -19,7 +19,9 @@ use crate::agent::body::needs::{PsychologicalDrives, SocialDriveOverride};
 use crate::agent::body::species::SpeciesProfile;
 use crate::agent::events::{SimEvent, SimEventKind};
 use crate::agent::mind::perception::Vision;
+use crate::agent::psyche::aspirations::Aspirations;
 use crate::agent::psyche::personality::{Personality, PersonalityTraits};
+use crate::agent::psyche::values::Values;
 use crate::core::tick::TickCount;
 
 /// Heritability for physical traits (speed, vision, metabolism, endurance).
@@ -311,6 +313,9 @@ pub fn develop_phenotype_system(
                 &mut facet_rng,
             ),
         };
+        let values = Values::from_personality(&personality.traits, &mut facet_rng);
+        let aspirations =
+            Aspirations::from_personality(&personality.traits, tick.current, &mut facet_rng);
 
         let mut drives = PsychologicalDrives::from_personality(&personality.traits);
         if let Some(SocialDriveOverride(v)) = social_override {
@@ -335,6 +340,8 @@ pub fn develop_phenotype_system(
                 range: vision_range,
             },
             personality,
+            values,
+            aspirations,
             drives,
         ));
     }

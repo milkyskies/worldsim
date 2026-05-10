@@ -814,6 +814,11 @@ impl TestWorld {
         app.add_plugins(crate::world::property::OntologyDerivationPlugin);
         app.add_plugins(crate::world::field_grid_plugin::FieldGridPlugin);
         app.init_resource::<crate::world::forecast::WorldForecast>();
+        app.init_resource::<crate::world::entity_positions::WorldEntityPositions>();
+        app.add_systems(
+            FixedUpdate,
+            crate::world::entity_positions::update_world_entity_positions,
+        );
 
         Self { app, seed }
     }

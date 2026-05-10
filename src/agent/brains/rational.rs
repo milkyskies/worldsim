@@ -265,7 +265,8 @@ pub fn update_rational_planning(
     >,
     tick: Res<crate::core::tick::TickCount>,
     ns_config: Res<crate::agent::nervous_system::config::NervousSystemConfig>,
-    _world_map: Res<WorldMap>,
+    world_map: Res<WorldMap>,
+    world_positions: Res<crate::world::entity_positions::WorldEntityPositions>,
     action_registry: Res<crate::agent::actions::ActionRegistry>,
     mut game_log: ResMut<crate::core::GameLog>,
     affordances: Query<(
@@ -610,6 +611,9 @@ pub fn update_rational_planning(
             let action_candidates = collect_planning_actions(
                 &action_registry,
                 mind,
+                transform.translation.truncate(),
+                &world_map,
+                species,
                 &affordances,
                 PlanningMode::Generate,
                 &capacities,
@@ -672,8 +676,14 @@ pub fn update_rational_planning(
                 tick.current,
             );
             let goal_desc = format!("{:?}", goal.conditions);
-            let (plan_result, search_stats) =
-                crate::agent::brains::planner::regressive_plan(mind, &goal, &actions, &cost_ctx);
+            let (plan_result, search_stats) = crate::agent::brains::planner::regressive_plan(
+                mind,
+                Some(inventory),
+                &world_positions,
+                &goal,
+                &actions,
+                &cost_ctx,
+            );
 
             // Emit GOAP search telemetry.
             sim_events.write(crate::agent::events::SimEvent::single(
@@ -697,7 +707,11 @@ pub fn update_rational_planning(
                     continue;
                 }
                 let cost = crate::agent::brains::planner::estimate_plan_cost(
-                    &steps, agent_pos, &cost_ctx, mind,
+                    &steps,
+                    agent_pos,
+                    &cost_ctx,
+                    mind,
+                    &world_positions,
                 );
                 let id = plan_memory.mint_plan_id();
                 let threshold =
@@ -940,6 +954,9 @@ impl TargetInclusionReason {
 fn collect_planning_actions(
     action_registry: &crate::agent::actions::ActionRegistry,
     mind: &MindGraph,
+    agent_pos: Vec2,
+    world_map: &WorldMap,
+    species: Option<&crate::agent::body::species::SpeciesProfile>,
     affordances: &Query<(
         &GlobalTransform,
         Option<&crate::agent::affordance::Affordance>,
@@ -970,8 +987,21 @@ fn collect_planning_actions(
             continue;
         }
 
+        // Plan-time diet filter. Empty `eligible_diets` = unrestricted.
+        let eligible = action.eligible_diets();
+        if !eligible.is_empty() && !species.is_some_and(|s| eligible.contains(&s.diet)) {
+            continue;
+        }
+
         let source = action.target_source();
-        for candidate in enumerate_targets(&source, action.action_type(), mind, affordances) {
+        for candidate in enumerate_targets(
+            &source,
+            action.action_type(),
+            mind,
+            agent_pos,
+            world_map,
+            affordances,
+        ) {
             let reason = match mode {
                 PlanningMode::Generate => {
                     if action.is_plan_valid(&candidate, mind) {

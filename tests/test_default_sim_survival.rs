@@ -243,6 +243,16 @@ fn empty_harvest_emits_resource_depleted() {
     let empty_bush = world.spawn_berry_bush(bush_pos, 0);
     let alice = agents["alice"];
 
+    // Daze Alice so arbitration is skipped — we want execution to drive
+    // the injected Harvest to completion without the brain preempting it.
+    world
+        .app_mut()
+        .world_mut()
+        .entity_mut(alice)
+        .insert(worldsim::agent::Dazed {
+            until_tick: u64::MAX,
+        });
+
     // Inject a Harvest directly into ActiveActions with
     // `ticks_remaining = 0` so it completes on the next execution tick.
     // This bypasses the brain entirely — we're testing just the
