@@ -75,7 +75,9 @@ impl Plugin for FleePlugin {
         app.init_resource::<FleeRegistry>().add_systems(
             FixedUpdate,
             (
-                process_initiate_flee.after(crate::agent::nervous_system::execution::start_actions),
+                process_initiate_flee
+                    .after(crate::agent::nervous_system::execution::start_actions)
+                    .before(crate::agent::nervous_system::execution::tick_actions),
                 drive_flee_engagement.after(process_initiate_flee),
                 evaluate_flee_continuation.after(drive_flee_engagement),
             )

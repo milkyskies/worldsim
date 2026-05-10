@@ -79,7 +79,8 @@ impl Plugin for HarvestPlugin {
             FixedUpdate,
             (
                 process_initiate_harvest
-                    .after(crate::agent::nervous_system::execution::start_actions),
+                    .after(crate::agent::nervous_system::execution::start_actions)
+                    .before(crate::agent::nervous_system::execution::tick_actions),
                 drive_harvest_engagement.after(process_initiate_harvest),
                 evaluate_harvest_continuation.after(drive_harvest_engagement),
             )

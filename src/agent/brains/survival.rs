@@ -39,8 +39,13 @@ pub fn survival_brain_propose(
 ) -> Vec<BrainProposal> {
     // While sleeping, the sleep/wake gate owns the decision — either stay
     // asleep or transition through WakeUp. No other proposals are generated.
-    if let Some(proposal) = check_sleep_wake(&context, active, action_registry) {
-        return vec![proposal];
+    // The Sleep engagement (#746) keeps the Sleep beat in `active` for the
+    // whole duration; the only valid survival proposal during it is WakeUp
+    // when an emergency trigger fires or wakefulness has restored.
+    if active.contains(ActionType::Sleep) {
+        return check_sleep_wake(&context, active, action_registry)
+            .map(|p| vec![p])
+            .unwrap_or_default();
     }
 
     // One proposal per active survival urgency. Arbitration picks the winner
@@ -699,10 +704,11 @@ mod tests {
         let active = ActiveActions::default();
 
         let mut registry = crate::agent::actions::ActionRegistry::default();
-        registry.register_def(&crate::agent::actions::action::FLEE_DEF);
+        registry.register_def(&crate::agent::actions::action::INITIATE_FLEE_DEF);
 
         let proposals = survival_brain_propose(context, &inventory, &active, &ontology, &registry);
-        let proposal = find_proposal(&proposals, ActionType::Flee).expect("should propose Flee");
+        let proposal = find_proposal(&proposals, ActionType::InitiateFlee)
+            .expect("should propose InitiateFlee");
 
         assert!(
             matches!(proposal.action.behavior.intensity, IntensityPolicy::Maximal),

@@ -834,7 +834,7 @@ mod tests {
         let visible = VisibleObjects::default();
 
         let mut registry = crate::agent::actions::ActionRegistry::default();
-        registry.register_def(&crate::agent::actions::action::FLEE_DEF);
+        registry.register_def(&crate::agent::actions::action::INITIATE_FLEE_DEF);
 
         let proposal = emotional_brain_propose(&EmotionalInputs {
             emotions: &state,
@@ -862,7 +862,7 @@ mod tests {
         assert!(proposal.is_some());
         let prop = proposal.unwrap();
         assert_eq!(prop.brain, BrainType::Emotional);
-        assert_eq!(prop.action.name, "Flee");
+        assert_eq!(prop.action.name, "InitiateFlee");
         assert!(prop.urgency > 60.0);
     }
 
@@ -884,7 +884,7 @@ mod tests {
         let visible_positions = [(entity, Vec2::ZERO)];
 
         let mut registry = crate::agent::actions::ActionRegistry::default();
-        registry.register_def(&crate::agent::actions::action::FLEE_DEF);
+        registry.register_def(&crate::agent::actions::action::INITIATE_FLEE_DEF);
 
         let proposal = emotional_brain_propose(&EmotionalInputs {
             emotions: &state,
@@ -1006,7 +1006,7 @@ mod tests {
         let visible = VisibleObjects::default();
 
         let mut registry = crate::agent::actions::ActionRegistry::default();
-        registry.register_def(&crate::agent::actions::action::FLEE_DEF);
+        registry.register_def(&crate::agent::actions::action::INITIATE_FLEE_DEF);
 
         let proposal = emotional_brain_propose(&EmotionalInputs {
             emotions: &state,

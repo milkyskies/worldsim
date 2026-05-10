@@ -67,7 +67,8 @@ impl Plugin for SleepPlugin {
             FixedUpdate,
             (
                 process_initiate_sleep
-                    .after(crate::agent::nervous_system::execution::start_actions),
+                    .after(crate::agent::nervous_system::execution::start_actions)
+                    .before(crate::agent::nervous_system::execution::tick_actions),
                 drive_sleep_engagement.after(process_initiate_sleep),
                 evaluate_sleep_continuation.after(drive_sleep_engagement),
             )
@@ -111,8 +112,17 @@ pub fn process_initiate_sleep(
     for sleeper in sleepers {
         let now = tick.current;
         if engaged.get(sleeper).is_ok() {
+            // Already engaged. Strip the duplicate InitiateSleep, and
+            // re-insert the Sleep beat in case start_actions evicted it
+            // via the Locomotion-vs-FullBody channel conflict on this
+            // tick's InitiateSleep admission.
             if let Ok((_, mut active)) = active_actions.get_mut(sleeper) {
                 active.remove(ActionType::InitiateSleep);
+                if !active.contains(ActionType::Sleep) {
+                    let mut sleep = ActionState::new(ActionType::Sleep, now);
+                    sleep.ticks_remaining = u32::MAX;
+                    active.insert(sleep);
+                }
             }
             continue;
         }

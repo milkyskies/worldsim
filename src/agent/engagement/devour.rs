@@ -93,7 +93,8 @@ impl Plugin for DevourPlugin {
             FixedUpdate,
             (
                 process_initiate_devour
-                    .after(crate::agent::nervous_system::execution::start_actions),
+                    .after(crate::agent::nervous_system::execution::start_actions)
+                    .before(crate::agent::nervous_system::execution::tick_actions),
                 drive_devour_engagement.after(process_initiate_devour),
                 evaluate_devour_continuation.after(drive_devour_engagement),
             )
