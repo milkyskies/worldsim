@@ -20,7 +20,7 @@ use worldsim::agent::body::needs::{PhysicalNeeds, PsychologicalDrives};
 use worldsim::agent::events::FailureReason;
 use worldsim::agent::item_slots::ItemSlots;
 use worldsim::agent::mind::knowledge::{
-    Concept, MindGraph, Node, Predicate, Quantity, Triple, Value, setup_ontology,
+    Concept, MindGraph, Node, Predicate, Triple, Value, setup_ontology,
 };
 use worldsim::agent::psyche::emotions::EmotionalState;
 use worldsim::core::time::GameTime;
