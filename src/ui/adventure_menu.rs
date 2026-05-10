@@ -17,6 +17,9 @@ use crate::agent::inventory::EntityType;
 use crate::agent::item_slots::ItemSlots;
 use crate::agent::mind::knowledge::{Concept, Ontology};
 use crate::agent::player::PlayerControlled;
+use crate::constants::actions::build::{
+    HOUSE_STONE_REQUIRED, HOUSE_WOOD_REQUIRED, LEAN_TO_WOOD_REQUIRED, STORAGE_CHEST_WOOD_REQUIRED,
+};
 use crate::ui::UiState;
 use crate::ui::camera;
 use crate::ui::sprite_animation::VisualOffset;
@@ -285,6 +288,21 @@ fn applicable_verbs(
                 v.push((ActionType::Fish, "Fish".into()));
                 v.push((ActionType::Drink, "Drink".into()));
             }
+            // Build verbs gate on inventory materials. Only show when
+            // the player can actually start the build — the placement
+            // step has a precondition that would otherwise reject the
+            // click silently.
+            let wood = inventory.count(Concept::Wood);
+            let stone = inventory.count(Concept::Stone);
+            if wood >= LEAN_TO_WOOD_REQUIRED {
+                v.push((ActionType::BuildLeanTo, "Build Lean-to".into()));
+            }
+            if wood >= HOUSE_WOOD_REQUIRED && stone >= HOUSE_STONE_REQUIRED {
+                v.push((ActionType::BuildHouse, "Build House".into()));
+            }
+            if wood >= STORAGE_CHEST_WOOD_REQUIRED {
+                v.push((ActionType::BuildStorageChest, "Build Storage Chest".into()));
+            }
             v.push((ActionType::Sleep, "Sleep".into()));
             v.push((ActionType::Rest, "Rest".into()));
             v.push((ActionType::Idle, "Wait".into()));
@@ -490,6 +508,42 @@ mod tests {
                 .any(|(a, _)| *a == ActionType::InitiateConversation)
         );
         assert!(verbs.iter().any(|(a, _)| *a == ActionType::Attack));
+    }
+
+    #[test]
+    fn self_menu_omits_builds_when_no_materials() {
+        let inv = empty_inventory();
+        let ontology = empty_ontology();
+        let map = dry_map();
+        let verbs = applicable_verbs(MenuTarget::Self_, &inv, &ontology, Vec2::ZERO, &map);
+        for v in &verbs {
+            assert!(v.0 != ActionType::BuildLeanTo);
+            assert!(v.0 != ActionType::BuildHouse);
+            assert!(v.0 != ActionType::BuildStorageChest);
+        }
+    }
+
+    #[test]
+    fn self_menu_offers_lean_to_with_enough_wood() {
+        let mut inv = empty_inventory();
+        inv.add(Concept::Wood, LEAN_TO_WOOD_REQUIRED);
+        let ontology = empty_ontology();
+        let map = dry_map();
+        let verbs = applicable_verbs(MenuTarget::Self_, &inv, &ontology, Vec2::ZERO, &map);
+        assert!(verbs.iter().any(|(a, _)| *a == ActionType::BuildLeanTo));
+        // House needs more wood + stone — not yet satisfied.
+        assert!(verbs.iter().all(|(a, _)| *a != ActionType::BuildHouse));
+    }
+
+    #[test]
+    fn self_menu_offers_house_with_enough_wood_and_stone() {
+        let mut inv = empty_inventory();
+        inv.add(Concept::Wood, HOUSE_WOOD_REQUIRED);
+        inv.add(Concept::Stone, HOUSE_STONE_REQUIRED);
+        let ontology = empty_ontology();
+        let map = dry_map();
+        let verbs = applicable_verbs(MenuTarget::Self_, &inv, &ontology, Vec2::ZERO, &map);
+        assert!(verbs.iter().any(|(a, _)| *a == ActionType::BuildHouse));
     }
 
     #[test]

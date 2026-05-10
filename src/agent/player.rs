@@ -42,12 +42,13 @@ pub fn release(commands: &mut Commands, entity: Entity) {
     commands.entity(entity).remove::<PlayerControlled>();
 }
 
-/// How far ahead of the agent the smooth-walk lookahead point sits.
-/// Long enough that the agent never reaches it while a directional key
-/// is held — the Walk action stays in `MoveResult::Moving` indefinitely
-/// — but short enough that releasing the key stops within ~1 tile of
-/// where the agent is, so the player doesn't overshoot.
-const SMOOTH_WALK_LOOKAHEAD: f32 = TILE_SIZE * 1.5;
+/// How far ahead of the agent the smooth-walk lookahead point sits
+/// while a directional key is held. Long enough that the agent never
+/// "arrives" mid-step (Walk would otherwise drop out of ActiveActions
+/// and re-admit on the next tick, producing the step / pause / step
+/// rhythm). Short enough that the brief overshoot when the player
+/// releases the key is barely perceptible.
+const SMOOTH_WALK_LOOKAHEAD: f32 = TILE_SIZE * 0.6;
 
 /// Translate held WASD/arrow keys into smooth movement by keeping the
 /// running Walk's target position pinned a short distance ahead of the
@@ -84,9 +85,6 @@ pub fn player_input(
     let Some(keyboard) = keyboard else {
         return;
     };
-    let Some(direction) = read_movement_direction(&keyboard) else {
-        return;
-    };
     // Adventure mode runs with one possessed agent at a time. If somehow
     // multiple are marked we ignore the input entirely rather than
     // double-stepping a stale one.
@@ -94,8 +92,23 @@ pub fn player_input(
     else {
         return;
     };
-
     let current_pos = transform.translation.truncate();
+
+    // No directional key held → stop. Pinning the active Walk's target
+    // to the current position lets the next movement tick observe
+    // distance < ARRIVAL_THRESHOLD and complete the action cleanly,
+    // instead of carrying the player to the last lookahead point and
+    // making each tap feel like a hardcoded one-tile commitment.
+    let Some(direction) = read_movement_direction(&keyboard) else {
+        if let Some(state) = active.get_mut(ActionType::Walk) {
+            state.target_position = Some(current_pos);
+        }
+        target_position.0 = None;
+        if !brain_state.chosen_actions.is_empty() {
+            brain_state.chosen_actions.clear();
+        }
+        return;
+    };
     let lookahead = current_pos + direction * SMOOTH_WALK_LOOKAHEAD;
     // If the lookahead is into a wall, clamp to the agent's current tile
     // edge in that direction so we don't ask the movement system to walk
