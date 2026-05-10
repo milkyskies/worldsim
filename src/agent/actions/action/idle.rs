@@ -17,7 +17,15 @@ pub static IDLE_DEF: ActionDefinition = ActionDefinition {
     base_cost: 1.0,
     primitive: ActionPrimitive::Rest,
     target_selector: TargetSelector::InPlace,
-    intensity: IntensityPolicy::Fixed(0.0),
+    // Match Rest (0.4) so the recovery channel actually fires — the
+    // effort model multiplies the primitive's profile by intensity, so
+    // intensity 0.0 zeroes out recovery. With 0.0 an "idling" agent
+    // would never regen stamina even though they're literally standing
+    // still doing nothing. 0.4 is the same value Rest uses; the
+    // difference between the two stays in completion: Rest auto-ends
+    // once stamina is topped up, Idle continues until something else
+    // takes priority.
+    intensity: IntensityPolicy::Fixed(0.4),
     intent: Intent::Goal,
     // Idle claims no body part — stationary stance is posture, not a channel marker.
     body_channels: ChannelSlices::NONE,

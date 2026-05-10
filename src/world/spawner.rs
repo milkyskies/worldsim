@@ -123,6 +123,7 @@ impl Plugin for SpawnerPlugin {
                     sync_berry_visuals,
                     sync_stone_visuals,
                     sync_wood_visuals,
+                    crate::world::construction_site::sync_construction_site_visuals,
                 ),
             );
     }
