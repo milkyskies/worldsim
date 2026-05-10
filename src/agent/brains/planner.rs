@@ -3600,7 +3600,9 @@ mod tests {
             priority: 1.0,
         };
 
-        let (plan, _) = regressive_plan(&mind, &goal, &gathers, &ctx_with_depth(1));
+        let positions = crate::world::entity_positions::WorldEntityPositions::default();
+        let (plan, _) =
+            regressive_plan(&mind, None, &positions, &goal, &gathers, &ctx_with_depth(1));
         assert!(
             plan.is_none(),
             "depth=1 must refuse a 5-step chain; got {plan:?}"
@@ -3635,7 +3637,15 @@ mod tests {
             priority: 1.0,
         };
 
-        let (plan, _) = regressive_plan(&mind, &goal, &gathers, &PlanCostContext::neutral());
+        let positions = crate::world::entity_positions::WorldEntityPositions::default();
+        let (plan, _) = regressive_plan(
+            &mind,
+            None,
+            &positions,
+            &goal,
+            &gathers,
+            &PlanCostContext::neutral(),
+        );
         let plan = plan.expect("uncapped planner must still chain harvests");
         assert_eq!(plan.len(), 3, "expected 3-step plan; got {plan:?}");
     }

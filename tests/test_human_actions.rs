@@ -20,7 +20,7 @@ use worldsim::agent::body::needs::{PhysicalNeeds, PsychologicalDrives};
 use worldsim::agent::events::FailureReason;
 use worldsim::agent::item_slots::ItemSlots;
 use worldsim::agent::mind::knowledge::{
-    Concept, MindGraph, Node, Predicate, Quantity, Triple, Value, setup_ontology,
+    Concept, MindGraph, Node, Predicate, Triple, Value, setup_ontology,
 };
 use worldsim::agent::psyche::emotions::EmotionalState;
 use worldsim::core::time::GameTime;
@@ -31,10 +31,13 @@ fn make_ctx<'a>(
     mind: &'a MindGraph,
     world_map: &'a WorldMap,
     world_positions: &'a worldsim::world::entity_positions::WorldEntityPositions,
+    social_graph: &'a worldsim::agent::psyche::social_graph::SocialGraph,
 ) -> ActionContext<'a> {
     ActionContext {
         inventory,
         mind,
+        social_graph,
+        agent_entity: bevy::prelude::Entity::from_bits(1),
         world_map,
         world_positions,
         target_entity: None,
@@ -58,7 +61,8 @@ fn stand_watch_rejects_during_daytime_hours() {
     let mind = MindGraph::new(setup_ontology());
     let map = WorldMap::new(WORLD_WIDTH, WORLD_HEIGHT);
     let positions = worldsim::world::entity_positions::WorldEntityPositions::default();
-    let mut ctx = make_ctx(&inv, &mind, &map, &positions);
+    let graph = worldsim::agent::psyche::social_graph::SocialGraph::default();
+    let mut ctx = make_ctx(&inv, &mind, &map, &positions, &graph);
     // Tick 0 = 06:00 (START_HOUR). Daytime.
     ctx.current_tick = 0;
     assert!(action.can_start(&ctx).is_err());
@@ -75,7 +79,8 @@ fn stand_watch_admits_after_night_start_hour() {
     let mind = mind_with_known_campfire();
     let map = WorldMap::new(WORLD_WIDTH, WORLD_HEIGHT);
     let positions = worldsim::world::entity_positions::WorldEntityPositions::default();
-    let mut ctx = make_ctx(&inv, &mind, &map, &positions);
+    let graph = worldsim::agent::psyche::social_graph::SocialGraph::default();
+    let mut ctx = make_ctx(&inv, &mind, &map, &positions, &graph);
     // 22:00 — 16 hours after the 06:00 start.
     ctx.current_tick = 16 * GameTime::TICKS_PER_HOUR;
     assert!(
@@ -99,7 +104,8 @@ fn dance_rejects_when_mood_is_low() {
         ..Default::default()
     };
     let positions = worldsim::world::entity_positions::WorldEntityPositions::default();
-    let mut ctx = make_ctx(&inv, &mind, &map, &positions);
+    let graph = worldsim::agent::psyche::social_graph::SocialGraph::default();
+    let mut ctx = make_ctx(&inv, &mind, &map, &positions, &graph);
     ctx.drives = Some(&drives);
     ctx.emotional = Some(&emotional);
     let err = action
@@ -121,7 +127,8 @@ fn dance_admits_when_mood_high_and_companionship_satisfied() {
         ..Default::default()
     };
     let positions = worldsim::world::entity_positions::WorldEntityPositions::default();
-    let mut ctx = make_ctx(&inv, &mind, &map, &positions);
+    let graph = worldsim::agent::psyche::social_graph::SocialGraph::default();
+    let mut ctx = make_ctx(&inv, &mind, &map, &positions, &graph);
     ctx.drives = Some(&drives);
     ctx.emotional = Some(&emotional);
     assert!(action.can_start(&ctx).is_ok());
@@ -137,7 +144,8 @@ fn mourn_rejects_without_death_belief() {
     let mind = MindGraph::new(setup_ontology());
     let map = WorldMap::new(WORLD_WIDTH, WORLD_HEIGHT);
     let positions = worldsim::world::entity_positions::WorldEntityPositions::default();
-    let ctx = make_ctx(&inv, &mind, &map, &positions);
+    let graph = worldsim::agent::psyche::social_graph::SocialGraph::default();
+    let ctx = make_ctx(&inv, &mind, &map, &positions, &graph);
     assert!(action.can_start(&ctx).is_err());
 }
 
@@ -155,7 +163,8 @@ fn mourn_admits_when_mind_records_a_death() {
     ));
     let map = WorldMap::new(WORLD_WIDTH, WORLD_HEIGHT);
     let positions = worldsim::world::entity_positions::WorldEntityPositions::default();
-    let ctx = make_ctx(&inv, &mind, &map, &positions);
+    let graph = worldsim::agent::psyche::social_graph::SocialGraph::default();
+    let ctx = make_ctx(&inv, &mind, &map, &positions, &graph);
     assert!(action.can_start(&ctx).is_ok());
 }
 
@@ -172,7 +181,8 @@ fn tend_wounds_admits_only_when_target_is_lame() {
     // Without the Lame belief — gate must reject.
     let healthy_mind = MindGraph::new(setup_ontology());
     let positions = worldsim::world::entity_positions::WorldEntityPositions::default();
-    let mut ctx = make_ctx(&inv, &healthy_mind, &map, &positions);
+    let graph = worldsim::agent::psyche::social_graph::SocialGraph::default();
+    let mut ctx = make_ctx(&inv, &healthy_mind, &map, &positions, &graph);
     ctx.target_entity = Some(target);
     assert!(action.can_start(&ctx).is_err());
 
@@ -183,7 +193,7 @@ fn tend_wounds_admits_only_when_target_is_lame() {
         Predicate::HasTrait,
         Value::Concept(Concept::Lame),
     ));
-    let mut ctx2 = make_ctx(&inv, &wounded_mind, &map, &positions);
+    let mut ctx2 = make_ctx(&inv, &wounded_mind, &map, &positions, &graph);
     ctx2.target_entity = Some(target);
     assert!(action.can_start(&ctx2).is_ok());
 }
@@ -199,7 +209,8 @@ fn share_food_rejects_when_target_affection_below_threshold() {
     let mind = MindGraph::new(setup_ontology());
     let map = WorldMap::new(WORLD_WIDTH, WORLD_HEIGHT);
     let positions = worldsim::world::entity_positions::WorldEntityPositions::default();
-    let mut ctx = make_ctx(&inv, &mind, &map, &positions);
+    let graph = worldsim::agent::psyche::social_graph::SocialGraph::default();
+    let mut ctx = make_ctx(&inv, &mind, &map, &positions, &graph);
     ctx.target_entity = Some(Entity::from_bits(11));
     let err = action
         .can_start(&ctx)
@@ -214,15 +225,21 @@ fn share_food_admits_when_target_affection_high_enough() {
     let mut inv = ItemSlots::agent_carry();
     inv.add(Concept::Apple, 1);
     let target = Entity::from_bits(11);
-    let mut mind = MindGraph::new(setup_ontology());
-    mind.assert(Triple::new(
-        Node::Entity(target),
-        Predicate::Affection,
-        Value::Quantity(Quantity::Exact(0.8)),
-    ));
+    let mind = MindGraph::new(setup_ontology());
     let map = WorldMap::new(WORLD_WIDTH, WORLD_HEIGHT);
     let positions = worldsim::world::entity_positions::WorldEntityPositions::default();
-    let mut ctx = make_ctx(&inv, &mind, &map, &positions);
+    let mut graph = worldsim::agent::psyche::social_graph::SocialGraph::default();
+    // Affection lives on the central SocialGraph after #754; gate
+    // reads through the directed edge from the agent context.
+    graph.set(
+        Entity::from_bits(1),
+        target,
+        worldsim::agent::psyche::social_graph::RelationshipEdge {
+            affection: 0.8,
+            ..Default::default()
+        },
+    );
+    let mut ctx = make_ctx(&inv, &mind, &map, &positions, &graph);
     ctx.target_entity = Some(target);
     assert!(action.can_start(&ctx).is_ok());
 }

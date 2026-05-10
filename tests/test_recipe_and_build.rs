@@ -206,9 +206,12 @@ fn build_action_consumes_wood() {
     let world_map = WorldMap::new(WORLD_WIDTH, WORLD_HEIGHT);
     let world_positions = worldsim::world::entity_positions::WorldEntityPositions::default();
 
+    let graph = worldsim::agent::psyche::social_graph::SocialGraph::default();
     let can_start_ctx = ActionContext {
         inventory: &inventory,
         mind: &mind,
+        social_graph: &graph,
+        agent_entity: bevy::prelude::Entity::from_bits(1),
         world_map: &world_map,
         world_positions: &world_positions,
         target_entity: None,
@@ -279,9 +282,12 @@ fn build_fails_without_materials() {
     let world_map = WorldMap::new(WORLD_WIDTH, WORLD_HEIGHT);
     let world_positions = worldsim::world::entity_positions::WorldEntityPositions::default();
 
+    let graph = worldsim::agent::psyche::social_graph::SocialGraph::default();
     let ctx = ActionContext {
         inventory: &empty_inventory,
         mind: &mind,
+        social_graph: &graph,
+        agent_entity: bevy::prelude::Entity::from_bits(1),
         world_map: &world_map,
         world_positions: &world_positions,
         target_entity: None,

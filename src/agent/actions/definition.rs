@@ -350,6 +350,11 @@ pub struct PreferenceContext<'a> {
     pub physical: &'a PhysicalNeeds,
     pub drives: Option<&'a PsychologicalDrives>,
     pub mind: &'a MindGraph,
+    /// Centralised relationship store. Reads canonical affection / trust
+    /// / respect via `social_graph.affection(self_entity, target)` etc.
+    pub social_graph: &'a crate::agent::psyche::social_graph::SocialGraph,
+    /// Observer entity — left side of every directed-edge lookup.
+    pub self_entity: Entity,
     /// Pre-resolved (entity, world position) pairs for visible entities
     /// so scorers don't hit the ECS per tile.
     pub visible: &'a [(Entity, Vec2)],

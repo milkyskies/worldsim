@@ -41,7 +41,6 @@ use crate::agent::body::needs::PsychologicalDrives;
 use crate::agent::body::species::Species;
 use crate::agent::body::species::SpeciesProfile;
 use crate::agent::inventory::EntityType;
-use crate::agent::mind::knowledge::{MindGraph, Node, Predicate};
 use crate::agent::mind::perception::VisibleObjects;
 use crate::agent::psyche::personality::Personality;
 use crate::core::tick::TickCount;
@@ -114,11 +113,11 @@ pub fn stranger_affection_for(
 /// are not free and the drive changes slowly anyway.
 pub fn decay_social_from_proximity(
     tick: Res<TickCount>,
+    social_graph: Res<crate::agent::psyche::social_graph::SocialGraph>,
     mut agents: Query<
         (
             Entity,
             &VisibleObjects,
-            &MindGraph,
             &EntityType,
             Option<&SpeciesProfile>,
             Option<&Personality>,
@@ -132,9 +131,7 @@ pub fn decay_social_from_proximity(
 
     let dt = tick.dt() * INTERVAL as f32;
 
-    for (self_entity, visible, mind, self_type, species, personality, mut drives) in
-        agents.iter_mut()
-    {
+    for (self_entity, visible, self_type, species, personality, mut drives) in agents.iter_mut() {
         if !tick.should_run(self_entity, INTERVAL) {
             continue;
         }
@@ -153,7 +150,10 @@ pub fn decay_social_from_proximity(
                 continue;
             }
 
-            let affection = query_affection(mind, visible_entity).unwrap_or(stranger_value);
+            let affection = social_graph
+                .get(self_entity, visible_entity)
+                .map(|e| e.affection)
+                .unwrap_or(stranger_value);
             affection_sum += affection;
         }
 
@@ -169,22 +169,9 @@ pub fn decay_social_from_proximity(
     }
 }
 
-fn query_affection(mind: &MindGraph, other: Entity) -> Option<f32> {
-    mind.get(&Node::Entity(other), Predicate::Affection)?
-        .as_quantity()
-        .map(|q| q.point_estimate())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn query_affection_is_none_for_unknown_entity() {
-        let mind = MindGraph::default();
-        let stranger = Entity::from_bits(99);
-        assert!(query_affection(&mind, stranger).is_none());
-    }
 
     #[test]
     fn extravert_humans_get_more_stranger_comfort_than_introverts() {

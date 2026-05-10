@@ -21,10 +21,13 @@ fn ctx_with_needs<'a>(
     world_map: &'a WorldMap,
     world_positions: &'a worldsim::world::entity_positions::WorldEntityPositions,
     physical: &'a PhysicalNeeds,
+    social_graph: &'a worldsim::agent::psyche::social_graph::SocialGraph,
 ) -> ActionContext<'a> {
     ActionContext {
         inventory,
         mind,
+        social_graph,
+        agent_entity: bevy::prelude::Entity::from_bits(1),
         world_map,
         world_positions,
         target_entity: None,
@@ -48,7 +51,8 @@ fn eat_satiation_reports_stomach_fraction_as_hunger() {
     let mind = MindGraph::new(setup_ontology());
     let map = WorldMap::new(WORLD_WIDTH, WORLD_HEIGHT);
     let positions = worldsim::world::entity_positions::WorldEntityPositions::default();
-    let ctx = ctx_with_needs(&inv, &mind, &map, &positions, &physical);
+    let graph = worldsim::agent::psyche::social_graph::SocialGraph::default();
+    let ctx = ctx_with_needs(&inv, &mind, &map, &positions, &physical, &graph);
 
     let eat = GenericAction::new(&EAT_DEF);
     let (kind, fullness) = eat
@@ -66,7 +70,8 @@ fn drink_refuses_when_hydration_full() {
     let mind = MindGraph::new(setup_ontology());
     let map = WorldMap::new(WORLD_WIDTH, WORLD_HEIGHT);
     let positions = worldsim::world::entity_positions::WorldEntityPositions::default();
-    let ctx = ctx_with_needs(&inv, &mind, &map, &positions, &physical);
+    let graph = worldsim::agent::psyche::social_graph::SocialGraph::default();
+    let ctx = ctx_with_needs(&inv, &mind, &map, &positions, &physical, &graph);
 
     let drink = GenericAction::new(&DRINK_DEF);
     let (kind, fullness) = drink.satiation(ctx.physical, Some(ctx.inventory)).unwrap();
@@ -85,7 +90,8 @@ fn drink_allows_when_thirsty() {
     let mind = MindGraph::new(setup_ontology());
     let map = WorldMap::new(WORLD_WIDTH, WORLD_HEIGHT);
     let positions = worldsim::world::entity_positions::WorldEntityPositions::default();
-    let ctx = ctx_with_needs(&inv, &mind, &map, &positions, &physical);
+    let graph = worldsim::agent::psyche::social_graph::SocialGraph::default();
+    let ctx = ctx_with_needs(&inv, &mind, &map, &positions, &physical, &graph);
 
     let drink = GenericAction::new(&DRINK_DEF);
     let (_kind, fullness) = drink.satiation(ctx.physical, Some(ctx.inventory)).unwrap();
@@ -99,7 +105,8 @@ fn sleep_refuses_when_already_rested() {
     let mind = MindGraph::new(setup_ontology());
     let map = WorldMap::new(WORLD_WIDTH, WORLD_HEIGHT);
     let positions = worldsim::world::entity_positions::WorldEntityPositions::default();
-    let ctx = ctx_with_needs(&inv, &mind, &map, &positions, &physical);
+    let graph = worldsim::agent::psyche::social_graph::SocialGraph::default();
+    let ctx = ctx_with_needs(&inv, &mind, &map, &positions, &physical, &graph);
 
     let sleep = GenericAction::new(&SLEEP_DEF);
     let (kind, fullness) = sleep.satiation(ctx.physical, Some(ctx.inventory)).unwrap();
@@ -117,7 +124,8 @@ fn rest_refuses_when_aerobic_full() {
     let mind = MindGraph::new(setup_ontology());
     let map = WorldMap::new(WORLD_WIDTH, WORLD_HEIGHT);
     let positions = worldsim::world::entity_positions::WorldEntityPositions::default();
-    let ctx = ctx_with_needs(&inv, &mind, &map, &positions, &physical);
+    let graph = worldsim::agent::psyche::social_graph::SocialGraph::default();
+    let ctx = ctx_with_needs(&inv, &mind, &map, &positions, &physical, &graph);
 
     let rest = GenericAction::new(&REST_DEF);
     let (kind, fullness) = rest.satiation(ctx.physical, Some(ctx.inventory)).unwrap();
@@ -147,7 +155,8 @@ fn eat_dead_zone_berry_in_seventy_mass_stomach_blocks() {
     let mind = MindGraph::new(setup_ontology());
     let map = WorldMap::new(WORLD_WIDTH, WORLD_HEIGHT);
     let positions = worldsim::world::entity_positions::WorldEntityPositions::default();
-    let ctx = ctx_with_needs(&inv, &mind, &map, &positions, &physical);
+    let graph = worldsim::agent::psyche::social_graph::SocialGraph::default();
+    let ctx = ctx_with_needs(&inv, &mind, &map, &positions, &physical, &graph);
 
     let eat = GenericAction::new(&EAT_DEF);
     let (kind, fullness) = eat.satiation(ctx.physical, Some(ctx.inventory)).unwrap();
@@ -169,7 +178,8 @@ fn eat_allows_berry_when_stomach_has_room() {
     let mind = MindGraph::new(setup_ontology());
     let map = WorldMap::new(WORLD_WIDTH, WORLD_HEIGHT);
     let positions = worldsim::world::entity_positions::WorldEntityPositions::default();
-    let ctx = ctx_with_needs(&inv, &mind, &map, &positions, &physical);
+    let graph = worldsim::agent::psyche::social_graph::SocialGraph::default();
+    let ctx = ctx_with_needs(&inv, &mind, &map, &positions, &physical, &graph);
 
     let eat = GenericAction::new(&EAT_DEF);
     let (_kind, fullness) = eat.satiation(ctx.physical, Some(ctx.inventory)).unwrap();
@@ -190,7 +200,8 @@ fn eat_allows_apple_when_smaller_than_berry_fits() {
     let mind = MindGraph::new(setup_ontology());
     let map = WorldMap::new(WORLD_WIDTH, WORLD_HEIGHT);
     let positions = worldsim::world::entity_positions::WorldEntityPositions::default();
-    let ctx = ctx_with_needs(&inv, &mind, &map, &positions, &physical);
+    let graph = worldsim::agent::psyche::social_graph::SocialGraph::default();
+    let ctx = ctx_with_needs(&inv, &mind, &map, &positions, &physical, &graph);
 
     let eat = GenericAction::new(&EAT_DEF);
     let (_kind, fullness) = eat.satiation(ctx.physical, Some(ctx.inventory)).unwrap();

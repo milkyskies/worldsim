@@ -333,12 +333,9 @@ fn check_gate(gate: &Gate, ctx: &ActionContext) -> Result<(), FailureReason> {
                 return Err(FailureReason::NoTarget);
             };
             let affection = ctx
-                .mind
-                .get(&Node::Entity(target), Predicate::Affection)
-                .and_then(|v| match v {
-                    Value::Quantity(Quantity::Exact(f)) => Some(*f),
-                    _ => None,
-                })
+                .social_graph
+                .get(ctx.agent_entity, target)
+                .map(|e| e.affection)
                 .unwrap_or(0.0);
             if affection >= *threshold {
                 Ok(())
@@ -806,10 +803,13 @@ mod tests {
         target_entity: Option<Entity>,
         target_position: Option<Vec2>,
         unreachable_tiles: &'a [(i32, i32)],
+        social_graph: &'a crate::agent::psyche::social_graph::SocialGraph,
     ) -> ActionContext<'a> {
         ActionContext {
             inventory,
             mind,
+            social_graph,
+            agent_entity: Entity::from_bits(1),
             world_map,
             world_positions,
             target_entity,
@@ -830,6 +830,7 @@ mod tests {
         let map = world_map();
         let physical = PhysicalNeeds::default();
         let positions = crate::world::entity_positions::WorldEntityPositions::default();
+        let graph = crate::agent::psyche::social_graph::SocialGraph::default();
         let ctx = ctx(
             &inventory,
             &mind,
@@ -839,6 +840,7 @@ mod tests {
             None,
             None,
             &[],
+            &graph,
         );
         let eat = GenericAction::new(&EAT_DEF);
         assert!(
@@ -855,6 +857,7 @@ mod tests {
         let map = world_map();
         let physical = PhysicalNeeds::default();
         let positions = crate::world::entity_positions::WorldEntityPositions::default();
+        let graph = crate::agent::psyche::social_graph::SocialGraph::default();
         let ctx = ctx(
             &inventory,
             &mind,
@@ -864,6 +867,7 @@ mod tests {
             None,
             None,
             &[],
+            &graph,
         );
         let eat = GenericAction::new(&EAT_DEF);
         assert!(
@@ -881,6 +885,7 @@ mod tests {
         let target_pos = Some(Vec2::new(5.0 * TILE_SIZE, 5.0 * TILE_SIZE));
         let unreachable = [(5, 5)];
         let positions = crate::world::entity_positions::WorldEntityPositions::default();
+        let graph = crate::agent::psyche::social_graph::SocialGraph::default();
         let ctx = ctx(
             &inventory,
             &mind,
@@ -890,6 +895,7 @@ mod tests {
             None,
             target_pos,
             &unreachable,
+            &graph,
         );
         let walk = GenericAction::new(&WALK_DEF);
         assert!(
@@ -906,6 +912,7 @@ mod tests {
         let physical = PhysicalNeeds::default();
         let target_pos = Some(Vec2::new(5.0 * TILE_SIZE, 5.0 * TILE_SIZE));
         let positions = crate::world::entity_positions::WorldEntityPositions::default();
+        let graph = crate::agent::psyche::social_graph::SocialGraph::default();
         let ctx = ctx(
             &inventory,
             &mind,
@@ -915,6 +922,7 @@ mod tests {
             None,
             target_pos,
             &[],
+            &graph,
         );
         let walk = GenericAction::new(&WALK_DEF);
         assert!(
@@ -938,6 +946,7 @@ mod tests {
         let map = world_map();
         let physical = PhysicalNeeds::default();
         let positions = crate::world::entity_positions::WorldEntityPositions::default();
+        let graph = crate::agent::psyche::social_graph::SocialGraph::default();
         let ctx = ctx(
             &inventory,
             &mind,
@@ -947,6 +956,7 @@ mod tests {
             Some(target),
             None,
             &[],
+            &graph,
         );
         let initiate = GenericAction::new(&INITIATE_CONVERSATION_DEF);
         assert!(
@@ -963,6 +973,7 @@ mod tests {
         let physical = PhysicalNeeds::default();
         let target = Entity::from_bits(11);
         let positions = crate::world::entity_positions::WorldEntityPositions::default();
+        let graph = crate::agent::psyche::social_graph::SocialGraph::default();
         let ctx = ctx(
             &inventory,
             &mind,
@@ -972,6 +983,7 @@ mod tests {
             Some(target),
             None,
             &[],
+            &graph,
         );
         let initiate = GenericAction::new(&INITIATE_CONVERSATION_DEF);
         assert!(

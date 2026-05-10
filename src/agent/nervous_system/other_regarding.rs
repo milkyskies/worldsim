@@ -1,8 +1,8 @@
 //! Other-regarding urgency: `urgency = perceived_deficit × Σ channel(ctx)`.
 //!
-//! Reads: AffectiveToM, MindGraph (affection store), OtherRegardingChannels
+//! Reads: AffectiveToM, SocialGraph, OtherRegardingChannels
 //! Writes: nothing (returns urgency values to the urgency loop)
-//! Upstream: mind::affective_tom, psyche::relationships
+//! Upstream: mind::affective_tom, psyche::social_graph
 //! Downstream: nervous_system::urgency (Compassion emission)
 //!
 //! Each channel is a pluggable `fn(&ChannelContext) -> f32` capturing one
@@ -11,9 +11,8 @@
 
 use bevy::prelude::*;
 
-use crate::agent::mind::knowledge::MindGraph;
 use crate::agent::nervous_system::urgency::UrgencySource;
-use crate::agent::psyche::relationships::{NEUTRAL, affection_toward};
+use crate::agent::psyche::social_graph::{NEUTRAL, SocialGraph};
 
 /// Inputs available to every channel function. Carries pointers, not
 /// owned data — channels read their slice of world state and return a
@@ -23,8 +22,7 @@ pub struct ChannelContext<'a> {
     pub observer: Entity,
     pub target: Entity,
     pub drive: UrgencySource,
-    /// Observer's mind — affection lookups, kin triples, etc.
-    pub mind: &'a MindGraph,
+    pub social_graph: &'a SocialGraph,
 }
 
 /// Function pointer for a single motivation channel. Returns its scalar
@@ -41,8 +39,7 @@ pub struct OtherRegardingChannels {
 }
 
 impl OtherRegardingChannels {
-    /// Register a channel under a stable name. The name is used by
-    /// debugging tools; the function does the work. Idempotent — calling
+    /// Register a channel under a stable name. Idempotent — calling
     /// twice with the same name replaces the existing entry rather than
     /// double-counting.
     pub fn register(&mut self, name: &'static str, channel: ChannelFn) {
@@ -60,8 +57,8 @@ impl OtherRegardingChannels {
         self.channels.iter().map(|(_, f)| f(ctx)).sum()
     }
 
-    /// Iterate `(name, contribution)` pairs — used for diagnostic output
-    /// (the character sheet UI, decision-trace explanations, etc.).
+    /// Iterate `(name, contribution)` pairs in registration order — used
+    /// for diagnostic output (character sheet, decision-trace).
     pub fn breakdown<'a>(
         &'a self,
         ctx: &'a ChannelContext<'a>,
@@ -79,14 +76,13 @@ impl OtherRegardingChannels {
 /// 1.0. The above-neutral gate keeps disliked strangers from generating
 /// compassion urgency.
 pub fn affection_channel(ctx: &ChannelContext) -> f32 {
-    let affection = affection_toward(ctx.mind, ctx.target);
+    let affection = ctx.social_graph.affection(ctx.observer, ctx.target);
     ((affection - NEUTRAL).max(0.0) / (1.0 - NEUTRAL)).clamp(0.0, 1.0)
 }
 
 /// Registers the default channels shipped with this primitive. Called
 /// from the nervous-system plugin builder so tests that bypass Startup
-/// (TestWorld) still see the affection channel registered. Future
-/// channel PRs add their own registrations the same way.
+/// (TestWorld) still see the affection channel registered.
 pub fn register_default_channels(channels: &mut OtherRegardingChannels) {
     channels.register("affection", affection_channel);
 }
@@ -94,76 +90,70 @@ pub fn register_default_channels(channels: &mut OtherRegardingChannels) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::agent::mind::knowledge::{
-        Metadata, Node, Predicate, Quantity, Triple, Value, setup_ontology,
-    };
-
-    fn ctx_with_affection<'a>(
-        observer: Entity,
-        target: Entity,
-        mind: &'a MindGraph,
-    ) -> ChannelContext<'a> {
-        ChannelContext {
-            observer,
-            target,
-            drive: UrgencySource::Compassion,
-            mind,
-        }
-    }
-
-    fn mind_with_affection(target: Entity, value: f32) -> MindGraph {
-        // The relationships store writes Entity-keyed affection triples;
-        // the channel reads through that subject form.
-        let mut mind = MindGraph::new(setup_ontology());
-        mind.assert(Triple::with_meta(
-            Node::Entity(target),
-            Predicate::Affection,
-            Value::Quantity(Quantity::Exact(value)),
-            Metadata::default(),
-        ));
-        mind
-    }
+    use crate::agent::psyche::social_graph::RelationshipEdge;
 
     fn test_entity(id: u32) -> Entity {
         Entity::from_bits(id as u64)
     }
 
+    fn graph_with_affection(observer: Entity, target: Entity, value: f32) -> SocialGraph {
+        let mut graph = SocialGraph::default();
+        graph.set(
+            observer,
+            target,
+            RelationshipEdge {
+                affection: value,
+                ..Default::default()
+            },
+        );
+        graph
+    }
+
+    fn ctx<'a>(observer: Entity, target: Entity, graph: &'a SocialGraph) -> ChannelContext<'a> {
+        ChannelContext {
+            observer,
+            target,
+            drive: UrgencySource::Compassion,
+            social_graph: graph,
+        }
+    }
+
     #[test]
     fn affection_channel_zero_at_or_below_neutral() {
+        let observer = test_entity(2);
         let target = test_entity(1);
-        let mind = mind_with_affection(target, 0.5);
-        let ctx = ctx_with_affection(test_entity(2), target, &mind);
-        assert!(affection_channel(&ctx).abs() < 1e-6);
+        let graph = graph_with_affection(observer, target, 0.5);
+        assert!(affection_channel(&ctx(observer, target, &graph)).abs() < 1e-6);
 
-        let mind_low = mind_with_affection(target, 0.2);
-        let ctx_low = ctx_with_affection(test_entity(2), target, &mind_low);
-        assert!(affection_channel(&ctx_low).abs() < 1e-6);
+        let graph_low = graph_with_affection(observer, target, 0.2);
+        assert!(affection_channel(&ctx(observer, target, &graph_low)).abs() < 1e-6);
     }
 
     #[test]
     fn affection_channel_full_at_max_bond() {
+        let observer = test_entity(2);
         let target = test_entity(1);
-        let mind = mind_with_affection(target, 1.0);
-        let ctx = ctx_with_affection(test_entity(2), target, &mind);
-        assert!((affection_channel(&ctx) - 1.0).abs() < 1e-6);
+        let graph = graph_with_affection(observer, target, 1.0);
+        assert!((affection_channel(&ctx(observer, target, &graph)) - 1.0).abs() < 1e-6);
     }
 
     #[test]
     fn affection_channel_scales_above_neutral() {
+        let observer = test_entity(2);
         let target = test_entity(1);
-        let weak = mind_with_affection(target, 0.6);
-        let strong = mind_with_affection(target, 0.9);
-        let ctx_weak = ctx_with_affection(test_entity(2), target, &weak);
-        let ctx_strong = ctx_with_affection(test_entity(2), target, &strong);
-        assert!(affection_channel(&ctx_strong) > affection_channel(&ctx_weak));
+        let weak = graph_with_affection(observer, target, 0.6);
+        let strong = graph_with_affection(observer, target, 0.9);
+        assert!(
+            affection_channel(&ctx(observer, target, &strong))
+                > affection_channel(&ctx(observer, target, &weak))
+        );
     }
 
     #[test]
-    fn no_affection_record_returns_zero() {
-        let target = test_entity(1);
-        let mind = MindGraph::new(setup_ontology());
-        let ctx = ctx_with_affection(test_entity(2), target, &mind);
-        assert!(affection_channel(&ctx).abs() < 1e-6);
+    fn no_edge_record_returns_zero() {
+        let graph = SocialGraph::default();
+        let value = affection_channel(&ctx(test_entity(2), test_entity(1), &graph));
+        assert!(value.abs() < 1e-6);
     }
 
     #[test]
@@ -172,10 +162,9 @@ mod tests {
         channels.register("constant_half", |_| 0.5);
         channels.register("constant_quarter", |_| 0.25);
 
-        let target = test_entity(1);
-        let mind = MindGraph::new(setup_ontology());
-        let ctx = ctx_with_affection(test_entity(2), target, &mind);
-        assert!((channels.total_contribution(&ctx) - 0.75).abs() < 1e-6);
+        let graph = SocialGraph::default();
+        let context = ctx(test_entity(2), test_entity(1), &graph);
+        assert!((channels.total_contribution(&context) - 0.75).abs() < 1e-6);
         assert_eq!(channels.channel_count(), 2);
     }
 
@@ -185,25 +174,22 @@ mod tests {
         channels.register("c", |_| 0.5);
         channels.register("c", |_| 0.1);
 
-        let target = test_entity(1);
-        let mind = MindGraph::new(setup_ontology());
-        let ctx = ctx_with_affection(test_entity(2), target, &mind);
-        assert!((channels.total_contribution(&ctx) - 0.1).abs() < 1e-6);
+        let graph = SocialGraph::default();
+        let context = ctx(test_entity(2), test_entity(1), &graph);
+        assert!((channels.total_contribution(&context) - 0.1).abs() < 1e-6);
         assert_eq!(channels.channel_count(), 1);
     }
 
     #[test]
-    fn breakdown_yields_named_per_channel_contributions() {
+    fn breakdown_yields_named_per_channel_contributions_in_registration_order() {
         let mut channels = OtherRegardingChannels::default();
         channels.register("a", |_| 0.3);
         channels.register("b", |_| 0.7);
 
-        let target = test_entity(1);
-        let mind = MindGraph::new(setup_ontology());
-        let ctx = ctx_with_affection(test_entity(2), target, &mind);
-
-        let names: Vec<&'static str> = channels.breakdown(&ctx).map(|(n, _)| n).collect();
-        let total: f32 = channels.breakdown(&ctx).map(|(_, v)| v).sum();
+        let graph = SocialGraph::default();
+        let context = ctx(test_entity(2), test_entity(1), &graph);
+        let names: Vec<&'static str> = channels.breakdown(&context).map(|(n, _)| n).collect();
+        let total: f32 = channels.breakdown(&context).map(|(_, v)| v).sum();
         assert_eq!(names, vec!["a", "b"]);
         assert!((total - 1.0).abs() < 1e-6);
     }

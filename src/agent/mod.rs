@@ -306,6 +306,7 @@ impl Plugin for AgentPlugin {
                     .run_if(not_paused),
             )
             .init_resource::<psyche::relationships::RelationshipConfig>()
+            .init_resource::<psyche::social_graph::SocialGraph>()
             // Genetics: develop phenotype from genome once at spawn, before any
             // brain or personality system reads the derived traits. Lives in
             // FixedPreUpdate so it runs inside FixedMain with the rest of the
