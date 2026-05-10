@@ -28,6 +28,7 @@ use crate::agent::mind::memory::WorkingMemory;
 use crate::agent::mind::perception::VisibleObjects;
 use crate::agent::nervous_system::cns::CentralNervousSystem;
 use crate::agent::nervous_system::urgency::UrgencySource;
+use crate::agent::psyche::aspirations::Aspirations;
 use crate::agent::psyche::emotions::{EmotionType, EmotionalState};
 use crate::agent::psyche::personality::{Personality, PersonalityTrait};
 use crate::agent::psyche::relationships::{InteractionRecord, RelationshipHistory};
@@ -1694,6 +1695,27 @@ fn render_personality(ui: &mut egui::Ui, world: &World, entity: Entity) {
                         .italics()
                         .color(Color32::LIGHT_GRAY),
                 );
+            });
+            ui.add_space(2.0);
+        }
+    }
+
+    if let Some(aspirations) = world.get::<Aspirations>(entity)
+        && !aspirations.goals.is_empty()
+    {
+        ui.add_space(8.0);
+        ui.heading("Aspirations");
+        ui.add_space(4.0);
+        for aspiration in &aspirations.goals {
+            ui.group(|ui| {
+                ui.horizontal(|ui| {
+                    ui.strong(aspiration.label());
+                    ui.add(
+                        egui::ProgressBar::new(aspiration.progress.clamp(0.0, 1.0))
+                            .desired_width(160.0)
+                            .text(format!("{:.0}%", aspiration.progress * 100.0)),
+                    );
+                });
             });
             ui.add_space(2.0);
         }
