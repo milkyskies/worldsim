@@ -50,6 +50,7 @@ pub fn start_actions(
     registry: Res<ActionRegistry>,
     tick: Res<TickCount>,
     world_map: Res<WorldMap>,
+    social_graph: Res<crate::agent::psyche::social_graph::SocialGraph>,
     world_positions: Res<crate::world::entity_positions::WorldEntityPositions>,
     mut sim_rng: ResMut<SimRng>,
     mut game_log: ResMut<GameLog>,
@@ -124,6 +125,8 @@ pub fn start_actions(
             let ctx = ActionContext {
                 inventory,
                 mind,
+                social_graph: &social_graph,
+                agent_entity: entity,
                 world_map: &world_map,
                 world_positions: &world_positions,
                 target_entity: action_template.target_entity,

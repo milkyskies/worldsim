@@ -1103,6 +1103,7 @@ pub fn process_received_communication(
 pub fn emit_communication_events(
     registry: Res<ConverseRegistry>,
     tick: Res<TickCount>,
+    social_graph: Res<crate::agent::psyche::social_graph::SocialGraph>,
     mut events: MessageWriter<GameEvent>,
     agents: Query<(&MindGraph, &EmotionalState, &Personality)>,
 ) {
@@ -1118,7 +1119,8 @@ pub fn emit_communication_events(
             if listener == speaker {
                 continue;
             }
-            let valence = compute_interaction_valence(turn, speaker, listener, &agents);
+            let valence =
+                compute_interaction_valence(turn, speaker, listener, &agents, &social_graph);
             events.write(GameEvent::SocialInteraction {
                 actor: speaker,
                 target: listener,
@@ -1142,15 +1144,11 @@ fn compute_interaction_valence(
     speaker: Entity,
     listener: Entity,
     agents: &Query<(&MindGraph, &EmotionalState, &Personality)>,
+    social_graph: &crate::agent::psyche::social_graph::SocialGraph,
 ) -> f32 {
     let base = valence_base(turn.intent);
 
-    let listener_affection = agents
-        .get(listener)
-        .ok()
-        .and_then(|(mind, _, _)| mind.get(&Node::Entity(speaker), Predicate::Affection))
-        .and_then(|v| v.as_quantity().map(|q| q.point_estimate()))
-        .unwrap_or(0.5);
+    let listener_affection = social_graph.affection(listener, speaker);
 
     let (speaker_mood, speaker_agreeableness) = agents
         .get(speaker)

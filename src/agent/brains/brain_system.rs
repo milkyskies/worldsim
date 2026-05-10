@@ -133,16 +133,18 @@ pub fn arbitrate_every_tick(
     all_transforms: Query<(&Transform, Option<&crate::agent::inventory::EntityType>)>,
     all_bodies: Query<&Body>,
     // Bundled into one slot — Bevy's SystemParam tuple impl caps the
-    // function at 16 parameters and adding the Engaged / cooldowns
-    // queries individually would push us over.
+    // function at 16 parameters. SocialGraph rides this slot too so
+    // the canonical relationship store reaches the per-agent inputs.
     side_queries: (
         Query<&crate::agent::Cornered>,
         Query<&crate::agent::Dazed>,
         Query<&crate::agent::engagement::Engaged>,
         Query<&SocialInitiationCooldowns>,
+        Res<crate::agent::psyche::social_graph::SocialGraph>,
     ),
 ) {
-    let (cornered_query, dazed_query, engaged_query, social_cooldowns_query) = side_queries;
+    let (cornered_query, dazed_query, engaged_query, social_cooldowns_query, social_graph) =
+        side_queries;
     let woken = pending.drain();
 
     for (
@@ -229,6 +231,8 @@ pub fn arbitrate_every_tick(
         let emotional_inputs = super::emotional::EmotionalInputs {
             emotions,
             mind,
+            social_graph: &social_graph,
+            self_entity: entity,
             visible,
             visible_positions: &visible_positions,
             visible_types: &visible_types,
@@ -277,6 +281,8 @@ pub fn arbitrate_every_tick(
         let mut action_ctx = crate::agent::actions::ActionContext {
             inventory,
             mind,
+            social_graph: &social_graph,
+            agent_entity: entity,
             world_map: &world_map,
             world_positions: &world_positions,
             target_entity: None,

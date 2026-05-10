@@ -173,7 +173,7 @@ fn collect_conspecifics(ctx: &DriftContext) -> Vec<(Vec2, f32)> {
     ctx.visible
         .iter()
         .filter(|(e, _)| is_conspecific(ctx.mind, *e, self_concept))
-        .map(|(e, pos)| (*pos, read_affection(ctx.mind, *e)))
+        .map(|(e, pos)| (*pos, ctx.social_graph.affection(ctx.self_entity, *e)))
         .collect()
 }
 
@@ -196,12 +196,6 @@ fn is_conspecific(mind: &MindGraph, entity: Entity, self_concept: Concept) -> bo
             Some(&Value::Concept(self_concept)),
         )
         .is_empty()
-}
-
-fn read_affection(mind: &MindGraph, entity: Entity) -> f32 {
-    mind.get(&Node::Entity(entity), Predicate::Affection)
-        .and_then(|v| v.as_quantity().map(|q| q.point_estimate()))
-        .unwrap_or(0.5)
 }
 
 // ─── Low-level primitives exposed for action-prep scorers ───────────────

@@ -35,6 +35,12 @@ use bevy::prelude::*;
 pub struct EmotionalInputs<'a> {
     pub emotions: &'a EmotionalState,
     pub mind: &'a MindGraph,
+    /// Centralised relationship store. Use `social_graph.affection(self, other)`
+    /// (etc.) instead of reading per-agent MindGraph triples — the latter
+    /// no longer carry canonical relationship state after #754.
+    pub social_graph: &'a crate::agent::psyche::social_graph::SocialGraph,
+    /// Observer entity — left side of every directed-edge lookup.
+    pub self_entity: Entity,
     pub visible: &'a VisibleObjects,
     pub visible_positions: &'a [(Entity, Vec2)],
     /// Parallel-indexed with `visible_positions`. `Some(concept)` for
@@ -94,6 +100,8 @@ impl<'a> EmotionalInputs<'a> {
             physical: self.physical,
             drives: self.drives,
             mind: self.mind,
+            social_graph: self.social_graph,
+            self_entity: self.self_entity,
             visible: self.visible_positions,
             visible_types: self.visible_types,
             fields: self.fields,
@@ -194,6 +202,8 @@ pub fn emotional_brain_propose(inputs: &EmotionalInputs) -> Option<BrainProposal
             physical: inputs.physical,
             drives: inputs.drives,
             mind: inputs.mind,
+            social_graph: inputs.social_graph,
+            self_entity: inputs.self_entity,
             visible: inputs.visible_positions,
             visible_types: inputs.visible_types,
             fields: inputs.fields,
@@ -397,7 +407,15 @@ fn seek_social_initiation(
             continue;
         }
 
-        let affection = mind_affection(inputs.mind, entity);
+        // Strangers default to 0.0 here (not the global NEUTRAL 0.5)
+        // so an unintroduced peer doesn't ride a half-baseline boost
+        // over genuinely-bonded peers; the caller compares scores
+        // directly via `AFFECTION_RANK_WEIGHT`.
+        let affection = inputs
+            .social_graph
+            .get(inputs.self_entity, entity)
+            .map(|e| e.affection)
+            .unwrap_or(0.0);
         let distance = pos.distance(inputs.agent_pos) / TILE_SIZE;
         let score = -distance + AFFECTION_RANK_WEIGHT * affection;
 
@@ -414,13 +432,6 @@ fn seek_social_initiation(
         intent: Intent::SatisfySocial,
         reasoning: format!("I want to chat with {target:?} (social: {social_drive:.2})"),
     })
-}
-
-fn mind_affection(mind: &MindGraph, entity: Entity) -> f32 {
-    mind.get(&Node::Entity(entity), Predicate::Affection)
-        .and_then(|v| v.as_quantity())
-        .map(|q| q.point_estimate())
-        .unwrap_or(0.0)
 }
 
 /// Closest visible entity the agent considers `Dangerous`, with its
@@ -839,6 +850,8 @@ mod tests {
         let proposal = emotional_brain_propose(&EmotionalInputs {
             emotions: &state,
             mind: &mind,
+            social_graph: &crate::agent::psyche::social_graph::SocialGraph::default(),
+            self_entity: Entity::from_bits(1),
             visible: &visible,
             visible_positions: &[],
             visible_types: &[],
@@ -889,6 +902,8 @@ mod tests {
         let proposal = emotional_brain_propose(&EmotionalInputs {
             emotions: &state,
             mind: &mind,
+            social_graph: &crate::agent::psyche::social_graph::SocialGraph::default(),
+            self_entity: Entity::from_bits(1),
             visible: &visible,
             visible_positions: &visible_positions,
             visible_types: &[None],
@@ -937,6 +952,8 @@ mod tests {
         let proposal = emotional_brain_propose(&EmotionalInputs {
             emotions: &state,
             mind: &mind,
+            social_graph: &crate::agent::psyche::social_graph::SocialGraph::default(),
+            self_entity: Entity::from_bits(1),
             visible: &visible,
             visible_positions: &visible_positions,
             visible_types: &[None],
@@ -972,6 +989,8 @@ mod tests {
         let proposal = emotional_brain_propose(&EmotionalInputs {
             emotions: &state,
             mind: &mind,
+            social_graph: &crate::agent::psyche::social_graph::SocialGraph::default(),
+            self_entity: Entity::from_bits(1),
             visible: &visible,
             visible_positions: &[],
             visible_types: &[],
@@ -1011,6 +1030,8 @@ mod tests {
         let proposal = emotional_brain_propose(&EmotionalInputs {
             emotions: &state,
             mind: &mind,
+            social_graph: &crate::agent::psyche::social_graph::SocialGraph::default(),
+            self_entity: Entity::from_bits(1),
             visible: &visible,
             visible_positions: &[],
             visible_types: &[],
@@ -1067,10 +1088,22 @@ mod tests {
         cns: crate::agent::nervous_system::cns::CentralNervousSystem,
         fields: FieldGrids,
         registry: crate::agent::actions::ActionRegistry,
+        social_graph: crate::agent::psyche::social_graph::SocialGraph,
+        self_entity: Entity,
     }
 
     impl SocialFixture {
         fn new(mind: MindGraph) -> Self {
+            Self::with_graph(
+                mind,
+                crate::agent::psyche::social_graph::SocialGraph::default(),
+            )
+        }
+
+        fn with_graph(
+            mind: MindGraph,
+            social_graph: crate::agent::psyche::social_graph::SocialGraph,
+        ) -> Self {
             Self {
                 emotions: EmotionalState::default(),
                 mind,
@@ -1079,6 +1112,8 @@ mod tests {
                 cns: Default::default(),
                 fields: FieldGrids::default(),
                 registry: social_registry(),
+                social_graph,
+                self_entity: Entity::from_bits(1),
             }
         }
 
@@ -1093,6 +1128,8 @@ mod tests {
             EmotionalInputs {
                 emotions: &self.emotions,
                 mind: &self.mind,
+                social_graph: &self.social_graph,
+                self_entity: self.self_entity,
                 visible: &self.visible,
                 visible_positions,
                 visible_types,
@@ -1237,11 +1274,16 @@ mod tests {
         // Close stranger sits 2 tiles away with no affection. Far friend
         // sits 5 tiles away with affection 1.0 — AFFECTION_RANK_WEIGHT
         // (6.0) means the friend wins by ~3 tile-units.
-        let mut mind = MindGraph::default();
+        let mind = MindGraph::default();
+        let mut graph = crate::agent::psyche::social_graph::SocialGraph::default();
         crate::agent::mind::recognition::init_relationship_dimensions(
-            &mut mind, far_friend, 0, 1.0,
+            &mut graph,
+            Entity::from_bits(1), // matches SocialFixture::self_entity
+            far_friend,
+            0,
+            1.0,
         );
-        let fixture = SocialFixture::new(mind);
+        let fixture = SocialFixture::with_graph(mind, graph);
 
         let visible_positions = [
             (close_stranger, Vec2::new(2.0 * TILE_SIZE, 0.0)),
