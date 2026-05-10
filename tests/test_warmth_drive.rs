@@ -402,6 +402,15 @@ fn warmup_stance_runs_until_warmth_threshold() {
         .get_mut::<ActiveActions>(agent)
         .insert(ActionState::new(ActionType::WarmUp, 0));
 
+    // Daze so the brain doesn't preempt the injected WarmUp.
+    world
+        .app_mut()
+        .world_mut()
+        .entity_mut(agent)
+        .insert(worldsim::agent::Dazed {
+            until_tick: u64::MAX,
+        });
+
     for _ in 0..4000 {
         world.get_mut::<bevy::prelude::Transform>(agent).translation =
             bevy::prelude::Vec3::new(0.0, 0.0, 0.0);

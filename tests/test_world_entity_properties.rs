@@ -5,6 +5,7 @@
 //! and that campfire is correctly composed from property components.
 
 use bevy::prelude::*;
+use worldsim::agent::Dazed;
 use worldsim::agent::actions::{ActionState, ActionType, ActiveActions};
 use worldsim::agent::body::needs::PhysicalNeeds;
 use worldsim::agent::inventory::EntityType;
@@ -221,12 +222,19 @@ fn shelter_provider_improves_sleep_energy_recovery() {
         ..AgentConfig::default()
     });
 
+    // Daze both agents so arbitration is skipped — these agents are at full
+    // wakefulness, so the brain would propose WakeUp on the first tick and
+    // remove the injected Sleep before the shelter system observed it.
     // Force Sleep into each agent's ActiveActions so the shelter system
     // sees `active.contains(ActionType::Sleep)`.
     for agent in [sheltered, unsheltered] {
         let mut active = ActiveActions::empty();
         active.insert(ActionState::new(ActionType::Sleep, 0));
-        world.app_mut().world_mut().entity_mut(agent).insert(active);
+        let mut entity = world.app_mut().world_mut().entity_mut(agent);
+        entity.insert(active);
+        entity.insert(Dazed {
+            until_tick: u64::MAX,
+        });
     }
 
     let aerobic_before_sheltered = world.get::<PhysicalNeeds>(sheltered).stamina.aerobic;

@@ -2,6 +2,7 @@
 //! rather than letting it tick to completion with a missing target.
 
 use bevy::prelude::*;
+use worldsim::agent::Dazed;
 use worldsim::agent::actions::ActionType;
 use worldsim::agent::actions::registry::{ActionState, ActiveActions};
 use worldsim::agent::events::{FailureReason, SimEvent, SimEventKind};
@@ -13,6 +14,13 @@ fn despawned_target_cancels_running_action() {
 
     let agent = world.spawn_agent(AgentConfig::default());
     let tree = world.spawn_apple_tree(Vec2::new(32.0, 32.0), 3);
+
+    // Daze the agent so arbitration is skipped — the assertion is about
+    // execution-side cancellation when the target despawns, not about brain
+    // selection.
+    world.app_mut().world_mut().entity_mut(agent).insert(Dazed {
+        until_tick: u64::MAX,
+    });
 
     // Inject a long-running Harvest action targeting the tree directly into ActiveActions,
     // bypassing the brain so we can test the execution system in isolation.
