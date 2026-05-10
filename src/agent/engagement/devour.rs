@@ -18,7 +18,7 @@ use crate::agent::Agent;
 use crate::agent::actions::registry::{ActionState, ActiveActions};
 use crate::agent::actions::types::ActionType;
 use crate::agent::events::{
-    EngagementBeatPayload, FailureReason, GameEvent, SimEvent, SimEventKind,
+    EngagementBeatPayload, FailureReason, SimEvent, SimEventKind,
 };
 use crate::agent::mind::knowledge::{Concept, MindGraph, Node};
 use crate::agent::psyche::emotions::EmotionalState;
@@ -264,7 +264,6 @@ pub fn evaluate_devour_continuation(
     mut commands: Commands,
     mut registry: ResMut<DevourRegistry>,
     mut sim_events: MessageWriter<SimEvent>,
-    mut game_events: MessageWriter<GameEvent>,
     tick: Res<TickCount>,
     transforms: Query<&Transform>,
     physicals: Query<&crate::agent::body::needs::PhysicalNeeds>,
@@ -272,7 +271,6 @@ pub fn evaluate_devour_continuation(
     minds: Query<&MindGraph>,
     inventories: Query<&crate::agent::item_slots::ItemSlots>,
 ) {
-    let _ = game_events;
     let mut to_remove: Vec<EngagementId> = Vec::new();
     for (id, session) in registry.sessions.iter() {
         let mut reason: Option<EngagementEndReason> = None;

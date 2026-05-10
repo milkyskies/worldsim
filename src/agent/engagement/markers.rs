@@ -84,7 +84,7 @@ pub fn check_engagement_marker_invariants(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bevy::prelude::*;
+    use bevy::prelude::{Schedule, World};
 
     #[test]
     fn invariant_passes_with_single_marker() {
