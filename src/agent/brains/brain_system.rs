@@ -99,6 +99,7 @@ pub fn arbitrate_every_tick(
                 Option<&Body>,
                 &Personality,
                 &crate::agent::item_slots::ItemSlots,
+                Option<&crate::agent::psyche::aspirations::Aspirations>,
             ),
             // Context
             (
@@ -116,6 +117,7 @@ pub fn arbitrate_every_tick(
         ),
     >,
     world_map: Res<WorldMap>,
+    world_positions: Res<crate::world::entity_positions::WorldEntityPositions>,
     action_registry: Res<crate::agent::actions::ActionRegistry>,
     _affordances: Query<(
         &GlobalTransform,
@@ -128,20 +130,21 @@ pub fn arbitrate_every_tick(
     mut brain_histories: Query<&mut BrainHistory>,
     mapping: Res<TagChannelMapping>,
     fields: Res<crate::world::field_grid_plugin::FieldGrids>,
-    social_graph: Res<crate::agent::psyche::social_graph::SocialGraph>,
     all_transforms: Query<(&Transform, Option<&crate::agent::inventory::EntityType>)>,
     all_bodies: Query<&Body>,
     // Bundled into one slot — Bevy's SystemParam tuple impl caps the
-    // function at 16 parameters and adding the Engaged / cooldowns
-    // queries individually would push us over.
+    // function at 16 parameters. SocialGraph rides this slot too so
+    // the canonical relationship store reaches the per-agent inputs.
     side_queries: (
         Query<&crate::agent::Cornered>,
         Query<&crate::agent::Dazed>,
         Query<&crate::agent::engagement::Engaged>,
         Query<&SocialInitiationCooldowns>,
+        Res<crate::agent::psyche::social_graph::SocialGraph>,
     ),
 ) {
-    let (cornered_query, dazed_query, engaged_query, social_cooldowns_query) = side_queries;
+    let (cornered_query, dazed_query, engaged_query, social_cooldowns_query, social_graph) =
+        side_queries;
     let woken = pending.drain();
 
     for (
@@ -150,7 +153,7 @@ pub fn arbitrate_every_tick(
         mut brain_state,
         (mut plan_memory, cns),
         (physical, consciousness, drives),
-        (emotions, body, personality, inventory),
+        (emotions, body, personality, inventory, aspirations),
         (transform, visible, mind, active_actions, engaged, self_entity_type),
     ) in query.iter_mut()
     {
@@ -281,6 +284,7 @@ pub fn arbitrate_every_tick(
             social_graph: &social_graph,
             agent_entity: entity,
             world_map: &world_map,
+            world_positions: &world_positions,
             target_entity: None,
             target_position: None,
             agent_position: agent_pos,
@@ -290,8 +294,13 @@ pub fn arbitrate_every_tick(
             current_tick: tick.current,
             unreachable_tiles: &unreachable_tiles,
         };
+        // Single pass: feasibility filter + aspiration bias on the
+        // urgency. Aspiration multiplier runs pre-arbitration so the
+        // existing scoring picks up the modulated values without
+        // knowing about aspirations directly.
+        let conscientiousness = personality.traits.conscientiousness();
         for slot in proposals.iter_mut() {
-            let Some(proposal) = slot.as_ref() else {
+            let Some(proposal) = slot.as_mut() else {
                 continue;
             };
             let Some(action_def) = action_registry.get(proposal.action.action_type) else {
@@ -301,7 +310,15 @@ pub fn arbitrate_every_tick(
             action_ctx.target_position = proposal.action.target_position;
             if !action_def.is_feasible(&action_ctx) {
                 *slot = None;
+                continue;
             }
+            let mult = crate::agent::psyche::aspiration_modulator::proposal_multiplier(
+                aspirations,
+                conscientiousness,
+                proposal.action.action_type,
+                proposal.action.target_entity,
+            );
+            proposal.urgency *= mult;
         }
 
         let capacities = crate::agent::actions::ChannelCapacities::compute(

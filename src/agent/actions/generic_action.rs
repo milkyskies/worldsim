@@ -262,14 +262,14 @@ fn check_gate(gate: &Gate, ctx: &ActionContext) -> Result<(), FailureReason> {
             }
         }
         Gate::NearHeatEmitter => {
-            if is_near_trait(ctx.mind, Concept::HeatEmitting) {
+            if is_near_trait(ctx.mind, ctx.world_positions, Concept::HeatEmitting) {
                 Ok(())
             } else {
                 Err(FailureReason::TargetGone)
             }
         }
         Gate::NearShelterProvider => {
-            if is_near_trait(ctx.mind, Concept::ShelterProviding) {
+            if is_near_trait(ctx.mind, ctx.world_positions, Concept::ShelterProviding) {
                 Ok(())
             } else {
                 Err(FailureReason::TargetGone)
@@ -400,18 +400,33 @@ fn knows_any_death(mind: &MindGraph) -> bool {
 }
 
 /// Runtime check mirroring the planner's `(Self, Near, $trait)` relation:
-/// true when a known entity carrying `trait_concept` sits on self's tile.
-fn is_near_trait(mind: &MindGraph, trait_concept: Concept) -> bool {
+/// true when an entity carrying `trait_concept` sits on self's tile.
+/// Mobile entities are checked against the agent's MindGraph; static
+/// entities are checked against the world snapshot (#756).
+fn is_near_trait(
+    mind: &MindGraph,
+    world_positions: &crate::world::entity_positions::WorldEntityPositions,
+    trait_concept: Concept,
+) -> bool {
     let Some(Value::Tile(self_tile)) = mind.get(&Node::Self_, Predicate::LocatedAt).cloned() else {
         return false;
     };
-    mind.query(
-        None,
-        Some(Predicate::LocatedAt),
-        Some(&Value::Tile(self_tile)),
-    )
-    .iter()
-    .any(|t| matches!(t.subject, Node::Entity(_)) && mind.has_trait(&t.subject, trait_concept))
+    let mobile_match = mind
+        .query(
+            None,
+            Some(Predicate::LocatedAt),
+            Some(&Value::Tile(self_tile)),
+        )
+        .iter()
+        .any(|t| matches!(t.subject, Node::Entity(_)) && mind.has_trait(&t.subject, trait_concept));
+    if mobile_match {
+        return true;
+    }
+    world_positions.entities_at_tile(self_tile).any(|entity| {
+        world_positions
+            .entry(entity)
+            .is_some_and(|loc| mind.ontology.has_trait(loc.concept, trait_concept))
+    })
 }
 
 // ============================================================================
@@ -783,6 +798,7 @@ mod tests {
         inventory: &'a ItemSlots,
         mind: &'a MindGraph,
         world_map: &'a WorldMap,
+        world_positions: &'a crate::world::entity_positions::WorldEntityPositions,
         physical: &'a PhysicalNeeds,
         target_entity: Option<Entity>,
         target_position: Option<Vec2>,
@@ -795,6 +811,7 @@ mod tests {
             social_graph,
             agent_entity: Entity::from_bits(1),
             world_map,
+            world_positions,
             target_entity,
             target_position,
             agent_position: Vec2::ZERO,
@@ -812,8 +829,19 @@ mod tests {
         let mind = mind();
         let map = world_map();
         let physical = PhysicalNeeds::default();
+        let positions = crate::world::entity_positions::WorldEntityPositions::default();
         let graph = crate::agent::psyche::social_graph::SocialGraph::default();
-        let ctx = ctx(&inventory, &mind, &map, &physical, None, None, &[], &graph);
+        let ctx = ctx(
+            &inventory,
+            &mind,
+            &map,
+            &positions,
+            &physical,
+            None,
+            None,
+            &[],
+            &graph,
+        );
         let eat = GenericAction::new(&EAT_DEF);
         assert!(
             !eat.is_feasible(&ctx),
@@ -828,8 +856,19 @@ mod tests {
         let mind = mind();
         let map = world_map();
         let physical = PhysicalNeeds::default();
+        let positions = crate::world::entity_positions::WorldEntityPositions::default();
         let graph = crate::agent::psyche::social_graph::SocialGraph::default();
-        let ctx = ctx(&inventory, &mind, &map, &physical, None, None, &[], &graph);
+        let ctx = ctx(
+            &inventory,
+            &mind,
+            &map,
+            &positions,
+            &physical,
+            None,
+            None,
+            &[],
+            &graph,
+        );
         let eat = GenericAction::new(&EAT_DEF);
         assert!(
             eat.is_feasible(&ctx),
@@ -845,11 +884,13 @@ mod tests {
         let physical = PhysicalNeeds::default();
         let target_pos = Some(Vec2::new(5.0 * TILE_SIZE, 5.0 * TILE_SIZE));
         let unreachable = [(5, 5)];
+        let positions = crate::world::entity_positions::WorldEntityPositions::default();
         let graph = crate::agent::psyche::social_graph::SocialGraph::default();
         let ctx = ctx(
             &inventory,
             &mind,
             &map,
+            &positions,
             &physical,
             None,
             target_pos,
@@ -870,11 +911,13 @@ mod tests {
         let map = world_map();
         let physical = PhysicalNeeds::default();
         let target_pos = Some(Vec2::new(5.0 * TILE_SIZE, 5.0 * TILE_SIZE));
+        let positions = crate::world::entity_positions::WorldEntityPositions::default();
         let graph = crate::agent::psyche::social_graph::SocialGraph::default();
         let ctx = ctx(
             &inventory,
             &mind,
             &map,
+            &positions,
             &physical,
             None,
             target_pos,
@@ -902,11 +945,13 @@ mod tests {
         ));
         let map = world_map();
         let physical = PhysicalNeeds::default();
+        let positions = crate::world::entity_positions::WorldEntityPositions::default();
         let graph = crate::agent::psyche::social_graph::SocialGraph::default();
         let ctx = ctx(
             &inventory,
             &mind,
             &map,
+            &positions,
             &physical,
             Some(target),
             None,
@@ -927,11 +972,13 @@ mod tests {
         let map = world_map();
         let physical = PhysicalNeeds::default();
         let target = Entity::from_bits(11);
+        let positions = crate::world::entity_positions::WorldEntityPositions::default();
         let graph = crate::agent::psyche::social_graph::SocialGraph::default();
         let ctx = ctx(
             &inventory,
             &mind,
             &map,
+            &positions,
             &physical,
             Some(target),
             None,

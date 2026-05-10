@@ -1,27 +1,19 @@
-use crate::agent::mind::knowledge::{MindGraph, Node, Predicate, Value};
+use crate::agent::mind::explored_tiles::ExploredTiles;
 use crate::world::map::WorldMap;
 use crate::world::spatial_index::world_pos_to_chunk;
 use bevy::math::IVec2;
 use bevy::prelude::Vec2;
 use rand::Rng;
 
-/// Penalty term for chunks the MindGraph marks as recently-`Explored`.
-/// Decays as `1000 / (age + 1)` so a fresh visit is a big hit and a very
-/// old visit is almost free. Chunks with no `Explored` triple return 0.
-pub fn staleness_penalty(mind: &MindGraph, chunk: IVec2, current_tick: u64) -> f32 {
-    let triples = mind.query(
-        Some(&Node::Chunk((chunk.x, chunk.y))),
-        Some(Predicate::Explored),
-        None,
-    );
-    if let Some(triple) = triples.first()
-        && let Value::Boolean(true) = triple.object
-    {
-        let age = (current_tick as i32 - triple.meta.timestamp as i32).max(0) as f32;
-        1000.0 / (age + 1.0)
-    } else {
-        0.0
-    }
+/// Penalty term for chunks the agent has recently visited. Decays as
+/// `1000 / (age + 1)` so a fresh visit is a big hit and a very old
+/// visit is almost free. Unvisited chunks return 0.
+pub fn staleness_penalty(explored: &ExploredTiles, chunk: IVec2, current_tick: u64) -> f32 {
+    let Some(last_visit) = explored.last_visit_tick((chunk.x, chunk.y)) else {
+        return 0.0;
+    };
+    let age = (current_tick as i32 - last_visit as i32).max(0) as f32;
+    1000.0 / (age + 1.0)
 }
 
 /// Rejection-sample walkable tiles and keep the lowest-scoring one. The

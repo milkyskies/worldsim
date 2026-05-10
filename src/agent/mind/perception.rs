@@ -216,6 +216,7 @@ pub fn update_body_perception(
             &crate::agent::body::needs::Consciousness,
             &Transform,
             &mut MindGraph,
+            &mut crate::agent::mind::explored_tiles::ExploredTiles,
         ),
         With<Agent>,
     >,
@@ -223,7 +224,7 @@ pub fn update_body_perception(
 ) {
     let current_time = tick.current;
 
-    for (_entity, consciousness, transform, mut mind) in agents.iter_mut() {
+    for (_entity, consciousness, transform, mut mind, mut explored) in agents.iter_mut() {
         // Rule 1: Location
         let pos = transform.translation.truncate();
         let tile_x = (pos.x / TILE_SIZE).floor() as i32;
@@ -234,16 +235,13 @@ pub fn update_body_perception(
             current_time,
         );
 
-        // Rule 2: Explored Areas (Semantic Memory)
+        // Rule 2: Explored Areas — record visited chunk in the typed
+        // component. Replaces the old `(Chunk, Explored, Boolean(true))`
+        // MindGraph triples (#757): set-membership belongs in a bitset/
+        // map, not the triple store.
         let chunk_x = (pos.x / (CHUNK_SIZE as f32 * TILE_SIZE)).floor() as i32;
         let chunk_y = (pos.y / (CHUNK_SIZE as f32 * TILE_SIZE)).floor() as i32;
-
-        mind.assert(Triple::with_meta(
-            Node::Chunk((chunk_x, chunk_y)),
-            Predicate::Explored,
-            Value::Boolean(true),
-            Metadata::semantic(current_time),
-        ));
+        explored.mark_explored((chunk_x, chunk_y), current_time);
 
         // Rule 4: Consciousness
         let is_awake = consciousness.alertness > 0.2;
@@ -276,6 +274,7 @@ pub fn update_body_perception(
 pub fn write_perceptions_to_mind(
     mut agents: Query<(Entity, &Name, &Transform, &VisibleObjects, &mut MindGraph), With<Agent>>,
     transforms: Query<&Transform>,
+    mobile_entities: Query<(), With<Agent>>,
     inventories: Query<&crate::agent::item_slots::ItemSlots>,
     entity_types: Query<&crate::agent::inventory::EntityType>,
     becomes_components: Query<&crate::world::becomes::Becomes>,
@@ -284,14 +283,21 @@ pub fn write_perceptions_to_mind(
 ) {
     let current_time = tick.current;
 
-    for (agent_entity, _, agent_transform, visible, mut mind) in agents.iter_mut() {
+    for (_agent_entity, _, agent_transform, visible, mut mind) in agents.iter_mut() {
         let agent_pos = agent_transform.translation.truncate();
 
         for &entity in &visible.entities {
             let confidence = calc_confidence(agent_pos, transforms.get(entity).ok());
 
-            // 1. Perceive Location
-            if let Ok(transform) = transforms.get(entity) {
+            // 1. Perceive Location — only for mobile entities (#756).
+            // Static-object positions are objective world facts, served
+            // from `WorldEntityPositions`. Mobile entities (other agents)
+            // keep their `LocatedAt` triples here because position is
+            // genuinely subjective for them ("I last saw Bob at the
+            // river" remains a meaningful belief after Bob has moved).
+            if mobile_entities.get(entity).is_ok()
+                && let Ok(transform) = transforms.get(entity)
+            {
                 let pos = transform.translation.truncate();
                 let tile_x = (pos.x / TILE_SIZE).floor() as i32;
                 let tile_y = (pos.y / TILE_SIZE).floor() as i32;
@@ -355,17 +361,11 @@ pub fn write_perceptions_to_mind(
             }
         }
 
-        // 4. Perceive Self Inventory
-        if let Ok(self_inventory) = inventories.get(agent_entity) {
-            perceive_inventory(
-                agent_entity,
-                self_inventory,
-                &mut mind,
-                current_time,
-                1.0,
-                true,
-            );
-        }
+        // Self-inventory used to be mirrored here as `(Self_, Contains, ...)`
+        // triples. That mirror was redundant — `ItemSlots` is the canonical
+        // store and the planner now queries it directly (#755). The mirror
+        // was also drifting: ~10% of `Contains` mutations were redundant
+        // re-inserts because two write paths fought for sync.
     }
 }
 

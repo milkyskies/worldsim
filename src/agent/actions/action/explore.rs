@@ -8,7 +8,7 @@ use crate::agent::actions::definition::{
 };
 use crate::agent::actions::motor::{ActionPrimitive, IntensityPolicy, Intent, TargetSelector};
 use crate::agent::actions::registry::{ActionKind, LegCompleteContext, LegResult, TargetSource};
-use crate::agent::mind::knowledge::MindGraph;
+use crate::agent::mind::explored_tiles::ExploredTiles;
 use crate::world::map::WorldMap;
 use bevy::prelude::Vec2;
 
@@ -53,7 +53,7 @@ pub static EXPLORE_DEF: ActionDefinition = ActionDefinition {
 fn explore_on_leg_complete(ctx: &mut LegCompleteContext) -> LegResult {
     match pick_explore_target(
         ctx.agent_position,
-        ctx.mind,
+        ctx.explored,
         ctx.world_map,
         ctx.current_tick,
         ctx.rng,
@@ -66,22 +66,19 @@ fn explore_on_leg_complete(ctx: &mut LegCompleteContext) -> LegResult {
 /// Score-and-pick a staleness-aware walkable target. Lower is better.
 pub fn pick_explore_target(
     current_pos: Vec2,
-    mind: &MindGraph,
+    explored: &ExploredTiles,
     world_map: &WorldMap,
     current_tick: u64,
     rng: &mut dyn rand::RngCore,
 ) -> Option<Vec2> {
     sample_walkable_scored(current_pos, world_map, 10, rng, |_pos, chunk| {
-        staleness_penalty(mind, chunk, current_tick)
+        staleness_penalty(explored, chunk, current_tick)
     })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::agent::mind::knowledge::{
-        Metadata, MindGraph, Node, Predicate, Triple, Value, setup_ontology,
-    };
     use crate::world::map::{CHUNK_SIZE, WorldMap};
     use crate::world::spatial_index::world_pos_to_chunk;
     use bevy::math::IVec2;
@@ -104,14 +101,8 @@ mod tests {
     #[test]
     fn explore_follow_up_leg_uses_staleness_scorer() {
         let map = walkable_map();
-        let mut mind = MindGraph::new(setup_ontology());
-
-        mind.assert(Triple::with_meta(
-            Node::Chunk((0, 0)),
-            Predicate::Explored,
-            Value::Boolean(true),
-            Metadata::semantic(100),
-        ));
+        let mut explored = ExploredTiles::default();
+        explored.mark_explored((0, 0), 100);
 
         let current_pos = Vec2::new(8.0, 8.0);
         let current_tick = 100;
@@ -120,7 +111,7 @@ mod tests {
         for seed in 0..50u64 {
             let mut rng = StdRng::seed_from_u64(seed);
             let Some(target) =
-                pick_explore_target(current_pos, &mind, &map, current_tick, &mut rng)
+                pick_explore_target(current_pos, &explored, &map, current_tick, &mut rng)
             else {
                 continue;
             };

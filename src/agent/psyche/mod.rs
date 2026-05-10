@@ -1,3 +1,4 @@
+pub mod aspiration_modulator;
 pub mod aspirations;
 pub mod emotions;
 pub mod flocking;

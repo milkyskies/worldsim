@@ -139,6 +139,7 @@ pub(super) fn spawn_test_deer(
         .insert((
             Affordance::default(),
             mind,
+            crate::agent::mind::explored_tiles::ExploredTiles::default(),
             Vision {
                 range: SpeciesProfile::deer().vision_range,
             },
@@ -200,6 +201,7 @@ pub(super) fn spawn_test_wolf(
         .insert((
             Affordance::default(),
             mind,
+            crate::agent::mind::explored_tiles::ExploredTiles::default(),
             Vision {
                 range: SpeciesProfile::wolf().vision_range,
             },
