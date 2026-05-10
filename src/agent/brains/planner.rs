@@ -77,6 +77,11 @@ pub struct PlanCostContext {
     /// Current wakefulness (0.0 = must sleep, 1.0 = rested). Used by
     /// feasibility check to reject plans the agent would fall asleep during.
     pub wakefulness: f32,
+    /// Hard cap on plan length (action count). The backward search refuses to
+    /// expand a node whose chain already holds this many actions, so a
+    /// reactive species (`max_plan_depth = 1`) will only ever produce
+    /// single-action plans. `usize::MAX` disables the cap.
+    pub max_plan_depth: usize,
 }
 
 /// How long a `(Tile, HasTrait, Unreachable)` belief suppresses walk
@@ -122,6 +127,7 @@ impl PlanCostContext {
             reserves: crate::agent::body::metabolism::RESERVES_MAX,
             stamina_anaerobic: 100.0,
             wakefulness: 1.0,
+            max_plan_depth: usize::MAX,
         }
     }
 
@@ -148,6 +154,7 @@ impl PlanCostContext {
             reserves: physical.metabolism.reserves,
             stamina_anaerobic: physical.stamina.anaerobic,
             wakefulness: physical.wakefulness.value,
+            max_plan_depth: species.map(|s| s.max_plan_depth).unwrap_or(usize::MAX),
         }
     }
 
@@ -803,6 +810,10 @@ impl RegressiveState {
 #[derive(Debug, Clone)]
 struct RegressiveSearchNode {
     f_score: f32,
+    /// Number of actions already in the plan that leads to this node. Used to
+    /// enforce `PlanCostContext::max_plan_depth` — reactive species cap out
+    /// at single-action plans.
+    depth: usize,
     state: RegressiveState,
 }
 
@@ -882,6 +893,7 @@ pub fn regressive_plan(
     g_score.insert(start.clone(), 0.0);
     open_set.push(RegressiveSearchNode {
         f_score: start.unmet_goals.len() as f32, // Simple heuristic
+        depth: 0,
         state: start,
     });
 
@@ -921,6 +933,7 @@ pub fn regressive_plan(
             break;
         }
 
+        let current_depth = current_node.depth;
         let current_state = current_node.state;
 
         if current_state.unmet_goals.len() < best_unmet.len() || best_unmet.is_empty() {
@@ -962,7 +975,15 @@ pub fn regressive_plan(
             break;
         }
 
+        // Cognition cap: a reactive species refuses to chain more actions
+        // beyond its `max_plan_depth`. Equality holds when the chain is
+        // already at the cap — the next expansion would push it over.
+        if current_depth >= ctx.max_plan_depth {
+            continue;
+        }
+
         let current_g = *g_score.get(&current_state).unwrap_or(&f32::INFINITY);
+        let child_depth = current_depth + 1;
 
         // We need to satisfy *one* of the unmet goals.
         // Heuristic: Pick the first one? Or all possible branches?
@@ -989,6 +1010,7 @@ pub fn regressive_plan(
                 action,
                 next_state,
                 new_cost,
+                child_depth,
                 &current_state,
                 HEURISTIC_MULTIPLIER,
                 &mut came_from,
@@ -1016,6 +1038,7 @@ pub fn regressive_plan(
                 walk_action,
                 next_state,
                 new_cost,
+                child_depth,
                 &current_state,
                 HEURISTIC_MULTIPLIER,
                 &mut came_from,
@@ -1259,6 +1282,7 @@ fn update_search_candidate(
     action: ActionTemplate,
     next_state: RegressiveState,
     new_cost: f32,
+    next_depth: usize,
     current_state: &RegressiveState,
     heuristic_multiplier: f32,
     came_from: &mut HashMap<RegressiveState, (ActionTemplate, RegressiveState)>,
@@ -1270,6 +1294,7 @@ fn update_search_candidate(
         g_score.insert(next_state.clone(), new_cost);
         open_set.push(RegressiveSearchNode {
             f_score: new_cost + next_state.unmet_goals.len() as f32 * heuristic_multiplier,
+            depth: next_depth,
             state: next_state,
         });
     }
@@ -3242,5 +3267,79 @@ mod tests {
             on_a <= 3 && on_b <= 2 && on_a + on_b == 5,
             "harvests must respect per-log stored quantity (got {on_a} on A, {on_b} on B)"
         );
+    }
+
+    fn ctx_with_depth(max_plan_depth: usize) -> PlanCostContext {
+        let mut ctx = PlanCostContext::neutral();
+        ctx.max_plan_depth = max_plan_depth;
+        ctx
+    }
+
+    /// A reactive species (`max_plan_depth = 1`) must never produce a
+    /// multi-action plan, even when the world contains a chain that the
+    /// uncapped planner would happily explore.
+    #[test]
+    fn planner_max_plan_depth_one_blocks_multi_action_chain() {
+        let mut mind = test_mind();
+        let bush = Entity::from_bits(1);
+        mind.assert(Triple::new(
+            MindNode::Entity(bush),
+            Predicate::Contains,
+            Value::Item(Concept::Berry, 5),
+        ));
+        mind.assert(Triple::new(
+            MindNode::Self_,
+            Predicate::LocatedAt,
+            Value::Tile((0, 0)),
+        ));
+
+        let gathers = vec![gather_template(bush, Concept::Berry)];
+        let goal = Goal {
+            conditions: vec![TriplePattern::new(
+                Some(MindNode::Self_),
+                Some(Predicate::Contains),
+                Some(Value::Item(Concept::Berry, 5)),
+            )],
+            priority: 1.0,
+        };
+
+        let (plan, _) = regressive_plan(&mind, &goal, &gathers, &ctx_with_depth(1));
+        assert!(
+            plan.is_none(),
+            "depth=1 must refuse a 5-step chain; got {plan:?}"
+        );
+    }
+
+    /// Regression: a neutral context (`max_plan_depth = usize::MAX`) must
+    /// keep producing the same chained plan it did before the depth cap
+    /// landed — the cap is only paid for when a species actually sets it.
+    #[test]
+    fn planner_uncapped_depth_still_chains() {
+        let mut mind = test_mind();
+        let bush = Entity::from_bits(1);
+        mind.assert(Triple::new(
+            MindNode::Entity(bush),
+            Predicate::Contains,
+            Value::Item(Concept::Berry, 3),
+        ));
+        mind.assert(Triple::new(
+            MindNode::Self_,
+            Predicate::LocatedAt,
+            Value::Tile((0, 0)),
+        ));
+
+        let gathers = vec![gather_template(bush, Concept::Berry)];
+        let goal = Goal {
+            conditions: vec![TriplePattern::new(
+                Some(MindNode::Self_),
+                Some(Predicate::Contains),
+                Some(Value::Item(Concept::Berry, 3)),
+            )],
+            priority: 1.0,
+        };
+
+        let (plan, _) = regressive_plan(&mind, &goal, &gathers, &PlanCostContext::neutral());
+        let plan = plan.expect("uncapped planner must still chain harvests");
+        assert_eq!(plan.len(), 3, "expected 3-step plan; got {plan:?}");
     }
 }

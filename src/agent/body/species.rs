@@ -14,6 +14,10 @@ pub enum Species {
     Wolf,
     Rabbit,
     Bird,
+    /// Schooling forage fish. Tiny, omnivorous, lives in water.
+    Minnow,
+    /// Solitary freshwater predator. Eats minnows.
+    Pike,
 }
 
 /// Dietary requirements - determines what foods are edible
@@ -167,6 +171,52 @@ impl SpeciesProfile {
             mass_kg: 2.0,
 
             territoriality_baseline: 0.0,
+        }
+    }
+
+    /// Minnow profile - schooling forage fish. Pure-instinct cognition, near-zero
+    /// memory, tiny vision range. Survives by being a moving target inside a school.
+    pub fn minnow() -> Self {
+        Self {
+            species: Species::Minnow,
+
+            max_plan_depth: 1,
+            memory_capacity: 20,
+            memory_decay_rate: 0.8,
+
+            survival_weight: 0.95,
+            emotional_weight: 0.04,
+            rational_weight: 0.01,
+
+            base_speed: 0.9,
+            vision_range: 60.0,
+            diet: Diet::Omnivore,
+            mass_kg: 0.05,
+
+            territoriality_baseline: 0.0,
+        }
+    }
+
+    /// Pike profile - solitary freshwater ambush predator. Burst speed, slightly
+    /// more memory than a minnow so it can recall the last successful ambush spot.
+    pub fn pike() -> Self {
+        Self {
+            species: Species::Pike,
+
+            max_plan_depth: 1,
+            memory_capacity: 30,
+            memory_decay_rate: 0.7,
+
+            survival_weight: 0.90,
+            emotional_weight: 0.07,
+            rational_weight: 0.03,
+
+            base_speed: 1.3,
+            vision_range: 90.0,
+            diet: Diet::Carnivore,
+            mass_kg: 4.0,
+
+            territoriality_baseline: 0.2,
         }
     }
 }
