@@ -468,6 +468,14 @@ pub trait Action: Send + Sync + 'static {
         }
     }
 
+    /// Diets for which this action is plannable. Empty slice = all diets
+    /// allowed. Filters the rational brain so a wolf doesn't enumerate
+    /// Graze targets and a deer doesn't plan against carnivore prey.
+    /// Default: empty (no diet restriction).
+    fn eligible_diets(&self) -> &'static [crate::agent::body::species::Diet] {
+        &[]
+    }
+
     /// Planning check - is this action valid for this target/context?
     /// Validates if the agent *knows* enough to attempt this.
     /// Takes a `TargetCandidate` so tile-targeted actions can also gate.

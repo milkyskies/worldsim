@@ -612,6 +612,7 @@ pub fn update_rational_planning(
                 mind,
                 transform.translation.truncate(),
                 &world_map,
+                species,
                 &affordances,
                 PlanningMode::Generate,
                 &capacities,
@@ -944,6 +945,7 @@ fn collect_planning_actions(
     mind: &MindGraph,
     agent_pos: Vec2,
     world_map: &WorldMap,
+    species: Option<&crate::agent::body::species::SpeciesProfile>,
     affordances: &Query<(
         &GlobalTransform,
         Option<&crate::agent::affordance::Affordance>,
@@ -964,6 +966,12 @@ fn collect_planning_actions(
 
         // Plan-time satiation filter — see `Action::is_plan_time_viable`.
         if !action.is_plan_time_viable(Some(physical), Some(inventory)) {
+            continue;
+        }
+
+        // Plan-time diet filter. Empty `eligible_diets` = unrestricted.
+        let eligible = action.eligible_diets();
+        if !eligible.is_empty() && !species.is_some_and(|s| eligible.contains(&s.diet)) {
             continue;
         }
 

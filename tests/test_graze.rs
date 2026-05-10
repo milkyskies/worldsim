@@ -10,6 +10,40 @@ use worldsim::agent::body::needs::PhysicalNeeds;
 use worldsim::agent::mind::knowledge::{Concept, MindGraph, Predicate, Value};
 use worldsim::testing::TestWorld;
 
+/// Pre-#739 the herbivore-only restriction on Graze was enforced by gating
+/// the perception path that wrote `(Tile, HasTrait, Grazable)` triples.
+/// With perception gone, the restriction now lives on the action itself
+/// (`Action::eligible_diets`). A hungry human standing on grass must not
+/// pick Graze — the action shouldn't even be enumerated for them.
+#[test]
+fn omnivore_does_not_plan_graze() {
+    let mut world = TestWorld::with_seed(42);
+    let human = world.spawn_agent(worldsim::testing::AgentConfig {
+        pos: Vec2::new(200.0, 200.0),
+        ..Default::default()
+    });
+    {
+        let mut needs = world.get_mut::<PhysicalNeeds>(human);
+        needs.metabolism = worldsim::agent::body::metabolism::Metabolism::at_urgency(0.8);
+    }
+
+    world.tick(200);
+
+    let started_graze = world.sim_events().all().iter().any(|ev| {
+        matches!(
+            ev,
+            worldsim::agent::events::SimEvent {
+                kind: worldsim::agent::events::SimEventKind::ActionStarted {
+                    action: ActionType::Graze,
+                    ..
+                },
+                ..
+            }
+        )
+    });
+    assert!(!started_graze, "humans (omnivores) must never start Graze");
+}
+
 /// Per #739, terrain traits live in the world (terrain type + ontology),
 /// not in each agent's MindGraph. A grazing deer must never have
 /// `(Tile(_), HasTrait, Grazable)` triples written into its belief store
