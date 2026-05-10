@@ -140,7 +140,7 @@ fn propose_for_source(
             }
         }
         UrgencySource::Fear => {
-            if let Some(action) = action_registry.get(ActionType::Flee) {
+            if let Some(action) = action_registry.get(ActionType::InitiateFlee) {
                 return Some(BrainProposal {
                     brain: BrainType::Survival,
                     action: escalated(action, context.most_feared_entity),
@@ -151,7 +151,7 @@ fn propose_for_source(
             }
         }
         UrgencySource::Sleepiness => {
-            if let Some(action) = action_registry.get(ActionType::Sleep)
+            if let Some(action) = action_registry.get(ActionType::InitiateSleep)
                 && action.is_plan_time_viable(Some(context.physical), Some(inventory))
             {
                 return Some(BrainProposal {
@@ -214,17 +214,11 @@ fn check_sleep_wake(
         return Some(wake_proposal(90.0, format!("Emergency wake: {source:?}")));
     }
 
-    // Still tired, nothing urgent — stay asleep.
-    let sleep_urgency = (1.0 - wakefulness) * 100.0;
-    action_registry
-        .get(ActionType::Sleep)
-        .map(|action| BrainProposal {
-            brain: BrainType::Survival,
-            action: action.to_template(None),
-            urgency: sleep_urgency,
-            intent: Intent::SatisfySleepiness,
-            reasoning: format!("Still tired... wakefulness {wakefulness:.2}, aerobic {aerobic:.0}"),
-        })
+    // Still tired, nothing urgent — let the Sleep engagement keep running.
+    // Pre-migration this re-proposed `Sleep` every tick to keep the
+    // single-action slot occupied; with the engagement primitive the
+    // SleepPlugin owns continuation, and `Sleep` is beat-only.
+    None
 }
 
 #[cfg(test)]

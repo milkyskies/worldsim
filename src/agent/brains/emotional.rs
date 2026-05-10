@@ -647,7 +647,7 @@ fn evaluate_entity_emotions(
 
     if fear > threshold
         && fear > FEAR_ENTITY_THRESHOLD
-        && let Some(action) = action_registry.get(ActionType::Flee)
+        && let Some(action) = action_registry.get(ActionType::InitiateFlee)
     {
         let mut template = action.to_template(Some(entity));
         template.escalate_intensity(fear);
@@ -722,7 +722,7 @@ fn appraise_threat_proposal(
 
     match response {
         ThreatResponse::Flee { urgency } => {
-            let action = action_registry.get(ActionType::Flee)?;
+            let action = action_registry.get(ActionType::InitiateFlee)?;
             let proposal_urgency = urgency * FLEE_RESPONSE_URGENCY_MULTIPLIER;
             if proposal_urgency <= best_urgency {
                 return None;
@@ -754,10 +754,12 @@ fn appraise_threat_proposal(
             })
         }
         ThreatResponse::Fight { commitment } => {
-            let attack_action = match self_concept {
-                Some(Concept::Wolf) => ActionType::Bite,
-                _ => ActionType::DefendSelf,
-            };
+            // Bite is a Hunt-engagement-internal beat post-#743; brain
+            // proposals route every species through `DefendSelf` for
+            // reactive combat. Predator-vs-prey aggression goes through
+            // `InitiateHunt` instead, which is a different pathway.
+            let _ = self_concept;
+            let attack_action = ActionType::DefendSelf;
             let action = action_registry.get(attack_action)?;
             let proposal_urgency = (FIGHT_RESPONSE_BASE_URGENCY
                 + commitment * FIGHT_RESPONSE_COMMITMENT_MULTIPLIER)
@@ -797,7 +799,7 @@ fn check_general_fear(
 
     let fear_urgency = fear_level * FEAR_GENERAL_URGENCY_MULTIPLIER;
     if fear_urgency > best_urgency
-        && let Some(action) = action_registry.get(ActionType::Flee)
+        && let Some(action) = action_registry.get(ActionType::InitiateFlee)
     {
         let mut template = action.to_template(None);
         template.escalate_intensity(fear_level);
