@@ -215,14 +215,19 @@ fn share_food_admits_when_target_affection_high_enough() {
     let mut inv = ItemSlots::agent_carry();
     inv.add(Concept::Apple, 1);
     let target = Entity::from_bits(11);
-    let mut mind = MindGraph::new(setup_ontology());
-    mind.assert(Triple::new(
-        Node::Entity(target),
-        Predicate::Affection,
-        Value::Quantity(Quantity::Exact(0.8)),
-    ));
+    let mind = MindGraph::new(setup_ontology());
     let map = WorldMap::new(WORLD_WIDTH, WORLD_HEIGHT);
-    let graph = worldsim::agent::psyche::social_graph::SocialGraph::default();
+    let mut graph = worldsim::agent::psyche::social_graph::SocialGraph::default();
+    // Affection lives on the central SocialGraph after #754; gate
+    // reads through the directed edge from the agent context.
+    graph.set(
+        Entity::from_bits(1),
+        target,
+        worldsim::agent::psyche::social_graph::RelationshipEdge {
+            affection: 0.8,
+            ..Default::default()
+        },
+    );
     let mut ctx = make_ctx(&inv, &mind, &map, &graph);
     ctx.target_entity = Some(target);
     assert!(action.can_start(&ctx).is_ok());
