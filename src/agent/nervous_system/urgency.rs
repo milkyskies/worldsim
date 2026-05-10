@@ -156,7 +156,9 @@ pub fn generate_urgency(
             &crate::agent::actions::ActiveActions,
             Option<&crate::agent::brains::plan_memory::PlanMemory>,
             &crate::agent::mind::knowledge::MindGraph,
-            &crate::agent::mind::affective_tom::AffectiveToM,
+            // Optional: only humans currently spawn with AffectiveToM, so
+            // animal agents fall through the Compassion emission below.
+            Option<&crate::agent::mind::affective_tom::AffectiveToM>,
         ),
         With<crate::agent::Agent>,
     >,
@@ -379,20 +381,20 @@ pub fn generate_urgency(
 
         // --- COMPASSION (other-regarding) ---
         //
-        // For every distressed peer the observer holds an Affective ToM
-        // belief about, emit one Compassion urgency targeting that peer.
-        // Magnitude = perceived_deficit × Σ channel_contribution. The
-        // channels resource owns the contributors so future PRs (kin,
-        // group identity, aspiration, contagion, reciprocity) plug in
-        // additively without touching this loop.
-        emit_compassion_urgencies(
-            entity,
-            tick.current,
-            mind,
-            affective_tom,
-            &channels,
-            &mut cns.urgencies,
-        );
+        // Per-target urgency: perceived_deficit × Σ channel_contribution.
+        // Only fires for agents with an Affective ToM channel — animals
+        // currently skip; future PRs add the component to wolves/deer
+        // to model pack/herd protectiveness.
+        if let Some(affective_tom) = affective_tom {
+            emit_compassion_urgencies(
+                entity,
+                tick.current,
+                mind,
+                affective_tom,
+                &channels,
+                &mut cns.urgencies,
+            );
+        }
 
         // --- MOMENTUM & CONSCIOUSNESS ---
 
