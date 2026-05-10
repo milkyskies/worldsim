@@ -469,6 +469,15 @@ pub enum SimEventKind {
         belief_count: usize,
     },
 
+    /// An observer recorded a fresh affective-state observation about
+    /// another agent — mood / emotion / stress at this tick.
+    AffectiveToMUpdated {
+        #[serde(serialize_with = "crate::core::entity_serde::serialize_entity")]
+        agent: Entity,
+        #[serde(serialize_with = "crate::core::entity_serde::serialize_entity")]
+        about: Entity,
+    },
+
     /// A perishable item's freshness hit zero and its concept transitioned
     /// to its rotten variant (e.g. Apple → RottenApple). Fires once per item
     /// per spoilage — not every tick while rotten.
