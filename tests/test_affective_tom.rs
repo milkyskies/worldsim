@@ -82,14 +82,15 @@ fn confidence_decays_after_observation() {
         .current = observed_at + half_decay;
     world.tick(60); // long enough for decay system to fire
 
+    let now = world.current_tick();
     let tom = world.get::<AffectiveToM>(observer);
     let mood = tom
         .perceived_mood(target)
         .expect("entry should still exist at half-decay");
+    let confidence = mood.confidence_at(now);
     assert!(
-        mood.confidence < 0.6,
-        "confidence should have decayed past ~0.5, got {:.3}",
-        mood.confidence
+        confidence < 0.6,
+        "confidence should have decayed past ~0.5, got {confidence:.3}"
     );
 }
 

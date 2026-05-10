@@ -115,6 +115,21 @@ impl EmotionalState {
             .unwrap_or(0.0)
     }
 
+    /// Strongest active emotion, or `None` if no emotion is active.
+    /// Used by affective theory of mind, appraisal, and any other
+    /// "what mood is this agent in" lookup.
+    pub fn dominant_emotion(&self) -> Option<EmotionType> {
+        self.active_emotions
+            .iter()
+            .filter(|e| e.intensity > 0.0)
+            .max_by(|a, b| {
+                a.intensity
+                    .partial_cmp(&b.intensity)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
+            .map(|e| e.emotion_type)
+    }
+
     /// Advance emotion decay by `dt` seconds. Each emotion's fuel drains at a
     /// rate driven by `EmotionConfig`, with intensity tracking fuel directly.
     /// Emotions whose fuel falls below the removal threshold are dropped.
