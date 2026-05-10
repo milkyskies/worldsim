@@ -1,9 +1,15 @@
+use crate::agent::player::{PlayerControlled, follow_position};
 use crate::ui::UiState;
 use bevy::input::gestures::PinchGesture;
 use bevy::input::mouse::{MouseMotion, MouseWheel};
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 use bevy_egui::{EguiContext, PrimaryEguiContext, egui};
+
+/// Per-frame catch-up factor for adventure-mode camera follow. Tuned so a
+/// player teleporting across the map snaps to the new position in ~1 second
+/// at 60 FPS while normal walk steps look glued to the camera.
+const FOLLOW_ALPHA: f32 = 0.15;
 
 /// Should the camera respond to a gesture at this cursor position?
 ///
@@ -52,10 +58,44 @@ impl Plugin for CameraPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(
             Update,
-            (camera_zoom, camera_drag, touchpad_pinch_zoom, touchpad_pan)
+            (
+                camera_zoom,
+                camera_drag,
+                touchpad_pinch_zoom,
+                touchpad_pan,
+                // Follow runs after the manual pan/zoom systems so a held
+                // middle-click still wins the frame; releasing the button
+                // lets the lerp pull the camera back toward the player.
+                camera_follow_player.after(camera_drag).after(touchpad_pan),
+            )
                 .run_if(crate::menu::sim_interactive),
         );
     }
+}
+
+/// Lerp the 2D camera toward the possessed agent's transform each frame.
+/// Suspended while the user is mid middle-click drag so manual panning
+/// works as before — releasing the button hands control back to the
+/// follow lerp.
+fn camera_follow_player(
+    buttons: Res<ButtonInput<MouseButton>>,
+    player_q: Query<&Transform, (With<PlayerControlled>, Without<Camera>)>,
+    mut camera_q: Query<&mut Transform, With<Camera>>,
+) {
+    if buttons.pressed(MouseButton::Middle) {
+        return;
+    }
+    let Ok(player) = player_q.single() else {
+        return;
+    };
+    let Ok(mut camera) = camera_q.single_mut() else {
+        return;
+    };
+    let target = player.translation.truncate();
+    let current = camera.translation.truncate();
+    let next = follow_position(current, target, FOLLOW_ALPHA);
+    camera.translation.x = next.x;
+    camera.translation.y = next.y;
 }
 
 // Scroll Wheel Zoom (mouse only - skips trackpad pixel scrolling)

@@ -124,6 +124,53 @@ fn possessed_agent_biology_and_perception_still_tick() {
     );
 }
 
+/// Player input drives the agent end-to-end: a held WASD key produces a
+/// Walk action that goes through the existing execution pipeline and
+/// actually moves the agent. Exercises the full bridge: read input →
+/// build Walk template → start_actions admits it → movement system
+/// updates the Transform.
+#[test]
+fn held_d_key_walks_player_east() {
+    use bevy::input::ButtonInput;
+
+    let mut world = TestWorld::with_seed(42);
+    let agent = world.spawn_agent(AgentConfig {
+        pos: Vec2::new(200.0, 200.0),
+        ..Default::default()
+    });
+
+    world
+        .app_mut()
+        .world_mut()
+        .entity_mut(agent)
+        .insert(PlayerControlled);
+
+    // TestWorld's MinimalPlugins doesn't include InputPlugin, so we
+    // install the keyboard resource by hand.
+    let mut input = ButtonInput::<KeyCode>::default();
+    input.press(KeyCode::KeyD);
+    world.app_mut().world_mut().insert_resource(input);
+
+    let start_x = world.get::<Transform>(agent).translation.x;
+
+    // Long enough for the agent to traverse multiple tiles, so we're
+    // observing actual movement and not a sub-tile tremor.
+    world.tick(120);
+
+    let end_x = world.get::<Transform>(agent).translation.x;
+    assert!(
+        end_x > start_x + 16.0,
+        "holding D should walk the player meaningfully east \
+         (start_x={start_x}, end_x={end_x})"
+    );
+    let end_y = world.get::<Transform>(agent).translation.y;
+    assert!(
+        (end_y - 200.0).abs() < 8.0,
+        "horizontal-only input should keep y near the start row \
+         (start_y=200, end_y={end_y})"
+    );
+}
+
 /// `release` reverses possession: the marker is removed and the AI
 /// resumes deciding for the agent. Without this we'd have a one-way
 /// ticket — once possessed, always possessed.

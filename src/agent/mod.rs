@@ -145,6 +145,13 @@ impl Plugin for AgentPlugin {
             .add_plugins(engagement::EngagementPlugin)
             .add_systems(
                 FixedUpdate,
+                player::player_input
+                    .before(nervous_system::execution::start_actions)
+                    .after(brains::brain_system::arbitrate_every_tick)
+                    .run_if(not_paused),
+            )
+            .add_systems(
+                FixedUpdate,
                 (
                     nervous_system::execution::start_actions
                         .after(brains::brain_system::arbitrate_every_tick),
