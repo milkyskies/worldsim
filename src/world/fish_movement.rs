@@ -17,10 +17,26 @@ use rand::Rng;
 use rand_chacha::ChaCha8Rng;
 use std::collections::HashMap;
 
-use crate::core::{SimRng, TickCount};
+use crate::core::SimRng;
 use crate::world::fish::{Fish, FishHeading, Schooling};
 use crate::world::map::{TILE_SIZE, TileType, WorldMap};
 use crate::world::spatial_index::SpatialIndex;
+
+/// Cardinal + diagonal unit vectors for shore-avoid probes. Const so the
+/// 8-element scratch array isn't rebuilt on every call.
+const PROBE_DIRECTIONS: [Vec2; 8] = {
+    let inv = std::f32::consts::FRAC_1_SQRT_2;
+    [
+        Vec2::new(1.0, 0.0),
+        Vec2::new(-1.0, 0.0),
+        Vec2::new(0.0, 1.0),
+        Vec2::new(0.0, -1.0),
+        Vec2::new(inv, inv),
+        Vec2::new(-inv, inv),
+        Vec2::new(inv, -inv),
+        Vec2::new(-inv, -inv),
+    ]
+};
 
 /// World-pixel maximum heading change per tick. Lower = smoother turns,
 /// higher = jerky. Calibrated for fish — they don't pivot on a dime.
@@ -73,19 +89,14 @@ struct FishSnapshot {
     heading: Vec2,
 }
 
-/// Per-tick fish steering. Schooling fish run Boids against their nearby
-/// school-mates; solitary fish only wander. All fish are clamped to water
-/// tiles via a lookahead shore-avoid force.
 pub fn swim_fish(
     mut fish_q: Query<(Entity, &mut FishHeading, &mut Transform, Option<&Schooling>), With<Fish>>,
     map: Res<WorldMap>,
     spatial: Res<SpatialIndex>,
-    tick: Res<TickCount>,
     mut sim_rng: ResMut<SimRng>,
 ) {
-    // Snapshot every fish's pose first so neighbour lookups don't need a
-    // second `Query<&Transform, &FishHeading>` (which would conflict with
-    // the mut query and panic at runtime).
+    // Snapshot every fish's pose first; the mut query precludes a second
+    // immutable query over the same Transform/FishHeading.
     let snapshots: HashMap<Entity, FishSnapshot> = fish_q
         .iter()
         .map(|(e, h, t, _)| {
@@ -108,15 +119,12 @@ pub fn swim_fish(
             steer += boids_steer(entity, pos, heading.heading, school, &spatial, &snapshots);
         }
 
-        steer += wander_steer(rng) * WANDER_WEIGHT;
+        steer += random_unit_vec(rng) * WANDER_WEIGHT;
         let shore = shore_avoid_steer(pos, heading.heading, &map);
         steer += shore;
 
-        // Tick-stepped heading update: blend steer into heading at the
-        // normal turn rate, but bump to an emergency rate when shore-avoid
-        // is firing so the fish actually rotates away from the bank before
-        // it reaches it. Without this the slow Boids-friendly turn rate
-        // lets fish sail straight into shallows during the heading lerp.
+        // Slow turn during normal swimming, snappier when shore-avoid fires
+        // so the heading actually catches up before the fish hits the bank.
         let desired = (heading.heading + steer).normalize_or(heading.heading);
         let turn_rate = if shore == Vec2::ZERO {
             TURN_RATE_PER_TICK
@@ -125,40 +133,38 @@ pub fn swim_fish(
         };
         heading.heading = lerp_unit(heading.heading, desired, turn_rate);
 
-        // Step position along heading. Axis-slide lets fish glide along a
-        // shore when the diagonal candidate is land but one cardinal axis
-        // still leaves them in water.
-        let step = heading.heading * heading.speed;
-        let candidate = pos + step;
-        let next_pos = if is_water(&map, candidate) {
-            candidate
-        } else {
-            let only_x = pos + Vec2::new(step.x, 0.0);
-            let only_y = pos + Vec2::new(0.0, step.y);
-            if is_water(&map, only_x) {
-                only_x
-            } else if is_water(&map, only_y) {
-                only_y
-            } else {
-                pos
-            }
-        };
+        let next_pos = step_with_axis_slide(pos, heading.heading * heading.speed, &map);
 
-        // Stuck escape: if we couldn't move at all this tick (every fallback
-        // hit land), the fish is wedged into a concave shore — flip the
-        // heading 180° immediately so next tick steps outward instead of
-        // grinding into the same wall. Without this fish snag on river
-        // dead-ends and oscillate forever between failed candidates.
-        let stuck = (next_pos - pos).length_squared() < STUCK_EPSILON_SQ;
-        if stuck {
+        // Stuck = no fallback found water. Flip heading so the next tick
+        // steps back into the body of water instead of grinding the wall.
+        if (next_pos - pos).length_squared() < STUCK_EPSILON_SQ {
             heading.heading = -heading.heading;
+            // Skip the Transform write so `Changed<Transform>` doesn't fire
+            // and re-bucket the fish in the spatial index for no movement.
+            continue;
         }
 
         transform.translation.x = next_pos.x;
         transform.translation.y = next_pos.y;
-
-        let _ = tick.current; // reserved for future tick-aware behaviour
     }
+}
+
+/// Try the diagonal step, then x-only, then y-only, keeping the fish in
+/// water at every fallback. Returns `pos` unchanged if nothing was water.
+fn step_with_axis_slide(pos: Vec2, step: Vec2, map: &WorldMap) -> Vec2 {
+    let candidate = pos + step;
+    if is_water(map, candidate) {
+        return candidate;
+    }
+    let only_x = pos + Vec2::new(step.x, 0.0);
+    if is_water(map, only_x) {
+        return only_x;
+    }
+    let only_y = pos + Vec2::new(0.0, step.y);
+    if is_water(map, only_y) {
+        return only_y;
+    }
+    pos
 }
 
 /// Reynolds (1987) Boids steering: separation, alignment, cohesion. Returns
@@ -217,7 +223,7 @@ fn boids_steer(
     alignment + cohesion + separation
 }
 
-fn wander_steer(rng: &mut ChaCha8Rng) -> Vec2 {
+fn random_unit_vec(rng: &mut ChaCha8Rng) -> Vec2 {
     let theta = rng.random_range(0.0..std::f32::consts::TAU);
     Vec2::new(theta.cos(), theta.sin())
 }
@@ -230,40 +236,23 @@ fn shore_avoid_steer(pos: Vec2, heading: Vec2, map: &WorldMap) -> Vec2 {
     if is_water(map, lookahead) {
         return Vec2::ZERO;
     }
-    // Probe eight directions (cardinals + diagonals) one-and-a-half tiles
-    // out so we find escape routes in concave corners that a 4-direction
-    // scan would miss. Probe distance must exceed one tile so the probe
-    // actually crosses into a neighbouring tile.
+    // Probe at >1 tile out so each probe crosses into a neighbouring tile.
+    // Pick the water-hit direction most opposite the heading — deepest
+    // back into the body. U-turn if no probe hits water.
     let probe_dist = TILE_SIZE * 1.5;
-    let inv = std::f32::consts::FRAC_1_SQRT_2;
-    let dirs = [
-        Vec2::X,
-        -Vec2::X,
-        Vec2::Y,
-        -Vec2::Y,
-        Vec2::new(inv, inv),
-        Vec2::new(-inv, inv),
-        Vec2::new(inv, -inv),
-        Vec2::new(-inv, -inv),
-    ];
-    // Pick the probe most opposite the fish's current heading among those
-    // that land in water — that's the deepest direction back into the body.
-    // Fall back to a u-turn if none find water.
     let mut best: Option<Vec2> = None;
     let mut best_score = f32::NEG_INFINITY;
-    for dir in dirs {
-        let probe = pos + dir * probe_dist;
-        if !is_water(map, probe) {
+    for &dir in &PROBE_DIRECTIONS {
+        if !is_water(map, pos + dir * probe_dist) {
             continue;
         }
-        let score = -dir.dot(heading); // higher = more opposite
+        let score = -dir.dot(heading);
         if score > best_score {
             best_score = score;
             best = Some(dir);
         }
     }
-    let target = best.unwrap_or(-heading);
-    target * SHORE_AVOID_WEIGHT
+    best.unwrap_or(-heading) * SHORE_AVOID_WEIGHT
 }
 
 fn is_water(map: &WorldMap, pos: Vec2) -> bool {

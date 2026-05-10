@@ -1,15 +1,7 @@
-//! Fish: aquatic agents that swim in water bodies.
-//!
-//! Reads: SpeciesProfile (Minnow/Pike), Ontology
-//! Writes: Fish/Minnow/Pike/Schooling/FishHeading components, MindGraph (innate water knowledge)
-//! Upstream: world::spawner (calls spawn_minnow/spawn_pike), world::map (water tile placement)
-//! Downstream: world::fish_movement (Boids + wander steers fish each tick)
-//!
-//! Fish carry the full agent stack so they remain "real agents" — same brain,
-//! mind, perception, drives — but their `SpeciesProfile.max_plan_depth = 1`
-//! caps the planner at single-action plans, so in practice the swim-movement
-//! system drives them. Schooling fish (Minnow) carry a `Schooling` component
-//! that Boids reads; solitary fish (Pike) don't.
+//! Aquatic agents. Carry the full agent stack but `max_plan_depth = 1`
+//! caps GOAP at single-action plans, so locomotion is driven by
+//! `world::fish_movement::swim_fish` (Boids for schooling, wander +
+//! shore-avoid for everyone).
 
 use crate::agent::biology::body::BodyNodeKind;
 use crate::agent::body::genetics::founder::random_genome;
@@ -20,6 +12,7 @@ use crate::agent::{Agent, Alive, inventory::EntityType, item_slots::ItemSlots};
 use crate::markings::{Markings, apply_markings};
 use crate::palette::PaletteColor;
 use crate::silhouette::{CreatureSilhouette, PartRole, Shape, SilhouettePart};
+use crate::ui::sprite_animation::MovementAnimationGait;
 use bevy::prelude::*;
 use rand::Rng;
 
@@ -39,21 +32,15 @@ pub struct Minnow;
 #[reflect(Component)]
 pub struct Pike;
 
-/// Boids steering parameters. Attached only to species that school
-/// (Minnow). The swim system filters on `With<Schooling>` so solitary
-/// species (Pike) automatically opt out of flocking.
+/// Boids steering parameters. Present only on schooling species — the
+/// swim system filters on `With<Schooling>` so solitary species opt out.
 #[derive(Component, Reflect, Clone, Debug)]
 #[reflect(Component)]
 pub struct Schooling {
-    /// World-pixel radius within which neighbours are considered school-mates.
     pub neighbour_radius: f32,
-    /// Personal-space radius — closer neighbours push back.
     pub separation_radius: f32,
-    /// Weight on the "steer away from crowded neighbours" rule.
     pub separation_weight: f32,
-    /// Weight on the "match average heading of neighbours" rule.
     pub alignment_weight: f32,
-    /// Weight on the "drift toward neighbour centroid" rule.
     pub cohesion_weight: f32,
 }
 
@@ -69,8 +56,7 @@ impl Default for Schooling {
     }
 }
 
-/// Per-fish swim state. Heading is the unit vector the fish is currently
-/// facing; speed is in world pixels per tick.
+/// Per-fish swim state — unit heading + speed in world pixels per tick.
 #[derive(Component, Reflect, Clone, Debug)]
 #[reflect(Component)]
 pub struct FishHeading {
@@ -89,25 +75,15 @@ impl FishHeading {
     }
 }
 
-/// Per-individual cosmetic + cognitive jitter. A school of minnows uses the
-/// same `Schooling` defaults and the same body color but each fish picks its
-/// own size scale and speed jitter, so they're individually distinct without
-/// looking like a different species. Built once at spawn from the per-species
-/// [`FishVariantSpec`]. Genome-driven markings handle the per-individual
-/// shade variation on top of the species color.
+/// Per-individual size + speed jitter so a school doesn't read as a
+/// clone army. Body color is canonical per species; markings handle the
+/// per-individual shading.
 #[derive(Component, Clone, Debug)]
 pub struct FishVariant {
-    /// Multiplier on the species silhouette. Minnow ~0.85..1.15, Pike ~0.9..1.25.
     pub size_scale: f32,
-    /// Speed jitter — multiplies `SpeciesProfile.base_speed` so two
-    /// minnows aren't bit-identical.
     pub speed_jitter: f32,
 }
 
-/// Per-species variation knobs the spawner draws against. Body color is a
-/// single canonical pick per species so a school reads as one species at a
-/// glance — only size and speed vary per individual. Adding a new fish means
-/// adding another spec.
 struct FishVariantSpec {
     size_min: f32,
     size_max: f32,
@@ -129,13 +105,7 @@ const PIKE_SPEC: FishVariantSpec = FishVariantSpec {
     speed_jitter_max: 1.15,
 };
 
-/// Canonical body color for every minnow. Light grey-silver reads as a
-/// shimmery shoaling fish against blue water; markings add per-individual
-/// shading on top.
 const MINNOW_BODY_COLOR: PaletteColor = PaletteColor::FurWhite;
-
-/// Canonical body color for every pike. Dark olive reads as a predator
-/// silhouette in the water.
 const PIKE_BODY_COLOR: PaletteColor = PaletteColor::FurSlate;
 
 fn roll_variant<R: Rng>(spec: &FishVariantSpec, rng: &mut R) -> FishVariant {
@@ -253,40 +223,27 @@ pub fn pike_silhouette(body_color: PaletteColor) -> CreatureSilhouette {
     }
 }
 
-/// Add the innate fish knowledge: water is drinkable + survival-trait
-/// associations. Predator fear is wired separately for prey species.
 fn add_fish_innate_knowledge(mind: &mut MindGraph) {
     use crate::agent::mind::knowledge::{Metadata, Node, Predicate, Triple, Value};
-    let meta = Metadata::default();
-    // Fish know land creatures are dangerous (humans grab them, wolves hunt
-    // them in the shallows). This reuses the existing fear-via-knowledge
-    // pathway so a fish that perceives a Person flees just like a deer does.
     mind.assert(Triple::with_meta(
         Node::Concept(Concept::Person),
         Predicate::HasTrait,
         Value::Concept(Concept::Dangerous),
-        meta.clone(),
+        Metadata::default(),
     ));
 }
 
-/// Add the minnow-specific fear of pikes — without this they ignore the
-/// predator that's literally hunting them.
 fn add_minnow_innate_knowledge(mind: &mut MindGraph) {
     use crate::agent::mind::knowledge::{Metadata, Node, Predicate, Triple, Value};
     add_fish_innate_knowledge(mind);
-    let meta = Metadata::default();
     mind.assert(Triple::with_meta(
         Node::Concept(Concept::Pike),
         Predicate::HasTrait,
         Value::Concept(Concept::Dangerous),
-        meta,
+        Metadata::default(),
     ));
 }
 
-/// Spawn a Minnow at `position`. Fish entities carry the full agent stack so
-/// they remain real agents — perception, mind, brain, drives — but the
-/// `Schooling` component opts them into Boids steering on top of the swim
-/// wander baseline.
 pub fn spawn_minnow<R: Rng>(
     commands: &mut Commands,
     ontology: Ontology,
@@ -296,7 +253,6 @@ pub fn spawn_minnow<R: Rng>(
 ) -> Entity {
     let species_profile = SpeciesProfile::minnow();
     let variant = roll_variant(&MINNOW_SPEC, rng);
-    let inventory = ItemSlots::agent_carry();
     let genome = random_genome(rng, Species::Minnow);
     let markings = Markings::from_genome(&genome);
 
@@ -307,30 +263,29 @@ pub fn spawn_minnow<R: Rng>(
 
     let heading = random_unit_vec(rng);
     let speed = species_profile.base_speed * variant.speed_jitter;
+    let vision_range = species_profile.vision_range;
 
     commands
         .spawn((
             Name::new(minnow_name(index)),
             Agent,
             Alive,
-            // Fish-specific markers + per-tick state grouped in one slot to
-            // stay under Bevy's 16-element bundle cap. `MovementAnimationGait::Glide`
-            // suppresses the bouncing hop animation that's the default for
-            // land creatures so fish read as swimming rather than hopping.
+            // Fish markers grouped under one bundle slot to stay under
+            // Bevy's 16-element cap.
             (
                 Fish,
                 Minnow,
                 Schooling::default(),
                 FishHeading::new(heading, speed),
                 variant,
-                crate::ui::sprite_animation::MovementAnimationGait::Glide,
+                MovementAnimationGait::Glide,
             ),
             EntityType(Concept::Minnow),
             species_profile,
             crate::world::Physical,
             crate::agent::TargetPosition::default(),
             crate::agent::movement::MovementState::default(),
-            inventory,
+            ItemSlots::agent_carry(),
             genome,
             Transform::from_translation(position.extend(3.0)),
             GlobalTransform::default(),
@@ -339,7 +294,7 @@ pub fn spawn_minnow<R: Rng>(
             crate::agent::affordance::Affordance::default(),
             mind,
             crate::agent::mind::perception::Vision {
-                range: SpeciesProfile::minnow().vision_range,
+                range: vision_range,
             },
             crate::agent::mind::perception::VisibleObjects::default(),
             Visibility::default(),
@@ -365,9 +320,6 @@ pub fn spawn_minnow<R: Rng>(
         .id()
 }
 
-/// Spawn a Pike at `position`. Pikes are solitary, so they get no `Schooling`
-/// component — the Boids system filters them out and they fall back to the
-/// wander baseline, occasionally striking at minnows in vision range.
 pub fn spawn_pike<R: Rng>(
     commands: &mut Commands,
     ontology: Ontology,
@@ -377,7 +329,6 @@ pub fn spawn_pike<R: Rng>(
 ) -> Entity {
     let species_profile = SpeciesProfile::pike();
     let variant = roll_variant(&PIKE_SPEC, rng);
-    let inventory = ItemSlots::agent_carry();
     let genome = random_genome(rng, Species::Pike);
     let markings = Markings::from_genome(&genome);
 
@@ -388,27 +339,26 @@ pub fn spawn_pike<R: Rng>(
 
     let heading = random_unit_vec(rng);
     let speed = species_profile.base_speed * variant.speed_jitter;
+    let vision_range = species_profile.vision_range;
 
     commands
         .spawn((
             Name::new(pike_name(index)),
             Agent,
             Alive,
-            // Fish-specific markers grouped under one bundle slot.
-            // `MovementAnimationGait::Glide` suppresses the bouncing hop animation.
             (
                 Fish,
                 Pike,
                 FishHeading::new(heading, speed),
                 variant,
-                crate::ui::sprite_animation::MovementAnimationGait::Glide,
+                MovementAnimationGait::Glide,
             ),
             EntityType(Concept::Pike),
             species_profile,
             crate::world::Physical,
             crate::agent::TargetPosition::default(),
             crate::agent::movement::MovementState::default(),
-            inventory,
+            ItemSlots::agent_carry(),
             genome,
             Transform::from_translation(position.extend(3.0)),
             GlobalTransform::default(),
@@ -417,7 +367,7 @@ pub fn spawn_pike<R: Rng>(
             crate::agent::affordance::Affordance::default(),
             mind,
             crate::agent::mind::perception::Vision {
-                range: SpeciesProfile::pike().vision_range,
+                range: vision_range,
             },
             crate::agent::mind::perception::VisibleObjects::default(),
             Visibility::default(),
