@@ -53,7 +53,6 @@ fn high_affection_observer_emits_compassion_urgency_for_distressed_peer() {
     seed_distress(&mut world, target);
     set_affection(&mut world, observer, target, 0.9);
 
-    // Tick: vision → AffectiveToM update → urgency loop.
     world.tick(5);
 
     let urgencies = compassion_urgencies(&world, observer);

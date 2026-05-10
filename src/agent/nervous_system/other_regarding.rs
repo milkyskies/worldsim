@@ -83,9 +83,11 @@ pub fn affection_channel(ctx: &ChannelContext) -> f32 {
     ((affection - NEUTRAL).max(0.0) / (1.0 - NEUTRAL)).clamp(0.0, 1.0)
 }
 
-/// Plugin Startup hook: registers the default channels shipped with this
-/// primitive. Future-channel PRs add their own registrations alongside.
-pub fn register_default_channels(mut channels: ResMut<OtherRegardingChannels>) {
+/// Registers the default channels shipped with this primitive. Called
+/// from the nervous-system plugin builder so tests that bypass Startup
+/// (TestWorld) still see the affection channel registered. Future
+/// channel PRs add their own registrations the same way.
+pub fn register_default_channels(channels: &mut OtherRegardingChannels) {
     channels.register("affection", affection_channel);
 }
 

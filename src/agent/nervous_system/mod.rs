@@ -23,8 +23,11 @@ impl Plugin for NervousSystemPlugin {
             .init_resource::<config::NervousSystemConfig>()
             .init_resource::<crate::agent::brains::planner::PlannerConfig>()
             .init_resource::<crate::agent::mind::memory::MemoryDecayConfig>()
-            .init_resource::<other_regarding::OtherRegardingChannels>()
-            .add_systems(Startup, other_regarding::register_default_channels)
+            .insert_resource({
+                let mut channels = other_regarding::OtherRegardingChannels::default();
+                other_regarding::register_default_channels(&mut channels);
+                channels
+            })
             .add_systems(
                 FixedUpdate,
                 (
