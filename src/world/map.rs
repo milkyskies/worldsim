@@ -511,8 +511,98 @@ pub fn generate_terrain(width: u32, height: u32, seed: u32) -> Vec<TileType> {
         }
     }
     carve_river(&mut tiles, width, height, seed);
+    carve_lake(&mut tiles, width, height, seed);
     place_rocky_outcrops(&mut tiles, width, height, seed);
     tiles
+}
+
+/// Lake placement constants. Sized to be substantially bigger than the
+/// noise-generated ponds (which top out around ~30 tiles) so a school of
+/// minnows + a few pike actually has room to swim. Always lands on one
+/// side of the river so the river is preserved as a separate feature.
+const LAKE_RADIUS_MIN: i32 = 6;
+const LAKE_RADIUS_MAX: i32 = 9;
+/// Tiles of buffer between the lake center and the river center line at
+/// the chosen y, so the lake doesn't merge into the river and become
+/// indistinguishable from "river got fatter."
+const LAKE_RIVER_BUFFER_TILES: i32 = 14;
+
+/// Carves a single roughly-circular lake into the terrain. The center is
+/// chosen deterministically from the seed and offset to one side of the
+/// river so it reads as a distinct water feature. Edges are perturbed by
+/// low-frequency noise so the lake doesn't read as a perfect disc.
+fn carve_lake(tiles: &mut [TileType], width: u32, height: u32, seed: u32) {
+    use rand::SeedableRng;
+    use rand_chacha::ChaCha8Rng;
+
+    let mut rng = ChaCha8Rng::seed_from_u64(seed.wrapping_add(303) as u64);
+    let edge_noise = Simplex::new(seed.wrapping_add(304));
+
+    // Pick a y first, then offset the center away from the river meander at
+    // that row by at least LAKE_RIVER_BUFFER_TILES tiles. Stay clear of map
+    // edges so the lake fits.
+    let radius = rand::Rng::random_range(&mut rng, LAKE_RADIUS_MIN..=LAKE_RADIUS_MAX);
+    let margin = (radius as u32) + 2;
+    if width < margin * 2 || height < margin * 2 {
+        return;
+    }
+
+    let cy = rand::Rng::random_range(&mut rng, margin..(height - margin));
+    let river_cx = river_center_x(cy, width, seed) as i32;
+    // Decide a side and place the center at least LAKE_RIVER_BUFFER_TILES
+    // tiles from the river. If both sides are too tight (very narrow map),
+    // fall back to whichever side has room.
+    let left_room = river_cx - LAKE_RIVER_BUFFER_TILES - margin as i32;
+    let right_room = (width as i32) - river_cx - LAKE_RIVER_BUFFER_TILES - margin as i32;
+    let pick_left = if left_room > 0 && right_room > 0 {
+        rand::Rng::random_bool(&mut rng, 0.5)
+    } else {
+        right_room <= 0
+    };
+    let cx = if pick_left {
+        if left_room <= 0 {
+            return;
+        }
+        rand::Rng::random_range(
+            &mut rng,
+            margin as i32..=(river_cx - LAKE_RIVER_BUFFER_TILES),
+        )
+    } else {
+        if right_room <= 0 {
+            return;
+        }
+        rand::Rng::random_range(
+            &mut rng,
+            (river_cx + LAKE_RIVER_BUFFER_TILES)..=((width as i32) - margin as i32),
+        )
+    };
+
+    let radius_f = radius as f64;
+    let inner_sq = (radius_f - 1.5).max(1.0).powi(2);
+    let outer_sq = (radius_f + 0.5).powi(2);
+
+    for dy in -radius..=radius {
+        for dx in -radius..=radius {
+            let nx = cx + dx;
+            let ny = cy as i32 + dy;
+            if nx < 0 || ny < 0 || nx >= width as i32 || ny >= height as i32 {
+                continue;
+            }
+            // Perturb the radial distance with low-frequency noise so the
+            // shore isn't a perfect circle.
+            let edge = edge_noise.get([nx as f64 * 0.18, ny as f64 * 0.18]) * 1.6;
+            let r_sq = (dx as f64 + edge * 0.4).powi(2) + (dy as f64 + edge * 0.4).powi(2);
+            if r_sq > outer_sq {
+                continue;
+            }
+            let idx = (ny as u32 * width + nx as u32) as usize;
+            tiles[idx] = if r_sq < inner_sq {
+                TileType::Water
+            } else {
+                TileType::ShallowWater
+            };
+        }
+    }
 }
 
 /// How many rocky outcrops to place per 256×256 map area. Scales with map
@@ -1330,6 +1420,62 @@ mod tests {
         assert!(
             sand_count >= 20,
             "expected plenty of sand shores along the river, got {sand_count}"
+        );
+    }
+
+    #[test]
+    fn lake_carving_produces_a_contiguous_water_blob() {
+        // Lake placement is deterministic per seed. Find every connected
+        // water region and assert at least one is large enough to be the
+        // lake (substantially bigger than incidental noise ponds).
+        let tiles = generate_terrain(WORLD_WIDTH, WORLD_HEIGHT, DEFAULT_TERRAIN_SEED);
+        let w = WORLD_WIDTH as usize;
+        let h = WORLD_HEIGHT as usize;
+        let mut visited = vec![false; tiles.len()];
+        let mut largest_off_river_blob = 0usize;
+        for start in 0..tiles.len() {
+            if visited[start] || !tiles[start].is_water() {
+                continue;
+            }
+            // Flood-fill BFS over 4-connected water tiles.
+            let mut queue = vec![start];
+            let mut size = 0usize;
+            let mut touches_top_or_bottom = false;
+            while let Some(idx) = queue.pop() {
+                if visited[idx] || !tiles[idx].is_water() {
+                    continue;
+                }
+                visited[idx] = true;
+                size += 1;
+                let x = idx % w;
+                let y = idx / w;
+                if y == 0 || y == h - 1 {
+                    touches_top_or_bottom = true;
+                }
+                if x > 0 {
+                    queue.push(idx - 1);
+                }
+                if x + 1 < w {
+                    queue.push(idx + 1);
+                }
+                if y > 0 {
+                    queue.push(idx - w);
+                }
+                if y + 1 < h {
+                    queue.push(idx + w);
+                }
+            }
+            // The river is the only blob that spans top to bottom; ignore it
+            // when looking for the lake.
+            if !touches_top_or_bottom && size > largest_off_river_blob {
+                largest_off_river_blob = size;
+            }
+        }
+        // Lake radius range gives ~80-200 tiles depending on seed + edge noise.
+        // Assert the largest non-river blob is well above the noise-pond floor.
+        assert!(
+            largest_off_river_blob >= 50,
+            "expected a lake of >=50 tiles; largest non-river blob was {largest_off_river_blob}"
         );
     }
 
