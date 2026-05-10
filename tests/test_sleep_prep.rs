@@ -112,6 +112,10 @@ fn sleepy_agent_on_fire_tile_sleeps_in_place() {
         warmth: 0.4,
         ..Default::default()
     });
+    // Pin sleepy/cold from tick 1 so Survival proposes Sleep immediately,
+    // before Rational's LookFor (or Emotional's Explore) can drag the
+    // agent off the fire tile while perception is still warming up.
+    pin_sleepy_and_cold(&mut world, agent, 0.4, 0.15);
     world.tick(1);
 
     let start_pos = agent_pos(&world, agent);

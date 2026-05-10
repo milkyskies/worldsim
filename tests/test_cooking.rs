@@ -6,6 +6,7 @@
 
 use bevy::math::Vec2;
 use bevy::prelude::Vec3;
+use worldsim::agent::Dazed;
 use worldsim::agent::actions::ActionType;
 use worldsim::agent::actions::ActiveActions;
 use worldsim::agent::actions::action::COOK_DEF;
@@ -86,6 +87,10 @@ fn cook_runs_to_completion_next_to_campfire() {
     world
         .get_mut::<ActiveActions>(agent)
         .insert(ActionState::new(ActionType::Cook, 0));
+    // Daze so arbitration doesn't preempt the injected Cook.
+    world.app_mut().world_mut().entity_mut(agent).insert(Dazed {
+        until_tick: u64::MAX,
+    });
 
     let cook_ticks = worldsim::constants::actions::cook::DURATION_TICKS as u64;
     for _ in 0..(cook_ticks * 2) {

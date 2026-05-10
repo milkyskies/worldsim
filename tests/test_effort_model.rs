@@ -3,6 +3,7 @@
 //! Verifies that the migration from per-action constants to channel-based
 //! EffortProfile + compute_action_cost does not blow up the calorie economy.
 
+use worldsim::agent::Dazed;
 use worldsim::agent::actions::{ActionState, ActionType, ActiveActions};
 use worldsim::agent::body::needs::PhysicalNeeds;
 use worldsim::testing::{AgentConfig, TestWorld};
@@ -19,9 +20,16 @@ fn sleep_restores_aerobic_via_effort_model() {
         needs.stamina.aerobic = 20.0;
     }
 
+    // Daze the agent so arbitration is skipped — wakefulness is full so the
+    // brain would otherwise propose WakeUp immediately and remove the
+    // injected Sleep before the recovery channel had a chance to run.
     let mut active = ActiveActions::empty();
     active.insert(ActionState::new(ActionType::Sleep, 0));
-    world.app_mut().world_mut().entity_mut(agent).insert(active);
+    let mut entity = world.app_mut().world_mut().entity_mut(agent);
+    entity.insert(active);
+    entity.insert(Dazed {
+        until_tick: u64::MAX,
+    });
 
     let before = world.get::<PhysicalNeeds>(agent).stamina.aerobic;
     world.tick(60);

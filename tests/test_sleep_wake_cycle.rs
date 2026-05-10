@@ -77,6 +77,11 @@ fn exhausted_agent_sleeps_and_then_wakes_once_rested() {
     // ~30500 ticks. Allow generous headroom.
     let (mut world, sleeper) = tired_sleeper();
     world.enable_fast_forward();
+    // Force urgency-gen + brain to refresh every cycle so the rested-wake
+    // check doesn't depend on the stagger alignment landing on a fast-
+    // forward tick — see #762: bootstrap-on-spawn shifts the stagger
+    // phase, which can leave urgencies frozen across the entire window.
+    world.enable_fast_brains();
 
     let woke = tick_until_wake(&mut world, sleeper, 700);
     let aerobic = world.get::<PhysicalNeeds>(sleeper).stamina.aerobic;
