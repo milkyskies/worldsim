@@ -261,7 +261,15 @@ pub fn update_rational_planning(
             &crate::agent::psyche::personality::Personality,
             Option<&crate::agent::body::species::SpeciesProfile>,
         ),
-        With<RationalBrain>,
+        (
+            With<RationalBrain>,
+            // Player-driven agents skip GOAP planning; their input
+            // system bypasses the rational pipeline entirely. Wakeups
+            // still fire harmlessly — the per-tick plan-step bookkeeping
+            // (single-pass `SimEvent` consumption) just walks an empty
+            // PlanMemory for these agents.
+            Without<crate::agent::player::PlayerControlled>,
+        ),
     >,
     tick: Res<crate::core::tick::TickCount>,
     ns_config: Res<crate::agent::nervous_system::config::NervousSystemConfig>,

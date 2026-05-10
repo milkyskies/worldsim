@@ -113,6 +113,10 @@ pub fn arbitrate_every_tick(
         (
             With<crate::agent::Agent>,
             With<super::rational::RationalBrain>,
+            // Player-driven agents skip arbitration; their input system
+            // writes BrainState.chosen_actions directly. AI brains
+            // never run for them while the marker is present.
+            Without<crate::agent::player::PlayerControlled>,
         ),
     >,
     world_map: Res<WorldMap>,

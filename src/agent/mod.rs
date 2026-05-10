@@ -14,6 +14,7 @@ pub mod mind;
 pub mod movement;
 pub mod naming;
 pub mod nervous_system;
+pub mod player;
 pub mod psyche;
 pub mod skills;
 pub mod spawn_human;
@@ -101,6 +102,7 @@ impl Plugin for AgentPlugin {
             .register_type::<Dazed>()
             .register_type::<FleeMomentum>()
             .register_type::<TargetPosition>()
+            .register_type::<player::PlayerControlled>()
             .register_type::<movement::MovementState>()
             .register_type::<affordance::Affordance>()
             .register_type::<item_slots::ItemSlots>()
