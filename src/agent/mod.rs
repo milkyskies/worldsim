@@ -187,8 +187,6 @@ impl Plugin for AgentPlugin {
                 FixedUpdate,
                 (
                     mind::perception::update_body_perception,
-                    mind::perception::perceive_water_tiles,
-                    mind::perception::perceive_grass_tiles,
                     mind::perception::perceive_temperature,
                     mind::perception::perceive_hearing,
                     mind::perception::emit_alarm_calls,

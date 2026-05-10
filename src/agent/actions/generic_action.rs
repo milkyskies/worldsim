@@ -697,6 +697,18 @@ impl Action for GenericAction {
             .and_then(|g| evaluate_satiation(g, physical, inventory))
     }
 
+    fn eligible_diets(&self) -> &'static [crate::agent::body::species::Diet] {
+        use crate::agent::body::species::Diet;
+        // Graze is the only action with a diet restriction today: previously
+        // enforced implicitly by gating perception of grass tiles to
+        // herbivores. Now that perception is gone, declare the restriction
+        // here so the rational brain skips Graze for omnivores/carnivores.
+        match self.def.action_type {
+            ActionType::Graze => &[Diet::Herbivore],
+            _ => &[],
+        }
+    }
+
     fn should_complete(&self, physical: &PhysicalNeeds) -> bool {
         match self.def.completion {
             CompletionPredicate::Never => false,
