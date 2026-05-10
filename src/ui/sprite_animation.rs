@@ -17,7 +17,7 @@ pub struct SpriteAnimationPlugin;
 
 impl Plugin for SpriteAnimationPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(
+        app.register_type::<MovementGait>().add_systems(
             PostUpdate,
             animate_sprite_bodies.before(TransformSystems::Propagate),
         );
@@ -54,6 +54,23 @@ impl SpriteBody {
     pub fn new(root: Entity, phase: f32) -> Self {
         Self { root, phase }
     }
+}
+
+/// How an entity moves visually when it's translating across the world.
+/// Each spawner declares this for its species; the animation system reads
+/// it as a lookup and never inspects the species itself, so adding a new
+/// gait (e.g. `Slither` for snakes) only touches this enum and its callers.
+#[derive(Component, Debug, Clone, Copy, Default, PartialEq, Eq, Reflect)]
+#[reflect(Component)]
+pub enum MovementGait {
+    /// Worldbox-style bouncing hop with squash-and-stretch and dust puffs.
+    /// The default — every land creature uses it unless it opts out.
+    #[default]
+    Hop,
+    /// Smooth glide with no vertical bounce and no dust. Used by fish (and
+    /// any future swimming or sliding creature) so they don't visually pop
+    /// off the surface they're moving on.
+    Glide,
 }
 
 /// Marker on a shadow sprite entity. Follows the root's terrain elevation
@@ -125,6 +142,7 @@ fn pick_pose(
         &crate::agent::psyche::emotions::EmotionalState,
     )>,
     is_moving: bool,
+    gait: MovementGait,
 ) -> AnimationPose {
     use crate::agent::actions::types::ActionType;
     if let Some((active, _)) = state
@@ -132,10 +150,15 @@ fn pick_pose(
     {
         return AnimationPose::Sleeping;
     }
-    if is_moving {
-        AnimationPose::Hop
-    } else {
-        AnimationPose::Idle
+    if !is_moving {
+        return AnimationPose::Idle;
+    }
+    match gait {
+        MovementGait::Hop => AnimationPose::Hop,
+        // Glide reuses the Idle breath cycle — no vertical bounce, no dust.
+        // Combined with the swim system's continuous Transform updates this
+        // reads as slow forward motion.
+        MovementGait::Glide => AnimationPose::Idle,
     }
 }
 
@@ -227,6 +250,7 @@ fn animate_sprite_bodies(
         &crate::agent::actions::registry::ActiveActions,
         &crate::agent::psyche::emotions::EmotionalState,
     )>,
+    gait_query: Query<&MovementGait>,
     mut transforms: Query<&mut Transform>,
     mut visual_offsets: Query<&mut VisualOffset>,
     mut trackers: Local<HashMap<Entity, MoveTracker>>,
@@ -259,7 +283,8 @@ fn animate_sprite_bodies(
         // Consider "moving" if position changed within the last 0.2 seconds
         let is_moving = (t - tracker.last_moved_at) < 0.2;
 
-        let pose = pick_pose(agent_state.get(body.root).ok(), is_moving);
+        let gait = gait_query.get(body.root).copied().unwrap_or_default();
+        let pose = pick_pose(agent_state.get(body.root).ok(), is_moving, gait);
         let modulators = pose_modulators(agent_state.get(body.root).ok());
 
         let (bounce_y, x_scale, y_scale) = match pose {

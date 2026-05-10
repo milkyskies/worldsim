@@ -168,9 +168,11 @@ pub fn find_biome_tile(
     None
 }
 
-/// Find a random water tile (deep or shallow). Returns the world position
-/// (tile center) or `None` if no water is present within `max_attempts` rolls.
-/// Used by fish spawning — the only callers that *want* to land on water.
+/// Find a random *deep* water tile (`TileType::Water`, not `ShallowWater`).
+/// Used by fish spawning so fish never start life on the bank — shallow
+/// tiles read as shoreline and a fish dropped there looks beached. Returns
+/// the world position (tile center) or `None` if no deep water exists
+/// within `max_attempts` rolls.
 pub fn find_water_tile(map: &WorldMap, rng: &mut impl Rng, max_attempts: usize) -> Option<Vec2> {
     for _ in 0..max_attempts {
         let x = rng.random_range(0..map.width);
@@ -178,16 +180,16 @@ pub fn find_water_tile(map: &WorldMap, rng: &mut impl Rng, max_attempts: usize) 
         let Some(tile) = map.get_tile(x, y) else {
             continue;
         };
-        if matches!(tile, TileType::Water | TileType::ShallowWater) {
+        if tile == TileType::Water {
             return Some(map.tile_to_world(x as i32, y as i32));
         }
     }
     None
 }
 
-/// Cluster `count` water-only positions around `center_tile`. Used to drop a
-/// school of minnows in roughly the same patch instead of scattering them
-/// across every body of water on the map.
+/// Cluster `count` deep-water positions around `center_tile`. Used to drop
+/// a school of minnows in the same patch of deep water — shallow-water
+/// tiles are skipped to keep the school off the bank.
 pub fn cluster_water_positions(
     map: &WorldMap,
     center_tile: UVec2,
@@ -209,7 +211,7 @@ pub fn cluster_water_positions(
         let Some(tile) = map.get_tile(nx, ny) else {
             continue;
         };
-        if !matches!(tile, TileType::Water | TileType::ShallowWater) {
+        if tile != TileType::Water {
             continue;
         }
         positions.push(map.tile_to_world(nx as i32, ny as i32));

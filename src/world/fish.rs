@@ -323,13 +323,16 @@ pub fn spawn_minnow<R: Rng>(
             Agent,
             Alive,
             // Fish-specific markers + per-tick state grouped in one slot to
-            // stay under Bevy's 16-element bundle cap.
+            // stay under Bevy's 16-element bundle cap. `MovementGait::Glide`
+            // suppresses the bouncing hop animation that's the default for
+            // land creatures so fish read as swimming rather than hopping.
             (
                 Fish,
                 Minnow,
                 Schooling::default(),
                 FishHeading::new(heading, speed),
                 variant,
+                crate::ui::sprite_animation::MovementGait::Glide,
             ),
             EntityType(Concept::Minnow),
             species_profile,
@@ -401,7 +404,14 @@ pub fn spawn_pike<R: Rng>(
             Agent,
             Alive,
             // Fish-specific markers grouped under one bundle slot.
-            (Fish, Pike, FishHeading::new(heading, speed), variant),
+            // `MovementGait::Glide` suppresses the bouncing hop animation.
+            (
+                Fish,
+                Pike,
+                FishHeading::new(heading, speed),
+                variant,
+                crate::ui::sprite_animation::MovementGait::Glide,
+            ),
             EntityType(Concept::Pike),
             species_profile,
             crate::world::Physical,
