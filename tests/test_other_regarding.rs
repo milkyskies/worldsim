@@ -4,9 +4,6 @@
 use bevy::math::Vec2;
 use worldsim::agent::body::genetics::builder::personality;
 use worldsim::agent::mind::affective_tom::AffectiveToM;
-use worldsim::agent::mind::knowledge::{
-    Metadata, MindGraph, Node, Predicate, Quantity, Triple, Value,
-};
 use worldsim::agent::nervous_system::cns::CentralNervousSystem;
 use worldsim::agent::nervous_system::urgency::{Urgency, UrgencySource};
 use worldsim::agent::psyche::emotions::{Emotion, EmotionType, EmotionalState};
@@ -18,13 +15,18 @@ fn set_affection(
     target: bevy::prelude::Entity,
     value: f32,
 ) {
-    let mut mind = world.get_mut::<MindGraph>(observer);
-    mind.assert(Triple::with_meta(
-        Node::Entity(target),
-        Predicate::Affection,
-        Value::Quantity(Quantity::Exact(value)),
-        Metadata::default(),
-    ));
+    let mut graph = world
+        .app_mut()
+        .world_mut()
+        .resource_mut::<worldsim::agent::psyche::social_graph::SocialGraph>();
+    graph.set(
+        observer,
+        target,
+        worldsim::agent::psyche::social_graph::RelationshipEdge {
+            affection: value,
+            ..Default::default()
+        },
+    );
 }
 
 fn seed_distress(world: &mut TestWorld, agent: bevy::prelude::Entity) {
