@@ -18,7 +18,8 @@ use crate::agent::item_slots::ItemSlots;
 use crate::agent::mind::knowledge::{Concept, Ontology};
 use crate::agent::player::PlayerControlled;
 use crate::constants::actions::build::{
-    HOUSE_STONE_REQUIRED, HOUSE_WOOD_REQUIRED, LEAN_TO_WOOD_REQUIRED, STORAGE_CHEST_WOOD_REQUIRED,
+    CAMPFIRE_WOOD_REQUIRED, HOUSE_STONE_REQUIRED, HOUSE_WOOD_REQUIRED, LEAN_TO_WOOD_REQUIRED,
+    STORAGE_CHEST_WOOD_REQUIRED,
 };
 use crate::ui::UiState;
 use crate::ui::camera;
@@ -202,37 +203,76 @@ fn render_menu(
 
     let player_pos = player_transform.translation.truncate();
     let verbs = applicable_verbs(open.target, inventory, &ontology, player_pos, &map);
-    let mut chosen_template: Option<ActionTemplate> = None;
+    let mut chosen_templates: Vec<ActionTemplate> = Vec::new();
     let mut close_menu = false;
 
-    egui::Area::new(egui::Id::new("adventure_context_menu"))
+    let area_response = egui::Area::new(egui::Id::new("adventure_context_menu"))
         .fixed_pos(open.screen_pos)
         .order(egui::Order::Foreground)
         .show(egui_ctx.get_mut(), |ui| {
             egui::Frame::popup(ui.style()).show(ui, |ui| {
-                ui.set_min_width(140.0);
+                let row_width = 200.0;
+                let row_size = egui::vec2(row_width, 24.0);
+                ui.set_min_width(row_width);
                 ui.label(menu_header(open.target));
                 ui.separator();
                 if verbs.is_empty() {
                     ui.weak("(no actions available)");
                 } else {
-                    for (action_type, label) in &verbs {
-                        if ui.button(label).clicked() {
-                            chosen_template =
-                                build_template(*action_type, open.target, &action_registry);
+                    for verb in &verbs {
+                        let button = egui::Button::new(&verb.label).min_size(row_size);
+                        let response = ui.add_enabled(verb.enabled, button);
+                        let response = if let Some(tip) = &verb.tooltip {
+                            // Tooltip shows on hover for both enabled and
+                            // disabled rows — the latter is what teaches
+                            // the player *why* an action is greyed.
+                            response.on_hover_text(tip).on_disabled_hover_text(tip)
+                        } else {
+                            response
+                        };
+                        if response.clicked() && verb.enabled {
+                            chosen_templates = build_templates(
+                                verb.action_type,
+                                open.target,
+                                player_pos,
+                                &map,
+                                &action_registry,
+                            );
                             close_menu = true;
                         }
                     }
                 }
                 ui.separator();
-                if ui.small_button("Cancel").clicked() {
+                if ui
+                    .add(egui::Button::new("Cancel").min_size(row_size))
+                    .clicked()
+                {
                     close_menu = true;
                 }
             });
         });
 
-    if let Some(template) = chosen_template {
-        brain_state.chosen_actions = vec![template];
+    // Click-outside-to-dismiss: any primary or secondary click whose
+    // position falls outside the popup's rect closes the menu. Lets
+    // the player dismiss by clicking the world (or another spot) the
+    // way every other context menu in every other app does.
+    let menu_rect = area_response.response.rect;
+    let ctx = egui_ctx.get_mut();
+    let click_outside = ctx.input(|i| {
+        if !(i.pointer.primary_clicked() || i.pointer.secondary_clicked()) {
+            return false;
+        }
+        match i.pointer.interact_pos() {
+            Some(pos) => !menu_rect.contains(pos),
+            None => false,
+        }
+    });
+    if click_outside {
+        close_menu = true;
+    }
+
+    if !chosen_templates.is_empty() {
+        brain_state.chosen_actions = chosen_templates;
     }
     if close_menu {
         menu_state.open = None;
@@ -250,8 +290,43 @@ fn menu_header(target: MenuTarget) -> String {
     }
 }
 
+/// One row in the context menu. `enabled = false` rows render greyed
+/// out and surface their `tooltip` on hover so the player can learn
+/// *why* they can't take an action (e.g. "Need 5 wood (have 2)").
+#[derive(Debug, Clone)]
+struct VerbEntry {
+    action_type: ActionType,
+    label: String,
+    enabled: bool,
+    tooltip: Option<String>,
+}
+
+impl VerbEntry {
+    fn enabled(action_type: ActionType, label: impl Into<String>) -> Self {
+        Self {
+            action_type,
+            label: label.into(),
+            enabled: true,
+            tooltip: None,
+        }
+    }
+    fn disabled(
+        action_type: ActionType,
+        label: impl Into<String>,
+        reason: impl Into<String>,
+    ) -> Self {
+        Self {
+            action_type,
+            label: label.into(),
+            enabled: false,
+            tooltip: Some(reason.into()),
+        }
+    }
+}
+
 /// Whitelist of verbs offered for a given target. Each entry is the
-/// `ActionType` plus its display label.
+/// `ActionType`, the display label, an enabled flag, and an optional
+/// tooltip explaining why a disabled entry is disabled.
 ///
 /// Kept small and explicit for the MVP — the full action enumeration
 /// from the rational brain has too many planner-specific assumptions
@@ -265,10 +340,10 @@ fn applicable_verbs(
     ontology: &Ontology,
     player_pos: Vec2,
     map: &WorldMap,
-) -> Vec<(ActionType, String)> {
+) -> Vec<VerbEntry> {
     match target {
         MenuTarget::Self_ => {
-            let mut v = Vec::with_capacity(8);
+            let mut v = Vec::with_capacity(10);
             // One "Eat <food> (qty)" entry per distinct food in
             // inventory. Shows the player exactly what they have to
             // eat instead of a generic "Eat" that silently picks the
@@ -278,37 +353,89 @@ fn applicable_verbs(
             // future "Eat this specific concept" parameter on Eat
             // will hook up cleanly.
             for (concept, count) in collect_food_in_inventory(inventory, ontology) {
-                v.push((ActionType::Eat, format!("Eat {:?} ({count})", concept)));
+                v.push(VerbEntry::enabled(
+                    ActionType::Eat,
+                    format!("Eat {:?} ({count})", concept),
+                ));
             }
-            // Fish and Drink share the AdjacentToWater gate. Offering
-            // them only when the gate would pass keeps the menu honest
-            // — clicking a verb that the engine would immediately
-            // reject is worse than not seeing it.
+            // Fish and Drink share the AdjacentToWater gate. Show
+            // greyed when not adjacent so the player sees these
+            // exist as options at all.
             if is_adjacent_to_water(player_pos, map) {
-                v.push((ActionType::Fish, "Fish".into()));
-                v.push((ActionType::Drink, "Drink".into()));
+                v.push(VerbEntry::enabled(ActionType::Fish, "Fish"));
+                v.push(VerbEntry::enabled(ActionType::Drink, "Drink"));
+            } else {
+                v.push(VerbEntry::disabled(
+                    ActionType::Fish,
+                    "Fish",
+                    "Need to be next to water",
+                ));
+                v.push(VerbEntry::disabled(
+                    ActionType::Drink,
+                    "Drink",
+                    "Need to be next to water",
+                ));
             }
-            // Build verbs gate on inventory materials. Only show when
-            // the player can actually start the build — the placement
-            // step has a precondition that would otherwise reject the
-            // click silently.
+            // Build verbs always show with their material requirements.
+            // Greyed when missing materials, with a tooltip listing what
+            // you have vs. need so the player learns the resource costs.
             let wood = inventory.count(Concept::Wood);
             let stone = inventory.count(Concept::Stone);
-            if wood >= LEAN_TO_WOOD_REQUIRED {
-                v.push((ActionType::BuildLeanTo, "Build Lean-to".into()));
-            }
-            if wood >= HOUSE_WOOD_REQUIRED && stone >= HOUSE_STONE_REQUIRED {
-                v.push((ActionType::BuildHouse, "Build House".into()));
-            }
-            if wood >= STORAGE_CHEST_WOOD_REQUIRED {
-                v.push((ActionType::BuildStorageChest, "Build Storage Chest".into()));
-            }
-            v.push((ActionType::Sleep, "Sleep".into()));
-            v.push((ActionType::Rest, "Rest".into()));
-            v.push((ActionType::Idle, "Wait".into()));
+            v.push(build_entry(
+                ActionType::Build,
+                "Build Campfire",
+                &[(Concept::Wood, CAMPFIRE_WOOD_REQUIRED, wood)],
+            ));
+            v.push(build_entry(
+                ActionType::BuildLeanTo,
+                "Build Lean-to",
+                &[(Concept::Wood, LEAN_TO_WOOD_REQUIRED, wood)],
+            ));
+            v.push(build_entry(
+                ActionType::BuildHouse,
+                "Build House",
+                &[
+                    (Concept::Wood, HOUSE_WOOD_REQUIRED, wood),
+                    (Concept::Stone, HOUSE_STONE_REQUIRED, stone),
+                ],
+            ));
+            v.push(build_entry(
+                ActionType::BuildStorageChest,
+                "Build Storage Chest",
+                &[(Concept::Wood, STORAGE_CHEST_WOOD_REQUIRED, wood)],
+            ));
+            v.push(VerbEntry::enabled(ActionType::Sleep, "Sleep"));
+            v.push(VerbEntry::enabled(ActionType::Rest, "Rest"));
+            v.push(VerbEntry::enabled(ActionType::Idle, "Wait"));
             v
         }
         MenuTarget::Entity { concept, .. } => verbs_for_concept(concept),
+    }
+}
+
+/// Helper: produce a build menu entry given its (concept, required, have)
+/// material list. Enabled when every requirement is met, otherwise
+/// greyed with a tooltip summarising the shortfall.
+fn build_entry(
+    action_type: ActionType,
+    label: &str,
+    requirements: &[(Concept, u32, u32)],
+) -> VerbEntry {
+    let missing: Vec<String> = requirements
+        .iter()
+        .filter(|(_, need, have)| have < need)
+        .map(|(c, need, have)| format!("{:?}: {have}/{need}", c))
+        .collect();
+    if missing.is_empty() {
+        VerbEntry::enabled(action_type, label)
+    } else {
+        let cost = requirements
+            .iter()
+            .map(|(c, need, _)| format!("{} {:?}", need, c))
+            .collect::<Vec<_>>()
+            .join(" + ");
+        let reason = format!("Needs {}.\nMissing: {}", cost, missing.join(", "));
+        VerbEntry::disabled(action_type, label, reason)
     }
 }
 
@@ -346,37 +473,79 @@ fn concept_key(concept: Concept) -> &'static str {
     Box::leak(format!("{:?}", concept).into_boxed_str())
 }
 
-fn verbs_for_concept(concept: Option<Concept>) -> Vec<(ActionType, String)> {
+fn verbs_for_concept(concept: Option<Concept>) -> Vec<VerbEntry> {
     let Some(concept) = concept else {
         return Vec::new();
     };
     match concept {
         Concept::AppleTree | Concept::BerryBush | Concept::StoneNode | Concept::WoodLog => {
-            vec![(ActionType::Harvest, "Harvest".into())]
+            vec![VerbEntry::enabled(ActionType::Harvest, "Harvest")]
         }
         Concept::Person => vec![
-            (ActionType::Wave, "Wave".into()),
-            (ActionType::InitiateConversation, "Talk to".into()),
-            (ActionType::Attack, "Attack".into()),
+            VerbEntry::enabled(ActionType::Wave, "Wave"),
+            VerbEntry::enabled(ActionType::InitiateConversation, "Talk to"),
+            VerbEntry::enabled(ActionType::Attack, "Attack"),
         ],
-        Concept::Wolf | Concept::Deer => vec![(ActionType::Attack, "Attack".into())],
+        Concept::Wolf | Concept::Deer => vec![VerbEntry::enabled(ActionType::Attack, "Attack")],
         Concept::StorageChest => vec![
-            (ActionType::Take, "Take from".into()),
-            (ActionType::Deposit, "Deposit into".into()),
+            VerbEntry::enabled(ActionType::Take, "Take from"),
+            VerbEntry::enabled(ActionType::Deposit, "Deposit into"),
         ],
-        Concept::Campfire => vec![(ActionType::WarmUp, "Warm up by".into())],
+        Concept::Campfire => vec![VerbEntry::enabled(ActionType::WarmUp, "Warm up by")],
         Concept::LeanTo | Concept::House => {
-            vec![(ActionType::RestInShelter, "Rest inside".into())]
+            vec![VerbEntry::enabled(ActionType::RestInShelter, "Rest inside")]
+        }
+        // BuildLeanTo / BuildHouse / BuildStorageChest place a
+        // ConstructionSite at the agent's tile but only handle the
+        // initial setup; finishing the structure requires Construct
+        // labor on the site. Without this verb the site sits there
+        // forever — exactly what the user observed.
+        Concept::ConstructionSite => {
+            vec![VerbEntry::enabled(ActionType::Construct, "Construct")]
         }
         _ => Vec::new(),
     }
 }
 
-/// Assemble the ActionTemplate for the chosen verb. Self-verbs use the
-/// registry's no-target template; entity verbs target the clicked entity
-/// and snapshot its world position so the existing `target_position`
-/// drive feeds the movement pipeline.
-fn build_template(
+/// Assemble the ActionTemplate(s) the menu pushes into BrainState. Returns
+/// a vec because entity-targeted actions get an auto-prepended Walk so
+/// the agent walks to the target before the action engages — without
+/// this, clicking Harvest on a far-away tree would just stand still
+/// (the proximity precondition would fail every tick).
+///
+/// The Walk runs first; the targeted action stays in `chosen_actions`
+/// with its proximity precondition, gets rejected each tick by
+/// `start_actions`'s feasibility pass, and finally admits when the
+/// agent's tile matches the target's tile.
+fn build_templates(
+    action_type: ActionType,
+    target: MenuTarget,
+    player_pos: Vec2,
+    map: &WorldMap,
+    registry: &ActionRegistry,
+) -> Vec<ActionTemplate> {
+    let Some(template) = build_single_template(action_type, target, registry) else {
+        return Vec::new();
+    };
+    // Self-verbs need no auto-walk.
+    let MenuTarget::Entity { world_pos, .. } = target else {
+        return vec![template];
+    };
+    // Already adjacent → no Walk needed. ARRIVAL_THRESHOLD-style check
+    // against tile distance: same tile = effectively adjacent for
+    // Harvest/Attack/Talk.
+    let player_tile = map.world_to_tile(player_pos);
+    let target_tile = map.world_to_tile(world_pos);
+    if player_tile == target_tile {
+        return vec![template];
+    }
+    let (tx, ty) = target_tile;
+    let walk = build_walk_to(world_pos, (tx as i32, ty as i32));
+    vec![walk, template]
+}
+
+/// Build the template for a single action, no auto-walk.
+fn build_single_template(
     action_type: ActionType,
     target: MenuTarget,
     registry: &ActionRegistry,
@@ -390,6 +559,39 @@ fn build_template(
         t.target_position = Some(world_pos);
     }
     Some(t)
+}
+
+/// Mirrors `agent::player::build_walk_template` but with a default
+/// intensity — the menu's auto-walk doesn't carry sprint state.
+fn build_walk_to(world_pos: Vec2, tile: (i32, i32)) -> ActionTemplate {
+    use crate::agent::actions::motor::{
+        ActionPrimitive, Behavior, IntensityPolicy, Intent, TargetSelector,
+    };
+    use crate::agent::mind::knowledge::{Node as MindNode, Predicate, Triple, Value};
+    let behavior = Behavior::new(
+        ActionPrimitive::Locomote,
+        TargetSelector::InPlace,
+        IntensityPolicy::Normal,
+        Intent::Goal,
+    );
+    ActionTemplate {
+        name: ActionType::Walk.name().to_string(),
+        action_type: ActionType::Walk,
+        behavior,
+        target_entity: None,
+        target_position: Some(world_pos),
+        preconditions: Vec::new(),
+        effects: vec![Triple::new(
+            MindNode::Self_,
+            Predicate::LocatedAt,
+            Value::Tile(tile),
+        )],
+        consumes: Vec::new(),
+        base_cost: 0.0,
+        locomotion_intensity: 0.5,
+        estimated_duration_ticks: None,
+        search_filter: None,
+    }
 }
 
 #[cfg(test)]
@@ -436,11 +638,11 @@ mod tests {
         let ontology = empty_ontology();
         let map = dry_map();
         let verbs = applicable_verbs(MenuTarget::Self_, &inv, &ontology, Vec2::ZERO, &map);
-        assert!(verbs.iter().all(|(a, _)| *a != ActionType::Eat));
+        assert!(verbs.iter().all(|v| v.action_type != ActionType::Eat));
         // The other self-verbs are always offered.
-        assert!(verbs.iter().any(|(a, _)| *a == ActionType::Sleep));
-        assert!(verbs.iter().any(|(a, _)| *a == ActionType::Rest));
-        assert!(verbs.iter().any(|(a, _)| *a == ActionType::Idle));
+        assert!(verbs.iter().any(|v| v.action_type == ActionType::Sleep));
+        assert!(verbs.iter().any(|v| v.action_type == ActionType::Rest));
+        assert!(verbs.iter().any(|v| v.action_type == ActionType::Idle));
     }
 
     #[test]
@@ -449,17 +651,26 @@ mod tests {
         let ontology = empty_ontology();
         let map = dry_map();
         let verbs = applicable_verbs(MenuTarget::Self_, &inv, &ontology, Vec2::ZERO, &map);
-        assert!(verbs.iter().any(|(a, _)| *a == ActionType::Eat));
+        assert!(verbs.iter().any(|v| v.action_type == ActionType::Eat));
     }
 
     #[test]
-    fn self_menu_omits_fish_and_drink_when_no_water_nearby() {
+    fn self_menu_shows_fish_and_drink_disabled_when_no_water_nearby() {
         let inv = empty_inventory();
         let ontology = empty_ontology();
         let map = dry_map();
         let verbs = applicable_verbs(MenuTarget::Self_, &inv, &ontology, Vec2::ZERO, &map);
-        assert!(verbs.iter().all(|(a, _)| *a != ActionType::Fish));
-        assert!(verbs.iter().all(|(a, _)| *a != ActionType::Drink));
+        let fish = verbs
+            .iter()
+            .find(|v| v.action_type == ActionType::Fish)
+            .expect("Fish should appear (disabled) so the player can see it exists");
+        assert!(!fish.enabled);
+        assert!(fish.tooltip.is_some(), "disabled rows should explain why");
+        let drink = verbs
+            .iter()
+            .find(|v| v.action_type == ActionType::Drink)
+            .expect("Drink should appear (disabled)");
+        assert!(!drink.enabled);
     }
 
     #[test]
@@ -472,8 +683,8 @@ mod tests {
         map.set_tile(2, 1, TileType::Water);
         let pos = map.tile_to_world(1, 1);
         let verbs = applicable_verbs(MenuTarget::Self_, &inv, &ontology, pos, &map);
-        assert!(verbs.iter().any(|(a, _)| *a == ActionType::Fish));
-        assert!(verbs.iter().any(|(a, _)| *a == ActionType::Drink));
+        assert!(verbs.iter().any(|v| v.action_type == ActionType::Fish));
+        assert!(verbs.iter().any(|v| v.action_type == ActionType::Drink));
     }
 
     #[test]
@@ -487,7 +698,7 @@ mod tests {
             world_pos: Vec2::ZERO,
         };
         let verbs = applicable_verbs(target, &inv, &ontology, Vec2::ZERO, &map);
-        assert!(verbs.iter().any(|(a, _)| *a == ActionType::Harvest));
+        assert!(verbs.iter().any(|v| v.action_type == ActionType::Harvest));
     }
 
     #[test]
@@ -501,49 +712,69 @@ mod tests {
             world_pos: Vec2::ZERO,
         };
         let verbs = applicable_verbs(target, &inv, &ontology, Vec2::ZERO, &map);
-        assert!(verbs.iter().any(|(a, _)| *a == ActionType::Wave));
+        assert!(verbs.iter().any(|v| v.action_type == ActionType::Wave));
         assert!(
             verbs
                 .iter()
-                .any(|(a, _)| *a == ActionType::InitiateConversation)
+                .any(|v| v.action_type == ActionType::InitiateConversation)
         );
-        assert!(verbs.iter().any(|(a, _)| *a == ActionType::Attack));
+        assert!(verbs.iter().any(|v| v.action_type == ActionType::Attack));
     }
 
     #[test]
-    fn self_menu_omits_builds_when_no_materials() {
+    fn self_menu_shows_builds_disabled_with_explanatory_tooltip_when_no_materials() {
         let inv = empty_inventory();
         let ontology = empty_ontology();
         let map = dry_map();
         let verbs = applicable_verbs(MenuTarget::Self_, &inv, &ontology, Vec2::ZERO, &map);
-        for v in &verbs {
-            assert!(v.0 != ActionType::BuildLeanTo);
-            assert!(v.0 != ActionType::BuildHouse);
-            assert!(v.0 != ActionType::BuildStorageChest);
-        }
+        let lean_to = verbs
+            .iter()
+            .find(|v| v.action_type == ActionType::BuildLeanTo)
+            .expect("BuildLeanTo should always appear, greyed when materials missing");
+        assert!(!lean_to.enabled, "no wood → lean-to disabled");
+        let tip = lean_to
+            .tooltip
+            .as_ref()
+            .expect("disabled rows need tooltips");
+        assert!(
+            tip.contains("Wood") && tip.contains(&format!("0/{LEAN_TO_WOOD_REQUIRED}")),
+            "tooltip should name the material and show have/need: {tip}"
+        );
     }
 
     #[test]
-    fn self_menu_offers_lean_to_with_enough_wood() {
+    fn self_menu_enables_lean_to_with_enough_wood() {
         let mut inv = empty_inventory();
         inv.add(Concept::Wood, LEAN_TO_WOOD_REQUIRED);
         let ontology = empty_ontology();
         let map = dry_map();
         let verbs = applicable_verbs(MenuTarget::Self_, &inv, &ontology, Vec2::ZERO, &map);
-        assert!(verbs.iter().any(|(a, _)| *a == ActionType::BuildLeanTo));
-        // House needs more wood + stone — not yet satisfied.
-        assert!(verbs.iter().all(|(a, _)| *a != ActionType::BuildHouse));
+        let lean_to = verbs
+            .iter()
+            .find(|v| v.action_type == ActionType::BuildLeanTo)
+            .expect("BuildLeanTo should appear");
+        assert!(lean_to.enabled, "with enough wood → lean-to enabled");
+        // House still needs stone.
+        let house = verbs
+            .iter()
+            .find(|v| v.action_type == ActionType::BuildHouse)
+            .expect("BuildHouse should still appear");
+        assert!(!house.enabled);
     }
 
     #[test]
-    fn self_menu_offers_house_with_enough_wood_and_stone() {
+    fn self_menu_enables_house_with_enough_wood_and_stone() {
         let mut inv = empty_inventory();
         inv.add(Concept::Wood, HOUSE_WOOD_REQUIRED);
         inv.add(Concept::Stone, HOUSE_STONE_REQUIRED);
         let ontology = empty_ontology();
         let map = dry_map();
         let verbs = applicable_verbs(MenuTarget::Self_, &inv, &ontology, Vec2::ZERO, &map);
-        assert!(verbs.iter().any(|(a, _)| *a == ActionType::BuildHouse));
+        let house = verbs
+            .iter()
+            .find(|v| v.action_type == ActionType::BuildHouse)
+            .expect("BuildHouse should appear");
+        assert!(house.enabled);
     }
 
     #[test]

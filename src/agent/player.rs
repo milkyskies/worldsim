@@ -50,6 +50,16 @@ pub fn release(commands: &mut Commands, entity: Entity) {
 /// releases the key is barely perceptible.
 const SMOOTH_WALK_LOOKAHEAD: f32 = TILE_SIZE * 0.6;
 
+/// Locomotion intensity for a normal walk. `intensity_speed_multiplier`
+/// maps 0.5 → 1.2× base speed, matching the rational brain's default
+/// Walk so the player's cruising speed is identical to AI agents.
+const WALK_INTENSITY: f32 = 0.5;
+
+/// Locomotion intensity while Shift is held. Maps to 2.0× base speed
+/// and burns anaerobic stamina — same model the Flee action uses, so
+/// sprinting tires the player just like it would tire any other agent.
+const SPRINT_INTENSITY: f32 = 1.0;
+
 /// Translate held WASD/arrow keys into smooth movement by keeping the
 /// running Walk's target position pinned a short distance ahead of the
 /// player every frame.
@@ -117,6 +127,12 @@ pub fn player_input(
         // valid no-op for the next admission.
         return;
     };
+    let sprinting = keyboard.pressed(KeyCode::ShiftLeft) || keyboard.pressed(KeyCode::ShiftRight);
+    let intensity = if sprinting {
+        SPRINT_INTENSITY
+    } else {
+        WALK_INTENSITY
+    };
     let lookahead = current_pos + direction * SMOOTH_WALK_LOOKAHEAD;
     // If the lookahead is into a wall, clamp to the agent's current tile
     // edge in that direction so we don't ask the movement system to walk
@@ -130,23 +146,35 @@ pub fn player_input(
     };
     let (tx, ty) = map.world_to_tile(target_pos);
 
-    // If a Walk is already running, just refresh its target_position —
-    // start_actions would otherwise skip the new template and the old
-    // target keeps pulling the agent toward the original tile.
+    // If a Walk is already running, just refresh its target_position
+    // and intensity — start_actions would otherwise skip the new
+    // template and the old target keeps pulling the agent toward the
+    // original tile. Refreshing intensity each frame is what lets the
+    // player tap-and-hold Shift to switch between walk and sprint
+    // mid-step without re-admitting Walk.
     if let Some(state) = active.get_mut(ActionType::Walk) {
         state.target_position = Some(target_pos);
+        state.locomotion_intensity = intensity;
         target_position.0 = Some(target_pos);
         // Keep chosen_actions in sync so the brain log and any debug
         // overlays see the live target — `start_actions` will see Walk
         // already running and short-circuit, so this is purely
         // observability, not an admission path.
-        brain_state.chosen_actions = vec![build_walk_template(target_pos, (tx as i32, ty as i32))];
+        brain_state.chosen_actions = vec![build_walk_template(
+            target_pos,
+            (tx as i32, ty as i32),
+            intensity,
+        )];
         return;
     }
 
     // First step of a new walk burst: write the template so start_actions
     // admits it. Subsequent frames take the in-flight branch above.
-    brain_state.chosen_actions = vec![build_walk_template(target_pos, (tx as i32, ty as i32))];
+    brain_state.chosen_actions = vec![build_walk_template(
+        target_pos,
+        (tx as i32, ty as i32),
+        intensity,
+    )];
 }
 
 /// 8-direction unit vector from currently-held WASD/arrow keys, or None
@@ -175,14 +203,16 @@ fn read_movement_direction(keyboard: &ButtonInput<KeyCode>) -> Option<Vec2> {
 /// Build the same minimal Walk template the regressive planner uses when
 /// it inserts an implicit walk step. Mirrors `planner::build_walk_template`
 /// — kept separate so `player.rs` doesn't depend on planner internals.
-fn build_walk_template(world_pos: Vec2, tile: (i32, i32)) -> ActionTemplate {
+/// `intensity` lets the caller switch between walk (`WALK_INTENSITY`)
+/// and sprint (`SPRINT_INTENSITY`) without rebuilding the rest of the
+/// template.
+fn build_walk_template(world_pos: Vec2, tile: (i32, i32), intensity: f32) -> ActionTemplate {
     let behavior = Behavior::new(
         ActionPrimitive::Locomote,
         TargetSelector::InPlace,
         IntensityPolicy::Normal,
         Intent::Goal,
     );
-    let locomotion_intensity = behavior.intensity.resolve();
     ActionTemplate {
         name: ActionType::Walk.name().to_string(),
         action_type: ActionType::Walk,
@@ -197,7 +227,7 @@ fn build_walk_template(world_pos: Vec2, tile: (i32, i32)) -> ActionTemplate {
         )],
         consumes: Vec::new(),
         base_cost: 0.0,
-        locomotion_intensity,
+        locomotion_intensity: intensity,
         estimated_duration_ticks: None,
         search_filter: None,
     }
