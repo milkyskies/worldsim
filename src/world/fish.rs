@@ -90,31 +90,29 @@ impl FishHeading {
 }
 
 /// Per-individual cosmetic + cognitive jitter. A school of minnows uses the
-/// same `Schooling` defaults but each fish picks its own size scale and a
-/// palette mix, so they don't read as a clone army. Built once at spawn from
-/// the per-species [`FishVariantSpec`].
-///
-/// Not `Reflect` because `PaletteColor` isn't `Reflect` either; the variant
-/// is per-spawn debug-only data so the inspector can live without it.
+/// same `Schooling` defaults and the same body color but each fish picks its
+/// own size scale and speed jitter, so they're individually distinct without
+/// looking like a different species. Built once at spawn from the per-species
+/// [`FishVariantSpec`]. Genome-driven markings handle the per-individual
+/// shade variation on top of the species color.
 #[derive(Component, Clone, Debug)]
 pub struct FishVariant {
     /// Multiplier on the species silhouette. Minnow ~0.85..1.15, Pike ~0.9..1.25.
     pub size_scale: f32,
-    /// Body palette pick from the species' allowed range.
-    pub body_color: PaletteColor,
     /// Speed jitter — multiplies `SpeciesProfile.base_speed` so two
     /// minnows aren't bit-identical.
     pub speed_jitter: f32,
 }
 
-/// Per-species variation knobs the spawner draws against. Keeps the variation
-/// rules in one place so adding a new fish only means adding another spec.
+/// Per-species variation knobs the spawner draws against. Body color is a
+/// single canonical pick per species so a school reads as one species at a
+/// glance — only size and speed vary per individual. Adding a new fish means
+/// adding another spec.
 struct FishVariantSpec {
     size_min: f32,
     size_max: f32,
     speed_jitter_min: f32,
     speed_jitter_max: f32,
-    palette: &'static [PaletteColor],
 }
 
 const MINNOW_SPEC: FishVariantSpec = FishVariantSpec {
@@ -122,14 +120,6 @@ const MINNOW_SPEC: FishVariantSpec = FishVariantSpec {
     size_max: 1.15,
     speed_jitter_min: 0.9,
     speed_jitter_max: 1.1,
-    // Silvers, light blues, faint coppers — schooling forage fish read as a
-    // shimmery cloud when each pick is similar but not identical.
-    palette: &[
-        PaletteColor::FurWhite,
-        PaletteColor::FurGrey,
-        PaletteColor::WaterShallow,
-        PaletteColor::SkinTan,
-    ],
 };
 
 const PIKE_SPEC: FishVariantSpec = FishVariantSpec {
@@ -137,19 +127,20 @@ const PIKE_SPEC: FishVariantSpec = FishVariantSpec {
     size_max: 1.25,
     speed_jitter_min: 0.95,
     speed_jitter_max: 1.15,
-    // Mottled greens / dark olives — solitary ambush predator should read as
-    // dark shape against the water.
-    palette: &[
-        PaletteColor::LeafBright,
-        PaletteColor::FurSlate,
-        PaletteColor::SkinDeep,
-    ],
 };
+
+/// Canonical body color for every minnow. Light grey-silver reads as a
+/// shimmery shoaling fish against blue water; markings add per-individual
+/// shading on top.
+const MINNOW_BODY_COLOR: PaletteColor = PaletteColor::FurWhite;
+
+/// Canonical body color for every pike. Dark olive reads as a predator
+/// silhouette in the water.
+const PIKE_BODY_COLOR: PaletteColor = PaletteColor::FurSlate;
 
 fn roll_variant<R: Rng>(spec: &FishVariantSpec, rng: &mut R) -> FishVariant {
     FishVariant {
         size_scale: rng.random_range(spec.size_min..spec.size_max),
-        body_color: spec.palette[rng.random_range(0..spec.palette.len())],
         speed_jitter: rng.random_range(spec.speed_jitter_min..spec.speed_jitter_max),
     }
 }
@@ -309,7 +300,7 @@ pub fn spawn_minnow<R: Rng>(
     let genome = random_genome(rng, Species::Minnow);
     let markings = Markings::from_genome(&genome);
 
-    let silhouette = apply_markings(minnow_silhouette(variant.body_color), &markings);
+    let silhouette = apply_markings(minnow_silhouette(MINNOW_BODY_COLOR), &markings);
 
     let mut mind = MindGraph::new(ontology);
     add_minnow_innate_knowledge(&mut mind);
@@ -323,7 +314,7 @@ pub fn spawn_minnow<R: Rng>(
             Agent,
             Alive,
             // Fish-specific markers + per-tick state grouped in one slot to
-            // stay under Bevy's 16-element bundle cap. `MovementGait::Glide`
+            // stay under Bevy's 16-element bundle cap. `MovementAnimationGait::Glide`
             // suppresses the bouncing hop animation that's the default for
             // land creatures so fish read as swimming rather than hopping.
             (
@@ -332,7 +323,7 @@ pub fn spawn_minnow<R: Rng>(
                 Schooling::default(),
                 FishHeading::new(heading, speed),
                 variant,
-                crate::ui::sprite_animation::MovementGait::Glide,
+                crate::ui::sprite_animation::MovementAnimationGait::Glide,
             ),
             EntityType(Concept::Minnow),
             species_profile,
@@ -390,7 +381,7 @@ pub fn spawn_pike<R: Rng>(
     let genome = random_genome(rng, Species::Pike);
     let markings = Markings::from_genome(&genome);
 
-    let silhouette = apply_markings(pike_silhouette(variant.body_color), &markings);
+    let silhouette = apply_markings(pike_silhouette(PIKE_BODY_COLOR), &markings);
 
     let mut mind = MindGraph::new(ontology);
     add_fish_innate_knowledge(&mut mind);
@@ -404,13 +395,13 @@ pub fn spawn_pike<R: Rng>(
             Agent,
             Alive,
             // Fish-specific markers grouped under one bundle slot.
-            // `MovementGait::Glide` suppresses the bouncing hop animation.
+            // `MovementAnimationGait::Glide` suppresses the bouncing hop animation.
             (
                 Fish,
                 Pike,
                 FishHeading::new(heading, speed),
                 variant,
-                crate::ui::sprite_animation::MovementGait::Glide,
+                crate::ui::sprite_animation::MovementAnimationGait::Glide,
             ),
             EntityType(Concept::Pike),
             species_profile,
@@ -517,7 +508,10 @@ mod tests {
     }
 
     #[test]
-    fn variation_produces_distinct_fish() {
+    fn variation_produces_distinct_fish_within_one_species_color() {
+        // A school's individual fish must vary in size and speed (so they
+        // don't read as a clone army) but the species color is canonical
+        // — only `MINNOW_BODY_COLOR` is rendered for every minnow.
         use rand::SeedableRng;
         use rand_chacha::ChaCha8Rng;
         let mut rng = ChaCha8Rng::seed_from_u64(42);

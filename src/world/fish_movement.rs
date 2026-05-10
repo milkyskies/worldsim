@@ -26,6 +26,17 @@ use crate::world::spatial_index::SpatialIndex;
 /// higher = jerky. Calibrated for fish — they don't pivot on a dime.
 const TURN_RATE_PER_TICK: f32 = 0.18;
 
+/// Faster heading-blend rate used when the shore-avoid force is active.
+/// Snappier than the normal turn so a fish heading toward a wall actually
+/// rotates away before it gets there — the calm gliding turn rate is too
+/// slow to handle tight river meanders.
+const EMERGENCY_TURN_RATE: f32 = 0.6;
+
+/// Position-delta squared below which the fish is considered "stuck" — no
+/// candidate position passed the water check this tick. One pixel² is well
+/// below any meaningful per-tick swim step.
+const STUCK_EPSILON_SQ: f32 = 0.25;
+
 /// Strength of the random-wander component added every tick. Keeps a
 /// solitary fish from sitting still and gives schools a touch of life
 /// inside their flocking forces.
@@ -98,18 +109,25 @@ pub fn swim_fish(
         }
 
         steer += wander_steer(rng) * WANDER_WEIGHT;
-        steer += shore_avoid_steer(pos, heading.heading, &map);
+        let shore = shore_avoid_steer(pos, heading.heading, &map);
+        steer += shore;
 
-        // Tick-stepped heading update: steer is desired-heading-delta, blend it
-        // in at TURN_RATE so fish glide rather than snap.
+        // Tick-stepped heading update: blend steer into heading at the
+        // normal turn rate, but bump to an emergency rate when shore-avoid
+        // is firing so the fish actually rotates away from the bank before
+        // it reaches it. Without this the slow Boids-friendly turn rate
+        // lets fish sail straight into shallows during the heading lerp.
         let desired = (heading.heading + steer).normalize_or(heading.heading);
-        let new_heading = lerp_unit(heading.heading, desired, TURN_RATE_PER_TICK);
-        heading.heading = new_heading;
+        let turn_rate = if shore == Vec2::ZERO {
+            TURN_RATE_PER_TICK
+        } else {
+            EMERGENCY_TURN_RATE
+        };
+        heading.heading = lerp_unit(heading.heading, desired, turn_rate);
 
-        // Step position along heading. The shore-avoid force above usually
-        // turns the fish away from land in time, but in tight corners (a
-        // school pinned against a peninsula) the heading change can lag. The
-        // axis-slide fallback prevents fish from beaching themselves there.
+        // Step position along heading. Axis-slide lets fish glide along a
+        // shore when the diagonal candidate is land but one cardinal axis
+        // still leaves them in water.
         let step = heading.heading * heading.speed;
         let candidate = pos + step;
         let next_pos = if is_water(&map, candidate) {
@@ -125,6 +143,16 @@ pub fn swim_fish(
                 pos
             }
         };
+
+        // Stuck escape: if we couldn't move at all this tick (every fallback
+        // hit land), the fish is wedged into a concave shore — flip the
+        // heading 180° immediately so next tick steps outward instead of
+        // grinding into the same wall. Without this fish snag on river
+        // dead-ends and oscillate forever between failed candidates.
+        let stuck = (next_pos - pos).length_squared() < STUCK_EPSILON_SQ;
+        if stuck {
+            heading.heading = -heading.heading;
+        }
 
         transform.translation.x = next_pos.x;
         transform.translation.y = next_pos.y;
@@ -202,20 +230,39 @@ fn shore_avoid_steer(pos: Vec2, heading: Vec2, map: &WorldMap) -> Vec2 {
     if is_water(map, lookahead) {
         return Vec2::ZERO;
     }
-    // Probe the four cardinal directions one-and-a-half tiles out so each
-    // probe definitely crosses into a neighbouring tile (probes shorter than
-    // one tile-width can all land in the fish's current tile and yield no
-    // information about which way water lies).
+    // Probe eight directions (cardinals + diagonals) one-and-a-half tiles
+    // out so we find escape routes in concave corners that a 4-direction
+    // scan would miss. Probe distance must exceed one tile so the probe
+    // actually crosses into a neighbouring tile.
     let probe_dist = TILE_SIZE * 1.5;
+    let inv = std::f32::consts::FRAC_1_SQRT_2;
+    let dirs = [
+        Vec2::X,
+        -Vec2::X,
+        Vec2::Y,
+        -Vec2::Y,
+        Vec2::new(inv, inv),
+        Vec2::new(-inv, inv),
+        Vec2::new(inv, -inv),
+        Vec2::new(-inv, -inv),
+    ];
+    // Pick the probe most opposite the fish's current heading among those
+    // that land in water — that's the deepest direction back into the body.
+    // Fall back to a u-turn if none find water.
     let mut best: Option<Vec2> = None;
-    for dir in [Vec2::X, -Vec2::X, Vec2::Y, -Vec2::Y] {
+    let mut best_score = f32::NEG_INFINITY;
+    for dir in dirs {
         let probe = pos + dir * probe_dist;
-        if is_water(map, probe) {
+        if !is_water(map, probe) {
+            continue;
+        }
+        let score = -dir.dot(heading); // higher = more opposite
+        if score > best_score {
+            best_score = score;
             best = Some(dir);
-            break;
         }
     }
-    let target = best.unwrap_or(-heading); // u-turn if nothing better
+    let target = best.unwrap_or(-heading);
     target * SHORE_AVOID_WEIGHT
 }
 

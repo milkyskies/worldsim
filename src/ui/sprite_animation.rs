@@ -17,7 +17,7 @@ pub struct SpriteAnimationPlugin;
 
 impl Plugin for SpriteAnimationPlugin {
     fn build(&self, app: &mut App) {
-        app.register_type::<MovementGait>().add_systems(
+        app.register_type::<MovementAnimationGait>().add_systems(
             PostUpdate,
             animate_sprite_bodies.before(TransformSystems::Propagate),
         );
@@ -62,7 +62,7 @@ impl SpriteBody {
 /// gait (e.g. `Slither` for snakes) only touches this enum and its callers.
 #[derive(Component, Debug, Clone, Copy, Default, PartialEq, Eq, Reflect)]
 #[reflect(Component)]
-pub enum MovementGait {
+pub enum MovementAnimationGait {
     /// Worldbox-style bouncing hop with squash-and-stretch and dust puffs.
     /// The default — every land creature uses it unless it opts out.
     #[default]
@@ -142,7 +142,7 @@ fn pick_pose(
         &crate::agent::psyche::emotions::EmotionalState,
     )>,
     is_moving: bool,
-    gait: MovementGait,
+    gait: MovementAnimationGait,
 ) -> AnimationPose {
     use crate::agent::actions::types::ActionType;
     if let Some((active, _)) = state
@@ -154,11 +154,11 @@ fn pick_pose(
         return AnimationPose::Idle;
     }
     match gait {
-        MovementGait::Hop => AnimationPose::Hop,
+        MovementAnimationGait::Hop => AnimationPose::Hop,
         // Glide reuses the Idle breath cycle — no vertical bounce, no dust.
         // Combined with the swim system's continuous Transform updates this
         // reads as slow forward motion.
-        MovementGait::Glide => AnimationPose::Idle,
+        MovementAnimationGait::Glide => AnimationPose::Idle,
     }
 }
 
@@ -250,7 +250,7 @@ fn animate_sprite_bodies(
         &crate::agent::actions::registry::ActiveActions,
         &crate::agent::psyche::emotions::EmotionalState,
     )>,
-    gait_query: Query<&MovementGait>,
+    gait_query: Query<&MovementAnimationGait>,
     mut transforms: Query<&mut Transform>,
     mut visual_offsets: Query<&mut VisualOffset>,
     mut trackers: Local<HashMap<Entity, MoveTracker>>,
