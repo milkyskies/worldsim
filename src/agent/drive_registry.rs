@@ -241,6 +241,22 @@ pub const DRIVE_REGISTRY: &[DriveEntry] = &[
         goal_pattern: Some(GoalPattern::HighestCommitmentPlan),
         display_name: "Commitment",
     },
+    DriveEntry {
+        urgency: UrgencySource::Compassion,
+        need_kind: None,
+        intent: Intent::SatisfyCompassion,
+        // Satisfier actions (TendWounds, ShareFood, Comfort) are wired
+        // in follow-ups once perceived-injury / -hunger channels land.
+        satisfier: None,
+        satiation_threshold: 1.0,
+        // Below acute self-deprivation but above pure social drives —
+        // a peer's distress matters, but a starving observer can't help
+        // anyone if they don't eat first.
+        survival_weight: 40.0,
+        is_deprivation: false,
+        goal_pattern: None,
+        display_name: "Compassion",
+    },
 ];
 
 pub fn by_urgency(source: UrgencySource) -> Option<&'static DriveEntry> {
@@ -272,6 +288,7 @@ mod tests {
             UrgencySource::Curiosity,
             UrgencySource::Territoriality,
             UrgencySource::Commitment,
+            UrgencySource::Compassion,
         ] {
             assert!(
                 by_urgency(source).is_some(),

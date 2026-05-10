@@ -51,6 +51,20 @@ impl PerceivedMood {
         let age = now.saturating_sub(self.observed_at) as f32;
         (1.0 - age / CONFIDENCE_DECAY_TICKS as f32).clamp(0.0, 1.0)
     }
+
+    /// Continuous distress signal in [0, 1]. Combines negative mood,
+    /// elevated stress, and acute negative emotions — observers' Compassion
+    /// urgency rides on this. The max-of-three shape lets any single
+    /// strong cue trip the signal even when the others are quiet.
+    pub fn distress_score(&self) -> f32 {
+        let mood_distress = (-self.mood).clamp(0.0, 1.0);
+        let stress_distress = (self.stress / 100.0).clamp(0.0, 1.0);
+        let emotion_distress = match self.dominant_emotion {
+            Some(EmotionType::Sadness | EmotionType::Fear | EmotionType::Anger) => 0.7,
+            _ => 0.0,
+        };
+        mood_distress.max(stress_distress).max(emotion_distress)
+    }
 }
 
 #[derive(Component, Debug, Default, Clone, Reflect)]
@@ -98,6 +112,13 @@ impl AffectiveToM {
 
     pub fn perceived_mood(&self, target: Entity) -> Option<&PerceivedMood> {
         self.beliefs.get(&target)
+    }
+
+    /// Iterate all `(target, mood)` pairs the observer holds beliefs for.
+    /// Lets other-regarding drives walk the social graph without exposing
+    /// the underlying HashMap.
+    pub fn iter(&self) -> impl Iterator<Item = (Entity, &PerceivedMood)> {
+        self.beliefs.iter().map(|(e, m)| (*e, m))
     }
 
     /// True iff the last observation of `target` shows distress: a
