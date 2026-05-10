@@ -10,33 +10,30 @@
 //! so they don't need to tick through 86,400 ticks per game day.
 
 use bevy::prelude::*;
-use worldsim::agent::mind::knowledge::{
-    Metadata, MindGraph, Node, Predicate, Quantity, Triple, Value,
-};
 use worldsim::agent::psyche::relationships::RelationshipConfig;
+use worldsim::agent::psyche::social_graph::{RelationshipEdge, SocialGraph};
 use worldsim::testing::{AgentConfig, TestWorld};
 
 fn set_trust(world: &mut TestWorld, agent: Entity, other: Entity, trust: f32, timestamp: u64) {
-    world
-        .app_mut()
-        .world_mut()
-        .get_mut::<MindGraph>(agent)
-        .expect("agent should have MindGraph")
-        .assert(Triple::with_meta(
-            Node::Entity(other),
-            Predicate::Trust,
-            Value::Quantity(Quantity::Exact(trust)),
-            Metadata::semantic(timestamp),
-        ));
+    let mut graph = world.app_mut().world_mut().resource_mut::<SocialGraph>();
+    graph.set(
+        agent,
+        other,
+        RelationshipEdge {
+            trust,
+            last_interaction_tick: timestamp,
+            ..Default::default()
+        },
+    );
 }
 
 fn get_trust(world: &TestWorld, agent: Entity, other: Entity) -> Option<f32> {
     world
         .app()
         .world()
-        .get::<MindGraph>(agent)
-        .and_then(|mind| mind.get(&Node::Entity(other), Predicate::Trust))
-        .and_then(|v| v.as_quantity().map(|q| q.point_estimate()))
+        .resource::<SocialGraph>()
+        .get(agent, other)
+        .map(|edge| edge.trust)
 }
 
 /// Override decay config so the test can tick a handful of ticks instead
