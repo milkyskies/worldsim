@@ -279,8 +279,8 @@ mod tests {
 
     #[test]
     fn avenge_only_fires_on_correct_target() {
-        let target = Entity::from_raw(42);
-        let other = Entity::from_raw(43);
+        let target = Entity::from_bits(42);
+        let other = Entity::from_bits(43);
         let asp = aspirations_with(vec![Aspiration {
             kind: AspirationKind::Avenge,
             target: Some(AspirationTarget::Entity(target)),
