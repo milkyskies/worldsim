@@ -3,3 +3,4 @@ pub mod flocking;
 pub mod greetings;
 pub mod personality;
 pub mod relationships;
+pub mod values;
