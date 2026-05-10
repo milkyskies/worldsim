@@ -11,7 +11,7 @@ use std::collections::HashMap;
 
 use crate::palette::Palette;
 use crate::particles::spawn_dust_puff;
-use crate::world::map::{ELEVATION_LIFT, SEA_LEVEL, WorldMap};
+use crate::world::map::{ELEVATION_LIFT, SEA_LEVEL, TILE_SIZE, WorldMap};
 
 pub struct SpriteAnimationPlugin;
 
@@ -338,14 +338,63 @@ fn animate_sprite_bodies(
 
 /// Convert a world position to a vertical lift in screen pixels, matching
 /// how terrain tiles are lifted in `setup_map`.
+///
+/// Bilinearly interpolates between the four tile-center elevations
+/// surrounding `pos` so an agent walking across a tile boundary glides
+/// smoothly between elevations instead of teleporting at the seam. The
+/// terrain tiles themselves still render at discrete per-tile heights —
+/// this only affects entity sprites that read this lift.
 fn elevation_lift_at(world_map: Option<&WorldMap>, pos: Vec2) -> f32 {
-    world_map
-        .and_then(|m| {
-            let (tx, ty) = m.world_to_tile(pos);
-            m.elevation_at(tx, ty)
-        })
+    let Some(map) = world_map else {
+        return 0.0;
+    };
+    sample_smoothed_elevation(map, pos)
         .map(|e| (e - SEA_LEVEL) * ELEVATION_LIFT)
         .unwrap_or(0.0)
+}
+
+/// Bilinear sample of the elevation field at a sub-tile world position.
+/// Tile centers sit at `(tx*TILE_SIZE + TILE_SIZE/2, …)` — shifting
+/// `pos` by half a tile puts the integer grid exactly on tile centers,
+/// so the floor + fractional split works directly. Returns `None` only
+/// when *every* surrounding tile is out of bounds (interior holes get
+/// treated as elevation 0).
+fn sample_smoothed_elevation(map: &WorldMap, pos: Vec2) -> Option<f32> {
+    let half = TILE_SIZE * 0.5;
+    let gx = (pos.x - half) / TILE_SIZE;
+    let gy = (pos.y - half) / TILE_SIZE;
+    let x0 = gx.floor();
+    let y0 = gy.floor();
+    let fx = (gx - x0).clamp(0.0, 1.0);
+    let fy = (gy - y0).clamp(0.0, 1.0);
+    let sample = |x: f32, y: f32| -> Option<f32> {
+        if x < 0.0 || y < 0.0 {
+            return None;
+        }
+        map.elevation_at(x as u32, y as u32)
+    };
+    let e00 = sample(x0, y0);
+    let e10 = sample(x0 + 1.0, y0);
+    let e01 = sample(x0, y0 + 1.0);
+    let e11 = sample(x0 + 1.0, y0 + 1.0);
+    if e00.is_none() && e10.is_none() && e01.is_none() && e11.is_none() {
+        return None;
+    }
+    // For any single missing corner, fall back to the average of the
+    // present ones — better than jumping to 0 on the map edge.
+    let fallback = {
+        let present: Vec<f32> = [e00, e10, e01, e11].into_iter().flatten().collect();
+        present.iter().sum::<f32>() / present.len() as f32
+    };
+    let e00 = e00.unwrap_or(fallback);
+    let e10 = e10.unwrap_or(fallback);
+    let e01 = e01.unwrap_or(fallback);
+    let e11 = e11.unwrap_or(fallback);
+    let elev = (1.0 - fx) * (1.0 - fy) * e00
+        + fx * (1.0 - fy) * e10
+        + (1.0 - fx) * fy * e01
+        + fx * fy * e11;
+    Some(elev)
 }
 
 #[cfg(test)]
@@ -381,6 +430,62 @@ mod tests {
             let (y, _, _) = bounce_frame(c, 3.0);
             assert!(y >= 0.0, "y={y} at cycle={c}");
         }
+    }
+
+    /// 2×2 map with a fixed elevation gradient: tile (0,0)=10, (1,0)=20,
+    /// (0,1)=30, (1,1)=40. The smoothed sampler should:
+    /// - return each tile's exact elevation when sampled at its center
+    /// - return the bilinear interpolant midway between centers
+    /// - never produce a step at the tile boundary
+    fn gradient_map() -> WorldMap {
+        use crate::world::map::Chunk;
+        let mut map = WorldMap::new(2, 2);
+        let mut chunk = Chunk::new(0, 0);
+        chunk.set_elevation(0, 0, 10.0);
+        chunk.set_elevation(1, 0, 20.0);
+        chunk.set_elevation(0, 1, 30.0);
+        chunk.set_elevation(1, 1, 40.0);
+        map.chunks.insert(IVec2::new(0, 0), chunk);
+        map
+    }
+
+    #[test]
+    fn smoothed_elevation_matches_tile_center() {
+        let map = gradient_map();
+        let center_00 = Vec2::new(TILE_SIZE * 0.5, TILE_SIZE * 0.5);
+        let elev = sample_smoothed_elevation(&map, center_00).unwrap();
+        assert!((elev - 10.0).abs() < 1e-3, "got {elev} at (0,0) center");
+    }
+
+    #[test]
+    fn smoothed_elevation_interpolates_between_centers() {
+        let map = gradient_map();
+        // Halfway between (0,0) center and (1,0) center: pure x-interp,
+        // expect (10 + 20) / 2 = 15.
+        let between = Vec2::new(TILE_SIZE, TILE_SIZE * 0.5);
+        let elev = sample_smoothed_elevation(&map, between).unwrap();
+        assert!(
+            (elev - 15.0).abs() < 1e-3,
+            "got {elev} between (0,0) and (1,0) centers"
+        );
+    }
+
+    /// The original per-tile sampler had a discontinuity at the tile
+    /// boundary — sampling at center-1 and center returned different
+    /// elevations from neighboring tiles. The bilinear sampler must
+    /// produce values that change continuously as `pos` slides across
+    /// the seam.
+    #[test]
+    fn smoothed_elevation_has_no_seam_at_tile_boundary() {
+        let map = gradient_map();
+        let just_before = Vec2::new(TILE_SIZE - 0.01, TILE_SIZE * 0.5);
+        let just_after = Vec2::new(TILE_SIZE + 0.01, TILE_SIZE * 0.5);
+        let a = sample_smoothed_elevation(&map, just_before).unwrap();
+        let b = sample_smoothed_elevation(&map, just_after).unwrap();
+        assert!(
+            (a - b).abs() < 0.1,
+            "smooth sampler produced a seam: {a} vs {b}"
+        );
     }
 
     #[test]
