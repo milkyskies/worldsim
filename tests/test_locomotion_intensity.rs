@@ -116,6 +116,13 @@ fn wandering_drains_aerobic_through_intensity_path() {
         ..AgentConfig::default()
     });
 
+    // Daze the agent so arbitration doesn't replace the injected Wander
+    // with a brain-chosen action (this test verifies the body-side
+    // stamina-drain pathway, not brain selection).
+    world.app_mut().world_mut().entity_mut(agent).insert(Dazed {
+        until_tick: u64::MAX,
+    });
+
     // Inject a Wander ActionState with an explicit target so the movement
     // branch of tick_actions actually runs.
     {
@@ -156,8 +163,17 @@ fn sprint_costs_more_than_wander_for_same_duration() {
         ..AgentConfig::default()
     });
 
+    // Daze both agents so arbitration doesn't replace the injected
+    // Wander/Flee with a brain-chosen Explore (this test verifies the
+    // body-side stamina-cost difference, not brain selection).
     {
         let world_mut = world.app_mut().world_mut();
+        world_mut.entity_mut(wanderer).insert(Dazed {
+            until_tick: u64::MAX,
+        });
+        world_mut.entity_mut(sprinter).insert(Dazed {
+            until_tick: u64::MAX,
+        });
         if let Some(mut active) = world_mut.get_mut::<ActiveActions>(wanderer) {
             let mut state = ActionState::new(ActionType::Wander, 0);
             state = state.with_target_position(Vec2::new(2000.0, 200.0));
