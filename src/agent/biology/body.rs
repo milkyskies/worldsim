@@ -143,6 +143,27 @@ impl Body {
             Species::Wolf => Self::wolf(),
             Species::Deer | Species::Rabbit => Self::deer(),
             Species::Bird => Self::human(),
+            Species::Minnow | Species::Pike => Self::fish(),
+        }
+    }
+
+    /// Minimal fish body — head, torso, tail. No legs, no hooves. Eyes and
+    /// jaw on the head so the existing perception/eating wiring keeps working
+    /// against the same `BodyNodeKind` enum the other species use.
+    pub fn fish() -> Self {
+        use FunctionalTag::*;
+        Self {
+            parts: vec![
+                BodyNode::vital(BodyNodeKind::Head, 12.0).with_children(vec![
+                    BodyNode::vital(BodyNodeKind::Brain, 4.0).with_tags(vec![Think]),
+                    BodyNode::new(BodyNodeKind::LeftEye, 2.0).with_tags(vec![See]),
+                    BodyNode::new(BodyNodeKind::RightEye, 2.0).with_tags(vec![See]),
+                    BodyNode::new(BodyNodeKind::Jaw, 4.0).with_tags(vec![Eat]),
+                ]),
+                BodyNode::vital(BodyNodeKind::Torso, 25.0)
+                    .with_tags(vec![FullBody])
+                    .with_children(torso_organs()),
+            ],
         }
     }
 

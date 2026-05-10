@@ -76,6 +76,7 @@ pub use super::apple_tree::{
 };
 pub use super::berry_bush::{VisualBerry, VisualBushLeaves, spawn_berry_bush, sync_berry_visuals};
 pub use super::deer::{Deer, spawn_deer};
+pub use super::fish::{Fish, Minnow, Pike, spawn_minnow, spawn_pike};
 pub use super::human::spawn_person;
 pub use super::sapling::{Sapling, grow_saplings, spawn_sapling};
 pub use super::stone_node::{
@@ -95,6 +96,9 @@ impl Plugin for SpawnerPlugin {
             .register_type::<Sapling>()
             .register_type::<Deer>()
             .register_type::<Wolf>()
+            .register_type::<Fish>()
+            .register_type::<Minnow>()
+            .register_type::<Pike>()
             .add_systems(
                 OnEnter(AppState::InSim),
                 (
@@ -259,6 +263,26 @@ pub fn apply_layout(
         if members.len() > 1 {
             introduce_group_as_kin(commands, members, KIN_BASELINE_AFFECTION);
         }
+    }
+
+    let mut minnow_index = 0;
+    for school in &layout.minnow_schools {
+        let members: Vec<Entity> = school
+            .iter()
+            .map(|&pos| {
+                let entity = spawn_minnow(commands, ontology.clone(), pos, minnow_index, rng);
+                minnow_index += 1;
+                entity
+            })
+            .collect();
+        spawned.extend(members.iter().copied());
+        if members.len() > 1 {
+            introduce_group_as_kin(commands, members, KIN_BASELINE_AFFECTION);
+        }
+    }
+
+    for (i, &pos) in layout.pike_positions.iter().enumerate() {
+        spawned.push(spawn_pike(commands, ontology.clone(), pos, i, rng));
     }
 
     for &(pos, berries) in &layout.berry_bush_positions {

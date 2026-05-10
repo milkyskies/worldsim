@@ -6,6 +6,7 @@
 //! action, which left Rest lingering alongside Harvest/Eat/Wander.
 
 use bevy::math::Vec2;
+use worldsim::agent::Dazed;
 use worldsim::agent::actions::{ActionType, ActiveActions};
 use worldsim::agent::body::needs::PhysicalNeeds;
 use worldsim::agent::events::{SimEvent, SimEventKind};
@@ -35,6 +36,15 @@ fn rest_self_completes_when_aerobic_recovers() {
                 .with_duration(u32::MAX),
         );
     }
+
+    // Daze so the brain doesn't preempt Rest before it self-completes.
+    world
+        .app_mut()
+        .world_mut()
+        .entity_mut(rester)
+        .insert(Dazed {
+            until_tick: u64::MAX,
+        });
 
     // Tick enough for aerobic to recover from 0.90 to 0.95. Rest's effort
     // profile is mild, and aerobic recovers at ~0.3/s at rest intensity.
@@ -75,6 +85,15 @@ fn rest_stays_active_while_aerobic_is_low() {
                 .with_duration(u32::MAX),
         );
     }
+
+    // Daze so the brain doesn't replace Rest with a Sleep/Wander proposal.
+    world
+        .app_mut()
+        .world_mut()
+        .entity_mut(rester)
+        .insert(Dazed {
+            until_tick: u64::MAX,
+        });
 
     // Tick a very short window — aerobic should still be recovering.
     world.tick(60);

@@ -34,6 +34,18 @@ pub const WOLF_NAMES: &[&str] = &[
     "Zephyr", "Dirge", "Howl", "Marrow", "Pelt", "Scar", "Vigil", "Yowl", "Ripper",
 ];
 
+/// Pool of minnow display names. Tiny, glittery, school-flavoured.
+pub const MINNOW_NAMES: &[&str] = &[
+    "Glimmer", "Bubble", "Ripple", "Spark", "Shimmer", "Dart", "Skip", "Flick", "Drift", "Wisp",
+    "Pebble", "Tide", "Pip", "Mote", "Snap", "Quirk", "Dab", "Spry", "Twirl", "Glint",
+];
+
+/// Pool of pike display names. Sharper, lurkier, predator-flavoured.
+pub const PIKE_NAMES: &[&str] = &[
+    "Snag", "Lurker", "Reed", "Murk", "Spear", "Bog", "Drag", "Gleam", "Strike", "Hush", "Chomp",
+    "Slick", "Coil", "Rasp", "Vex", "Scour",
+];
+
 /// Returns a unique-ish display name for the given spawn index.
 ///
 /// For index < pool.len(), returns the raw name. For larger indices, appends
@@ -59,6 +71,14 @@ pub fn deer_name(index: usize) -> String {
 
 pub fn wolf_name(index: usize) -> String {
     pick_name(WOLF_NAMES, index)
+}
+
+pub fn minnow_name(index: usize) -> String {
+    pick_name(MINNOW_NAMES, index)
+}
+
+pub fn pike_name(index: usize) -> String {
+    pick_name(PIKE_NAMES, index)
 }
 
 /// Per-world monotonically increasing counters used by spawners that don't

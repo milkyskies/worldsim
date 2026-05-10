@@ -7,6 +7,7 @@
 //! verify the ECS wiring holds end-to-end.
 
 use bevy::prelude::*;
+use worldsim::agent::Dazed;
 use worldsim::agent::actions::ActionType;
 use worldsim::agent::actions::registry::{ActionState, ActiveActions};
 use worldsim::agent::body::needs::{PhysicalNeeds, Stamina};
@@ -115,6 +116,13 @@ fn wandering_drains_aerobic_through_intensity_path() {
         ..AgentConfig::default()
     });
 
+    // Daze the agent so arbitration doesn't replace the injected Wander
+    // with a brain-chosen action (this test verifies the body-side
+    // stamina-drain pathway, not brain selection).
+    world.app_mut().world_mut().entity_mut(agent).insert(Dazed {
+        until_tick: u64::MAX,
+    });
+
     // Inject a Wander ActionState with an explicit target so the movement
     // branch of tick_actions actually runs.
     {
@@ -155,8 +163,17 @@ fn sprint_costs_more_than_wander_for_same_duration() {
         ..AgentConfig::default()
     });
 
+    // Daze both agents so arbitration doesn't replace the injected
+    // Wander/Flee with a brain-chosen Explore (this test verifies the
+    // body-side stamina-cost difference, not brain selection).
     {
         let world_mut = world.app_mut().world_mut();
+        world_mut.entity_mut(wanderer).insert(Dazed {
+            until_tick: u64::MAX,
+        });
+        world_mut.entity_mut(sprinter).insert(Dazed {
+            until_tick: u64::MAX,
+        });
         if let Some(mut active) = world_mut.get_mut::<ActiveActions>(wanderer) {
             let mut state = ActionState::new(ActionType::Wander, 0);
             state = state.with_target_position(Vec2::new(2000.0, 200.0));
@@ -203,6 +220,15 @@ fn desired_intensity_stays_stable_even_when_exhausted() {
         needs.stamina.aerobic = 5.0;
         needs.stamina.anaerobic = 0.0;
     }
+
+    // Daze the agent so arbitration is skipped — the contract under test is
+    // body-side ("body doesn't write back to ActionState.locomotion_intensity"),
+    // not brain-side. Without this the high Stamina urgency would drive
+    // Survival to preempt Flee with Rest before the body's degradation logic
+    // ran.
+    world.app_mut().world_mut().entity_mut(agent).insert(Dazed {
+        until_tick: u64::MAX,
+    });
 
     // Inject a Flee at full desired intensity.
     {
