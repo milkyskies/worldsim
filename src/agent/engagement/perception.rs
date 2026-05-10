@@ -36,12 +36,23 @@ pub fn perceive_engagements(
                 continue;
             };
             // Each kind owns peer resolution; arbitration / perception
-            // stay kind-agnostic. New kinds add their own arm.
+            // stay kind-agnostic. New kinds add their own arm. Engagements
+            // without participating peers (Sleep, Flee — sleep has no
+            // partner; flee's "peer" is the threat, not someone the
+            // observer learns is engaged-with) skip silently here; their
+            // perceivability comes from a separate path (a sleeping
+            // agent's `Predicate::Asleep` mind-fact, etc., to be added
+            // when those engagements need it).
             let participants: &[Entity] = match engaged.kind {
                 EngagementKind::Converse => match converse_registry.get(engaged.id) {
                     Some(c) => &c.participants,
                     None => continue,
                 },
+                EngagementKind::Hunt
+                | EngagementKind::Devour
+                | EngagementKind::Harvest
+                | EngagementKind::Flee
+                | EngagementKind::Sleep => continue,
             };
             for &peer in participants {
                 if peer == observed {
