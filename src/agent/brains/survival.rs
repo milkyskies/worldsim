@@ -596,9 +596,12 @@ mod tests {
         let registry = sleeping_agent_registry();
 
         let proposals = survival_brain_propose(context, &inventory, &active, &ontology, &registry);
+        // Post-#746 migration: the SleepPlugin owns continuation, so the
+        // survival brain stops re-proposing Sleep tick after tick. The
+        // Sleep beat already in `active_actions` keeps the agent down.
         assert!(
-            find_proposal(&proposals, ActionType::Sleep).is_some(),
-            "sleeping agent should keep sleeping; got {proposals:?}"
+            find_proposal(&proposals, ActionType::Sleep).is_none(),
+            "Sleep beat is plugin-owned now; brain should not re-propose it: {proposals:?}"
         );
         assert!(find_proposal(&proposals, ActionType::WakeUp).is_none());
     }
