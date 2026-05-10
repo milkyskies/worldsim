@@ -178,8 +178,12 @@ pub fn generate_urgency(
         affective_tom,
     ) in query.iter_mut()
     {
-        // Staggered: heavy thinking runs every N ticks, offset by entity ID
-        if !tick.should_run(entity, ns_config.thinking_interval) {
+        // Staggered: heavy thinking runs every N ticks, offset by entity ID.
+        // Bootstrap exception: an agent whose urgencies are empty has never
+        // been ticked here (fresh spawn, save reload). Run once immediately
+        // so the brain's first arbitration sees populated urgencies instead
+        // of idling for up to `thinking_interval` ticks.
+        if !cns.urgencies.is_empty() && !tick.should_run(entity, ns_config.thinking_interval) {
             continue;
         }
 
