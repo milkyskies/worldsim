@@ -98,13 +98,20 @@ impl Plugin for SpawnerPlugin {
                 (
                     spawn_initial_population
                         .after(crate::world::map::setup_map)
-                        .run_if(in_debug_mode),
+                        .run_if(in_debug_mode_or_adventure),
                     setup_wolf_pack_bonds
                         .after(spawn_initial_population)
-                        .run_if(in_debug_mode),
+                        .run_if(in_debug_mode_or_adventure),
                     spawn_game_scaffold
                         .after(crate::world::map::setup_map)
                         .run_if(in_game_mode),
+                    // Adventure mode reuses the Debug population, then
+                    // possesses one of the spawned humans. Marker insertion
+                    // runs strictly after spawn so the Person query has a
+                    // non-empty candidate set.
+                    possess_first_person_for_adventure
+                        .after(spawn_initial_population)
+                        .run_if(in_adventure_mode),
                 ),
             )
             .add_systems(FixedUpdate, regenerate_resources)
@@ -149,10 +156,13 @@ fn spawn_initial_population(
     }
 }
 
-/// Run condition: spawn the full sandbox population only when the player picked Debug.
-fn in_debug_mode(sim_config: Option<Res<SimConfig>>) -> bool {
+/// Run condition: the sandbox population spawns for both Debug and
+/// Adventure. Adventure reuses Debug's spawn entirely and then possesses
+/// one of the resulting humans; without this combined gate the Adventure
+/// run would land on an empty map.
+fn in_debug_mode_or_adventure(sim_config: Option<Res<SimConfig>>) -> bool {
     sim_config
-        .map(|c| matches!(c.mode, SimMode::Debug))
+        .map(|c| matches!(c.mode, SimMode::Debug | SimMode::Adventure))
         .unwrap_or(true)
 }
 
@@ -162,6 +172,30 @@ fn in_game_mode(sim_config: Option<Res<SimConfig>>) -> bool {
     sim_config
         .map(|c| matches!(c.mode, SimMode::Game))
         .unwrap_or(false)
+}
+
+/// Run condition: only Adventure mode possesses an agent on entry.
+fn in_adventure_mode(sim_config: Option<Res<SimConfig>>) -> bool {
+    sim_config
+        .map(|c| matches!(c.mode, SimMode::Adventure))
+        .unwrap_or(false)
+}
+
+/// Mark the first spawned human as `PlayerControlled`. The selection is
+/// arbitrary — Adventure-mode spawn placement currently makes every human
+/// equally suitable as the starting body. A later "pick which agent to
+/// possess" UI can replace this with explicit player choice.
+fn possess_first_person_for_adventure(
+    mut commands: Commands,
+    candidates: Query<Entity, With<crate::agent::Person>>,
+) {
+    if let Some(entity) = candidates.iter().next() {
+        crate::agent::player::possess(&mut commands, entity);
+    } else {
+        // Empty population would silently leave Adventure mode without
+        // a body — surface it loudly so we notice the miswire.
+        warn!("Adventure mode entered but no Person was spawned to possess");
+    }
 }
 
 /// Intentionally empty placeholder for the factory-game entry point.
@@ -318,5 +352,50 @@ fn setup_wolf_pack_bonds(
                 meta.clone(),
             ));
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::agent::Person;
+    use crate::agent::player::PlayerControlled;
+
+    /// Drives `possess_first_person_for_adventure` against a tiny world
+    /// holding a Person marker. Asserts the system inserts
+    /// `PlayerControlled` on it. Without this guarantee Adventure mode
+    /// would land in a sandbox where every agent is still AI-driven.
+    #[test]
+    fn possess_marker_lands_on_a_person_when_one_exists() {
+        let mut app = App::new();
+        let person = app.world_mut().spawn(Person).id();
+        let _bystander_with_no_person = app.world_mut().spawn_empty().id();
+
+        let sys_id = app.register_system(possess_first_person_for_adventure);
+        app.world_mut().run_system(sys_id).unwrap();
+        app.update();
+
+        assert!(
+            app.world().get::<PlayerControlled>(person).is_some(),
+            "the spawned Person should now carry PlayerControlled"
+        );
+    }
+
+    /// Empty population must not silently leave Adventure mode without a
+    /// body. The system warns and returns; no entity is marked. We assert
+    /// the negative side of the invariant: no `PlayerControlled` exists.
+    #[test]
+    fn possess_is_a_no_op_when_no_person_was_spawned() {
+        let mut app = App::new();
+        let stranger = app.world_mut().spawn_empty().id();
+
+        let sys_id = app.register_system(possess_first_person_for_adventure);
+        app.world_mut().run_system(sys_id).unwrap();
+        app.update();
+
+        assert!(
+            app.world().get::<PlayerControlled>(stranger).is_none(),
+            "no PlayerControlled should be inserted when no Person exists"
+        );
     }
 }
