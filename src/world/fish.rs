@@ -93,8 +93,10 @@ impl FishHeading {
 /// same `Schooling` defaults but each fish picks its own size scale and a
 /// palette mix, so they don't read as a clone army. Built once at spawn from
 /// the per-species [`FishVariantSpec`].
-#[derive(Component, Reflect, Clone, Debug)]
-#[reflect(Component)]
+///
+/// Not `Reflect` because `PaletteColor` isn't `Reflect` either; the variant
+/// is per-spawn debug-only data so the inspector can live without it.
+#[derive(Component, Clone, Debug)]
 pub struct FishVariant {
     /// Multiplier on the species silhouette. Minnow ~0.85..1.15, Pike ~0.9..1.25.
     pub size_scale: f32,
@@ -320,13 +322,17 @@ pub fn spawn_minnow<R: Rng>(
             Name::new(minnow_name(index)),
             Agent,
             Alive,
-            Fish,
-            Minnow,
-            Schooling::default(),
-            FishHeading::new(heading, speed),
+            // Fish-specific markers + per-tick state grouped in one slot to
+            // stay under Bevy's 16-element bundle cap.
+            (
+                Fish,
+                Minnow,
+                Schooling::default(),
+                FishHeading::new(heading, speed),
+                variant,
+            ),
             EntityType(Concept::Minnow),
             species_profile,
-            variant,
             crate::world::Physical,
             crate::agent::TargetPosition::default(),
             crate::agent::movement::MovementState::default(),
@@ -394,12 +400,10 @@ pub fn spawn_pike<R: Rng>(
             Name::new(pike_name(index)),
             Agent,
             Alive,
-            Fish,
-            Pike,
-            FishHeading::new(heading, speed),
+            // Fish-specific markers grouped under one bundle slot.
+            (Fish, Pike, FishHeading::new(heading, speed), variant),
             EntityType(Concept::Pike),
             species_profile,
-            variant,
             crate::world::Physical,
             crate::agent::TargetPosition::default(),
             crate::agent::movement::MovementState::default(),

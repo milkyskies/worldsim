@@ -19,7 +19,7 @@ use std::collections::HashMap;
 
 use crate::core::{SimRng, TickCount};
 use crate::world::fish::{Fish, FishHeading, Schooling};
-use crate::world::map::{TileType, WorldMap};
+use crate::world::map::{TILE_SIZE, TileType, WorldMap};
 use crate::world::spatial_index::SpatialIndex;
 
 /// World-pixel maximum heading change per tick. Lower = smoother turns,
@@ -49,7 +49,6 @@ impl Plugin for FishMovementPlugin {
             .register_type::<crate::world::fish::Pike>()
             .register_type::<FishHeading>()
             .register_type::<Schooling>()
-            .register_type::<crate::world::fish::FishVariant>()
             .add_systems(FixedUpdate, swim_fish);
     }
 }
@@ -203,18 +202,17 @@ fn shore_avoid_steer(pos: Vec2, heading: Vec2, map: &WorldMap) -> Vec2 {
     if is_water(map, lookahead) {
         return Vec2::ZERO;
     }
-    // Probe the four cardinal directions for nearby water and steer toward
-    // the deepest one we find. Cheap radial scan; fine at fish numbers.
+    // Probe the four cardinal directions one-and-a-half tiles out so each
+    // probe definitely crosses into a neighbouring tile (probes shorter than
+    // one tile-width can all land in the fish's current tile and yield no
+    // information about which way water lies).
+    let probe_dist = TILE_SIZE * 1.5;
     let mut best: Option<Vec2> = None;
-    let mut best_dist = f32::MAX;
     for dir in [Vec2::X, -Vec2::X, Vec2::Y, -Vec2::Y] {
-        let probe = pos + dir * WATER_LOOKAHEAD * 0.5;
+        let probe = pos + dir * probe_dist;
         if is_water(map, probe) {
-            let d = (probe - pos).length();
-            if d < best_dist {
-                best_dist = d;
-                best = Some(dir);
-            }
+            best = Some(dir);
+            break;
         }
     }
     let target = best.unwrap_or(-heading); // u-turn if nothing better
@@ -234,16 +232,6 @@ fn lerp_unit(from: Vec2, to: Vec2, rate: f32) -> Vec2 {
     let blended = from * (1.0 - rate) + to * rate;
     let len = blended.length();
     if len < 1e-4 { from } else { blended / len }
-}
-
-trait Vec2NormalizeOr {
-    fn normalize_or(self, fallback: Vec2) -> Vec2;
-}
-impl Vec2NormalizeOr for Vec2 {
-    fn normalize_or(self, fallback: Vec2) -> Vec2 {
-        let len = self.length();
-        if len < 1e-4 { fallback } else { self / len }
-    }
 }
 
 #[cfg(test)]

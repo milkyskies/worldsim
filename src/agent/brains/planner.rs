@@ -1067,6 +1067,7 @@ pub fn regressive_plan(
                 walk_action,
                 next_state,
                 new_cost,
+                child_depth,
                 &current_state,
                 HEURISTIC_MULTIPLIER,
                 &mut came_from,
