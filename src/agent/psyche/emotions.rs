@@ -250,13 +250,16 @@ pub fn emotion_valence(
     emotion_type: EmotionType,
     traits: &crate::agent::psyche::personality::PersonalityTraits,
 ) -> f32 {
+    let agreeableness = traits.agreeableness();
+    let openness = traits.openness();
+    let neuroticism = traits.neuroticism();
     match emotion_type {
-        EmotionType::Joy => 0.8 + traits.agreeableness * 0.4,
-        EmotionType::Surprise => traits.openness * 0.6 - (1.0 - traits.openness) * 0.2,
-        EmotionType::Sadness => -(0.5 + traits.agreeableness * 0.4 + traits.neuroticism * 0.3),
-        EmotionType::Fear => -(0.6 + traits.neuroticism * 0.4),
-        EmotionType::Anger => -(0.4 + traits.neuroticism * 0.3),
-        EmotionType::Disgust => -(0.5 + traits.neuroticism * 0.2),
+        EmotionType::Joy => 0.8 + agreeableness * 0.4,
+        EmotionType::Surprise => openness * 0.6 - (1.0 - openness) * 0.2,
+        EmotionType::Sadness => -(0.5 + agreeableness * 0.4 + neuroticism * 0.3),
+        EmotionType::Fear => -(0.6 + neuroticism * 0.4),
+        EmotionType::Anger => -(0.4 + neuroticism * 0.3),
+        EmotionType::Disgust => -(0.5 + neuroticism * 0.2),
     }
 }
 
@@ -267,7 +270,7 @@ pub fn compute_target_mood(
     personality: &crate::agent::psyche::personality::Personality,
     body: Option<&crate::agent::biology::body::Body>,
 ) -> f32 {
-    let baseline = (personality.traits.extraversion - personality.traits.neuroticism) * 0.5;
+    let baseline = (personality.traits.extraversion() - personality.traits.neuroticism()) * 0.5;
     let mut mood_sum = baseline;
     let mut weight_sum = 0.5f32;
 
@@ -354,11 +357,11 @@ pub fn compute_stress_gain_rate(
         .map(|e| e.intensity)
         .sum();
     // Openness dampens emotional stress (0.0 openness = full stress, 1.0 = 70% stress).
-    let openness_dampening = 1.0 - traits.openness * 0.3;
+    let openness_dampening = 1.0 - traits.openness() * 0.3;
     let emotional_stress = negative_intensity * config.stress_emotion_weight * openness_dampening;
 
     // Neuroticism scales total stress gain (0.5x at fully stoic, 1.5x at fully neurotic).
-    let neuroticism_multiplier = 0.5 + traits.neuroticism;
+    let neuroticism_multiplier = 0.5 + traits.neuroticism();
     (hunger_stress + fatigue_stress + pain_stress + emotional_stress) * neuroticism_multiplier
 }
 
@@ -380,7 +383,7 @@ pub fn compute_stress_recovery_rate(
     let well_being = (satiety * restedness).sqrt();
 
     // Conscientiousness adds up to 50% on top of the base recovery multiplier.
-    let conscientiousness_multiplier = 1.0 + traits.conscientiousness * 0.5;
+    let conscientiousness_multiplier = 1.0 + traits.conscientiousness() * 0.5;
 
     // Linear ramp from base decay (no well-being) to base * recovery_bonus (full well-being).
     let recovery_multiplier = 1.0 + well_being * (config.stress_recovery_bonus - 1.0);
@@ -782,13 +785,7 @@ mod tests {
     ) -> crate::agent::psyche::personality::Personality {
         use crate::agent::psyche::personality::{Personality, PersonalityTraits};
         Personality {
-            traits: PersonalityTraits {
-                neuroticism,
-                agreeableness,
-                openness,
-                extraversion: 0.5,
-                conscientiousness: 0.5,
-            },
+            traits: PersonalityTraits::uniform(openness, 0.5, 0.5, agreeableness, neuroticism),
         }
     }
 
@@ -878,13 +875,7 @@ mod tests {
         openness: f32,
     ) -> crate::agent::psyche::personality::PersonalityTraits {
         use crate::agent::psyche::personality::PersonalityTraits;
-        PersonalityTraits {
-            neuroticism,
-            conscientiousness,
-            openness,
-            extraversion: 0.5,
-            agreeableness: 0.5,
-        }
+        PersonalityTraits::uniform(openness, conscientiousness, 0.5, 0.5, neuroticism)
     }
 
     fn calm_needs() -> crate::agent::body::needs::PhysicalNeeds {

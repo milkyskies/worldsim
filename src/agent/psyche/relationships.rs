@@ -226,7 +226,7 @@ pub fn update_relationships(
 
                     // Apply personality modifiers
                     // High agreeableness = bigger trust gains, smaller losses
-                    let agreeableness = personality.traits.agreeableness;
+                    let agreeableness = personality.traits.agreeableness();
                     let trust_mod = if trust_delta > 0.0 {
                         0.5 + agreeableness
                     } else {
@@ -234,7 +234,7 @@ pub fn update_relationships(
                     };
 
                     // High neuroticism = bigger negativity impact
-                    let neuroticism = personality.traits.neuroticism;
+                    let neuroticism = personality.traits.neuroticism();
                     let negative_mod = if trust_delta < 0.0 {
                         1.0 + neuroticism * 0.5
                     } else {
