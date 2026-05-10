@@ -187,6 +187,7 @@ pub fn spawn_wolf<R: Rng>(
         .insert((
             crate::agent::affordance::Affordance::default(),
             mind,
+            crate::agent::mind::explored_tiles::ExploredTiles::default(),
             // Vision range overwritten by develop_phenotype_system; placeholder = species baseline.
             crate::agent::mind::perception::Vision {
                 range: SpeciesProfile::wolf().vision_range,

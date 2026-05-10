@@ -10,6 +10,7 @@ use crate::agent::actions::definition::{
 use crate::agent::actions::motor::{ActionPrimitive, IntensityPolicy, Intent, TargetSelector};
 use crate::agent::actions::registry::{ActionKind, LegCompleteContext, LegResult, TargetSource};
 use crate::agent::brains::thinking::{SearchDomain, SearchFilter};
+use crate::agent::mind::explored_tiles::ExploredTiles;
 use crate::agent::mind::knowledge::{Concept, MindGraph, Node, Predicate, Value};
 use crate::world::map::{CHUNK_SIZE, WorldMap};
 use bevy::math::IVec2;
@@ -57,6 +58,7 @@ fn look_for_on_leg_complete(ctx: &mut LegCompleteContext) -> LegResult {
     match pick_look_for_target(
         ctx.agent_position,
         ctx.mind,
+        ctx.explored,
         ctx.world_map,
         ctx.current_tick,
         ctx.search_filter,
@@ -71,13 +73,14 @@ fn look_for_on_leg_complete(ctx: &mut LegCompleteContext) -> LegResult {
 pub fn pick_look_for_target(
     current_pos: Vec2,
     mind: &MindGraph,
+    explored: &ExploredTiles,
     world_map: &WorldMap,
     current_tick: u64,
     filter: Option<SearchFilter>,
     rng: &mut dyn rand::RngCore,
 ) -> Option<Vec2> {
     let Some(filter) = filter else {
-        return pick_explore_target(current_pos, mind, world_map, current_tick, rng);
+        return pick_explore_target(current_pos, explored, world_map, current_tick, rng);
     };
     debug_assert!(
         !filter.is_empty(),
@@ -90,14 +93,14 @@ pub fn pick_look_for_target(
     };
 
     let picked = sample_walkable_scored(current_pos, world_map, 16, rng, |_pos, chunk| {
-        let mut score = staleness_penalty(mind, chunk, current_tick);
+        let mut score = staleness_penalty(explored, chunk, current_tick);
         if hint_chunks.contains(&chunk) {
             score -= 2000.0;
         }
         score
     });
 
-    picked.or_else(|| pick_explore_target(current_pos, mind, world_map, current_tick, rng))
+    picked.or_else(|| pick_explore_target(current_pos, explored, world_map, current_tick, rng))
 }
 
 fn collect_producer_hint_chunks(mind: &MindGraph, filter: &SearchFilter) -> Vec<IVec2> {
@@ -201,6 +204,7 @@ mod tests {
             let target = pick_look_for_target(
                 Vec2::new(10.0, 10.0),
                 &mind,
+                &ExploredTiles::default(),
                 &map,
                 0,
                 Some(SearchFilter::concept(Concept::Food)),
@@ -230,6 +234,7 @@ mod tests {
             let target = pick_look_for_target(
                 Vec2::new(10.0, 10.0),
                 &mind,
+                &ExploredTiles::default(),
                 &map,
                 0,
                 Some(SearchFilter::tile_trait(Concept::Drinkable)),
@@ -258,6 +263,7 @@ mod tests {
         let target = pick_look_for_target(
             Vec2::new(10.0, 10.0),
             &mind,
+            &ExploredTiles::default(),
             &map,
             0,
             Some(SearchFilter::concept(Concept::Food)),

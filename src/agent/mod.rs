@@ -117,6 +117,7 @@ impl Plugin for AgentPlugin {
             .register_type::<body::needs::PsychologicalDrives>()
             .register_type::<body::needs::SocialDriveOverride>()
             .register_type::<mind::affective_tom::AffectiveToM>()
+            .register_type::<mind::explored_tiles::ExploredTiles>()
             .register_type::<mind::memory::WorkingMemory>()
             .register_type::<psyche::emotions::EmotionalState>()
             .register_type::<mind::knowledge::MindGraph>()

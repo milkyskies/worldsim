@@ -216,6 +216,7 @@ pub fn update_body_perception(
             &crate::agent::body::needs::Consciousness,
             &Transform,
             &mut MindGraph,
+            &mut crate::agent::mind::explored_tiles::ExploredTiles,
         ),
         With<Agent>,
     >,
@@ -223,7 +224,7 @@ pub fn update_body_perception(
 ) {
     let current_time = tick.current;
 
-    for (_entity, consciousness, transform, mut mind) in agents.iter_mut() {
+    for (_entity, consciousness, transform, mut mind, mut explored) in agents.iter_mut() {
         // Rule 1: Location
         let pos = transform.translation.truncate();
         let tile_x = (pos.x / TILE_SIZE).floor() as i32;
@@ -234,16 +235,13 @@ pub fn update_body_perception(
             current_time,
         );
 
-        // Rule 2: Explored Areas (Semantic Memory)
+        // Rule 2: Explored Areas — record visited chunk in the typed
+        // component. Replaces the old `(Chunk, Explored, Boolean(true))`
+        // MindGraph triples (#757): set-membership belongs in a bitset/
+        // map, not the triple store.
         let chunk_x = (pos.x / (CHUNK_SIZE as f32 * TILE_SIZE)).floor() as i32;
         let chunk_y = (pos.y / (CHUNK_SIZE as f32 * TILE_SIZE)).floor() as i32;
-
-        mind.assert(Triple::with_meta(
-            Node::Chunk((chunk_x, chunk_y)),
-            Predicate::Explored,
-            Value::Boolean(true),
-            Metadata::semantic(current_time),
-        ));
+        explored.mark_explored((chunk_x, chunk_y), current_time);
 
         // Rule 4: Consciousness
         let is_awake = consciousness.alertness > 0.2;

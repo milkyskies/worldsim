@@ -201,6 +201,7 @@ pub struct LegCompleteContext<'a> {
     pub agent_position: bevy::prelude::Vec2,
     pub world_map: &'a crate::world::map::WorldMap,
     pub mind: &'a MindGraph,
+    pub explored: &'a crate::agent::mind::explored_tiles::ExploredTiles,
     pub physical: &'a crate::agent::body::needs::PhysicalNeeds,
     pub target_entity: Option<bevy::prelude::Entity>,
     pub target_position: Option<bevy::prelude::Vec2>,
