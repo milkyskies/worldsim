@@ -94,19 +94,27 @@ pub fn player_input(
     };
     let current_pos = transform.translation.truncate();
 
-    // No directional key held → stop. Pinning the active Walk's target
-    // to the current position lets the next movement tick observe
-    // distance < ARRIVAL_THRESHOLD and complete the action cleanly,
-    // instead of carrying the player to the last lookahead point and
-    // making each tap feel like a hardcoded one-tile commitment.
+    // No directional key held → stop walking. Pin the active Walk's
+    // target to the current position so the next movement tick observes
+    // distance < ARRIVAL_THRESHOLD and completes the action cleanly
+    // instead of carrying the player to a stale lookahead point.
+    //
+    // CRITICAL: only touch Walk. The context menu writes other actions
+    // (Harvest, Eat, Fish, Build, …) into `chosen_actions`, and an
+    // earlier version of this branch cleared the whole vec on every
+    // tick a movement key wasn't held — which clobbered the menu's
+    // intent before `start_actions` could admit it. Filter to Walk only.
     let Some(direction) = read_movement_direction(&keyboard) else {
         if let Some(state) = active.get_mut(ActionType::Walk) {
             state.target_position = Some(current_pos);
         }
-        target_position.0 = None;
-        if !brain_state.chosen_actions.is_empty() {
-            brain_state.chosen_actions.clear();
-        }
+        brain_state
+            .chosen_actions
+            .retain(|a| a.action_type != ActionType::Walk);
+        // Don't blank the `TargetPosition` component — Harvest and
+        // friends route through it for proximity navigation. Walk's
+        // arrival will leave it pointing at current_pos, which is a
+        // valid no-op for the next admission.
         return;
     };
     let lookahead = current_pos + direction * SMOOTH_WALK_LOOKAHEAD;

@@ -171,6 +171,79 @@ fn held_d_key_walks_player_east() {
     );
 }
 
+/// Regression: when the player's not holding a movement key, the
+/// player_input system used to wipe `chosen_actions` entirely on
+/// every tick. That broke menu-driven actions (Harvest, Eat, Fish,
+/// Build, …) — a Harvest template written by the right-click menu
+/// got cleared one tick later before `start_actions` could admit it.
+///
+/// Fix: only Walk gets removed from `chosen_actions` on key release.
+/// Other action types persist long enough to be admitted.
+#[test]
+fn release_does_not_clobber_non_walk_actions() {
+    use bevy::input::ButtonInput;
+    use worldsim::agent::actions::{ActionType, motor::Behavior};
+    use worldsim::agent::brains::thinking::ActionTemplate;
+    use worldsim::agent::mind::knowledge::{Predicate, Triple, Value};
+
+    let mut world = TestWorld::with_seed(42);
+    let agent = world.spawn_agent(AgentConfig {
+        pos: Vec2::ZERO,
+        ..Default::default()
+    });
+    world
+        .app_mut()
+        .world_mut()
+        .entity_mut(agent)
+        .insert(PlayerControlled);
+
+    // Install an InputPlugin substitute and explicitly leave every key
+    // unpressed — that's the case the regression covers.
+    world
+        .app_mut()
+        .world_mut()
+        .insert_resource(ButtonInput::<KeyCode>::default());
+
+    // Stand in for the menu's Harvest write: drop a non-Walk template
+    // into BrainState.chosen_actions and verify that player_input
+    // doesn't strip it.
+    let harvest_template = ActionTemplate {
+        name: "Harvest".to_string(),
+        action_type: ActionType::Harvest,
+        behavior: Behavior::default(),
+        target_entity: None,
+        target_position: None,
+        preconditions: Vec::new(),
+        effects: vec![Triple::new(
+            worldsim::agent::mind::knowledge::Node::Self_,
+            Predicate::Contains,
+            Value::Item(worldsim::agent::mind::knowledge::Concept::Apple, 1),
+        )],
+        consumes: Vec::new(),
+        base_cost: 0.0,
+        locomotion_intensity: 0.0,
+        estimated_duration_ticks: None,
+        search_filter: None,
+    };
+    world
+        .get_mut::<worldsim::agent::brains::proposal::BrainState>(agent)
+        .chosen_actions = vec![harvest_template];
+
+    world.tick(5);
+
+    let chosen: Vec<ActionType> = world
+        .get::<worldsim::agent::brains::proposal::BrainState>(agent)
+        .chosen_actions
+        .iter()
+        .map(|a| a.action_type)
+        .collect();
+    assert!(
+        chosen.contains(&ActionType::Harvest),
+        "non-Walk actions must survive a few ticks of no movement input \
+         so start_actions can admit them — got chosen={chosen:?}"
+    );
+}
+
 /// `release` reverses possession: the marker is removed and the AI
 /// resumes deciding for the agent. Without this we'd have a one-way
 /// ticket — once possessed, always possessed.
