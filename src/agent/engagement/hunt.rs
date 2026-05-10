@@ -111,8 +111,7 @@ impl Plugin for HuntPlugin {
         app.init_resource::<HuntRegistry>().add_systems(
             FixedUpdate,
             (
-                process_initiate_hunt
-                    .after(crate::agent::nervous_system::execution::start_actions),
+                process_initiate_hunt.after(crate::agent::nervous_system::execution::start_actions),
                 drive_hunt_engagement.after(process_initiate_hunt),
                 evaluate_hunt_continuation.after(drive_hunt_engagement),
             )

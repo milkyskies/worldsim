@@ -33,18 +33,9 @@ impl EngagementKind {
                 action,
                 ActionType::InitiateHunt | ActionType::Bite | ActionType::Walk
             ),
-            Self::Devour => matches!(
-                action,
-                ActionType::InitiateDevour | ActionType::Devour
-            ),
-            Self::Harvest => matches!(
-                action,
-                ActionType::InitiateHarvest | ActionType::Harvest
-            ),
-            Self::Flee => matches!(
-                action,
-                ActionType::InitiateFlee | ActionType::Flee
-            ),
+            Self::Devour => matches!(action, ActionType::InitiateDevour | ActionType::Devour),
+            Self::Harvest => matches!(action, ActionType::InitiateHarvest | ActionType::Harvest),
+            Self::Flee => matches!(action, ActionType::InitiateFlee | ActionType::Flee),
             Self::Sleep => matches!(
                 action,
                 ActionType::InitiateSleep | ActionType::Sleep | ActionType::WakeUp

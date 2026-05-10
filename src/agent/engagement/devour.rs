@@ -147,15 +147,32 @@ pub fn process_initiate_devour(
         }
 
         let Some(corpse) = corpse_opt else {
-            drop_initiate(predator, now, FailureReason::NoTarget, &mut active_actions, &mut sim_events);
+            drop_initiate(
+                predator,
+                now,
+                FailureReason::NoTarget,
+                &mut active_actions,
+                &mut sim_events,
+            );
             continue;
         };
         let Ok(corpse_t) = target_transforms.get(corpse) else {
-            drop_initiate(predator, now, FailureReason::TargetGone, &mut active_actions, &mut sim_events);
+            drop_initiate(
+                predator,
+                now,
+                FailureReason::TargetGone,
+                &mut active_actions,
+                &mut sim_events,
+            );
             continue;
         };
-        let Ok(predator_t) = transforms.get(predator) else { continue };
-        let distance = predator_t.translation.truncate().distance(corpse_t.translation.truncate());
+        let Ok(predator_t) = transforms.get(predator) else {
+            continue;
+        };
+        let distance = predator_t
+            .translation
+            .truncate()
+            .distance(corpse_t.translation.truncate());
         if distance > DEVOUR_RANGE {
             // Walk-leg auto-injected via the `InitiateDevour` proximity
             // precondition — the brain's plan should already be Walk →

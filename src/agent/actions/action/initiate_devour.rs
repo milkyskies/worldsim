@@ -8,8 +8,8 @@
 use crate::agent::actions::ActionType;
 use crate::agent::actions::channel::{Channel, ChannelUsage, Posture};
 use crate::agent::actions::definition::{
-    ActionDefinition, CompletionPredicate, EffectTemplate, Gate, Hooks, PlanValidity, SatiationGate,
-    TargetEffects,
+    ActionDefinition, CompletionPredicate, EffectTemplate, Gate, Hooks, PlanValidity,
+    SatiationGate, TargetEffects,
 };
 use crate::agent::actions::motor::{ActionPrimitive, IntensityPolicy, Intent, TargetSelector};
 use crate::agent::actions::registry::{ActionKind, TargetSource};

@@ -16,9 +16,7 @@ use super::registry::EngagementRegistry;
 use crate::agent::Agent;
 use crate::agent::actions::registry::{ActionState, ActiveActions};
 use crate::agent::actions::types::ActionType;
-use crate::agent::events::{
-    EngagementBeatPayload, FailureReason, SimEvent, SimEventKind,
-};
+use crate::agent::events::{EngagementBeatPayload, FailureReason, SimEvent, SimEventKind};
 use crate::agent::mind::perception::VisibleObjects;
 use crate::core::not_paused;
 use crate::core::tick::TickCount;
@@ -77,8 +75,7 @@ impl Plugin for FleePlugin {
         app.init_resource::<FleeRegistry>().add_systems(
             FixedUpdate,
             (
-                process_initiate_flee
-                    .after(crate::agent::nervous_system::execution::start_actions),
+                process_initiate_flee.after(crate::agent::nervous_system::execution::start_actions),
                 drive_flee_engagement.after(process_initiate_flee),
                 evaluate_flee_continuation.after(drive_flee_engagement),
             )
@@ -188,7 +185,10 @@ pub fn drive_flee_engagement(
             session.last_seen_tick = now;
         }
 
-        let threat_pos = transforms.get(session.threat).ok().map(|t| t.translation.truncate());
+        let threat_pos = transforms
+            .get(session.threat)
+            .ok()
+            .map(|t| t.translation.truncate());
 
         if let Ok(mut active) = active_actions.get_mut(session.fleer) {
             let mut flee = ActionState::new(ActionType::Flee, now);

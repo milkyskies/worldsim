@@ -14,9 +14,7 @@ use super::registry::EngagementRegistry;
 use crate::agent::Agent;
 use crate::agent::actions::registry::{ActionState, ActiveActions};
 use crate::agent::actions::types::ActionType;
-use crate::agent::events::{
-    EngagementBeatPayload, FailureReason, SimEvent, SimEventKind,
-};
+use crate::agent::events::{EngagementBeatPayload, FailureReason, SimEvent, SimEventKind};
 use crate::agent::psyche::emotions::EmotionalState;
 use crate::constants::actions::harvest::DURATION_TICKS as YIELD_COOLDOWN_TICKS;
 use crate::core::not_paused;
@@ -131,21 +129,41 @@ pub fn process_initiate_harvest(
             continue;
         }
         let Some(source) = source_opt else {
-            drop_initiate(harvester, now, FailureReason::NoTarget, &mut active_actions, &mut sim_events);
+            drop_initiate(
+                harvester,
+                now,
+                FailureReason::NoTarget,
+                &mut active_actions,
+                &mut sim_events,
+            );
             continue;
         };
         let Ok(source_t) = target_transforms.get(source) else {
-            drop_initiate(harvester, now, FailureReason::TargetGone, &mut active_actions, &mut sim_events);
+            drop_initiate(
+                harvester,
+                now,
+                FailureReason::TargetGone,
+                &mut active_actions,
+                &mut sim_events,
+            );
             continue;
         };
-        let Ok(harvester_t) = transforms.get(harvester) else { continue };
-        if harvester_t.translation.truncate().distance(source_t.translation.truncate()) > HARVEST_RANGE {
+        let Ok(harvester_t) = transforms.get(harvester) else {
+            continue;
+        };
+        if harvester_t
+            .translation
+            .truncate()
+            .distance(source_t.translation.truncate())
+            > HARVEST_RANGE
+        {
             continue;
         }
         let id = registry.start(&mut id_minter, harvester, source, now);
-        commands
-            .entity(harvester)
-            .insert((Engaged::new(EngagementKind::Harvest, id), EngagedHarvest(id)));
+        commands.entity(harvester).insert((
+            Engaged::new(EngagementKind::Harvest, id),
+            EngagedHarvest(id),
+        ));
 
         if let Ok((_, mut active)) = active_actions.get_mut(harvester) {
             active.remove(ActionType::InitiateHarvest);

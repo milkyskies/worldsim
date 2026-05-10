@@ -53,7 +53,8 @@ impl SleepRegistry {
         tick: u64,
     ) -> EngagementId {
         let id = ids.mint();
-        self.sessions.insert(id, SleepSession::new(id, sleeper, tick));
+        self.sessions
+            .insert(id, SleepSession::new(id, sleeper, tick));
         id
     }
 }
