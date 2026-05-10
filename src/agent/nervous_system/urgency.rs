@@ -105,7 +105,7 @@ pub struct Urgency {
     /// The entity this urgency is *about*. `None` for self-regarding
     /// drives (the default); `Some(other)` for other-regarding drives
     /// like Compassion, where the urgency targets a peer's state.
-    #[serde(serialize_with = "serialize_optional_entity")]
+    #[serde(serialize_with = "crate::core::entity_serde::serialize_entity_opt")]
     pub target: Option<Entity>,
 }
 
@@ -127,16 +127,6 @@ impl Urgency {
             value,
             target: Some(target),
         }
-    }
-}
-
-fn serialize_optional_entity<S: serde::Serializer>(
-    target: &Option<Entity>,
-    serializer: S,
-) -> Result<S::Ok, S::Error> {
-    match target {
-        Some(entity) => crate::core::entity_serde::serialize_entity(entity, serializer),
-        None => serializer.serialize_none(),
     }
 }
 
@@ -496,6 +486,10 @@ fn emit_compassion_urgencies(
     out: &mut Vec<Urgency>,
 ) {
     use crate::agent::nervous_system::other_regarding::ChannelContext;
+
+    if channels.channel_count() == 0 {
+        return;
+    }
 
     for (target, mood) in affective_tom.iter() {
         let perceived_deficit = mood.distress_score() * mood.confidence_at(now);

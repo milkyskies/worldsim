@@ -1,26 +1,19 @@
-//! Other-regarding drive primitive: urgency that fires on a peer's
-//! perceived state, weighted by a sum of pluggable motivation channels.
+//! Other-regarding urgency: `urgency = perceived_deficit × Σ channel(ctx)`.
 //!
-//! Reads: AffectiveToM (perceived peer state), MindGraph (affection),
-//!        OtherRegardingChannels (registered contributors)
+//! Reads: AffectiveToM, MindGraph (affection store), OtherRegardingChannels
 //! Writes: nothing (returns urgency values to the urgency loop)
-//! Upstream: mind::affective_tom (perceived distress), psyche::relationships
-//!           (affection store)
+//! Upstream: mind::affective_tom, psyche::relationships
 //! Downstream: nervous_system::urgency (Compassion emission)
 //!
-//! See issue #736. The headline formula is
-//!     `urgency = perceived_deficit × Σ channel_contribution(...)`
-//! Each channel is a pluggable `fn(&ChannelContext) -> f32` that captures
-//! one reason "their bad state → my urgency" can become true. This issue
-//! ships **the framework** plus the **affection channel** (Channel 1).
-//! Future channels (empathy contagion #66, aspiration #529/#740, kin
-//! recognition, group identity #76/#559, reciprocity) compose by calling
-//! `OtherRegardingChannels::register(...)` in their plugin's Startup.
+//! Each channel is a pluggable `fn(&ChannelContext) -> f32` capturing one
+//! reason "their bad state → my urgency" can become true. New channels
+//! call `OtherRegardingChannels::register` in their plugin Startup.
 
 use bevy::prelude::*;
 
-use crate::agent::mind::knowledge::{MindGraph, Node, Predicate, Quantity, Value};
+use crate::agent::mind::knowledge::MindGraph;
 use crate::agent::nervous_system::urgency::UrgencySource;
+use crate::agent::psyche::relationships::{NEUTRAL, affection_toward};
 
 /// Inputs available to every channel function. Carries pointers, not
 /// owned data — channels read their slice of world state and return a
@@ -81,25 +74,14 @@ impl OtherRegardingChannels {
     }
 }
 
-/// Channel 1 — affection. Reads the observer's stored affection toward
-/// the target from its `MindGraph`. Returns a contribution that grows
-/// linearly above neutral (0.5): neutral or below contributes nothing,
-/// fully-bonded (1.0) contributes 1.0. The "above-neutral" gate keeps
-/// disliked strangers from generating compassion urgency.
+/// Channel 1 — affection. Linear above the relationship-store neutral:
+/// neutral or below contributes nothing, fully-bonded (1.0) contributes
+/// 1.0. The above-neutral gate keeps disliked strangers from generating
+/// compassion urgency.
 pub fn affection_channel(ctx: &ChannelContext) -> f32 {
-    let affection = match ctx
-        .mind
-        .get(&Node::Entity(ctx.target), Predicate::Affection)
-    {
-        Some(Value::Quantity(Quantity::Exact(v))) => *v,
-        _ => NEUTRAL_AFFECTION,
-    };
-    ((affection - NEUTRAL_AFFECTION).max(0.0) / (1.0 - NEUTRAL_AFFECTION)).clamp(0.0, 1.0)
+    let affection = affection_toward(ctx.mind, ctx.target);
+    ((affection - NEUTRAL).max(0.0) / (1.0 - NEUTRAL)).clamp(0.0, 1.0)
 }
-
-/// Affection value at which the affection channel begins contributing.
-/// Matches the relationships store's neutral midpoint.
-pub const NEUTRAL_AFFECTION: f32 = 0.5;
 
 /// Plugin Startup hook: registers the default channels shipped with this
 /// primitive. Future-channel PRs add their own registrations alongside.
@@ -110,7 +92,9 @@ pub fn register_default_channels(mut channels: ResMut<OtherRegardingChannels>) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::agent::mind::knowledge::{Metadata, Triple, setup_ontology};
+    use crate::agent::mind::knowledge::{
+        Metadata, Node, Predicate, Quantity, Triple, Value, setup_ontology,
+    };
 
     fn ctx_with_affection<'a>(
         observer: Entity,
@@ -126,16 +110,9 @@ mod tests {
     }
 
     fn mind_with_affection(target: Entity, value: f32) -> MindGraph {
+        // The relationships store writes Entity-keyed affection triples;
+        // the channel reads through that subject form.
         let mut mind = MindGraph::new(setup_ontology());
-        mind.assert(Triple::with_meta(
-            Node::Self_,
-            Predicate::Affection,
-            Value::Quantity(Quantity::Exact(value)),
-            Metadata::default(),
-        ));
-        // Also assert under Entity-keyed form (the relationships store
-        // writes (Entity(target), Affection, value) so the channel reads
-        // it directly).
         mind.assert(Triple::with_meta(
             Node::Entity(target),
             Predicate::Affection,

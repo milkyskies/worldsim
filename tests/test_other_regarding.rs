@@ -1,10 +1,5 @@
-//! Integration tests for the other-regarding drive primitive (#736).
-//!
-//! Pins the wiring: a high-affection observer who has perceived a
-//! distressed peer (via Affective ToM) emits a Compassion urgency
-//! targeting that peer. Low-affection observers don't. The urgency's
-//! `target` field carries the peer's entity so downstream consumers
-//! (goal generation, planner) know who the urgency is about.
+//! End-to-end: Compassion urgency rises for a distressed peer when
+//! affection is high, and the urgency carries the peer as `target`.
 
 use bevy::math::Vec2;
 use worldsim::agent::body::genetics::builder::personality;

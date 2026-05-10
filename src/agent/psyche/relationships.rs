@@ -298,7 +298,17 @@ pub fn update_relationships(
 }
 
 /// Neutral value for trust/affection. Decay pulls values toward this.
-const NEUTRAL: f32 = 0.5;
+pub const NEUTRAL: f32 = 0.5;
+
+/// Read the observer's stored affection toward `target`. Returns
+/// `NEUTRAL` when no relationship triple exists, matching the decay
+/// target the rest of the system pulls toward.
+pub fn affection_toward(mind: &MindGraph, target: Entity) -> f32 {
+    match mind.get(&Node::Entity(target), Predicate::Affection) {
+        Some(Value::Quantity(Quantity::Exact(v))) => *v,
+        _ => NEUTRAL,
+    }
+}
 
 /// Compute the fraction of the distance to neutral that a relationship should
 /// decay over one step, given the step size and the current value.
