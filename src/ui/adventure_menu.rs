@@ -9,6 +9,7 @@ use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 use bevy_egui::{EguiContext, EguiPrimaryContextPass, PrimaryEguiContext, egui};
 
+use crate::agent::actions::action::drink::is_adjacent_to_water;
 use crate::agent::actions::{ActionRegistry, ActionType};
 use crate::agent::brains::proposal::BrainState;
 use crate::agent::brains::thinking::ActionTemplate;
@@ -19,6 +20,7 @@ use crate::agent::player::PlayerControlled;
 use crate::ui::UiState;
 use crate::ui::camera;
 use crate::ui::sprite_animation::VisualOffset;
+use crate::world::map::WorldMap;
 
 /// Pick radius around the cursor for entity selection. Mirrors the
 /// existing `handle_game_click` value so right-click and left-click
@@ -116,11 +118,21 @@ fn capture_right_click(
     // the player's own sprite — that case is handled by SELF_PICK_RADIUS
     // below so a right-click on yourself opens the self menu instead of
     // a "do something to yourself" entity menu.
-    let mut best: Option<(Entity, f32, Vec2, Option<Concept>)> = None;
+    let mut best: Option<(Entity, f32, Vec2, Concept)> = None;
     for (entity, transform, sprite, vo, entity_type) in entities.iter() {
         if entity == player_entity {
             continue;
         }
+        // Only entities tagged with `EntityType` are real interactable
+        // world objects (Person, AppleTree, Wolf, …). The skipped ones
+        // are mostly silhouette child sprites (head, torso, eyes) that
+        // share the player's transform — without this filter, right-
+        // clicking on yourself picks one of your own body parts and the
+        // menu opens on a concept-less "Target" instead of falling
+        // through to the self-menu via SELF_PICK_RADIUS.
+        let Some(et) = entity_type else {
+            continue;
+        };
         let visual_pos = VisualOffset::apply(vo, transform.translation.truncate());
         let dist = visual_pos.distance(world_position);
         let entity_radius = sprite
@@ -133,14 +145,14 @@ fn capture_right_click(
         let z = transform.translation.z;
         match &best {
             Some((_, best_z, _, _)) if *best_z >= z => {}
-            _ => best = Some((entity, z, visual_pos, entity_type.map(|et| et.0))),
+            _ => best = Some((entity, z, visual_pos, et.0)),
         }
     }
 
     let target = if let Some((entity, _z, world_pos, concept)) = best {
         MenuTarget::Entity {
             entity,
-            concept,
+            concept: Some(concept),
             world_pos,
         }
     } else if player_transform
@@ -170,7 +182,8 @@ fn render_menu(
     mut menu_state: ResMut<AdventureMenuState>,
     action_registry: Res<ActionRegistry>,
     ontology: Res<Ontology>,
-    mut player: Query<(&ItemSlots, &mut BrainState), With<PlayerControlled>>,
+    map: Res<WorldMap>,
+    mut player: Query<(&Transform, &ItemSlots, &mut BrainState), With<PlayerControlled>>,
 ) {
     let Some(open) = menu_state.open.clone() else {
         return;
@@ -178,13 +191,14 @@ fn render_menu(
     let Ok(mut egui_ctx) = contexts.single_mut() else {
         return;
     };
-    let Ok((inventory, mut brain_state)) = player.single_mut() else {
+    let Ok((player_transform, inventory, mut brain_state)) = player.single_mut() else {
         // Player despawned or marker dropped — close the menu.
         menu_state.open = None;
         return;
     };
 
-    let verbs = applicable_verbs(open.target, inventory, &ontology);
+    let player_pos = player_transform.translation.truncate();
+    let verbs = applicable_verbs(open.target, inventory, &ontology, player_pos, &map);
     let mut chosen_template: Option<ActionTemplate> = None;
     let mut close_menu = false;
 
@@ -200,7 +214,7 @@ fn render_menu(
                     ui.weak("(no actions available)");
                 } else {
                     for (action_type, label) in &verbs {
-                        if ui.button(*label).clicked() {
+                        if ui.button(label).clicked() {
                             chosen_template =
                                 build_template(*action_type, open.target, &action_registry);
                             close_menu = true;
@@ -246,42 +260,96 @@ fn applicable_verbs(
     target: MenuTarget,
     inventory: &ItemSlots,
     ontology: &Ontology,
-) -> Vec<(ActionType, &'static str)> {
+    player_pos: Vec2,
+    map: &WorldMap,
+) -> Vec<(ActionType, String)> {
     match target {
         MenuTarget::Self_ => {
-            let mut v = Vec::with_capacity(4);
-            if inventory.has_edible(ontology) {
-                v.push((ActionType::Eat, "Eat"));
+            let mut v = Vec::with_capacity(8);
+            // One "Eat <food> (qty)" entry per distinct food in
+            // inventory. Shows the player exactly what they have to
+            // eat instead of a generic "Eat" that silently picks the
+            // first edible. The Eat action itself still picks the
+            // first food internally, so for now all of these run the
+            // same action — but the visibility is the win, and a
+            // future "Eat this specific concept" parameter on Eat
+            // will hook up cleanly.
+            for (concept, count) in collect_food_in_inventory(inventory, ontology) {
+                v.push((ActionType::Eat, format!("Eat {:?} ({count})", concept)));
             }
-            v.push((ActionType::Sleep, "Sleep"));
-            v.push((ActionType::Rest, "Rest"));
-            v.push((ActionType::Idle, "Wait"));
+            // Fish and Drink share the AdjacentToWater gate. Offering
+            // them only when the gate would pass keeps the menu honest
+            // — clicking a verb that the engine would immediately
+            // reject is worse than not seeing it.
+            if is_adjacent_to_water(player_pos, map) {
+                v.push((ActionType::Fish, "Fish".into()));
+                v.push((ActionType::Drink, "Drink".into()));
+            }
+            v.push((ActionType::Sleep, "Sleep".into()));
+            v.push((ActionType::Rest, "Rest".into()));
+            v.push((ActionType::Idle, "Wait".into()));
             v
         }
         MenuTarget::Entity { concept, .. } => verbs_for_concept(concept),
     }
 }
 
-fn verbs_for_concept(concept: Option<Concept>) -> Vec<(ActionType, &'static str)> {
+/// Collect every distinct food concept in the inventory along with its
+/// total count across slots. Uses both the ontology's `Edible` trait
+/// (covers anything tagged via `Food HasTrait Edible`) AND a direct
+/// `IsA Food` check (covers cases where the trait cache may be missing
+/// the inheritance, which is what bit us in the wild — a player with
+/// fresh berries saw no Eat entry because `has_edible` returned false).
+/// Either signal is sufficient.
+fn collect_food_in_inventory(inventory: &ItemSlots, ontology: &Ontology) -> Vec<(Concept, u32)> {
+    use std::collections::BTreeMap;
+    let mut counts: BTreeMap<&'static str, (Concept, u32)> = BTreeMap::new();
+    for thing in inventory.all_items() {
+        let is_food = ontology.has_trait(thing.concept, Concept::Edible)
+            || ontology.is_a(thing.concept, Concept::Food);
+        if !is_food {
+            continue;
+        }
+        let key = concept_key(thing.concept);
+        let entry = counts.entry(key).or_insert((thing.concept, 0));
+        entry.1 += 1;
+    }
+    counts.into_values().collect()
+}
+
+/// Stable key for grouping in `collect_food_in_inventory`. `Concept`
+/// is `Copy + Hash + Eq` but `BTreeMap` needs `Ord`; we don't want to
+/// derive Ord on a public enum just for this, so the Debug name is the
+/// stable proxy.
+fn concept_key(concept: Concept) -> &'static str {
+    // Leak is fine — `Concept` is a small finite enum, the leaked
+    // strings amount to one entry per variant for the lifetime of the
+    // process.
+    Box::leak(format!("{:?}", concept).into_boxed_str())
+}
+
+fn verbs_for_concept(concept: Option<Concept>) -> Vec<(ActionType, String)> {
     let Some(concept) = concept else {
         return Vec::new();
     };
     match concept {
         Concept::AppleTree | Concept::BerryBush | Concept::StoneNode | Concept::WoodLog => {
-            vec![(ActionType::Harvest, "Harvest")]
+            vec![(ActionType::Harvest, "Harvest".into())]
         }
         Concept::Person => vec![
-            (ActionType::Wave, "Wave"),
-            (ActionType::InitiateConversation, "Talk to"),
-            (ActionType::Attack, "Attack"),
+            (ActionType::Wave, "Wave".into()),
+            (ActionType::InitiateConversation, "Talk to".into()),
+            (ActionType::Attack, "Attack".into()),
         ],
-        Concept::Wolf | Concept::Deer => vec![(ActionType::Attack, "Attack")],
+        Concept::Wolf | Concept::Deer => vec![(ActionType::Attack, "Attack".into())],
         Concept::StorageChest => vec![
-            (ActionType::Take, "Take from"),
-            (ActionType::Deposit, "Deposit into"),
+            (ActionType::Take, "Take from".into()),
+            (ActionType::Deposit, "Deposit into".into()),
         ],
-        Concept::Campfire => vec![(ActionType::WarmUp, "Warm up by")],
-        Concept::LeanTo | Concept::House => vec![(ActionType::RestInShelter, "Rest inside")],
+        Concept::Campfire => vec![(ActionType::WarmUp, "Warm up by".into())],
+        Concept::LeanTo | Concept::House => {
+            vec![(ActionType::RestInShelter, "Rest inside".into())]
+        }
         _ => Vec::new(),
     }
 }
@@ -315,6 +383,7 @@ mod tests {
 
     use super::*;
     use crate::agent::item_slots::ItemSlots;
+    use crate::world::map::{TileType, WorldMap};
 
     fn empty_ontology() -> Ontology {
         crate::agent::mind::knowledge::setup_ontology()
@@ -330,11 +399,25 @@ mod tests {
         inv
     }
 
+    /// 5×5 map covered by a single chunk-of-grass. `WorldMap::new` is
+    /// sparse — `set_tile` no-ops if the chunk doesn't exist yet — so
+    /// we insert a default chunk first. Default tile is Grass, so the
+    /// AdjacentToWater gate stays false until a test explicitly sets
+    /// a water tile via `set_tile`.
+    fn dry_map() -> WorldMap {
+        use crate::world::map::Chunk;
+        let mut map = WorldMap::new(5, 5);
+        map.chunks
+            .insert(bevy::prelude::IVec2::new(0, 0), Chunk::new(0, 0));
+        map
+    }
+
     #[test]
     fn self_menu_omits_eat_when_inventory_has_no_food() {
         let inv = empty_inventory();
         let ontology = empty_ontology();
-        let verbs = applicable_verbs(MenuTarget::Self_, &inv, &ontology);
+        let map = dry_map();
+        let verbs = applicable_verbs(MenuTarget::Self_, &inv, &ontology, Vec2::ZERO, &map);
         assert!(verbs.iter().all(|(a, _)| *a != ActionType::Eat));
         // The other self-verbs are always offered.
         assert!(verbs.iter().any(|(a, _)| *a == ActionType::Sleep));
@@ -346,20 +429,46 @@ mod tests {
     fn self_menu_offers_eat_when_carrying_food() {
         let inv = stocked_inventory(Concept::Apple);
         let ontology = empty_ontology();
-        let verbs = applicable_verbs(MenuTarget::Self_, &inv, &ontology);
+        let map = dry_map();
+        let verbs = applicable_verbs(MenuTarget::Self_, &inv, &ontology, Vec2::ZERO, &map);
         assert!(verbs.iter().any(|(a, _)| *a == ActionType::Eat));
+    }
+
+    #[test]
+    fn self_menu_omits_fish_and_drink_when_no_water_nearby() {
+        let inv = empty_inventory();
+        let ontology = empty_ontology();
+        let map = dry_map();
+        let verbs = applicable_verbs(MenuTarget::Self_, &inv, &ontology, Vec2::ZERO, &map);
+        assert!(verbs.iter().all(|(a, _)| *a != ActionType::Fish));
+        assert!(verbs.iter().all(|(a, _)| *a != ActionType::Drink));
+    }
+
+    #[test]
+    fn self_menu_offers_fish_and_drink_when_adjacent_to_water() {
+        let inv = empty_inventory();
+        let ontology = empty_ontology();
+        // Place water one tile east of (1,1) so the agent at the center
+        // of (1,1) is adjacent to it.
+        let mut map = dry_map();
+        map.set_tile(2, 1, TileType::Water);
+        let pos = map.tile_to_world(1, 1);
+        let verbs = applicable_verbs(MenuTarget::Self_, &inv, &ontology, pos, &map);
+        assert!(verbs.iter().any(|(a, _)| *a == ActionType::Fish));
+        assert!(verbs.iter().any(|(a, _)| *a == ActionType::Drink));
     }
 
     #[test]
     fn apple_tree_target_offers_harvest() {
         let inv = empty_inventory();
         let ontology = empty_ontology();
+        let map = dry_map();
         let target = MenuTarget::Entity {
             entity: Entity::PLACEHOLDER,
             concept: Some(Concept::AppleTree),
             world_pos: Vec2::ZERO,
         };
-        let verbs = applicable_verbs(target, &inv, &ontology);
+        let verbs = applicable_verbs(target, &inv, &ontology, Vec2::ZERO, &map);
         assert!(verbs.iter().any(|(a, _)| *a == ActionType::Harvest));
     }
 
@@ -367,12 +476,13 @@ mod tests {
     fn person_target_offers_social_and_combat_verbs() {
         let inv = empty_inventory();
         let ontology = empty_ontology();
+        let map = dry_map();
         let target = MenuTarget::Entity {
             entity: Entity::PLACEHOLDER,
             concept: Some(Concept::Person),
             world_pos: Vec2::ZERO,
         };
-        let verbs = applicable_verbs(target, &inv, &ontology);
+        let verbs = applicable_verbs(target, &inv, &ontology, Vec2::ZERO, &map);
         assert!(verbs.iter().any(|(a, _)| *a == ActionType::Wave));
         assert!(
             verbs
@@ -386,6 +496,7 @@ mod tests {
     fn unknown_concept_offers_no_verbs() {
         let inv = empty_inventory();
         let ontology = empty_ontology();
+        let map = dry_map();
         // Sapling is a valid concept but isn't in the player verb table —
         // verifies the fallback branch returns nothing rather than panic.
         let target = MenuTarget::Entity {
@@ -393,7 +504,7 @@ mod tests {
             concept: Some(Concept::Sapling),
             world_pos: Vec2::ZERO,
         };
-        let verbs = applicable_verbs(target, &inv, &ontology);
+        let verbs = applicable_verbs(target, &inv, &ontology, Vec2::ZERO, &map);
         assert!(verbs.is_empty());
     }
 }

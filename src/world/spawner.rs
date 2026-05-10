@@ -181,20 +181,32 @@ fn in_adventure_mode(sim_config: Option<Res<SimConfig>>) -> bool {
         .unwrap_or(false)
 }
 
-/// Mark the first spawned human as `PlayerControlled`. The selection is
-/// arbitrary — Adventure-mode spawn placement currently makes every human
-/// equally suitable as the starting body. A later "pick which agent to
-/// possess" UI can replace this with explicit player choice.
+/// Mark the first spawned human as `PlayerControlled` and pin the
+/// character sheet to them so the player sees their own stats from
+/// turn one without having to left-click themselves.
+///
+/// The selection is arbitrary — Adventure-mode spawn placement currently
+/// makes every human equally suitable as the starting body. A later
+/// "pick which agent to possess" UI can replace this with explicit
+/// player choice.
 fn possess_first_person_for_adventure(
     mut commands: Commands,
     candidates: Query<Entity, With<crate::agent::Person>>,
+    // `Option` so headless / TestWorld runs that don't init UiState
+    // still take the possess path without panicking.
+    ui_state: Option<ResMut<crate::ui::UiState>>,
 ) {
-    if let Some(entity) = candidates.iter().next() {
-        crate::agent::player::possess(&mut commands, entity);
-    } else {
+    let Some(entity) = candidates.iter().next() else {
         // Empty population would silently leave Adventure mode without
         // a body — surface it loudly so we notice the miswire.
         warn!("Adventure mode entered but no Person was spawned to possess");
+        return;
+    };
+    crate::agent::player::possess(&mut commands, entity);
+    if let Some(mut ui_state) = ui_state {
+        // `add = false` replaces the selection rather than appending,
+        // so any stale entity from a previous run gets cleared.
+        ui_state.selected_entities.select_maybe_add(entity, false);
     }
 }
 
