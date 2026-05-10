@@ -119,6 +119,21 @@ pub mod world {
 
     /// Minimum tile distance between a wolf pack anchor and the human settlement.
     pub const WOLF_MIN_DISTANCE_FROM_SETTLEMENT: u32 = 30;
+
+    /// Total minnows seeded into water bodies on a fresh map. Tuned low for
+    /// per-tick perf — Boids neighbour scans are O(N²) inside a chunk.
+    pub const MINNOW_SPAWN_COUNT: usize = 30;
+
+    /// Number of minnows per school. The seeding loop drops them in clusters
+    /// of this size so a school looks like a school, not isolated specks.
+    pub const MINNOW_SCHOOL_SIZE: usize = 8;
+
+    /// Tile radius for a minnow school cluster.
+    pub const MINNOW_SCHOOL_RADIUS_TILES: u32 = 4;
+
+    /// Total pikes seeded into water bodies. Solitary so each one is its own
+    /// "school of one" in the placement loop.
+    pub const PIKE_SPAWN_COUNT: usize = 4;
 }
 
 /// Agent movement parameters

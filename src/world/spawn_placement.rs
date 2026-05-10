@@ -168,6 +168,56 @@ pub fn find_biome_tile(
     None
 }
 
+/// Find a random water tile (deep or shallow). Returns the world position
+/// (tile center) or `None` if no water is present within `max_attempts` rolls.
+/// Used by fish spawning — the only callers that *want* to land on water.
+pub fn find_water_tile(map: &WorldMap, rng: &mut impl Rng, max_attempts: usize) -> Option<Vec2> {
+    for _ in 0..max_attempts {
+        let x = rng.random_range(0..map.width);
+        let y = rng.random_range(0..map.height);
+        let Some(tile) = map.get_tile(x, y) else {
+            continue;
+        };
+        if matches!(tile, TileType::Water | TileType::ShallowWater) {
+            return Some(map.tile_to_world(x as i32, y as i32));
+        }
+    }
+    None
+}
+
+/// Cluster `count` water-only positions around `center_tile`. Used to drop a
+/// school of minnows in roughly the same patch instead of scattering them
+/// across every body of water on the map.
+pub fn cluster_water_positions(
+    map: &WorldMap,
+    center_tile: UVec2,
+    count: usize,
+    radius: u32,
+    rng: &mut impl Rng,
+) -> Vec<Vec2> {
+    let mut positions = Vec::with_capacity(count);
+    let max_attempts = count * 30;
+    let mut attempts = 0;
+
+    while positions.len() < count && attempts < max_attempts {
+        attempts += 1;
+        let dx = rng.random_range(-(radius as i32)..=(radius as i32));
+        let dy = rng.random_range(-(radius as i32)..=(radius as i32));
+        let Some((nx, ny)) = offset(center_tile.x, center_tile.y, dx, dy) else {
+            continue;
+        };
+        let Some(tile) = map.get_tile(nx, ny) else {
+            continue;
+        };
+        if !matches!(tile, TileType::Water | TileType::ShallowWater) {
+            continue;
+        }
+        positions.push(map.tile_to_world(nx as i32, ny as i32));
+    }
+
+    positions
+}
+
 /// Like [`find_biome_tile`] but rejects positions within `min_water_distance`
 /// tiles of any water tile. Used for vegetation that should cluster in the
 /// island interior away from the coast.

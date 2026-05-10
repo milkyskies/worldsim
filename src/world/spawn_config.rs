@@ -12,7 +12,8 @@ use rand_chacha::ChaCha8Rng;
 use crate::constants::world::{
     APPLE_TREE_SPAWN_COUNT, BERRY_BUSH_SPAWN_COUNT, DEER_HERD_RADIUS_TILES, DEER_HERD_SIZE,
     DEER_MIN_DISTANCE_FROM_SETTLEMENT, DEER_SPAWN_COUNT, HUMAN_CLUSTER_RADIUS_TILES,
-    HUMAN_SPAWN_COUNT, MAX_SPAWN_ATTEMPTS, SECOND_GROUP_SPAWN_COUNT, SETTLEMENT_BERRY_BUSH_COUNT,
+    HUMAN_SPAWN_COUNT, MAX_SPAWN_ATTEMPTS, MINNOW_SCHOOL_RADIUS_TILES, MINNOW_SCHOOL_SIZE,
+    MINNOW_SPAWN_COUNT, PIKE_SPAWN_COUNT, SECOND_GROUP_SPAWN_COUNT, SETTLEMENT_BERRY_BUSH_COUNT,
     SETTLEMENT_FOOD_RADIUS_TILES, STONE_NODE_SPAWN_COUNT, WOLF_MIN_DISTANCE_FROM_SETTLEMENT,
     WOLF_PACK_RADIUS_TILES, WOLF_PACK_SIZE, WOLF_SPAWN_COUNT, WOOD_LOG_SPAWN_COUNT,
 };
@@ -20,8 +21,8 @@ use crate::world::map::{
     DEFAULT_TERRAIN_SEED, TileType, WORLD_HEIGHT, WORLD_WIDTH, WorldMap, river_center_x,
 };
 use crate::world::spawn_placement::{
-    SettlementSearch, cluster_positions, find_biome_tile, find_interior_biome_tile,
-    find_settlement_center, find_tile_away_from,
+    SettlementSearch, cluster_positions, cluster_water_positions, find_biome_tile,
+    find_interior_biome_tile, find_settlement_center, find_tile_away_from, find_water_tile,
 };
 
 /// Minimum tile distance from any water for vegetation that should cluster
@@ -51,6 +52,8 @@ pub struct WorldSpawnConfig {
     pub second_humans: usize,
     pub deer: usize,
     pub wolves: usize,
+    pub minnows: usize,
+    pub pikes: usize,
     pub berry_bushes: usize,
     pub apple_trees: usize,
     pub stone_nodes: usize,
@@ -70,6 +73,8 @@ impl WorldSpawnConfig {
             second_humans: SECOND_GROUP_SPAWN_COUNT,
             deer: DEER_SPAWN_COUNT,
             wolves: WOLF_SPAWN_COUNT,
+            minnows: MINNOW_SPAWN_COUNT,
+            pikes: PIKE_SPAWN_COUNT,
             berry_bushes: BERRY_BUSH_SPAWN_COUNT,
             apple_trees: APPLE_TREE_SPAWN_COUNT,
             stone_nodes: STONE_NODE_SPAWN_COUNT,
@@ -106,6 +111,12 @@ pub struct SpawnLayout {
     /// are introduced at spawn with high Affection so the flocking drive
     /// pulls them together.
     pub wolf_packs: Vec<Vec<Vec2>>,
+    /// Minnow positions grouped by school. Each inner `Vec` is one school
+    /// dropped together inside one water body so Boids steering has neighbours
+    /// to lock onto from tick zero.
+    pub minnow_schools: Vec<Vec<Vec2>>,
+    /// Pike positions, one per fish (no schools — they're solitary).
+    pub pike_positions: Vec<Vec2>,
     /// Each entry is (world position, initial berry count).
     pub berry_bush_positions: Vec<(Vec2, u32)>,
     /// Each entry is (world position, initial apple count).
@@ -223,6 +234,17 @@ fn compute_realistic_layout(config: &WorldSpawnConfig, map: &WorldMap) -> SpawnL
     // Wolves in packs in deep forest, well away from the settlement.
     layout.wolf_packs = compute_wolf_pack_positions(map, settlement, config.wolves, &mut rng);
 
+    // Minnows in schools, dropped together in a single water body so the Boids
+    // system has neighbours to align with on tick zero.
+    layout.minnow_schools = compute_minnow_school_positions(map, config.minnows, &mut rng);
+
+    // Pikes solo — solitary predators don't cluster.
+    for _ in 0..config.pikes {
+        if let Some(pos) = find_water_tile(map, &mut rng, MAX_SPAWN_ATTEMPTS) {
+            layout.pike_positions.push(pos);
+        }
+    }
+
     layout
 }
 
@@ -316,6 +338,57 @@ fn compute_deer_herd_positions(
     }
 
     herds
+}
+
+/// Place minnows as schools clustered in water. Picks a random water-tile
+/// anchor and drops `MINNOW_SCHOOL_SIZE` minnows around it; repeats until
+/// the total budget is exhausted or the placement loop gives up.
+fn compute_minnow_school_positions(
+    map: &WorldMap,
+    total: usize,
+    rng: &mut impl rand::Rng,
+) -> Vec<Vec<Vec2>> {
+    let mut schools: Vec<Vec<Vec2>> = Vec::new();
+    let mut placed = 0usize;
+    let mut attempts = 0usize;
+
+    while placed < total {
+        let remaining = total - placed;
+        let school_size = remaining.min(MINNOW_SCHOOL_SIZE);
+
+        let Some(anchor_pos) = find_water_tile(map, rng, MAX_SPAWN_ATTEMPTS) else {
+            // Map has no water at all — give up cleanly so headless tests on
+            // dry-only maps don't deadlock.
+            break;
+        };
+
+        let (ax, ay) = map.world_to_tile(anchor_pos);
+        let cluster = cluster_water_positions(
+            map,
+            UVec2::new(ax, ay),
+            school_size,
+            MINNOW_SCHOOL_RADIUS_TILES,
+            rng,
+        );
+
+        if cluster.is_empty() {
+            // Anchor was on a single isolated water tile — drop one minnow there
+            // so we still make progress.
+            schools.push(vec![anchor_pos]);
+            placed += 1;
+        } else {
+            let capped: Vec<Vec2> = cluster.into_iter().take(remaining).collect();
+            placed += capped.len();
+            schools.push(capped);
+        }
+
+        attempts += 1;
+        if attempts > total * 2 {
+            break;
+        }
+    }
+
+    schools
 }
 
 fn compute_wolf_pack_positions(
@@ -418,6 +491,16 @@ fn compute_uniform_layout(config: &WorldSpawnConfig) -> SpawnLayout {
     }
     for _ in 0..config.wolves {
         layout.wolf_packs.push(vec![random_uniform_pos(&mut rng)]);
+    }
+    // Uniform layout has no map awareness — minnows just scatter as singletons
+    // (the spawner happily makes a "school of one" out of each).
+    for _ in 0..config.minnows {
+        layout
+            .minnow_schools
+            .push(vec![random_uniform_pos(&mut rng)]);
+    }
+    for _ in 0..config.pikes {
+        layout.pike_positions.push(random_uniform_pos(&mut rng));
     }
     for _ in 0..config.berry_bushes {
         layout

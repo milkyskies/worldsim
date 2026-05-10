@@ -24,6 +24,11 @@ pub fn random_genome<R: Rng>(rng: &mut R, species: Species) -> Genome {
         Species::Wolf => (0.4, 0.5),
         Species::Rabbit => (0.3, 0.4),
         Species::Bird => (0.4, 0.5),
+        // Tight personality variance for fish — they're driven by reflexes, so
+        // most behavioural variation comes from FishVariant and species-level
+        // brain weights rather than per-individual neuroticism/openness.
+        Species::Minnow => (0.3, 0.3),
+        Species::Pike => (0.35, 0.4),
     };
 
     let mut maternal = [0.0_f32; N_LOCI];

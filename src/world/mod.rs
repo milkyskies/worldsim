@@ -9,6 +9,8 @@ pub mod emits_effect;
 pub mod environment;
 pub mod field_grid;
 pub mod field_grid_plugin;
+pub mod fish;
+pub mod fish_movement;
 pub mod forecast;
 pub mod house;
 pub mod human;
@@ -48,7 +50,8 @@ impl Plugin for WorldPlugin {
             .add_plugins(property::OntologyDerivationPlugin)
             .add_plugins(field_grid_plugin::FieldGridPlugin)
             .add_plugins(liquid::LiquidPlugin)
-            .add_plugins(severed_part::SeveredPartPlugin);
+            .add_plugins(severed_part::SeveredPartPlugin)
+            .add_plugins(fish_movement::FishMovementPlugin);
     }
 }
 
