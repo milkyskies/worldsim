@@ -7,11 +7,11 @@
 //! verify the ECS wiring holds end-to-end.
 
 use bevy::prelude::*;
+use worldsim::agent::Dazed;
 use worldsim::agent::actions::ActionType;
 use worldsim::agent::actions::registry::{ActionState, ActiveActions};
 use worldsim::agent::body::needs::{PhysicalNeeds, Stamina};
 use worldsim::agent::movement::{effective_intensity, intensity_speed_multiplier};
-use worldsim::agent::psyche::emotions::{Emotion, EmotionType, EmotionalState};
 use worldsim::testing::{AgentConfig, TestWorld};
 
 fn behavior_for(action_type: ActionType) -> worldsim::agent::actions::motor::Behavior {
@@ -205,14 +205,14 @@ fn desired_intensity_stays_stable_even_when_exhausted() {
         needs.stamina.anaerobic = 0.0;
     }
 
-    // Maximal Fear so Survival proposes Flee as the winning action — without
-    // this the high Stamina urgency from the exhausted pools would lead
-    // Survival to preempt Flee with Rest before we could observe the body's
-    // intensity-degradation behavior.
-    {
-        let mut emotions = world.get_mut::<EmotionalState>(agent);
-        emotions.add_emotion(Emotion::new(EmotionType::Fear, 1.0));
-    }
+    // Daze the agent so arbitration is skipped — the contract under test is
+    // body-side ("body doesn't write back to ActionState.locomotion_intensity"),
+    // not brain-side. Without this the high Stamina urgency would drive
+    // Survival to preempt Flee with Rest before the body's degradation logic
+    // ran.
+    world.app_mut().world_mut().entity_mut(agent).insert(Dazed {
+        until_tick: u64::MAX,
+    });
 
     // Inject a Flee at full desired intensity.
     {
