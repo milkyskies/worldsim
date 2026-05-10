@@ -2864,7 +2864,7 @@ fn render_held_plan(
             .map(|p| {
                 crate::agent::brains::rational::compute_commit_threshold(
                     plan.subjective_cost,
-                    p.traits.conscientiousness,
+                    p.traits.conscientiousness(),
                 )
             })
             .unwrap_or(plan.subjective_cost);

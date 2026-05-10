@@ -100,7 +100,7 @@ pub fn stranger_affection_for(
         // extraverts) but conversation is the real satisfier. Even a
         // pure introvert gets a tiny floor — being completely alone is
         // universally aversive, not just an extravert thing.
-        let extraversion = personality.map(|p| p.traits.extraversion).unwrap_or(0.5);
+        let extraversion = personality.map(|p| p.traits.extraversion()).unwrap_or(0.5);
         return HUMAN_INTROVERT_STRANGER_BASELINE + EXTRAVERT_STRANGER_BONUS * extraversion;
     }
     // Animals: herd safety in numbers is real regardless of personality.
@@ -158,7 +158,7 @@ pub fn decay_social_from_proximity(
         }
 
         if affection_sum <= 0.0 {
-            let extraversion = personality.map(|p| p.traits.extraversion).unwrap_or(0.5);
+            let extraversion = personality.map(|p| p.traits.extraversion()).unwrap_or(0.5);
             let loneliness_rate = LONELINESS_DECAY_PER_SEC * (0.5 + extraversion);
             drives.companionship.drain(loneliness_rate * dt);
             continue;
@@ -188,17 +188,19 @@ mod tests {
 
     #[test]
     fn extravert_humans_get_more_stranger_comfort_than_introverts() {
-        use crate::agent::psyche::personality::{Personality, PersonalityTraits};
+        use crate::agent::psyche::personality::{
+            ExtraversionFacets, Personality, PersonalityTraits,
+        };
         let species = SpeciesProfile::human();
         let extravert = Personality {
             traits: PersonalityTraits {
-                extraversion: 1.0,
+                extraversion: ExtraversionFacets::uniform(1.0),
                 ..Default::default()
             },
         };
         let introvert = Personality {
             traits: PersonalityTraits {
-                extraversion: 0.0,
+                extraversion: ExtraversionFacets::uniform(0.0),
                 ..Default::default()
             },
         };

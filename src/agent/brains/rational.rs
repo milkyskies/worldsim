@@ -473,8 +473,8 @@ pub fn update_rational_planning(
                         urgency,
                         alone,
                         announcement_made,
-                        neuroticism: personality.traits.neuroticism,
-                        conscientiousness: personality.traits.conscientiousness,
+                        neuroticism: personality.traits.neuroticism(),
+                        conscientiousness: personality.traits.conscientiousness(),
                     });
                     plan.commitment = (plan.commitment + delta).max(0.0);
                     plan.last_touched = current_tick;
@@ -507,7 +507,7 @@ pub fn update_rational_planning(
             }
             let threshold = compute_commit_threshold(
                 plan.subjective_cost,
-                personality.traits.conscientiousness,
+                personality.traits.conscientiousness(),
             );
             match plan.state {
                 PlanState::Background
@@ -660,7 +660,7 @@ pub fn update_rational_planning(
             // GOAP search drains alertness. Curious (high-openness)
             // agents pay less. The cooldown gate above ensures this
             // drain fires at most once per interval per urgency.
-            let openness_relief = personality.traits.openness
+            let openness_relief = personality.traits.openness()
                 * crate::constants::brains::cognition::OPENNESS_PLANNING_RELIEF;
             let plan_drain = crate::constants::brains::rational::PLAN_GENERATION_ALERTNESS_DRAIN
                 * (1.0 - openness_relief);
@@ -704,7 +704,7 @@ pub fn update_rational_planning(
                 );
                 let id = plan_memory.mint_plan_id();
                 let threshold =
-                    compute_commit_threshold(cost, personality.traits.conscientiousness);
+                    compute_commit_threshold(cost, personality.traits.conscientiousness());
                 // Seed commitment with urgency-weighted boost so urgent
                 // plans cross the threshold immediately.
                 let initial_commitment = threshold * (0.5 + value.clamp(0.0, 1.0));
@@ -760,9 +760,9 @@ pub fn update_rational_planning(
         // 6. Cognitive load cap: evict the weakest background plans if
         //    we're over capacity. Personality modulates the cap.
         let max = max_plans_for(
-            personality.traits.openness,
-            personality.traits.conscientiousness,
-            personality.traits.neuroticism,
+            personality.traits.openness(),
+            personality.traits.conscientiousness(),
+            personality.traits.neuroticism(),
         );
         plan_memory.evict_excess(max);
     }

@@ -410,6 +410,14 @@ fn format_sim_event(event: &SimEvent) -> String {
 
         SimEvent {
             tick,
+            kind: SimEventKind::AffectiveToMUpdated { agent, about, .. },
+            ..
+        } => {
+            format!("[t{tick}] AffectiveToMUpdated agent={agent:?} about={about:?}")
+        }
+
+        SimEvent {
+            tick,
             kind: SimEventKind::ItemSpoiled {
                 agent, from, to, ..
             },
@@ -2910,9 +2918,9 @@ mod tests {
 
         let p = world.get::<Personality>(deer);
         assert!(
-            p.traits.openness > 0.6,
+            p.traits.openness() > 0.6,
             "high openness genome should produce openness > 0.6, got {}",
-            p.traits.openness
+            p.traits.openness()
         );
     }
 

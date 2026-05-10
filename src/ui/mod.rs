@@ -936,28 +936,29 @@ fn agent_viewer_ui_for_agent(world: &mut World, entity: Entity, ui: &mut egui::U
             world.get::<crate::agent::psyche::personality::Personality>(entity)
         {
             let t = &personality.traits;
+            let openness = t.openness();
+            let conscientiousness = t.conscientiousness();
+            let extraversion = t.extraversion();
+            let agreeableness = t.agreeableness();
+            let neuroticism = t.neuroticism();
             egui::Grid::new("traits_grid").show(ui, |ui| {
                 ui.label("Openness");
-                ui.add(egui::ProgressBar::new(t.openness).text(format!("{:.2}", t.openness)));
+                ui.add(egui::ProgressBar::new(openness).text(format!("{:.2}", openness)));
                 ui.end_row();
                 ui.label("Conscientiousness");
                 ui.add(
-                    egui::ProgressBar::new(t.conscientiousness)
-                        .text(format!("{:.2}", t.conscientiousness)),
+                    egui::ProgressBar::new(conscientiousness)
+                        .text(format!("{:.2}", conscientiousness)),
                 );
                 ui.end_row();
                 ui.label("Extraversion");
-                ui.add(
-                    egui::ProgressBar::new(t.extraversion).text(format!("{:.2}", t.extraversion)),
-                );
+                ui.add(egui::ProgressBar::new(extraversion).text(format!("{:.2}", extraversion)));
                 ui.end_row();
                 ui.label("Agreeableness");
-                ui.add(
-                    egui::ProgressBar::new(t.agreeableness).text(format!("{:.2}", t.agreeableness)),
-                );
+                ui.add(egui::ProgressBar::new(agreeableness).text(format!("{:.2}", agreeableness)));
                 ui.end_row();
                 ui.label("Neuroticism");
-                ui.add(egui::ProgressBar::new(t.neuroticism).text(format!("{:.2}", t.neuroticism)));
+                ui.add(egui::ProgressBar::new(neuroticism).text(format!("{:.2}", neuroticism)));
                 ui.end_row();
             });
         }

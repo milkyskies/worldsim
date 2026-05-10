@@ -22,6 +22,13 @@ find "$REPO_ROOT" -name ".env" -not -path "*/node_modules/*" -not -path "*/.git/
   cp -f "$envfile" "$WT_DIR/$relative"
 done
 
+# Copy gitignored .cargo/config.toml so the worktree inherits the shared
+# target-dir — required for cross-worktree Bevy build caching.
+if [ -f "$REPO_ROOT/.cargo/config.toml" ]; then
+  mkdir -p "$WT_DIR/.cargo"
+  cp -f "$REPO_ROOT/.cargo/config.toml" "$WT_DIR/.cargo/config.toml"
+fi
+
 # Fall back to .env.example if no .env exists at root
 if [ ! -f "$WT_DIR/.env" ] && [ -f .env.example ]; then
   cp -f .env.example .env

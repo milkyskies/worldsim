@@ -1,3 +1,4 @@
+pub mod affective_tom;
 pub mod belief_state;
 pub mod belief_updater;
 pub mod consolidation;

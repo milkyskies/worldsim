@@ -37,7 +37,7 @@ pub fn tick_cognitive_drain(
     >,
 ) {
     for (mut consciousness, personality) in query.iter_mut() {
-        let tick_relief = personality.traits.conscientiousness
+        let tick_relief = personality.traits.conscientiousness()
             * crate::constants::brains::cognition::CONSCIENTIOUSNESS_TICK_RELIEF;
         let tick_drain = crate::constants::brains::rational::COGNITIVE_TICK_ALERTNESS_DRAIN
             * (1.0 - tick_relief)
