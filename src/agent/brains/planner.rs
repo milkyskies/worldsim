@@ -842,6 +842,7 @@ pub struct PlanSearchStats {
 /// Returns the plan steps (if found) alongside search telemetry.
 pub fn regressive_plan(
     mind: &MindGraph,
+    inventory: Option<&crate::agent::item_slots::ItemSlots>,
     goal: &Goal,
     available_actions: &[ActionTemplate],
     ctx: &PlanCostContext,
@@ -862,7 +863,7 @@ pub fn regressive_plan(
     let initial_goals: Vec<TriplePattern> = goal
         .conditions
         .iter()
-        .filter(|p| !mind_satisfies_pattern(mind, p))
+        .filter(|p| !mind_satisfies_pattern(mind, inventory, p))
         .cloned()
         .collect();
 
@@ -981,6 +982,7 @@ pub fn regressive_plan(
             remaining_goals,
             current_g,
             mind,
+            inventory,
             &current_state.consumed,
             &cost_cache,
         );
@@ -1073,7 +1075,76 @@ pub fn regressive_plan(
 
 // ─── Helpers ───
 
-fn mind_satisfies_pattern(mind: &MindGraph, pattern: &TriplePattern) -> bool {
+/// Check whether the agent's `ItemSlots` satisfies a `(Self_, Contains, ...)`
+/// pattern. Replaces the old MindGraph mirror lookup (#755). Honours the
+/// pattern's optional `Item(concept, qty)` object plus `isa_filter` /
+/// `trait_filter`.
+fn self_inventory_satisfies_pattern(
+    inventory: Option<&crate::agent::item_slots::ItemSlots>,
+    pattern: &TriplePattern,
+    ontology: &Ontology,
+) -> bool {
+    let Some(inventory) = inventory else {
+        return false;
+    };
+
+    let has_concept_filter = pattern.isa_filter.is_some() || pattern.trait_filter.is_some();
+    let item_passes_filters = |concept: Concept| -> bool {
+        if let Some(isa) = pattern.isa_filter
+            && !ontology.is_a(concept, isa)
+        {
+            return false;
+        }
+        if let Some(trait_) = pattern.trait_filter
+            && !ontology.has_trait(concept, trait_)
+        {
+            return false;
+        }
+        true
+    };
+
+    match &pattern.object {
+        // Specific item-quantity request: inventory must hold at least
+        // that many of this concept (matches `value.satisfies_pattern`).
+        Some(Value::Item(concept, qty)) => {
+            if *qty == 0 {
+                return false;
+            }
+            if !item_passes_filters(*concept) {
+                return false;
+            }
+            inventory.count(*concept) >= *qty
+        }
+        // Wildcard or non-Item object: any non-zero stack passes,
+        // subject to ontology filters when present.
+        Some(_) | None => inventory
+            .group_by_concept()
+            .into_iter()
+            .any(|(concept, qty)| {
+                if qty == 0 {
+                    return false;
+                }
+                if has_concept_filter {
+                    item_passes_filters(concept)
+                } else {
+                    true
+                }
+            }),
+    }
+}
+
+fn mind_satisfies_pattern(
+    mind: &MindGraph,
+    inventory: Option<&crate::agent::item_slots::ItemSlots>,
+    pattern: &TriplePattern,
+) -> bool {
+    // Self-inventory is canonical in `ItemSlots`, not the MindGraph (#755).
+    // Route `(Self_, Contains, ...)` patterns to the inventory directly.
+    if pattern.subject.as_ref() == Some(&MindNode::Self_)
+        && pattern.predicate == Some(Predicate::Contains)
+    {
+        return self_inventory_satisfies_pattern(inventory, pattern, &mind.ontology);
+    }
     // Special-case `Near`: `(Self, Near, Concept(X))` is a planner-level
     // relation that is never stored as a triple. It is satisfied iff
     // self's current tile holds some known entity whose IsA chain leads
@@ -1286,6 +1357,7 @@ fn find_explicit_actions_for_goal(
     remaining_goals: &[TriplePattern],
     current_g: f32,
     mind: &MindGraph,
+    inventory: Option<&crate::agent::item_slots::ItemSlots>,
     current_consumed: &[TriplePattern],
     cost_cache: &PlanCostCache,
 ) -> Vec<(ActionTemplate, RegressiveState, f32)> {
@@ -1312,8 +1384,9 @@ fn find_explicit_actions_for_goal(
             // A precondition is unmet if:
             // 1. It isn't satisfied in the live world, OR
             // 2. It would be satisfied in the live world but a later action consumes it
-            let consumed_by_later = precondition_blocked_by_consumed(pre, current_consumed, mind);
-            if !mind_satisfies_pattern(mind, pre) || consumed_by_later {
+            let consumed_by_later =
+                precondition_blocked_by_consumed(pre, current_consumed, mind, inventory);
+            if !mind_satisfies_pattern(mind, inventory, pre) || consumed_by_later {
                 new_unmet.push(pre.clone());
             }
         }
@@ -1341,6 +1414,7 @@ fn precondition_blocked_by_consumed(
     pre: &TriplePattern,
     current_consumed: &[TriplePattern],
     mind: &MindGraph,
+    inventory: Option<&crate::agent::item_slots::ItemSlots>,
 ) -> bool {
     let (Some(subject), Some(predicate)) = (pre.subject.as_ref(), pre.predicate) else {
         return current_consumed.iter().any(|c| patterns_overlap(c, pre));
@@ -1375,21 +1449,44 @@ fn precondition_blocked_by_consumed(
     // Item quantities live on `Contains` triples; every live call site
     // uses Predicate::Contains, so count_of is safe to reach for.
     debug_assert_eq!(predicate, Predicate::Contains);
+    // Self-inventory lookups go through `ItemSlots` (#755), other-entity
+    // lookups still consult the MindGraph mirror (those beliefs are
+    // genuinely subjective).
+    let stored_of = |concept: Concept| -> u32 {
+        if subject == &MindNode::Self_ {
+            inventory.map(|inv| inv.count(concept)).unwrap_or(0)
+        } else {
+            mind.count_of(subject, concept)
+        }
+    };
     match &pre.object {
         Some(Value::Item(concept, needed)) => {
             let consumed = consumed_by_concept.get(concept).copied().unwrap_or(0);
-            mind.count_of(subject, *concept) < consumed + *needed
+            stored_of(*concept) < consumed + *needed
         }
-        None => !mind
-            .query(Some(subject), Some(predicate), None)
-            .iter()
-            .any(|t| match &t.object {
-                Value::Item(c, stored) => {
-                    let consumed = consumed_by_concept.get(c).copied().unwrap_or(0);
-                    *stored > consumed
-                }
-                _ => false,
-            }),
+        None => {
+            if subject == &MindNode::Self_ {
+                let inv = match inventory {
+                    Some(i) => i,
+                    None => return true,
+                };
+                !inv.group_by_concept().into_iter().any(|(c, stored)| {
+                    let consumed = consumed_by_concept.get(&c).copied().unwrap_or(0);
+                    stored > consumed
+                })
+            } else {
+                !mind
+                    .query(Some(subject), Some(predicate), None)
+                    .iter()
+                    .any(|t| match &t.object {
+                        Value::Item(c, stored) => {
+                            let consumed = consumed_by_concept.get(c).copied().unwrap_or(0);
+                            *stored > consumed
+                        }
+                        _ => false,
+                    })
+            }
+        }
         _ => current_consumed.iter().any(|c| patterns_overlap(c, pre)),
     }
 }
@@ -1851,7 +1948,7 @@ mod tests {
         let actions = vec![gather_template(tree, Concept::Apple)];
         let goal = goal_self_contains(Concept::Apple);
 
-        let (plan, _) = regressive_plan(&mind, &goal, &actions, &PlanCostContext::neutral());
+        let (plan, _) = regressive_plan(&mind, None, &goal, &actions, &PlanCostContext::neutral());
         assert!(plan.is_some(), "single gather should produce a valid plan");
         assert!(
             plan.unwrap()
@@ -1883,7 +1980,7 @@ mod tests {
 
         // After planning the first gather (which consumes node 42), the second gather's
         // precondition `entity_contains(42)` is in consumed — so no valid plan exists.
-        let (plan, _) = regressive_plan(&mind, &goal, &actions, &PlanCostContext::neutral());
+        let (plan, _) = regressive_plan(&mind, None, &goal, &actions, &PlanCostContext::neutral());
         if let Some(ref p) = plan {
             let gather_count = p
                 .iter()
@@ -1922,7 +2019,7 @@ mod tests {
         ];
         let goal = goal_self_contains_both(Concept::Apple, Concept::Berry);
 
-        let (plan, _) = regressive_plan(&mind, &goal, &actions, &PlanCostContext::neutral());
+        let (plan, _) = regressive_plan(&mind, None, &goal, &actions, &PlanCostContext::neutral());
         assert!(
             plan.is_some(),
             "two independent sources should produce a valid plan"
@@ -1937,17 +2034,22 @@ mod tests {
 
     #[test]
     fn already_satisfied_goal_returns_empty_plan() {
-        // Agent already has an apple — no actions needed.
-        let mut mind = test_mind();
-        mind.add(Triple::new(
-            MindNode::Self_,
-            Predicate::Contains,
-            Value::Item(Concept::Apple, 1),
-        ));
+        // Agent already has an apple — no actions needed. Self-inventory
+        // lives in `ItemSlots` (#755); the planner consults it directly
+        // for `(Self_, Contains, ...)` patterns instead of the MindGraph.
+        let mind = test_mind();
+        let mut inventory = crate::agent::item_slots::ItemSlots::agent_carry();
+        inventory.add(Concept::Apple, 1);
 
         let goal = goal_self_contains(Concept::Apple);
 
-        let (plan, _) = regressive_plan(&mind, &goal, &[], &PlanCostContext::neutral());
+        let (plan, _) = regressive_plan(
+            &mind,
+            Some(&inventory),
+            &goal,
+            &[],
+            &PlanCostContext::neutral(),
+        );
         assert!(plan.is_some(), "goal already satisfied should return Some");
         assert!(
             plan.unwrap().is_empty(),
@@ -2035,7 +2137,7 @@ mod tests {
         ];
         let goal = goal_self_contains(Concept::Apple);
 
-        let (plan, _) = regressive_plan(&mind, &goal, &actions, &PlanCostContext::neutral());
+        let (plan, _) = regressive_plan(&mind, None, &goal, &actions, &PlanCostContext::neutral());
         assert!(plan.is_some(), "should produce a valid plan");
         let plan = plan.unwrap();
 
@@ -2069,7 +2171,7 @@ mod tests {
         ];
         let goal = goal_self_contains(Concept::Apple);
 
-        let (plan, _) = regressive_plan(&mind, &goal, &actions, &ctx_with_stamina(20.0));
+        let (plan, _) = regressive_plan(&mind, None, &goal, &actions, &ctx_with_stamina(20.0));
         assert!(
             plan.is_some(),
             "should produce a plan (Rest makes it feasible)"
@@ -2101,7 +2203,7 @@ mod tests {
         ];
         let goal = goal_self_contains(Concept::Apple);
 
-        let (plan, _) = regressive_plan(&mind, &goal, &actions, &PlanCostContext::neutral());
+        let (plan, _) = regressive_plan(&mind, None, &goal, &actions, &PlanCostContext::neutral());
         assert!(
             plan.is_none(),
             "planner must return None for truly infeasible walk"
@@ -2166,7 +2268,7 @@ mod tests {
             priority: 1.0,
         };
 
-        let (plan, _) = regressive_plan(&mind, &goal, &actions, &ctx_with_stamina(20.0));
+        let (plan, _) = regressive_plan(&mind, None, &goal, &actions, &ctx_with_stamina(20.0));
         assert!(plan.is_some(), "should produce a plan for stone harvest");
         let plan = plan.unwrap();
 
@@ -2265,7 +2367,13 @@ mod tests {
         };
 
         let actions = vec![eat_action, harvest_stone];
-        let (plan, _) = regressive_plan(&mind, &hunger_goal, &actions, &PlanCostContext::neutral());
+        let (plan, _) = regressive_plan(
+            &mind,
+            None,
+            &hunger_goal,
+            &actions,
+            &PlanCostContext::neutral(),
+        );
         assert!(
             plan.is_none(),
             "planner must not satisfy hunger by harvesting stone"
@@ -2345,7 +2453,7 @@ mod tests {
         ));
 
         assert!(
-            !mind_satisfies_pattern(&mind, &self_apple_pattern()),
+            !mind_satisfies_pattern(&mind, None, &self_apple_pattern()),
             "Self_ precondition must not be satisfied by another entity's items"
         );
 
@@ -2356,7 +2464,7 @@ mod tests {
             Some(Value::Item(Concept::Apple, 1)),
         );
         assert!(
-            !mind_satisfies_pattern(&mind, &stranger_apple),
+            !mind_satisfies_pattern(&mind, None, &stranger_apple),
             "entity X precondition must not be satisfied by entity Y's items"
         );
 
@@ -2365,7 +2473,7 @@ mod tests {
             Some(Predicate::Contains),
             Some(Value::Item(Concept::Apple, 1)),
         );
-        assert!(mind_satisfies_pattern(&mind, &owner_apple));
+        assert!(mind_satisfies_pattern(&mind, None, &owner_apple));
     }
 
     #[test]
@@ -2394,7 +2502,7 @@ mod tests {
             conditions: vec![TriplePattern::self_at((5, 5))],
             priority: 1.0,
         };
-        let (plan_opt, _) = regressive_plan(&mind, &goal, &[], &PlanCostContext::neutral());
+        let (plan_opt, _) = regressive_plan(&mind, None, &goal, &[], &PlanCostContext::neutral());
         let plan = plan_opt.expect("planner should produce a Walk plan, not an empty plan");
         assert!(
             plan.iter().any(|a| a.action_type == ActionType::Walk),
@@ -2542,7 +2650,7 @@ mod tests {
         let goal = goal_self_contains(Concept::Apple);
 
         let (plan, _) = tracing::subscriber::with_default(subscriber, || {
-            regressive_plan(&mind, &goal, &actions, &PlanCostContext::neutral())
+            regressive_plan(&mind, None, &goal, &actions, &PlanCostContext::neutral())
         });
 
         let log_output = String::from_utf8(captured.lock().unwrap().clone()).unwrap_or_default();
@@ -2859,7 +2967,8 @@ mod tests {
         ];
         let goal = goal_self_contains(Concept::Apple);
 
-        let (plan_opt, _) = regressive_plan(&mind, &goal, &actions, &PlanCostContext::neutral());
+        let (plan_opt, _) =
+            regressive_plan(&mind, None, &goal, &actions, &PlanCostContext::neutral());
         let plan = plan_opt.expect("plan should exist");
 
         // Find which harvest target was chosen.
@@ -3071,7 +3180,8 @@ mod tests {
             priority: 1.0,
         };
 
-        let (plan, stats) = regressive_plan(&mind, &goal, &gathers, &PlanCostContext::neutral());
+        let (plan, stats) =
+            regressive_plan(&mind, None, &goal, &gathers, &PlanCostContext::neutral());
         let plan = plan.unwrap_or_else(|| {
             panic!(
                 "planner must chain three gather steps; unmet: {:?}",
@@ -3119,7 +3229,8 @@ mod tests {
             priority: 1.0,
         };
 
-        let (plan, stats) = regressive_plan(&mind, &goal, &gathers, &PlanCostContext::neutral());
+        let (plan, stats) =
+            regressive_plan(&mind, None, &goal, &gathers, &PlanCostContext::neutral());
         let plan = plan.unwrap_or_else(|| {
             panic!(
                 "planner must chain three Harvests against the same log; unmet: {:?}",
@@ -3173,7 +3284,7 @@ mod tests {
             )],
             priority: 1.0,
         };
-        let (plan, _) = regressive_plan(&mind, &goal, &gathers, &PlanCostContext::neutral());
+        let (plan, _) = regressive_plan(&mind, None, &goal, &gathers, &PlanCostContext::neutral());
         let plan = plan.expect("planner must chain 5 berry harvests");
         let count = plan
             .iter()
@@ -3218,7 +3329,8 @@ mod tests {
             priority: 1.0,
         };
 
-        let (plan, stats) = regressive_plan(&mind, &goal, &gathers, &PlanCostContext::neutral());
+        let (plan, stats) =
+            regressive_plan(&mind, None, &goal, &gathers, &PlanCostContext::neutral());
         let plan = plan.unwrap_or_else(|| {
             panic!(
                 "planner must plan 5 harvests across two logs; unmet: {:?}",

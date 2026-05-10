@@ -675,8 +675,13 @@ pub fn update_rational_planning(
                 tick.current,
             );
             let goal_desc = format!("{:?}", goal.conditions);
-            let (plan_result, search_stats) =
-                crate::agent::brains::planner::regressive_plan(mind, &goal, &actions, &cost_ctx);
+            let (plan_result, search_stats) = crate::agent::brains::planner::regressive_plan(
+                mind,
+                Some(inventory),
+                &goal,
+                &actions,
+                &cost_ctx,
+            );
 
             // Emit GOAP search telemetry.
             sim_events.write(crate::agent::events::SimEvent::single(

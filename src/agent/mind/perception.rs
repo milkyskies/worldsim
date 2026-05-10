@@ -282,7 +282,7 @@ pub fn write_perceptions_to_mind(
 ) {
     let current_time = tick.current;
 
-    for (agent_entity, _, agent_transform, visible, mut mind) in agents.iter_mut() {
+    for (_agent_entity, _, agent_transform, visible, mut mind) in agents.iter_mut() {
         let agent_pos = agent_transform.translation.truncate();
 
         for &entity in &visible.entities {
@@ -353,17 +353,11 @@ pub fn write_perceptions_to_mind(
             }
         }
 
-        // 4. Perceive Self Inventory
-        if let Ok(self_inventory) = inventories.get(agent_entity) {
-            perceive_inventory(
-                agent_entity,
-                self_inventory,
-                &mut mind,
-                current_time,
-                1.0,
-                true,
-            );
-        }
+        // Self-inventory used to be mirrored here as `(Self_, Contains, ...)`
+        // triples. That mirror was redundant — `ItemSlots` is the canonical
+        // store and the planner now queries it directly (#755). The mirror
+        // was also drifting: ~10% of `Contains` mutations were redundant
+        // re-inserts because two write paths fought for sync.
     }
 }
 

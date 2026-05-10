@@ -192,21 +192,14 @@ fn insecure_agent_with_wood_plans_build_storage_chest() {
         Predicate::LocatedAt,
         Value::Tile((0, 0)),
     ));
-    mind.assert(Triple::new(
-        Node::Self_,
-        Predicate::Contains,
-        Value::Item(
-            Concept::Wood,
-            worldsim::constants::actions::build::STORAGE_CHEST_WOOD_REQUIRED,
-        ),
-    ));
+    let mut inventory = worldsim::agent::item_slots::ItemSlots::agent_carry();
+    inventory.add(
+        Concept::Wood,
+        worldsim::constants::actions::build::STORAGE_CHEST_WOOD_REQUIRED,
+    );
     // Carry surplus food so StockChest's SelfContainsFood precondition
     // grounds without the planner needing to chain Harvest first.
-    mind.assert(Triple::new(
-        Node::Self_,
-        Predicate::Contains,
-        Value::Item(Concept::Apple, 3),
-    ));
+    inventory.add(Concept::Apple, 3);
 
     let registry = ActionRegistry::new();
     let build_chest = registry
@@ -227,7 +220,13 @@ fn insecure_agent_with_wood_plans_build_storage_chest() {
         priority: 80.0,
     };
 
-    let (plan, stats) = regressive_plan(&mind, &goal, &available, &PlanCostContext::neutral());
+    let (plan, stats) = regressive_plan(
+        &mind,
+        Some(&inventory),
+        &goal,
+        &available,
+        &PlanCostContext::neutral(),
+    );
     let plan = plan.unwrap_or_else(|| {
         panic!(
             "Planner must close FoodSecurity goal via StockChest + \
@@ -446,7 +445,8 @@ fn hungry_agent_with_known_stocked_chest_plans_take_then_eat() {
         priority: 90.0,
     };
 
-    let (plan, stats) = regressive_plan(&mind, &goal, &available, &PlanCostContext::neutral());
+    let (plan, stats) =
+        regressive_plan(&mind, None, &goal, &available, &PlanCostContext::neutral());
     let plan = plan.unwrap_or_else(|| {
         panic!(
             "Planner must close hunger via Take + Eat from a known stocked chest; \
