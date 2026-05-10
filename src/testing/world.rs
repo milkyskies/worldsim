@@ -959,26 +959,28 @@ impl TestWorld {
         let world = self.app.world_mut();
         for &wolf in &entities {
             let packmates: Vec<Entity> = entities.iter().filter(|&&e| e != wolf).copied().collect();
-            let mut mind = world.get_mut::<MindGraph>(wolf).unwrap();
             for packmate in packmates {
-                mind.assert(Triple::with_meta(
-                    Node::Entity(packmate),
-                    Predicate::IsA,
-                    Value::Concept(Concept::Friend),
-                    meta.clone(),
-                ));
-                mind.assert(Triple::with_meta(
-                    Node::Entity(packmate),
-                    Predicate::Trust,
-                    Value::Quantity(Quantity::Exact(0.9)),
-                    meta.clone(),
-                ));
-                mind.assert(Triple::with_meta(
-                    Node::Entity(packmate),
-                    Predicate::Affection,
-                    Value::Quantity(Quantity::Exact(0.8)),
-                    meta.clone(),
-                ));
+                if let Some(mut mind) = world.get_mut::<MindGraph>(wolf) {
+                    mind.assert(Triple::with_meta(
+                        Node::Entity(packmate),
+                        Predicate::IsA,
+                        Value::Concept(Concept::Friend),
+                        meta.clone(),
+                    ));
+                }
+                if let Some(mut graph) =
+                    world.get_resource_mut::<crate::agent::psyche::social_graph::SocialGraph>()
+                {
+                    graph.set(
+                        wolf,
+                        packmate,
+                        crate::agent::psyche::social_graph::RelationshipEdge {
+                            affection: 0.8,
+                            trust: 0.9,
+                            ..Default::default()
+                        },
+                    );
+                }
             }
         }
 
@@ -1337,9 +1339,13 @@ impl TestWorld {
                 0,
             );
         }
-        if let Some(mut mind) = self.app_mut().world_mut().get_mut::<MindGraph>(observer) {
+        if let Some(mut graph) =
+            self.app_mut()
+                .world_mut()
+                .get_resource_mut::<crate::agent::psyche::social_graph::SocialGraph>()
+        {
             crate::agent::mind::recognition::init_relationship_dimensions(
-                &mut mind, target, 0, affection,
+                &mut graph, observer, target, 0, affection,
             );
         }
     }
@@ -1353,12 +1359,13 @@ impl TestWorld {
             .unwrap_or(false)
     }
 
-    /// Returns the trust value `agent` has toward `other`, or 0.0 if no triple exists.
+    /// Returns the trust value `agent` has toward `other`, or 0.0 if no edge exists.
     pub fn agent_trust(&self, agent: Entity, other: Entity) -> f32 {
-        let mind = self.get::<MindGraph>(agent);
-        mind.query(Some(&MindNode::Entity(other)), Some(Predicate::Trust), None)
-            .into_iter()
-            .find_map(|t| t.object.as_quantity().map(|q| q.point_estimate()))
+        self.app
+            .world()
+            .resource::<crate::agent::psyche::social_graph::SocialGraph>()
+            .get(agent, other)
+            .map(|e| e.trust)
             .unwrap_or(0.0)
     }
 
@@ -2030,15 +2037,8 @@ impl TestWorld {
         let name = entity_name(world, agent);
         print_section_header("Relationships", &name, agent, tick);
 
-        let Some(mind) = world.get::<MindGraph>(agent) else {
-            eprintln!("  (no MindGraph component)");
-            print_section_footer();
-            return;
-        };
-
-        // Single pass: collect (trust, affection, respect, knows) per Entity subject.
-        // Trust/Affection/Respect live in MindGraph (epistemic — decay, change
-        // over time). `knows` lives in SocialIdentity (agent self-state).
+        // Edge data lives on the central `SocialGraph` resource;
+        // `knows` (the introduction ledger) stays on SocialIdentity.
         #[derive(Default)]
         struct RelEntry {
             trust: Option<f32>,
@@ -2048,24 +2048,15 @@ impl TestWorld {
         }
         let mut by_entity: std::collections::HashMap<Entity, RelEntry> =
             std::collections::HashMap::new();
-        for pred in [Predicate::Trust, Predicate::Affection, Predicate::Respect] {
-            for triple in mind.query(None, Some(pred), None) {
-                if let MindNode::Entity(e) = &triple.subject {
-                    let entry = by_entity.entry(*e).or_default();
-                    match (pred, &triple.object) {
-                        (Predicate::Trust, Value::Quantity(q)) => {
-                            entry.trust = Some(q.point_estimate())
-                        }
-                        (Predicate::Affection, Value::Quantity(q)) => {
-                            entry.affection = Some(q.point_estimate())
-                        }
-                        (Predicate::Respect, Value::Quantity(q)) => {
-                            entry.respect = Some(q.point_estimate())
-                        }
-                        _ => {}
-                    }
-                }
+        let graph = world.resource::<crate::agent::psyche::social_graph::SocialGraph>();
+        for (observer, target, edge) in graph.iter() {
+            if observer != agent {
+                continue;
             }
+            let entry = by_entity.entry(target).or_default();
+            entry.trust = Some(edge.trust);
+            entry.affection = Some(edge.affection);
+            entry.respect = Some(edge.respect);
         }
         if let Some(social) =
             world.get::<crate::agent::mind::social_identity::SocialIdentity>(agent)
@@ -2948,19 +2939,14 @@ mod tests {
         let wolves = world.spawn_wolf_pack(&[Vec2::new(40.0, 40.0), Vec2::new(50.0, 50.0)]);
         let (wolf_a, wolf_b) = (wolves[0], wolves[1]);
 
-        // wolf_a should know wolf_b as a friend with high trust
-        let mind_a = world.get::<MindGraph>(wolf_a);
-        let trust = mind_a.query(
-            Some(&MindNode::Entity(wolf_b)),
-            Some(Predicate::Trust),
-            None,
-        );
+        // wolf_a should have a high-trust SocialGraph edge toward wolf_b.
+        let trust = world.agent_trust(wolf_a, wolf_b);
         assert!(
-            !trust.is_empty(),
-            "wolf_a should have a Trust triple for wolf_b"
+            trust > 0.5,
+            "wolf_a should have high trust for wolf_b, got {trust}"
         );
 
-        // wolf_b should know wolf_a as a friend
+        // wolf_b should still classify wolf_a as Friend in its mind graph.
         let mind_b = world.get::<MindGraph>(wolf_b);
         let friend = mind_b.query(
             Some(&MindNode::Entity(wolf_a)),

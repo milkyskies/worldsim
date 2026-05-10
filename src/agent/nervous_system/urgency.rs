@@ -143,6 +143,7 @@ pub fn generate_urgency(
     tick: Res<crate::core::tick::TickCount>,
     light: Res<crate::world::environment::LightLevel>,
     channels: Res<crate::agent::nervous_system::other_regarding::OtherRegardingChannels>,
+    social_graph: Res<crate::agent::psyche::social_graph::SocialGraph>,
     mut query: Query<
         (
             Entity,
@@ -155,7 +156,6 @@ pub fn generate_urgency(
             &crate::agent::psyche::personality::Personality,
             &crate::agent::actions::ActiveActions,
             Option<&crate::agent::brains::plan_memory::PlanMemory>,
-            &crate::agent::mind::knowledge::MindGraph,
             // Optional: only humans currently spawn with AffectiveToM, so
             // animal agents fall through the Compassion emission below.
             Option<&crate::agent::mind::affective_tom::AffectiveToM>,
@@ -174,7 +174,6 @@ pub fn generate_urgency(
         personality,
         active_actions,
         plan_memory,
-        mind,
         affective_tom,
     ) in query.iter_mut()
     {
@@ -389,7 +388,7 @@ pub fn generate_urgency(
             emit_compassion_urgencies(
                 entity,
                 tick.current,
-                mind,
+                &social_graph,
                 affective_tom,
                 &channels,
                 &mut cns.urgencies,
@@ -482,7 +481,7 @@ const COMPASSION_MIN_THRESHOLD: f32 = 0.05;
 fn emit_compassion_urgencies(
     observer: Entity,
     now: u64,
-    mind: &crate::agent::mind::knowledge::MindGraph,
+    social_graph: &crate::agent::psyche::social_graph::SocialGraph,
     affective_tom: &crate::agent::mind::affective_tom::AffectiveToM,
     channels: &crate::agent::nervous_system::other_regarding::OtherRegardingChannels,
     out: &mut Vec<Urgency>,
@@ -503,7 +502,7 @@ fn emit_compassion_urgencies(
             observer,
             target,
             drive: UrgencySource::Compassion,
-            mind,
+            social_graph,
         };
         let contribution = channels.total_contribution(&ctx);
         if contribution <= 0.0 {

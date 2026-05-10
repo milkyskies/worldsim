@@ -15,7 +15,7 @@
 //! - `stone_node.rs` - Stone Node spawning
 //! - `wood_log.rs` - Wood Log spawning
 
-use crate::agent::mind::knowledge::{MindGraph, Ontology};
+use crate::agent::mind::knowledge::Ontology;
 use crate::menu::{AppState, SimConfig, SimMode};
 use crate::world::spawn_config::{SpawnLayout, WorldSpawnConfig};
 use bevy::prelude::*;
@@ -57,9 +57,11 @@ fn introduce_group_as_kin(commands: &mut Commands, members: Vec<Entity>, affecti
                         0,
                     );
                 }
-                if let Some(mut mind) = world.get_mut::<MindGraph>(*entity_a) {
+                if let Some(mut graph) =
+                    world.get_resource_mut::<crate::agent::psyche::social_graph::SocialGraph>()
+                {
                     crate::agent::mind::recognition::init_relationship_dimensions(
-                        &mut mind, *entity_b, 0, affection,
+                        &mut graph, *entity_a, *entity_b, 0, affection,
                     );
                 }
             }
@@ -284,11 +286,11 @@ pub fn apply_layout(
 /// other wolf as a high-trust friend — the same relationship mechanism humans use
 /// for family or close community members.
 fn setup_wolf_pack_bonds(
+    mut social_graph: ResMut<crate::agent::psyche::social_graph::SocialGraph>,
     mut wolf_query: Query<(Entity, &mut crate::agent::mind::knowledge::MindGraph), With<Wolf>>,
 ) {
-    use crate::agent::mind::knowledge::{
-        Concept, Metadata, Node, Predicate, Quantity, Triple, Value,
-    };
+    use crate::agent::mind::knowledge::{Concept, Metadata, Node, Predicate, Triple, Value};
+    use crate::agent::psyche::social_graph::RelationshipEdge;
 
     let wolves: Vec<Entity> = wolf_query.iter().map(|(e, _)| e).collect();
     if wolves.len() < 2 {
@@ -299,24 +301,24 @@ fn setup_wolf_pack_bonds(
 
     for (entity, mut mind) in wolf_query.iter_mut() {
         for &packmate in wolves.iter().filter(|&&e| e != entity) {
+            // Friend classification stays in the mind graph — it's
+            // categorical and used by recognition-based code paths.
             mind.assert(Triple::with_meta(
                 Node::Entity(packmate),
                 Predicate::IsA,
                 Value::Concept(Concept::Friend),
                 meta.clone(),
             ));
-            mind.assert(Triple::with_meta(
-                Node::Entity(packmate),
-                Predicate::Trust,
-                Value::Quantity(Quantity::Exact(0.9)),
-                meta.clone(),
-            ));
-            mind.assert(Triple::with_meta(
-                Node::Entity(packmate),
-                Predicate::Affection,
-                Value::Quantity(Quantity::Exact(0.8)),
-                meta.clone(),
-            ));
+            // Quantitative trust/affection live on the canonical edge.
+            social_graph.set(
+                entity,
+                packmate,
+                RelationshipEdge {
+                    affection: 0.8,
+                    trust: 0.9,
+                    ..Default::default()
+                },
+            );
         }
     }
 }

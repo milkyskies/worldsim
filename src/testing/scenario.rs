@@ -12,9 +12,7 @@ use bevy::math::Vec2;
 use bevy::prelude::*;
 
 use crate::agent::body::genetics::genome::Genome;
-use crate::agent::mind::knowledge::{
-    Metadata, MindGraph, Node, Predicate, Quantity, Triple, Value,
-};
+use crate::agent::mind::knowledge::Triple;
 use crate::testing::config::AgentConfig;
 use crate::testing::world::{TestWorld, make_walkable_map};
 use crate::world::map::{TileType, WorldMap};
@@ -598,29 +596,22 @@ fn apply_relationship(world: &mut TestWorld, a: Entity, b: Entity, spec: &Relati
         .unwrap_or_default();
 
     world.introduce_agent(a, b, &b_name, 0.5);
-    let mind = world.app_mut().world_mut().get_mut::<MindGraph>(a);
-    let Some(mut mind) = mind else { return };
-
-    let target = Node::Entity(b);
-    let meta = Metadata::semantic(0);
-    mind.assert(Triple::with_meta(
-        target.clone(),
-        Predicate::Trust,
-        Value::Quantity(Quantity::Exact(spec.trust)),
-        meta.clone(),
-    ));
-    mind.assert(Triple::with_meta(
-        target.clone(),
-        Predicate::Affection,
-        Value::Quantity(Quantity::Exact(spec.affection)),
-        meta.clone(),
-    ));
-    mind.assert(Triple::with_meta(
-        target,
-        Predicate::Respect,
-        Value::Quantity(Quantity::Exact(spec.respect)),
-        meta,
-    ));
+    if let Some(mut graph) = world
+        .app_mut()
+        .world_mut()
+        .get_resource_mut::<crate::agent::psyche::social_graph::SocialGraph>()
+    {
+        graph.set(
+            a,
+            b,
+            crate::agent::psyche::social_graph::RelationshipEdge {
+                affection: spec.affection,
+                trust: spec.trust,
+                respect: spec.respect,
+                ..Default::default()
+            },
+        );
+    }
 }
 
 #[cfg(test)]

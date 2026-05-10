@@ -128,6 +128,7 @@ pub fn arbitrate_every_tick(
     mut brain_histories: Query<&mut BrainHistory>,
     mapping: Res<TagChannelMapping>,
     fields: Res<crate::world::field_grid_plugin::FieldGrids>,
+    social_graph: Res<crate::agent::psyche::social_graph::SocialGraph>,
     all_transforms: Query<(&Transform, Option<&crate::agent::inventory::EntityType>)>,
     all_bodies: Query<&Body>,
     // Bundled into one slot — Bevy's SystemParam tuple impl caps the
@@ -227,6 +228,8 @@ pub fn arbitrate_every_tick(
         let emotional_inputs = super::emotional::EmotionalInputs {
             emotions,
             mind,
+            social_graph: &social_graph,
+            self_entity: entity,
             visible,
             visible_positions: &visible_positions,
             visible_types: &visible_types,
@@ -275,6 +278,8 @@ pub fn arbitrate_every_tick(
         let mut action_ctx = crate::agent::actions::ActionContext {
             inventory,
             mind,
+            social_graph: &social_graph,
+            agent_entity: entity,
             world_map: &world_map,
             target_entity: None,
             target_position: None,

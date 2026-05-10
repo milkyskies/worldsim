@@ -427,8 +427,12 @@ pub(crate) fn introduce_kin(
                     0,
                 );
             }
-            if let Some(mut mind) = world.app_mut().world_mut().get_mut::<MindGraph>(*entity_a) {
-                init_relationship_dimensions(&mut mind, *entity_b, 0, affection);
+            if let Some(mut graph) = world
+                .app_mut()
+                .world_mut()
+                .get_resource_mut::<crate::agent::psyche::social_graph::SocialGraph>(
+            ) {
+                init_relationship_dimensions(&mut graph, *entity_a, *entity_b, 0, affection);
             }
         }
     }

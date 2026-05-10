@@ -191,10 +191,13 @@ fn deposit_can_start_requires_target_entity() {
 
     let mind = empty_mind();
     let world_map = empty_world_map();
+    let graph = worldsim::agent::psyche::social_graph::SocialGraph::default();
 
     let no_target = ActionContext {
         inventory: &inv,
         mind: &mind,
+        social_graph: &graph,
+        agent_entity: Entity::from_bits(1),
         world_map: &world_map,
         target_entity: None,
         target_position: None,
@@ -211,6 +214,8 @@ fn deposit_can_start_requires_target_entity() {
     let with_target = ActionContext {
         inventory: &inv,
         mind: &mind,
+        social_graph: &graph,
+        agent_entity: Entity::from_bits(1),
         world_map: &world_map,
         target_entity: Some(Entity::from_bits(1)),
         target_position: None,
@@ -232,10 +237,13 @@ fn deposit_can_start_requires_non_empty_inventory() {
     let inv = ItemSlots::agent_carry(); // empty
     let mind = empty_mind();
     let world_map = empty_world_map();
+    let graph = worldsim::agent::psyche::social_graph::SocialGraph::default();
 
     let ctx = ActionContext {
         inventory: &inv,
         mind: &mind,
+        social_graph: &graph,
+        agent_entity: Entity::from_bits(1),
         world_map: &world_map,
         target_entity: Some(Entity::from_bits(1)),
         target_position: None,

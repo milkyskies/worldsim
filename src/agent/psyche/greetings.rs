@@ -18,7 +18,6 @@ use crate::agent::actions::ActionType;
 use crate::agent::body::needs::PsychologicalDrives;
 use crate::agent::engagement::Engaged;
 use crate::agent::events::{GameEvent, SimEvent, SimEventKind};
-use crate::agent::mind::knowledge::{MindGraph, Node, Predicate};
 use crate::agent::mind::perception::VisibleObjects;
 use crate::agent::psyche::emotions::EmotionalState;
 use crate::core::tick::TickCount;
@@ -67,11 +66,11 @@ impl GreetingCooldowns {
 pub fn social_acknowledgments(
     tick: Res<TickCount>,
     mut cooldowns: ResMut<GreetingCooldowns>,
+    social_graph: Res<crate::agent::psyche::social_graph::SocialGraph>,
     mut agents: Query<
         (
             Entity,
             &VisibleObjects,
-            &MindGraph,
             &mut PsychologicalDrives,
             &EmotionalState,
             Option<&Engaged>,
@@ -85,7 +84,7 @@ pub fn social_acknowledgments(
 
     let mut greetings: Vec<(Entity, Entity, f32)> = Vec::new();
 
-    for (agent, visible, mind, _drives, emotions, engaged) in agents.iter() {
+    for (agent, visible, _drives, emotions, engaged) in agents.iter() {
         if !tick.should_run(agent, CHECK_INTERVAL) {
             continue;
         }
@@ -104,11 +103,7 @@ pub fn social_acknowledgments(
                 continue;
             }
 
-            let Some(affection) = mind
-                .get(&Node::Entity(other), Predicate::Affection)
-                .and_then(|v| v.as_quantity())
-                .map(|q| q.point_estimate())
-            else {
+            let Some(affection) = social_graph.get(agent, other).map(|e| e.affection) else {
                 continue;
             };
 
@@ -132,7 +127,7 @@ pub fn social_acknowledgments(
     }
 
     for (actor, target, bump) in greetings {
-        if let Ok((_, _, _, mut drives, _, _)) = agents.get_mut(actor) {
+        if let Ok((_, _, mut drives, _, _)) = agents.get_mut(actor) {
             drives.companionship.top_up(bump);
         }
 

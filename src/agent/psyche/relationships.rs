@@ -1,27 +1,19 @@
-//! Relationship dynamics - updates relationships based on social interactions.
+//! Relationship dynamics — updates the central `SocialGraph` resource
+//! from `GameEvent::SocialInteraction` and decays edges on a slow tick.
 //!
-//! When social interactions occur:
-//! - Trust, affection, and respect are updated
-//! - Positive interactions increase values (small amounts)
-//! - Negative interactions decrease values (larger amounts - negativity bias!)
-//! - Relationships decay slowly without contact
-//! - An [`InteractionRecord`] is pushed into [`RelationshipHistory`]
-//!
-//! The interaction log drives relationship *classification* (Friend, Enemy, etc.)
-//! in `recognition.rs`, replacing the old threshold-based approach. Trust and
-//! affection floats remain as cached summaries that other systems read.
-//!
-//! Emits SimEvent::RelationshipChanged on trust/affection updates.
+//! Reads: GameEvent, Personality, RelationshipConfig
+//! Writes: SocialGraph (canonical edges), RelationshipHistory (per-agent log),
+//!         SocialIdentity (introductions), SimEvent::RelationshipChanged
+//! Upstream: events (SocialInteraction), psyche::social_graph (resource shape)
+//! Downstream: every reader of affection/trust/respect
 
 use std::collections::{HashMap, VecDeque};
 
 use crate::agent::Agent;
 use crate::agent::events::SimEventKind;
 use crate::agent::events::{ConversationTopic, GameEvent};
-use crate::agent::mind::knowledge::{
-    Metadata, MindGraph, Node, Predicate, Quantity, Triple, Value,
-};
 use crate::agent::psyche::personality::Personality;
+use crate::agent::psyche::social_graph::{NEUTRAL, RelationshipEdge, SocialGraph};
 use crate::core::tick::TickCount;
 use crate::core::time::GameTime;
 use bevy::prelude::*;
@@ -128,187 +120,167 @@ impl Default for RelationshipConfig {
     }
 }
 
-/// System: Update relationships based on social interaction events
+/// Apply a `SocialInteraction` event's effect on the target's directed
+/// edge toward the actor. `events` carries the interaction payload, the
+/// queries provide name/personality/history/social-id components, and
+/// `graph` is the canonical relationship store this writes through.
 pub fn update_relationships(
     mut events: MessageReader<GameEvent>,
-    mut agents: Query<
-        (
-            Entity,
-            &Name,
-            &mut MindGraph,
-            &mut crate::agent::mind::social_identity::SocialIdentity,
-            &Personality,
-            &mut RelationshipHistory,
-        ),
-        With<Agent>,
-    >,
+    actors: Query<&Name, With<Agent>>,
+    targets: Query<&Personality, With<Agent>>,
+    mut histories: Query<&mut RelationshipHistory, With<Agent>>,
+    mut social_ids: Query<&mut crate::agent::mind::social_identity::SocialIdentity, With<Agent>>,
+    mut graph: ResMut<SocialGraph>,
     config: Res<RelationshipConfig>,
     tick: Res<TickCount>,
     mut sim_events: MessageWriter<crate::agent::events::SimEvent>,
 ) {
-    let current_time = tick.current;
+    let now = tick.current;
 
     for event in events.read() {
-        if let GameEvent::SocialInteraction {
+        let GameEvent::SocialInteraction {
             actor,
             target,
-            action: _,
             topic,
             valence,
+            ..
         } = event
+        else {
+            continue;
+        };
+
+        let Ok(actor_name) = actors.get(*actor) else {
+            continue;
+        };
+        let actor_name_str = actor_name.to_string();
+        let Ok(personality) = targets.get(*target) else {
+            continue;
+        };
+
+        if let Ok(mut history) = histories.get_mut(*target) {
+            history.push(
+                *actor,
+                InteractionRecord {
+                    tick: now,
+                    topic: *topic,
+                    valence: *valence,
+                },
+            );
+        }
+
+        if let Ok(mut sid) = social_ids.get_mut(*target)
+            && !sid.knows(*actor)
         {
-            // Update target's feelings about actor (the one who did the action)
-            if let Ok((_, actor_name, _, _, _, _)) = agents.get(*actor) {
-                let actor_name_str = actor_name.to_string();
+            sid.introduce(
+                *actor,
+                crate::agent::mind::knowledge::AgentName(actor_name_str.clone()),
+                now,
+            );
+        }
 
-                if let Ok((_, _, mut target_mind, mut target_social, personality, mut history)) =
-                    agents.get_mut(*target)
-                {
-                    // Record the interaction in the log.
-                    history.push(
-                        *actor,
-                        InteractionRecord {
-                            tick: current_time,
-                            topic: *topic,
-                            valence: *valence,
-                        },
-                    );
-                    let actor_node = Node::Entity(*actor);
+        if !graph.knows(*target, *actor) {
+            graph.set(
+                *target,
+                *actor,
+                RelationshipEdge::with_baseline_affection(NEUTRAL, now),
+            );
+        }
 
-                    // First meeting? Initialize the social ledger entry +
-                    // neutral relationship dimensions.
-                    if !target_social.knows(*actor) {
-                        target_social.introduce(
-                            *actor,
-                            crate::agent::mind::knowledge::AgentName(actor_name_str.clone()),
-                            current_time,
-                        );
-                        crate::agent::mind::recognition::init_relationship_dimensions(
-                            &mut target_mind,
-                            *actor,
-                            current_time,
-                            0.5,
-                        );
-                    }
+        let edge_before = graph
+            .get(*target, *actor)
+            .copied()
+            .unwrap_or_else(RelationshipEdge::default);
+        let (trust_delta, affection_delta) =
+            valence_to_deltas(*valence, *topic, &config, &personality.traits);
 
-                    // Get current values
-                    let current_trust = target_mind
-                        .get(&actor_node, Predicate::Trust)
-                        .and_then(|v| v.as_quantity().map(|q| q.point_estimate()))
-                        .unwrap_or(0.5);
+        let new_trust = (edge_before.trust + trust_delta).clamp(0.0, 1.0);
+        let new_affection = (edge_before.affection + affection_delta).clamp(0.0, 1.0);
 
-                    let current_affection = target_mind
-                        .get(&actor_node, Predicate::Affection)
-                        .and_then(|v| v.as_quantity().map(|q| q.point_estimate()))
-                        .unwrap_or(0.5);
+        if let Some(edge) = graph.get_mut(*target, *actor) {
+            edge.trust = new_trust;
+            edge.affection = new_affection;
+            edge.last_interaction_tick = now;
+        }
 
-                    // Calculate changes based on valence
-                    let (trust_delta, affection_delta) = if *valence > 0.0 {
-                        // Positive interaction
-                        let trust_gain = config.positive_trust_gain * valence;
-                        let affection_gain = config.positive_affection_gain * valence;
-
-                        // Topic modifiers
-                        let (t_mod, a_mod) = match topic {
-                            Some(ConversationTopic::Feelings) => (0.5, 1.5), // Feelings build affection
-                            Some(ConversationTopic::Knowledge) => (1.2, 0.8), // Knowledge builds trust
-                            Some(ConversationTopic::Gossip) => (0.8, 1.0),
-                            _ => (1.0, 1.0),
-                        };
-
-                        (trust_gain * t_mod, affection_gain * a_mod)
-                    } else {
-                        // Negative interaction - larger impact!
-                        let trust_loss = config.negative_trust_loss * valence.abs();
-                        let affection_loss = config.negative_affection_loss * valence.abs();
-                        (-trust_loss, -affection_loss)
-                    };
-
-                    // Apply personality modifiers
-                    // High agreeableness = bigger trust gains, smaller losses
-                    let agreeableness = personality.traits.agreeableness();
-                    let trust_mod = if trust_delta > 0.0 {
-                        0.5 + agreeableness
-                    } else {
-                        1.5 - agreeableness
-                    };
-
-                    // High neuroticism = bigger negativity impact
-                    let neuroticism = personality.traits.neuroticism();
-                    let negative_mod = if trust_delta < 0.0 {
-                        1.0 + neuroticism * 0.5
-                    } else {
-                        1.0
-                    };
-
-                    // Calculate new values
-                    let new_trust =
-                        (current_trust + trust_delta * trust_mod * negative_mod).clamp(0.0, 1.0);
-                    let new_affection =
-                        (current_affection + affection_delta * negative_mod).clamp(0.0, 1.0);
-
-                    // Update MindGraph
-                    target_mind.assert(Triple::with_meta(
-                        actor_node.clone(),
-                        Predicate::Trust,
-                        Value::Quantity(Quantity::Exact(new_trust)),
-                        Metadata::semantic(current_time),
-                    ));
-
-                    target_mind.assert(Triple::with_meta(
-                        actor_node,
-                        Predicate::Affection,
-                        Value::Quantity(Quantity::Exact(new_affection)),
-                        Metadata::semantic(current_time),
-                    ));
-
-                    // Emit SimEvents for relationship changes
-                    if (new_trust - current_trust).abs() > f32::EPSILON {
-                        sim_events.write(crate::agent::events::SimEvent::pair(
-                            current_time,
-                            *target,
-                            *actor,
-                            SimEventKind::RelationshipChanged {
-                                agent: *target,
-                                other: *actor,
-                                dimension: crate::agent::events::RelationshipDimension::Trust,
-                                old_value: current_trust,
-                                new_value: new_trust,
-                            },
-                        ));
-                    }
-                    if (new_affection - current_affection).abs() > f32::EPSILON {
-                        sim_events.write(crate::agent::events::SimEvent::pair(
-                            current_time,
-                            *target,
-                            *actor,
-                            SimEventKind::RelationshipChanged {
-                                agent: *target,
-                                other: *actor,
-                                dimension: crate::agent::events::RelationshipDimension::Affection,
-                                old_value: current_affection,
-                                new_value: new_affection,
-                            },
-                        ));
-                    }
-                }
-            }
+        if (new_trust - edge_before.trust).abs() > f32::EPSILON {
+            sim_events.write(crate::agent::events::SimEvent::pair(
+                now,
+                *target,
+                *actor,
+                SimEventKind::RelationshipChanged {
+                    agent: *target,
+                    other: *actor,
+                    dimension: crate::agent::events::RelationshipDimension::Trust,
+                    old_value: edge_before.trust,
+                    new_value: new_trust,
+                },
+            ));
+        }
+        if (new_affection - edge_before.affection).abs() > f32::EPSILON {
+            sim_events.write(crate::agent::events::SimEvent::pair(
+                now,
+                *target,
+                *actor,
+                SimEventKind::RelationshipChanged {
+                    agent: *target,
+                    other: *actor,
+                    dimension: crate::agent::events::RelationshipDimension::Affection,
+                    old_value: edge_before.affection,
+                    new_value: new_affection,
+                },
+            ));
         }
     }
 }
 
-/// Neutral value for trust/affection. Decay pulls values toward this.
-pub const NEUTRAL: f32 = 0.5;
+/// Convert raw `(valence, topic, personality)` into the per-step trust
+/// and affection deltas. Negative interactions hit harder than positive
+/// ones do (negativity bias), and the topic biases which dimension
+/// shifts more.
+fn valence_to_deltas(
+    valence: f32,
+    topic: Option<ConversationTopic>,
+    config: &RelationshipConfig,
+    traits: &crate::agent::psyche::personality::PersonalityTraits,
+) -> (f32, f32) {
+    let (raw_trust, raw_affection) = if valence > 0.0 {
+        let trust_gain = config.positive_trust_gain * valence;
+        let affection_gain = config.positive_affection_gain * valence;
+        let (t_mod, a_mod) = match topic {
+            Some(ConversationTopic::Feelings) => (0.5, 1.5),
+            Some(ConversationTopic::Knowledge) => (1.2, 0.8),
+            Some(ConversationTopic::Gossip) => (0.8, 1.0),
+            _ => (1.0, 1.0),
+        };
+        (trust_gain * t_mod, affection_gain * a_mod)
+    } else {
+        (
+            -config.negative_trust_loss * valence.abs(),
+            -config.negative_affection_loss * valence.abs(),
+        )
+    };
 
-/// Read the observer's stored affection toward `target`. Returns
-/// `NEUTRAL` when no relationship triple exists, matching the decay
-/// target the rest of the system pulls toward.
-pub fn affection_toward(mind: &MindGraph, target: Entity) -> f32 {
-    match mind.get(&Node::Entity(target), Predicate::Affection) {
-        Some(Value::Quantity(Quantity::Exact(v))) => *v,
-        _ => NEUTRAL,
-    }
+    let agreeableness = traits.agreeableness();
+    let trust_mod = if raw_trust > 0.0 {
+        0.5 + agreeableness
+    } else {
+        1.5 - agreeableness
+    };
+    let neuroticism = traits.neuroticism();
+    let negative_mod = if raw_trust < 0.0 {
+        1.0 + neuroticism * 0.5
+    } else {
+        1.0
+    };
+
+    (
+        raw_trust * trust_mod * negative_mod,
+        raw_affection * negative_mod,
+    )
 }
+
+// `NEUTRAL` lives on `social_graph::NEUTRAL`; relationship decay pulls
+// edges toward that midpoint.
 
 /// Compute the fraction of the distance to neutral that a relationship should
 /// decay over one step, given the step size and the current value.
@@ -343,7 +315,7 @@ fn decay_fraction(current: f32, step_days: f32, config: &RelationshipConfig) -> 
 /// a week. A grace period skips any relationship refreshed by a recent
 /// interaction.
 pub fn decay_relationships(
-    mut agents: Query<&mut MindGraph, With<Agent>>,
+    mut graph: ResMut<SocialGraph>,
     tick: Res<TickCount>,
     config: Res<RelationshipConfig>,
 ) {
@@ -352,68 +324,26 @@ pub fn decay_relationships(
         return;
     }
 
-    let current_time = tick.current;
+    let now = tick.current;
     let grace_ticks = config.decay_grace_ticks;
     let step_days = config.decay_step_days;
 
-    for mut mind in agents.iter_mut() {
-        decay_predicate(
-            &mut mind,
-            Predicate::Trust,
-            current_time,
-            grace_ticks,
-            step_days,
-            &config,
-        );
-        decay_predicate(
-            &mut mind,
-            Predicate::Affection,
-            current_time,
-            grace_ticks,
-            step_days,
-            &config,
-        );
+    for (_, _, edge) in graph.iter_mut() {
+        if now.saturating_sub(edge.last_interaction_tick) < grace_ticks {
+            continue;
+        }
+        edge.trust = pull_toward_neutral(edge.trust, step_days, &config);
+        edge.affection = pull_toward_neutral(edge.affection, step_days, &config);
+        edge.respect = pull_toward_neutral(edge.respect, step_days, &config);
     }
 }
 
-/// Apply decay to every `(entity, predicate)` edge in a single MindGraph.
-fn decay_predicate(
-    mind: &mut MindGraph,
-    predicate: Predicate,
-    current_time: u64,
-    grace_ticks: u64,
-    step_days: f32,
-    config: &RelationshipConfig,
-) {
-    let entries: Vec<(Entity, f32, u64)> = mind
-        .query(None, Some(predicate), None)
-        .into_iter()
-        .filter_map(|t| {
-            if let Node::Entity(e) = &t.subject
-                && let Value::Quantity(q) = &t.object
-            {
-                return Some((*e, q.point_estimate(), t.meta.timestamp));
-            }
-            None
-        })
-        .collect();
-
-    for (entity, current, last_updated) in entries {
-        // Grace period: skip recently refreshed relationships.
-        if current_time.saturating_sub(last_updated) < grace_ticks {
-            continue;
-        }
-
-        let fraction = decay_fraction(current, step_days, config);
-        let new_value = (current + (NEUTRAL - current) * fraction).clamp(0.0, 1.0);
-
-        mind.assert(Triple::with_meta(
-            Node::Entity(entity),
-            predicate,
-            Value::Quantity(Quantity::Exact(new_value)),
-            Metadata::semantic(current_time),
-        ));
-    }
+/// One step of half-life-based pull toward `NEUTRAL`. Strong bonds
+/// resist decay (long half-life), weak ties fade quickly, and grudges
+/// linger via the negativity-bias multiplier on below-neutral values.
+fn pull_toward_neutral(current: f32, step_days: f32, config: &RelationshipConfig) -> f32 {
+    let fraction = decay_fraction(current, step_days, config);
+    (current + (NEUTRAL - current) * fraction).clamp(0.0, 1.0)
 }
 
 #[cfg(test)]

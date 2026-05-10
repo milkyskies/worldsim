@@ -11,9 +11,7 @@ use std::collections::VecDeque;
 
 use crate::agent::Agent;
 use crate::agent::events::SimEventKind;
-use crate::agent::mind::knowledge::{
-    Concept, Metadata, MindGraph, Node, Predicate, Quantity, Triple, Value,
-};
+use crate::agent::mind::knowledge::{Concept, Metadata, MindGraph, Node, Predicate, Triple, Value};
 use crate::agent::mind::perception::VisibleObjects;
 use crate::agent::psyche::relationships::{InteractionRecord, RelationshipHistory};
 use crate::core::tick::TickCount;
@@ -192,42 +190,26 @@ pub(crate) fn classify_from_history(log: &VecDeque<InteractionRecord>) -> Concep
 /// `SocialIdentity` — call `social.introduce(entity, name, tick)`
 /// alongside this. Splitting the two halves lets callers grab `&mut` to
 /// each component independently without fighting Bevy's borrow rules.
+/// Seed a directed edge in the social graph for a freshly-introduced
+/// (`observer` → `target`) pair. Trust / respect start at neutral;
+/// `baseline_affection` lets callers (introduction flow, scenario
+/// builder, spawner) inject a personality- or culture-derived first
+/// impression. Replaces the prior MindGraph-triple writes.
 pub fn init_relationship_dimensions(
-    mind: &mut MindGraph,
-    entity: Entity,
+    graph: &mut crate::agent::psyche::social_graph::SocialGraph,
+    observer: Entity,
+    target: Entity,
     timestamp: u64,
     baseline_affection: f32,
 ) {
-    let target = Node::Entity(entity);
-
-    let neutral = Value::Quantity(Quantity::Exact(0.5));
-    mind.assert(Triple::with_meta(
-        target.clone(),
-        Predicate::Trust,
-        neutral.clone(),
-        Metadata::semantic(timestamp),
-    ));
-
-    mind.assert(Triple::with_meta(
-        target.clone(),
-        Predicate::Affection,
-        Value::Quantity(Quantity::Exact(baseline_affection.clamp(0.0, 1.0))),
-        Metadata::semantic(timestamp),
-    ));
-
-    mind.assert(Triple::with_meta(
-        target.clone(),
-        Predicate::Respect,
-        neutral,
-        Metadata::semantic(timestamp),
-    ));
-
-    mind.assert(Triple::with_meta(
-        target.clone(),
-        Predicate::PowerBalance,
-        Value::Quantity(Quantity::Exact(0.0)), // Equal power
-        Metadata::semantic(timestamp),
-    ));
+    graph.set(
+        observer,
+        target,
+        crate::agent::psyche::social_graph::RelationshipEdge::with_baseline_affection(
+            baseline_affection,
+            timestamp,
+        ),
+    );
 }
 
 #[cfg(test)]

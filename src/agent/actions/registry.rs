@@ -24,6 +24,9 @@ use std::collections::HashMap;
 pub struct ActionContext<'a> {
     pub inventory: &'a ItemSlots,
     pub mind: &'a MindGraph,
+    pub social_graph: &'a crate::agent::psyche::social_graph::SocialGraph,
+    /// Observer entity — left side of every directed-edge lookup.
+    pub agent_entity: Entity,
     pub world_map: &'a crate::world::map::WorldMap,
     pub target_entity: Option<Entity>,
     pub target_position: Option<Vec2>,
