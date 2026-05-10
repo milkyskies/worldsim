@@ -266,6 +266,7 @@ pub fn update_rational_planning(
     tick: Res<crate::core::tick::TickCount>,
     ns_config: Res<crate::agent::nervous_system::config::NervousSystemConfig>,
     world_map: Res<WorldMap>,
+    world_positions: Res<crate::world::entity_positions::WorldEntityPositions>,
     action_registry: Res<crate::agent::actions::ActionRegistry>,
     mut game_log: ResMut<crate::core::GameLog>,
     affordances: Query<(
@@ -675,8 +676,14 @@ pub fn update_rational_planning(
                 tick.current,
             );
             let goal_desc = format!("{:?}", goal.conditions);
-            let (plan_result, search_stats) =
-                crate::agent::brains::planner::regressive_plan(mind, &goal, &actions, &cost_ctx);
+            let (plan_result, search_stats) = crate::agent::brains::planner::regressive_plan(
+                mind,
+                Some(inventory),
+                &world_positions,
+                &goal,
+                &actions,
+                &cost_ctx,
+            );
 
             // Emit GOAP search telemetry.
             sim_events.write(crate::agent::events::SimEvent::single(
@@ -700,7 +707,11 @@ pub fn update_rational_planning(
                     continue;
                 }
                 let cost = crate::agent::brains::planner::estimate_plan_cost(
-                    &steps, agent_pos, &cost_ctx, mind,
+                    &steps,
+                    agent_pos,
+                    &cost_ctx,
+                    mind,
+                    &world_positions,
                 );
                 let id = plan_memory.mint_plan_id();
                 let threshold =

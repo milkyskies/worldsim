@@ -150,7 +150,14 @@ fn goap_plans_harvest_then_build() {
         priority: 50.0,
     };
 
-    let (plan, _) = regressive_plan(&mind, &goal, &available, &PlanCostContext::neutral());
+    let (plan, _) = regressive_plan(
+        &mind,
+        None,
+        &worldsim::world::entity_positions::WorldEntityPositions::default(),
+        &goal,
+        &available,
+        &PlanCostContext::neutral(),
+    );
     assert!(plan.is_some(), "Planner must find a plan");
 
     let plan = plan.unwrap();
@@ -197,11 +204,13 @@ fn build_action_consumes_wood() {
     let mut spawn_requests: Vec<SpawnRequest> = Vec::new();
 
     let world_map = WorldMap::new(WORLD_WIDTH, WORLD_HEIGHT);
+    let world_positions = worldsim::world::entity_positions::WorldEntityPositions::default();
 
     let can_start_ctx = ActionContext {
         inventory: &inventory,
         mind: &mind,
         world_map: &world_map,
+        world_positions: &world_positions,
         target_entity: None,
         target_position: None,
         agent_position: Vec2::ZERO,
@@ -268,11 +277,13 @@ fn build_fails_without_materials() {
 
     let empty_inventory = ItemSlots::agent_carry();
     let world_map = WorldMap::new(WORLD_WIDTH, WORLD_HEIGHT);
+    let world_positions = worldsim::world::entity_positions::WorldEntityPositions::default();
 
     let ctx = ActionContext {
         inventory: &empty_inventory,
         mind: &mind,
         world_map: &world_map,
+        world_positions: &world_positions,
         target_entity: None,
         target_position: None,
         agent_position: Vec2::ZERO,

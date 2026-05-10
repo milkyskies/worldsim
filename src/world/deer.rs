@@ -178,6 +178,7 @@ pub fn spawn_deer<R: Rng>(
         .insert((
             crate::agent::affordance::Affordance::default(),
             mind,
+            crate::agent::mind::explored_tiles::ExploredTiles::default(),
             // Vision range is set by develop_phenotype_system from species.vision_range
             // × phenotype.vision; this placeholder is overwritten before first perception tick.
             crate::agent::mind::perception::Vision {

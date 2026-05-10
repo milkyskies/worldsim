@@ -4,6 +4,7 @@ pub mod belief_updater;
 pub mod consolidation;
 pub mod deliberate_talk;
 pub mod epistemic;
+pub mod explored_tiles;
 pub mod knowledge;
 pub mod memory;
 pub mod perception;

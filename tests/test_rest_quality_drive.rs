@@ -192,14 +192,11 @@ fn unrested_agent_with_wood_plans_build_lean_to_for_rest_quality_goal() {
         Value::Tile((0, 0)),
     ));
 
-    mind.assert(Triple::new(
-        Node::Self_,
-        Predicate::Contains,
-        Value::Item(
-            Concept::Wood,
-            worldsim::constants::actions::build::LEAN_TO_WOOD_REQUIRED,
-        ),
-    ));
+    let mut inventory = worldsim::agent::item_slots::ItemSlots::agent_carry();
+    inventory.add(
+        Concept::Wood,
+        worldsim::constants::actions::build::LEAN_TO_WOOD_REQUIRED,
+    );
 
     let registry = ActionRegistry::new();
     let build_lean_to = registry
@@ -220,7 +217,14 @@ fn unrested_agent_with_wood_plans_build_lean_to_for_rest_quality_goal() {
         priority: 80.0,
     };
 
-    let (plan, stats) = regressive_plan(&mind, &goal, &available, &PlanCostContext::neutral());
+    let (plan, stats) = regressive_plan(
+        &mind,
+        Some(&inventory),
+        &worldsim::world::entity_positions::WorldEntityPositions::default(),
+        &goal,
+        &available,
+        &PlanCostContext::neutral(),
+    );
     let plan = plan.unwrap_or_else(|| {
         panic!(
             "Planner must close RestQuality goal via RestInShelter + BuildLeanTo chain; unmet: {:?}",
@@ -294,15 +298,12 @@ fn agent_with_only_wood_cannot_plan_build_house() {
         Value::Tile((0, 0)),
     ));
 
-    // Plenty of wood, no stone.
-    mind.assert(Triple::new(
-        Node::Self_,
-        Predicate::Contains,
-        Value::Item(
-            Concept::Wood,
-            worldsim::constants::actions::build::HOUSE_WOOD_REQUIRED,
-        ),
-    ));
+    // Plenty of wood, no stone (held in `ItemSlots`, not the MindGraph).
+    let mut inventory = worldsim::agent::item_slots::ItemSlots::agent_carry();
+    inventory.add(
+        Concept::Wood,
+        worldsim::constants::actions::build::HOUSE_WOOD_REQUIRED,
+    );
 
     let registry = ActionRegistry::new();
     let build_house = registry
@@ -325,6 +326,8 @@ fn agent_with_only_wood_cannot_plan_build_house() {
 
     let (plan, _) = regressive_plan(
         &mind,
+        Some(&inventory),
+        &worldsim::world::entity_positions::WorldEntityPositions::default(),
         &goal,
         &[build_house, rest_in_shelter],
         &PlanCostContext::neutral(),

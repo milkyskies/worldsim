@@ -117,6 +117,7 @@ pub fn arbitrate_every_tick(
         ),
     >,
     world_map: Res<WorldMap>,
+    world_positions: Res<crate::world::entity_positions::WorldEntityPositions>,
     action_registry: Res<crate::agent::actions::ActionRegistry>,
     _affordances: Query<(
         &GlobalTransform,
@@ -277,6 +278,7 @@ pub fn arbitrate_every_tick(
             inventory,
             mind,
             world_map: &world_map,
+            world_positions: &world_positions,
             target_entity: None,
             target_position: None,
             agent_position: agent_pos,

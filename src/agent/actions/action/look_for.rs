@@ -10,7 +10,9 @@ use crate::agent::actions::definition::{
 use crate::agent::actions::motor::{ActionPrimitive, IntensityPolicy, Intent, TargetSelector};
 use crate::agent::actions::registry::{ActionKind, LegCompleteContext, LegResult, TargetSource};
 use crate::agent::brains::thinking::{SearchDomain, SearchFilter};
+use crate::agent::mind::explored_tiles::ExploredTiles;
 use crate::agent::mind::knowledge::{Concept, MindGraph, Node, Predicate, Value};
+use crate::world::entity_positions::WorldEntityPositions;
 use crate::world::map::{CHUNK_SIZE, WorldMap};
 use bevy::math::IVec2;
 use bevy::prelude::Vec2;
@@ -57,6 +59,8 @@ fn look_for_on_leg_complete(ctx: &mut LegCompleteContext) -> LegResult {
     match pick_look_for_target(
         ctx.agent_position,
         ctx.mind,
+        ctx.explored,
+        ctx.world_positions,
         ctx.world_map,
         ctx.current_tick,
         ctx.search_filter,
@@ -68,16 +72,19 @@ fn look_for_on_leg_complete(ctx: &mut LegCompleteContext) -> LegResult {
 }
 
 /// Concept-hint-aware target picker.
+#[allow(clippy::too_many_arguments)]
 pub fn pick_look_for_target(
     current_pos: Vec2,
     mind: &MindGraph,
+    explored: &ExploredTiles,
+    world_positions: &WorldEntityPositions,
     world_map: &WorldMap,
     current_tick: u64,
     filter: Option<SearchFilter>,
     rng: &mut dyn rand::RngCore,
 ) -> Option<Vec2> {
     let Some(filter) = filter else {
-        return pick_explore_target(current_pos, mind, world_map, current_tick, rng);
+        return pick_explore_target(current_pos, explored, world_map, current_tick, rng);
     };
     debug_assert!(
         !filter.is_empty(),
@@ -85,22 +92,26 @@ pub fn pick_look_for_target(
     );
 
     let hint_chunks = match filter.domain {
-        SearchDomain::Inventory => collect_producer_hint_chunks(mind, &filter),
+        SearchDomain::Inventory => collect_producer_hint_chunks(mind, world_positions, &filter),
         SearchDomain::WorldTile | SearchDomain::WorldEntity => Vec::new(),
     };
 
     let picked = sample_walkable_scored(current_pos, world_map, 16, rng, |_pos, chunk| {
-        let mut score = staleness_penalty(mind, chunk, current_tick);
+        let mut score = staleness_penalty(explored, chunk, current_tick);
         if hint_chunks.contains(&chunk) {
             score -= 2000.0;
         }
         score
     });
 
-    picked.or_else(|| pick_explore_target(current_pos, mind, world_map, current_tick, rng))
+    picked.or_else(|| pick_explore_target(current_pos, explored, world_map, current_tick, rng))
 }
 
-fn collect_producer_hint_chunks(mind: &MindGraph, filter: &SearchFilter) -> Vec<IVec2> {
+fn collect_producer_hint_chunks(
+    mind: &MindGraph,
+    world_positions: &WorldEntityPositions,
+    filter: &SearchFilter,
+) -> Vec<IVec2> {
     let mut chunks = Vec::new();
 
     let mut source_concepts: Vec<Concept> = Vec::new();
@@ -116,6 +127,16 @@ fn collect_producer_hint_chunks(mind: &MindGraph, filter: &SearchFilter) -> Vec<
         return chunks;
     }
 
+    let mut push_chunk = |tx: i32, ty: i32| {
+        chunks.push(IVec2::new(
+            tx.div_euclid(CHUNK_SIZE as i32),
+            ty.div_euclid(CHUNK_SIZE as i32),
+        ));
+    };
+
+    // Mobile producers are tracked via MindGraph perception (rare —
+    // most producers are static). Static producers (apple trees, berry
+    // bushes, stone nodes, wood logs) live in the world snapshot (#756).
     for triple in mind.query(None, Some(Predicate::LocatedAt), None) {
         let Node::Entity(entity) = &triple.subject else {
             continue;
@@ -124,12 +145,17 @@ fn collect_producer_hint_chunks(mind: &MindGraph, filter: &SearchFilter) -> Vec<
             continue;
         };
         let entity_node = Node::Entity(*entity);
-        let is_source = source_concepts.iter().any(|c| mind.is_a(&entity_node, *c));
-        if is_source {
-            chunks.push(IVec2::new(
-                tx.div_euclid(CHUNK_SIZE as i32),
-                ty.div_euclid(CHUNK_SIZE as i32),
-            ));
+        if source_concepts.iter().any(|c| mind.is_a(&entity_node, *c)) {
+            push_chunk(*tx, *ty);
+        }
+    }
+
+    for (_entity, location) in world_positions.iter() {
+        if source_concepts
+            .iter()
+            .any(|c| mind.ontology.is_a(location.concept, *c))
+        {
+            push_chunk(location.tile.0, location.tile.1);
         }
     }
 
@@ -201,6 +227,8 @@ mod tests {
             let target = pick_look_for_target(
                 Vec2::new(10.0, 10.0),
                 &mind,
+                &ExploredTiles::default(),
+                &WorldEntityPositions::default(),
                 &map,
                 0,
                 Some(SearchFilter::concept(Concept::Food)),
@@ -230,6 +258,8 @@ mod tests {
             let target = pick_look_for_target(
                 Vec2::new(10.0, 10.0),
                 &mind,
+                &ExploredTiles::default(),
+                &WorldEntityPositions::default(),
                 &map,
                 0,
                 Some(SearchFilter::tile_trait(Concept::Drinkable)),
@@ -258,6 +288,8 @@ mod tests {
         let target = pick_look_for_target(
             Vec2::new(10.0, 10.0),
             &mind,
+            &ExploredTiles::default(),
+            &WorldEntityPositions::default(),
             &map,
             0,
             Some(SearchFilter::concept(Concept::Food)),
