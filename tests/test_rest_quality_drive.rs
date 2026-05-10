@@ -220,6 +220,7 @@ fn unrested_agent_with_wood_plans_build_lean_to_for_rest_quality_goal() {
     let (plan, stats) = regressive_plan(
         &mind,
         Some(&inventory),
+        &worldsim::world::entity_positions::WorldEntityPositions::default(),
         &goal,
         &available,
         &PlanCostContext::neutral(),
@@ -326,6 +327,7 @@ fn agent_with_only_wood_cannot_plan_build_house() {
     let (plan, _) = regressive_plan(
         &mind,
         Some(&inventory),
+        &worldsim::world::entity_positions::WorldEntityPositions::default(),
         &goal,
         &[build_house, rest_in_shelter],
         &PlanCostContext::neutral(),

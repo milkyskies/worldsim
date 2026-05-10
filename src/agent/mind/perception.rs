@@ -274,6 +274,7 @@ pub fn update_body_perception(
 pub fn write_perceptions_to_mind(
     mut agents: Query<(Entity, &Name, &Transform, &VisibleObjects, &mut MindGraph), With<Agent>>,
     transforms: Query<&Transform>,
+    mobile_entities: Query<(), With<Agent>>,
     inventories: Query<&crate::agent::item_slots::ItemSlots>,
     entity_types: Query<&crate::agent::inventory::EntityType>,
     becomes_components: Query<&crate::world::becomes::Becomes>,
@@ -288,8 +289,15 @@ pub fn write_perceptions_to_mind(
         for &entity in &visible.entities {
             let confidence = calc_confidence(agent_pos, transforms.get(entity).ok());
 
-            // 1. Perceive Location
-            if let Ok(transform) = transforms.get(entity) {
+            // 1. Perceive Location — only for mobile entities (#756).
+            // Static-object positions are objective world facts, served
+            // from `WorldEntityPositions`. Mobile entities (other agents)
+            // keep their `LocatedAt` triples here because position is
+            // genuinely subjective for them ("I last saw Bob at the
+            // river" remains a meaningful belief after Bob has moved).
+            if mobile_entities.get(entity).is_ok()
+                && let Ok(transform) = transforms.get(entity)
+            {
                 let pos = transform.translation.truncate();
                 let tile_x = (pos.x / TILE_SIZE).floor() as i32;
                 let tile_y = (pos.y / TILE_SIZE).floor() as i32;

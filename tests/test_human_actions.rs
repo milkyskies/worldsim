@@ -30,11 +30,13 @@ fn make_ctx<'a>(
     inventory: &'a ItemSlots,
     mind: &'a MindGraph,
     world_map: &'a WorldMap,
+    world_positions: &'a worldsim::world::entity_positions::WorldEntityPositions,
 ) -> ActionContext<'a> {
     ActionContext {
         inventory,
         mind,
         world_map,
+        world_positions,
         target_entity: None,
         target_position: None,
         agent_position: Vec2::ZERO,
@@ -55,7 +57,8 @@ fn stand_watch_rejects_during_daytime_hours() {
     let inv = ItemSlots::agent_carry();
     let mind = MindGraph::new(setup_ontology());
     let map = WorldMap::new(WORLD_WIDTH, WORLD_HEIGHT);
-    let mut ctx = make_ctx(&inv, &mind, &map);
+    let positions = worldsim::world::entity_positions::WorldEntityPositions::default();
+    let mut ctx = make_ctx(&inv, &mind, &map, &positions);
     // Tick 0 = 06:00 (START_HOUR). Daytime.
     ctx.current_tick = 0;
     assert!(action.can_start(&ctx).is_err());
@@ -71,7 +74,8 @@ fn stand_watch_admits_after_night_start_hour() {
     let inv = ItemSlots::agent_carry();
     let mind = mind_with_known_campfire();
     let map = WorldMap::new(WORLD_WIDTH, WORLD_HEIGHT);
-    let mut ctx = make_ctx(&inv, &mind, &map);
+    let positions = worldsim::world::entity_positions::WorldEntityPositions::default();
+    let mut ctx = make_ctx(&inv, &mind, &map, &positions);
     // 22:00 — 16 hours after the 06:00 start.
     ctx.current_tick = 16 * GameTime::TICKS_PER_HOUR;
     assert!(
@@ -94,7 +98,8 @@ fn dance_rejects_when_mood_is_low() {
         current_mood: 0.2,
         ..Default::default()
     };
-    let mut ctx = make_ctx(&inv, &mind, &map);
+    let positions = worldsim::world::entity_positions::WorldEntityPositions::default();
+    let mut ctx = make_ctx(&inv, &mind, &map, &positions);
     ctx.drives = Some(&drives);
     ctx.emotional = Some(&emotional);
     let err = action
@@ -115,7 +120,8 @@ fn dance_admits_when_mood_high_and_companionship_satisfied() {
         current_mood: 0.9,
         ..Default::default()
     };
-    let mut ctx = make_ctx(&inv, &mind, &map);
+    let positions = worldsim::world::entity_positions::WorldEntityPositions::default();
+    let mut ctx = make_ctx(&inv, &mind, &map, &positions);
     ctx.drives = Some(&drives);
     ctx.emotional = Some(&emotional);
     assert!(action.can_start(&ctx).is_ok());
@@ -130,7 +136,8 @@ fn mourn_rejects_without_death_belief() {
     let inv = ItemSlots::agent_carry();
     let mind = MindGraph::new(setup_ontology());
     let map = WorldMap::new(WORLD_WIDTH, WORLD_HEIGHT);
-    let ctx = make_ctx(&inv, &mind, &map);
+    let positions = worldsim::world::entity_positions::WorldEntityPositions::default();
+    let ctx = make_ctx(&inv, &mind, &map, &positions);
     assert!(action.can_start(&ctx).is_err());
 }
 
@@ -147,7 +154,8 @@ fn mourn_admits_when_mind_records_a_death() {
         Value::Concept(Concept::Death),
     ));
     let map = WorldMap::new(WORLD_WIDTH, WORLD_HEIGHT);
-    let ctx = make_ctx(&inv, &mind, &map);
+    let positions = worldsim::world::entity_positions::WorldEntityPositions::default();
+    let ctx = make_ctx(&inv, &mind, &map, &positions);
     assert!(action.can_start(&ctx).is_ok());
 }
 
@@ -163,7 +171,8 @@ fn tend_wounds_admits_only_when_target_is_lame() {
 
     // Without the Lame belief — gate must reject.
     let healthy_mind = MindGraph::new(setup_ontology());
-    let mut ctx = make_ctx(&inv, &healthy_mind, &map);
+    let positions = worldsim::world::entity_positions::WorldEntityPositions::default();
+    let mut ctx = make_ctx(&inv, &healthy_mind, &map, &positions);
     ctx.target_entity = Some(target);
     assert!(action.can_start(&ctx).is_err());
 
@@ -174,7 +183,7 @@ fn tend_wounds_admits_only_when_target_is_lame() {
         Predicate::HasTrait,
         Value::Concept(Concept::Lame),
     ));
-    let mut ctx2 = make_ctx(&inv, &wounded_mind, &map);
+    let mut ctx2 = make_ctx(&inv, &wounded_mind, &map, &positions);
     ctx2.target_entity = Some(target);
     assert!(action.can_start(&ctx2).is_ok());
 }
@@ -189,7 +198,8 @@ fn share_food_rejects_when_target_affection_below_threshold() {
     inv.add(Concept::Apple, 1);
     let mind = MindGraph::new(setup_ontology());
     let map = WorldMap::new(WORLD_WIDTH, WORLD_HEIGHT);
-    let mut ctx = make_ctx(&inv, &mind, &map);
+    let positions = worldsim::world::entity_positions::WorldEntityPositions::default();
+    let mut ctx = make_ctx(&inv, &mind, &map, &positions);
     ctx.target_entity = Some(Entity::from_bits(11));
     let err = action
         .can_start(&ctx)
@@ -211,7 +221,8 @@ fn share_food_admits_when_target_affection_high_enough() {
         Value::Quantity(Quantity::Exact(0.8)),
     ));
     let map = WorldMap::new(WORLD_WIDTH, WORLD_HEIGHT);
-    let mut ctx = make_ctx(&inv, &mind, &map);
+    let positions = worldsim::world::entity_positions::WorldEntityPositions::default();
+    let mut ctx = make_ctx(&inv, &mind, &map, &positions);
     ctx.target_entity = Some(target);
     assert!(action.can_start(&ctx).is_ok());
 }

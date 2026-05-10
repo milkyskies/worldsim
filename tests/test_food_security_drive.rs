@@ -223,6 +223,7 @@ fn insecure_agent_with_wood_plans_build_storage_chest() {
     let (plan, stats) = regressive_plan(
         &mind,
         Some(&inventory),
+        &worldsim::world::entity_positions::WorldEntityPositions::default(),
         &goal,
         &available,
         &PlanCostContext::neutral(),
@@ -445,8 +446,14 @@ fn hungry_agent_with_known_stocked_chest_plans_take_then_eat() {
         priority: 90.0,
     };
 
-    let (plan, stats) =
-        regressive_plan(&mind, None, &goal, &available, &PlanCostContext::neutral());
+    let (plan, stats) = regressive_plan(
+        &mind,
+        None,
+        &worldsim::world::entity_positions::WorldEntityPositions::default(),
+        &goal,
+        &available,
+        &PlanCostContext::neutral(),
+    );
     let plan = plan.unwrap_or_else(|| {
         panic!(
             "Planner must close hunger via Take + Eat from a known stocked chest; \

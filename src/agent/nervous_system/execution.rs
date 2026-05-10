@@ -50,6 +50,7 @@ pub fn start_actions(
     registry: Res<ActionRegistry>,
     tick: Res<TickCount>,
     world_map: Res<WorldMap>,
+    world_positions: Res<crate::world::entity_positions::WorldEntityPositions>,
     mut sim_rng: ResMut<SimRng>,
     mut game_log: ResMut<GameLog>,
     mut agents: Query<(
@@ -137,6 +138,7 @@ pub fn start_actions(
                 inventory,
                 mind,
                 world_map: &world_map,
+                world_positions: &world_positions,
                 target_entity: action_template.target_entity,
                 target_position: action_template.target_position,
                 agent_position: transform.translation.truncate(),
@@ -296,6 +298,7 @@ pub fn start_actions(
                             pos,
                             mind,
                             explored,
+                            &world_positions,
                             &world_map,
                             tick.current,
                             action_template.search_filter,
@@ -419,6 +422,7 @@ pub fn tick_actions(
     registry: Res<ActionRegistry>,
     tick: Res<TickCount>,
     world_map: Res<WorldMap>,
+    world_positions: Res<crate::world::entity_positions::WorldEntityPositions>,
     palette: Res<crate::palette::Palette>,
     mut sim_rng: ResMut<crate::core::SimRng>,
     mut game_log: ResMut<GameLog>,
@@ -544,6 +548,7 @@ pub fn tick_actions(
                             let leg_ctx = LegCompleteContext {
                                 agent_position: current_pos,
                                 world_map: &world_map,
+                                world_positions: &world_positions,
                                 mind,
                                 explored,
                                 physical: &physical,
@@ -639,6 +644,7 @@ pub fn tick_actions(
                                         let leg_ctx = LegCompleteContext {
                                             agent_position: arrived_pos,
                                             world_map: &world_map,
+                                            world_positions: &world_positions,
                                             mind,
                                             explored,
                                             physical: &physical,

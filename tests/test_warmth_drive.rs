@@ -177,6 +177,7 @@ fn cold_agent_with_wood_plans_build_for_warmth_goal() {
     let (plan, stats) = regressive_plan(
         &mind,
         Some(&inventory),
+        &worldsim::world::entity_positions::WorldEntityPositions::default(),
         &goal,
         &available,
         &PlanCostContext::neutral(),
@@ -269,7 +270,14 @@ fn agent_on_known_campfire_plans_warm_up_without_build() {
         priority: 80.0,
     };
 
-    let (plan, _) = regressive_plan(&mind, None, &goal, &available, &PlanCostContext::neutral());
+    let (plan, _) = regressive_plan(
+        &mind,
+        None,
+        &worldsim::world::entity_positions::WorldEntityPositions::default(),
+        &goal,
+        &available,
+        &PlanCostContext::neutral(),
+    );
     let plan = plan.expect("Planner must close warmth goal when already at a campfire");
 
     assert!(

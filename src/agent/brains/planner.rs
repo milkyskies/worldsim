@@ -241,9 +241,15 @@ fn tile_risk_factor(tile: (i32, i32), cache: &PlanCostCache) -> f32 {
 }
 
 /// Risk factor for an explicit action. Uses the action's target tile when
-/// known; otherwise infers it from the target entity's LocatedAt; falls back
-/// to neutral when neither is available.
-fn action_risk_factor(action: &ActionTemplate, mind: &MindGraph, cache: &PlanCostCache) -> f32 {
+/// known; otherwise infers it from the target entity's position (mobile in
+/// MindGraph, static in `WorldEntityPositions`); falls back to neutral when
+/// neither is available.
+fn action_risk_factor(
+    action: &ActionTemplate,
+    mind: &MindGraph,
+    world_positions: &crate::world::entity_positions::WorldEntityPositions,
+    cache: &PlanCostCache,
+) -> f32 {
     if cache.dangers.is_empty() {
         return 1.0;
     }
@@ -254,10 +260,13 @@ fn action_risk_factor(action: &ActionTemplate, mind: &MindGraph, cache: &PlanCos
         );
         return tile_risk_factor(tile, cache);
     }
-    if let Some(target) = action.target_entity
-        && let Some(Value::Tile(tile)) = mind.get(&MindNode::Entity(target), Predicate::LocatedAt)
-    {
-        return tile_risk_factor(*tile, cache);
+    if let Some(target) = action.target_entity {
+        if let Some(Value::Tile(tile)) = mind.get(&MindNode::Entity(target), Predicate::LocatedAt) {
+            return tile_risk_factor(*tile, cache);
+        }
+        if let Some(tile) = world_positions.position_of(target) {
+            return tile_risk_factor(tile, cache);
+        }
     }
     1.0
 }
@@ -310,10 +319,15 @@ fn effort_cost_walk(dist_tiles: f32, intensity: f32, ctx: &PlanCostContext) -> f
 }
 
 /// Subjective cost for an explicit (non-walk) action step.
-fn subjective_action_cost(action: &ActionTemplate, cache: &PlanCostCache, mind: &MindGraph) -> f32 {
+fn subjective_action_cost(
+    action: &ActionTemplate,
+    cache: &PlanCostCache,
+    mind: &MindGraph,
+    world_positions: &crate::world::entity_positions::WorldEntityPositions,
+) -> f32 {
     let base = effort_cost_timed(action, cache.ctx);
     let uncertainty = uncertainty_factor(action, mind);
-    let risk = action_risk_factor(action, mind, cache);
+    let risk = action_risk_factor(action, mind, world_positions, cache);
     let personality = cache.ctx.personality_factor();
     base * uncertainty * risk * personality
 }
@@ -342,6 +356,7 @@ pub fn estimate_plan_cost(
     start_pos: Vec2,
     ctx: &PlanCostContext,
     mind: &MindGraph,
+    world_positions: &crate::world::entity_positions::WorldEntityPositions,
 ) -> f32 {
     let cache = PlanCostCache::new(ctx, mind);
     let mut total = 0.0;
@@ -359,7 +374,7 @@ pub fn estimate_plan_cost(
             total += subjective_walk_cost(dist, tile, action.locomotion_intensity.max(0.5), &cache);
             cursor = target;
         } else {
-            total += subjective_action_cost(action, &cache, mind);
+            total += subjective_action_cost(action, &cache, mind, world_positions);
         }
     }
     total
@@ -843,6 +858,7 @@ pub struct PlanSearchStats {
 pub fn regressive_plan(
     mind: &MindGraph,
     inventory: Option<&crate::agent::item_slots::ItemSlots>,
+    world_positions: &crate::world::entity_positions::WorldEntityPositions,
     goal: &Goal,
     available_actions: &[ActionTemplate],
     ctx: &PlanCostContext,
@@ -863,7 +879,7 @@ pub fn regressive_plan(
     let initial_goals: Vec<TriplePattern> = goal
         .conditions
         .iter()
-        .filter(|p| !mind_satisfies_pattern(mind, inventory, p))
+        .filter(|p| !mind_satisfies_pattern(mind, inventory, world_positions, p))
         .cloned()
         .collect();
 
@@ -983,6 +999,7 @@ pub fn regressive_plan(
             current_g,
             mind,
             inventory,
+            world_positions,
             &current_state.consumed,
             &cost_cache,
         );
@@ -1038,6 +1055,7 @@ pub fn regressive_plan(
             remaining_goals,
             current_g,
             mind,
+            world_positions,
             &current_state.consumed,
             &cost_cache,
         );
@@ -1136,6 +1154,7 @@ fn self_inventory_satisfies_pattern(
 fn mind_satisfies_pattern(
     mind: &MindGraph,
     inventory: Option<&crate::agent::item_slots::ItemSlots>,
+    world_positions: &crate::world::entity_positions::WorldEntityPositions,
     pattern: &TriplePattern,
 ) -> bool {
     // Self-inventory is canonical in `ItemSlots`, not the MindGraph (#755).
@@ -1148,7 +1167,8 @@ fn mind_satisfies_pattern(
     // Special-case `Near`: `(Self, Near, Concept(X))` is a planner-level
     // relation that is never stored as a triple. It is satisfied iff
     // self's current tile holds some known entity whose IsA chain leads
-    // to the target concept.
+    // to the target concept. Static entities live in `WorldEntityPositions`
+    // (#756), mobile entities in MindGraph; check both.
     if pattern.predicate == Some(Predicate::Near) {
         let Some(MindNode::Self_) = &pattern.subject else {
             return false;
@@ -1161,13 +1181,25 @@ fn mind_satisfies_pattern(
         else {
             return false;
         };
-        let entities_at_tile = mind.query(
-            None,
-            Some(Predicate::LocatedAt),
-            Some(&Value::Tile(self_tile)),
-        );
-        return entities_at_tile.iter().any(|t| {
-            matches!(t.subject, MindNode::Entity(_)) && mind.is_a(&t.subject, *target_concept)
+        // Mobile entities at this tile, via MindGraph + ontology IsA chain.
+        let mobile_match = mind
+            .query(
+                None,
+                Some(Predicate::LocatedAt),
+                Some(&Value::Tile(self_tile)),
+            )
+            .iter()
+            .any(|t| {
+                matches!(t.subject, MindNode::Entity(_)) && mind.is_a(&t.subject, *target_concept)
+            });
+        if mobile_match {
+            return true;
+        }
+        // Static entities at this tile, via the world snapshot.
+        return world_positions.entities_at_tile(self_tile).any(|entity| {
+            world_positions
+                .entry(entity)
+                .is_some_and(|loc| mind.ontology.is_a(loc.concept, *target_concept))
         });
     }
 
@@ -1358,6 +1390,7 @@ fn find_explicit_actions_for_goal(
     current_g: f32,
     mind: &MindGraph,
     inventory: Option<&crate::agent::item_slots::ItemSlots>,
+    world_positions: &crate::world::entity_positions::WorldEntityPositions,
     current_consumed: &[TriplePattern],
     cost_cache: &PlanCostCache,
 ) -> Vec<(ActionTemplate, RegressiveState, f32)> {
@@ -1386,7 +1419,7 @@ fn find_explicit_actions_for_goal(
             // 2. It would be satisfied in the live world but a later action consumes it
             let consumed_by_later =
                 precondition_blocked_by_consumed(pre, current_consumed, mind, inventory);
-            if !mind_satisfies_pattern(mind, inventory, pre) || consumed_by_later {
+            if !mind_satisfies_pattern(mind, inventory, world_positions, pre) || consumed_by_later {
                 new_unmet.push(pre.clone());
             }
         }
@@ -1396,7 +1429,8 @@ fn find_explicit_actions_for_goal(
         next_consumed.extend(action.consumes.iter().cloned());
 
         let next_state = RegressiveState::new(new_unmet, next_consumed);
-        let new_cost = current_g + subjective_action_cost(action, cost_cache, mind);
+        let new_cost =
+            current_g + subjective_action_cost(action, cost_cache, mind, world_positions);
         candidates.push((action.clone(), next_state, new_cost));
     }
 
@@ -1701,6 +1735,7 @@ fn generate_concept_near_walks(
     remaining_goals: &[TriplePattern],
     current_g: f32,
     mind: &MindGraph,
+    world_positions: &crate::world::entity_positions::WorldEntityPositions,
     current_consumed: &[TriplePattern],
     cost_cache: &PlanCostCache,
 ) -> Vec<(ActionTemplate, RegressiveState, f32)> {
@@ -1726,19 +1761,25 @@ fn generate_concept_near_walks(
     let mut candidates = Vec::new();
     let mut seen_tiles: std::collections::HashSet<(i32, i32)> = std::collections::HashSet::new();
 
-    // Enumerate every entity with a known tile, keep those whose IsA chain
-    // leads to the target concept.
-    for triple in mind.query(None, Some(Predicate::LocatedAt), None) {
-        if !matches!(triple.subject, MindNode::Entity(_)) {
-            continue;
-        }
-        if !mind.is_a(&triple.subject, target_concept) {
-            continue;
-        }
-        let tile = match &triple.object {
-            Value::Tile(t) => *t,
-            _ => continue,
-        };
+    // Mobile entities — perceived `LocatedAt` triples in MindGraph.
+    let mobile_targets = mind
+        .query(None, Some(Predicate::LocatedAt), None)
+        .into_iter()
+        .filter(|t| matches!(t.subject, MindNode::Entity(_)))
+        .filter_map(|t| match &t.object {
+            Value::Tile(tile) if mind.is_a(&t.subject, target_concept) => Some(*tile),
+            _ => None,
+        });
+
+    // Static entities — objective positions from `WorldEntityPositions` (#756).
+    // The static snapshot carries the concept directly, so the IsA check
+    // skips the MindGraph entirely (no per-agent mirror needed).
+    let static_targets = world_positions
+        .iter()
+        .filter(|(_, loc)| mind.ontology.is_a(loc.concept, target_concept))
+        .map(|(_, loc)| loc.tile);
+
+    for tile in mobile_targets.chain(static_targets) {
         if !seen_tiles.insert(tile) {
             continue;
         }
@@ -1805,6 +1846,7 @@ mod tests {
     use crate::agent::mind::knowledge::{
         Concept, Metadata, Node as MindNode, Predicate, Quantity, Triple, Value, setup_ontology,
     };
+    use crate::world::entity_positions::WorldEntityPositions;
     use bevy::prelude::Entity;
 
     // ─── Helpers ──────────────────────────────────────────────────────────────
@@ -1948,7 +1990,14 @@ mod tests {
         let actions = vec![gather_template(tree, Concept::Apple)];
         let goal = goal_self_contains(Concept::Apple);
 
-        let (plan, _) = regressive_plan(&mind, None, &goal, &actions, &PlanCostContext::neutral());
+        let (plan, _) = regressive_plan(
+            &mind,
+            None,
+            &WorldEntityPositions::default(),
+            &goal,
+            &actions,
+            &PlanCostContext::neutral(),
+        );
         assert!(plan.is_some(), "single gather should produce a valid plan");
         assert!(
             plan.unwrap()
@@ -1980,7 +2029,14 @@ mod tests {
 
         // After planning the first gather (which consumes node 42), the second gather's
         // precondition `entity_contains(42)` is in consumed — so no valid plan exists.
-        let (plan, _) = regressive_plan(&mind, None, &goal, &actions, &PlanCostContext::neutral());
+        let (plan, _) = regressive_plan(
+            &mind,
+            None,
+            &WorldEntityPositions::default(),
+            &goal,
+            &actions,
+            &PlanCostContext::neutral(),
+        );
         if let Some(ref p) = plan {
             let gather_count = p
                 .iter()
@@ -2019,7 +2075,14 @@ mod tests {
         ];
         let goal = goal_self_contains_both(Concept::Apple, Concept::Berry);
 
-        let (plan, _) = regressive_plan(&mind, None, &goal, &actions, &PlanCostContext::neutral());
+        let (plan, _) = regressive_plan(
+            &mind,
+            None,
+            &WorldEntityPositions::default(),
+            &goal,
+            &actions,
+            &PlanCostContext::neutral(),
+        );
         assert!(
             plan.is_some(),
             "two independent sources should produce a valid plan"
@@ -2046,6 +2109,7 @@ mod tests {
         let (plan, _) = regressive_plan(
             &mind,
             Some(&inventory),
+            &WorldEntityPositions::default(),
             &goal,
             &[],
             &PlanCostContext::neutral(),
@@ -2137,7 +2201,14 @@ mod tests {
         ];
         let goal = goal_self_contains(Concept::Apple);
 
-        let (plan, _) = regressive_plan(&mind, None, &goal, &actions, &PlanCostContext::neutral());
+        let (plan, _) = regressive_plan(
+            &mind,
+            None,
+            &WorldEntityPositions::default(),
+            &goal,
+            &actions,
+            &PlanCostContext::neutral(),
+        );
         assert!(plan.is_some(), "should produce a valid plan");
         let plan = plan.unwrap();
 
@@ -2171,7 +2242,14 @@ mod tests {
         ];
         let goal = goal_self_contains(Concept::Apple);
 
-        let (plan, _) = regressive_plan(&mind, None, &goal, &actions, &ctx_with_stamina(20.0));
+        let (plan, _) = regressive_plan(
+            &mind,
+            None,
+            &WorldEntityPositions::default(),
+            &goal,
+            &actions,
+            &ctx_with_stamina(20.0),
+        );
         assert!(
             plan.is_some(),
             "should produce a plan (Rest makes it feasible)"
@@ -2203,7 +2281,14 @@ mod tests {
         ];
         let goal = goal_self_contains(Concept::Apple);
 
-        let (plan, _) = regressive_plan(&mind, None, &goal, &actions, &PlanCostContext::neutral());
+        let (plan, _) = regressive_plan(
+            &mind,
+            None,
+            &WorldEntityPositions::default(),
+            &goal,
+            &actions,
+            &PlanCostContext::neutral(),
+        );
         assert!(
             plan.is_none(),
             "planner must return None for truly infeasible walk"
@@ -2268,7 +2353,14 @@ mod tests {
             priority: 1.0,
         };
 
-        let (plan, _) = regressive_plan(&mind, None, &goal, &actions, &ctx_with_stamina(20.0));
+        let (plan, _) = regressive_plan(
+            &mind,
+            None,
+            &WorldEntityPositions::default(),
+            &goal,
+            &actions,
+            &ctx_with_stamina(20.0),
+        );
         assert!(plan.is_some(), "should produce a plan for stone harvest");
         let plan = plan.unwrap();
 
@@ -2370,6 +2462,7 @@ mod tests {
         let (plan, _) = regressive_plan(
             &mind,
             None,
+            &WorldEntityPositions::default(),
             &hunger_goal,
             &actions,
             &PlanCostContext::neutral(),
@@ -2453,7 +2546,12 @@ mod tests {
         ));
 
         assert!(
-            !mind_satisfies_pattern(&mind, None, &self_apple_pattern()),
+            !mind_satisfies_pattern(
+                &mind,
+                None,
+                &WorldEntityPositions::default(),
+                &self_apple_pattern()
+            ),
             "Self_ precondition must not be satisfied by another entity's items"
         );
 
@@ -2464,7 +2562,12 @@ mod tests {
             Some(Value::Item(Concept::Apple, 1)),
         );
         assert!(
-            !mind_satisfies_pattern(&mind, None, &stranger_apple),
+            !mind_satisfies_pattern(
+                &mind,
+                None,
+                &WorldEntityPositions::default(),
+                &stranger_apple
+            ),
             "entity X precondition must not be satisfied by entity Y's items"
         );
 
@@ -2473,7 +2576,12 @@ mod tests {
             Some(Predicate::Contains),
             Some(Value::Item(Concept::Apple, 1)),
         );
-        assert!(mind_satisfies_pattern(&mind, None, &owner_apple));
+        assert!(mind_satisfies_pattern(
+            &mind,
+            None,
+            &WorldEntityPositions::default(),
+            &owner_apple
+        ));
     }
 
     #[test]
@@ -2502,7 +2610,14 @@ mod tests {
             conditions: vec![TriplePattern::self_at((5, 5))],
             priority: 1.0,
         };
-        let (plan_opt, _) = regressive_plan(&mind, None, &goal, &[], &PlanCostContext::neutral());
+        let (plan_opt, _) = regressive_plan(
+            &mind,
+            None,
+            &WorldEntityPositions::default(),
+            &goal,
+            &[],
+            &PlanCostContext::neutral(),
+        );
         let plan = plan_opt.expect("planner should produce a Walk plan, not an empty plan");
         assert!(
             plan.iter().any(|a| a.action_type == ActionType::Walk),
@@ -2650,7 +2765,14 @@ mod tests {
         let goal = goal_self_contains(Concept::Apple);
 
         let (plan, _) = tracing::subscriber::with_default(subscriber, || {
-            regressive_plan(&mind, None, &goal, &actions, &PlanCostContext::neutral())
+            regressive_plan(
+                &mind,
+                None,
+                &WorldEntityPositions::default(),
+                &goal,
+                &actions,
+                &PlanCostContext::neutral(),
+            )
         });
 
         let log_output = String::from_utf8(captured.lock().unwrap().clone()).unwrap_or_default();
@@ -2728,7 +2850,7 @@ mod tests {
 
         let ctx = PlanCostContext::neutral();
         let cache = PlanCostCache::new(&ctx, &mind);
-        let cost = subjective_action_cost(&action, &cache, &mind);
+        let cost = subjective_action_cost(&action, &cache, &mind, &WorldEntityPositions::default());
         assert!(
             cost > 0.0,
             "effort-based cost under neutral context must be positive, got {cost}"
@@ -2794,8 +2916,18 @@ mod tests {
         let ctx = PlanCostContext::neutral();
         let known_cache = PlanCostCache::new(&ctx, &known_mind);
         let guess_cache = PlanCostCache::new(&ctx, &guess_mind);
-        let known = subjective_action_cost(&action, &known_cache, &known_mind);
-        let guess = subjective_action_cost(&action, &guess_cache, &guess_mind);
+        let known = subjective_action_cost(
+            &action,
+            &known_cache,
+            &known_mind,
+            &WorldEntityPositions::default(),
+        );
+        let guess = subjective_action_cost(
+            &action,
+            &guess_cache,
+            &guess_mind,
+            &WorldEntityPositions::default(),
+        );
 
         assert!(
             guess > known,
@@ -2860,8 +2992,18 @@ mod tests {
 
         let stoic_cache = PlanCostCache::new(&stoic, &mind);
         let anxious_cache = PlanCostCache::new(&anxious, &mind);
-        let stoic_cost = subjective_action_cost(&action, &stoic_cache, &mind);
-        let anxious_cost = subjective_action_cost(&action, &anxious_cache, &mind);
+        let stoic_cost = subjective_action_cost(
+            &action,
+            &stoic_cache,
+            &mind,
+            &WorldEntityPositions::default(),
+        );
+        let anxious_cost = subjective_action_cost(
+            &action,
+            &anxious_cache,
+            &mind,
+            &WorldEntityPositions::default(),
+        );
 
         assert!(
             anxious_cost > stoic_cost,
@@ -2909,8 +3051,18 @@ mod tests {
 
         let light_cache = PlanCostCache::new(&light, &mind);
         let heavy_cache = PlanCostCache::new(&heavy, &mind);
-        let light_cost = subjective_action_cost(&action, &light_cache, &mind);
-        let heavy_cost = subjective_action_cost(&action, &heavy_cache, &mind);
+        let light_cost = subjective_action_cost(
+            &action,
+            &light_cache,
+            &mind,
+            &WorldEntityPositions::default(),
+        );
+        let heavy_cost = subjective_action_cost(
+            &action,
+            &heavy_cache,
+            &mind,
+            &WorldEntityPositions::default(),
+        );
 
         assert!(
             heavy_cost > light_cost,
@@ -2928,7 +3080,8 @@ mod tests {
 
         for action_def in registry.all() {
             let template = action_def.to_template(None);
-            let cost = subjective_action_cost(&template, &cache, &mind);
+            let cost =
+                subjective_action_cost(&template, &cache, &mind, &WorldEntityPositions::default());
             assert!(
                 cost > 0.0,
                 "{:?} must have positive effort-based cost, got {cost}",
@@ -2967,8 +3120,14 @@ mod tests {
         ];
         let goal = goal_self_contains(Concept::Apple);
 
-        let (plan_opt, _) =
-            regressive_plan(&mind, None, &goal, &actions, &PlanCostContext::neutral());
+        let (plan_opt, _) = regressive_plan(
+            &mind,
+            None,
+            &WorldEntityPositions::default(),
+            &goal,
+            &actions,
+            &PlanCostContext::neutral(),
+        );
         let plan = plan_opt.expect("plan should exist");
 
         // Find which harvest target was chosen.
@@ -3180,8 +3339,14 @@ mod tests {
             priority: 1.0,
         };
 
-        let (plan, stats) =
-            regressive_plan(&mind, None, &goal, &gathers, &PlanCostContext::neutral());
+        let (plan, stats) = regressive_plan(
+            &mind,
+            None,
+            &WorldEntityPositions::default(),
+            &goal,
+            &gathers,
+            &PlanCostContext::neutral(),
+        );
         let plan = plan.unwrap_or_else(|| {
             panic!(
                 "planner must chain three gather steps; unmet: {:?}",
@@ -3229,8 +3394,14 @@ mod tests {
             priority: 1.0,
         };
 
-        let (plan, stats) =
-            regressive_plan(&mind, None, &goal, &gathers, &PlanCostContext::neutral());
+        let (plan, stats) = regressive_plan(
+            &mind,
+            None,
+            &WorldEntityPositions::default(),
+            &goal,
+            &gathers,
+            &PlanCostContext::neutral(),
+        );
         let plan = plan.unwrap_or_else(|| {
             panic!(
                 "planner must chain three Harvests against the same log; unmet: {:?}",
@@ -3284,7 +3455,14 @@ mod tests {
             )],
             priority: 1.0,
         };
-        let (plan, _) = regressive_plan(&mind, None, &goal, &gathers, &PlanCostContext::neutral());
+        let (plan, _) = regressive_plan(
+            &mind,
+            None,
+            &WorldEntityPositions::default(),
+            &goal,
+            &gathers,
+            &PlanCostContext::neutral(),
+        );
         let plan = plan.expect("planner must chain 5 berry harvests");
         let count = plan
             .iter()
@@ -3329,8 +3507,14 @@ mod tests {
             priority: 1.0,
         };
 
-        let (plan, stats) =
-            regressive_plan(&mind, None, &goal, &gathers, &PlanCostContext::neutral());
+        let (plan, stats) = regressive_plan(
+            &mind,
+            None,
+            &WorldEntityPositions::default(),
+            &goal,
+            &gathers,
+            &PlanCostContext::neutral(),
+        );
         let plan = plan.unwrap_or_else(|| {
             panic!(
                 "planner must plan 5 harvests across two logs; unmet: {:?}",
