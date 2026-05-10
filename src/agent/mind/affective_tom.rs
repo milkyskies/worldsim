@@ -259,7 +259,8 @@ mod tests {
     #[test]
     fn capacity_evicts_oldest_target() {
         let mut tom = AffectiveToM::default();
-        for i in 0..MAX_AFFECTIVE_TARGETS {
+        // Entity::from_bits(0) is invalid in Bevy 0.18 — start ids at 1.
+        for i in 1..=MAX_AFFECTIVE_TARGETS {
             tom.record_observation(test_entity(i as u32), None, 0.0, 0.0, i as u64);
         }
         assert_eq!(tom.target_count(), MAX_AFFECTIVE_TARGETS);
@@ -267,7 +268,7 @@ mod tests {
         let newcomer = test_entity(999);
         tom.record_observation(newcomer, None, 0.0, 0.0, 1000);
         assert_eq!(tom.target_count(), MAX_AFFECTIVE_TARGETS);
-        assert!(tom.perceived_mood(test_entity(0)).is_none());
+        assert!(tom.perceived_mood(test_entity(1)).is_none());
         assert!(tom.perceived_mood(newcomer).is_some());
     }
 
