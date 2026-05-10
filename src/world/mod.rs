@@ -9,6 +9,7 @@ pub mod emits_effect;
 pub mod environment;
 pub mod field_grid;
 pub mod field_grid_plugin;
+pub mod forecast;
 pub mod house;
 pub mod human;
 pub mod lean_to;
@@ -39,6 +40,7 @@ impl Plugin for WorldPlugin {
             .register_type::<emits_effect::EmitsEffect>()
             .register_type::<construction_site::ConstructionSiteMarker>()
             .register_type::<sense_sources::SoundSource>()
+            .init_resource::<forecast::WorldForecast>()
             .add_plugins(map::MapPlugin)
             .add_plugins(environment::EnvironmentPlugin)
             .add_plugins(spatial_index::SpatialIndexPlugin)

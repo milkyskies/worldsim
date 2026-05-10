@@ -71,14 +71,23 @@ impl GameTime {
 
     /// Static helper to format raw ticks into [HH:MM] string
     pub fn format_tick(tick: u64) -> String {
-        let total_ticks = tick + Self::INITIAL_TICK_OFFSET;
-        let seconds = total_ticks / Self::TICKS_PER_SECOND;
-        let total_minutes = seconds / Self::SECONDS_PER_MINUTE;
-        let total_hours = total_minutes / Self::MINUTES_PER_HOUR;
-
-        let minutes = total_minutes % Self::MINUTES_PER_HOUR;
-        let hours = total_hours % Self::HOURS_PER_DAY;
-
+        let (hours, minutes) = Self::hour_minute_at_tick(tick);
         format!("[{:02}:{:02}]", hours, minutes)
+    }
+
+    /// Wall-clock (hour, minute) the absolute tick falls on, including the
+    /// `INITIAL_TICK_OFFSET` simulation start.
+    pub fn hour_minute_at_tick(tick: u64) -> (u64, u64) {
+        let total_minutes =
+            (tick + Self::INITIAL_TICK_OFFSET) / Self::TICKS_PER_SECOND / Self::SECONDS_PER_MINUTE;
+        let hours = (total_minutes / Self::MINUTES_PER_HOUR) % Self::HOURS_PER_DAY;
+        let minutes = total_minutes % Self::MINUTES_PER_HOUR;
+        (hours, minutes)
+    }
+
+    /// Wall-clock hour as a fractional `f32` at the given absolute tick.
+    pub fn hour_at_tick(tick: u64) -> f32 {
+        let (hours, minutes) = Self::hour_minute_at_tick(tick);
+        hours as f32 + (minutes as f32) / 60.0
     }
 }

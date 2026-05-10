@@ -144,6 +144,10 @@ pub fn generate_urgency(
         cns.urgencies.clear();
         cns.sleep_wake_trigger = None;
 
+        // Per-agent forecast horizon — same for every drive iteration.
+        let forecast_horizon_minutes =
+            crate::agent::nervous_system::forecast::forecast_horizon_minutes(&personality.traits);
+
         // Helper: Return the "intensity of want" (0..1) for an urgency
         // source. All physical/psychological fields now store satisfaction
         // (high = good), so this is where polarity inversion happens —
@@ -211,7 +215,7 @@ pub fn generate_urgency(
             // Hunger: High Value = High Need.
             // Stamina: Low Value = High Need.
 
-            let normalized_input = match drive_config.source {
+            let current_normalized_input = match drive_config.source {
                 // Satisfaction-polarity fields: high value = low urgency.
                 UrgencySource::Stamina => 1.0 - base_input,
                 UrgencySource::Sleepiness => 1.0 - base_input,
@@ -220,6 +224,19 @@ pub fn generate_urgency(
                 UrgencySource::FoodSecurity => 1.0 - base_input,
                 _ => base_input,
             };
+
+            // Forward-projected urgency: opted-in drives lift their input
+            // before a deficit lands. Max keeps the live signal as a floor.
+            let normalized_input =
+                match crate::agent::nervous_system::forecast::predicted_normalized_input(
+                    drive_config.source,
+                    physical,
+                    forecast_horizon_minutes,
+                    tick.current,
+                ) {
+                    Some(predicted) => current_normalized_input.max(predicted),
+                    None => current_normalized_input,
+                };
 
             // Sleep wake pathway: compare the pre-gated raw input against the
             // drive's wake threshold. This runs before gating/curves/sensitivity
