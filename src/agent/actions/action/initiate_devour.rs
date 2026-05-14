@@ -1,12 +1,16 @@
-//! InitiateDevour — walk-to-corpse marker proposed by brains to start a
-//! [`DevourPlugin`](crate::agent::engagement::devour::DevourPlugin) engagement.
+//! InitiateDevour — corpse-targeting trigger proposed by brains to start
+//! a [`DevourPlugin`](crate::agent::engagement::devour::DevourPlugin)
+//! engagement.
 //!
-//! On arrival the plugin installs `EngagedDevour` and runs the bite-cooldown
-//! loop. Pack feeding emerges naturally: multiple predators independently
-//! initiate against the same corpse.
+//! A one-tick `Timed` trigger: the planner auto-injects `Walk` toward
+//! the corpse to satisfy the proximity precondition, and the
+//! DevourPlugin (ordered `.before(tick_actions)`) consumes it on the
+//! dispatch tick, installing `EngagedDevour` and running the
+//! bite-cooldown loop. Pack feeding emerges naturally: multiple
+//! predators independently initiate against the same corpse.
 
 use crate::agent::actions::ActionType;
-use crate::agent::actions::channel::{Channel, ChannelUsage, Posture};
+use crate::agent::actions::channel::ChannelSlices;
 use crate::agent::actions::definition::{
     ActionDefinition, CompletionPredicate, EffectTemplate, Gate, Hooks, PlanValidity,
     SatiationGate, TargetEffects,
@@ -15,19 +19,17 @@ use crate::agent::actions::motor::{ActionPrimitive, IntensityPolicy, Intent, Tar
 use crate::agent::actions::registry::{ActionKind, TargetSource};
 use crate::agent::mind::knowledge::{Concept, Predicate};
 
-const CHANNELS: &[ChannelUsage] = &[ChannelUsage::new(Channel::Locomotion, 1.0)];
-
 pub static INITIATE_DEVOUR_DEF: ActionDefinition = ActionDefinition {
     action_type: ActionType::InitiateDevour,
-    kind: ActionKind::Movement,
+    kind: ActionKind::Timed { duration_ticks: 1 },
     target_source: TargetSource::DeadEntityWithTrait(Concept::Carrion),
     base_cost: 1.0,
-    primitive: ActionPrimitive::Locomote,
+    primitive: ActionPrimitive::Ingest,
     target_selector: TargetSelector::InPlace,
     intensity: IntensityPolicy::Normal,
     intent: Intent::Hunger,
-    body_channels: CHANNELS,
-    posture: Some(Posture::Moving),
+    body_channels: ChannelSlices::NONE,
+    posture: None,
     interruptible: true,
     start_log: Some("approaching carcass"),
     complete_log: None,

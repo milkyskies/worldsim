@@ -1,12 +1,16 @@
-//! InitiateHarvest — walk-to-source marker proposed by brains to start a
-//! [`HarvestPlugin`](crate::agent::engagement::harvest::HarvestPlugin) engagement.
+//! InitiateHarvest — source-targeting trigger proposed by brains to
+//! start a
+//! [`HarvestPlugin`](crate::agent::engagement::harvest::HarvestPlugin)
+//! engagement.
 //!
-//! On arrival the plugin installs `EngagedHarvest` and emits per-yield
-//! beats over time, terminating when the source is depleted or the
-//! agent's inventory is full.
+//! A one-tick `Timed` trigger: the planner auto-injects `Walk` toward
+//! the source, and the HarvestPlugin (ordered `.before(tick_actions)`)
+//! consumes it on the dispatch tick, installing `EngagedHarvest` and
+//! emitting per-yield beats over time until the source is depleted or
+//! the agent's inventory is full.
 
 use crate::agent::actions::ActionType;
-use crate::agent::actions::channel::{Channel, ChannelUsage, Posture};
+use crate::agent::actions::channel::ChannelSlices;
 use crate::agent::actions::definition::{
     ActionDefinition, CompletionPredicate, EffectTemplate, Gate, Hooks, PlanValidity, TargetEffects,
 };
@@ -14,19 +18,17 @@ use crate::agent::actions::motor::{ActionPrimitive, IntensityPolicy, Intent, Tar
 use crate::agent::actions::registry::{ActionKind, TargetSource};
 use crate::agent::mind::knowledge::Concept;
 
-const CHANNELS: &[ChannelUsage] = &[ChannelUsage::new(Channel::Locomotion, 1.0)];
-
 pub static INITIATE_HARVEST_DEF: ActionDefinition = ActionDefinition {
     action_type: ActionType::InitiateHarvest,
-    kind: ActionKind::Movement,
+    kind: ActionKind::Timed { duration_ticks: 1 },
     target_source: TargetSource::EntityAffordance,
     base_cost: 2.0,
-    primitive: ActionPrimitive::Locomote,
+    primitive: ActionPrimitive::Manipulate,
     target_selector: TargetSelector::InPlace,
     intensity: IntensityPolicy::Normal,
     intent: Intent::Goal,
-    body_channels: CHANNELS,
-    posture: Some(Posture::Moving),
+    body_channels: ChannelSlices::NONE,
+    posture: None,
     interruptible: true,
     start_log: Some("approaching to harvest"),
     complete_log: None,

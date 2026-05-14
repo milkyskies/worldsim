@@ -145,7 +145,7 @@ fn predator_with_two_visible_prey_picks_lame_one() {
     );
 }
 
-#[ignore = "TODO #716/#744/#746: needs follow-up to migrate behavior to engagement-driven path"]
+#[ignore = "TODO: cornered-signal detection depends on the old standalone-Flee target picker; needs re-derivation from the Flee engagement"]
 #[test]
 fn cornered_signal_fires_when_no_escape_exists() {
     use worldsim::world::map::TileType;
@@ -180,7 +180,6 @@ fn cornered_signal_fires_when_no_escape_exists() {
     );
 }
 
-#[ignore = "TODO #716/#744/#746: needs follow-up to migrate behavior to engagement-driven path"]
 #[test]
 fn human_witnessing_combat_gains_fear() {
     let mut world = TestWorld::with_seed(4);

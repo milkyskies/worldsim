@@ -765,12 +765,18 @@ fn appraise_threat_proposal(
             })
         }
         ThreatResponse::Fight { commitment } => {
-            // Bite is a Hunt-engagement-internal beat post-#743; brain
-            // proposals route every species through `DefendSelf` for
-            // reactive combat. Predator-vs-prey aggression goes through
-            // `InitiateHunt` instead, which is a different pathway.
-            let _ = self_concept;
-            let attack_action = ActionType::DefendSelf;
+            // Post-#743/#716 the Fight response splits by capability:
+            // a predator with jaws (Bite channel) commits to a Hunt
+            // engagement against the target — `InitiateHunt` walks it
+            // into strike range and the HuntPlugin owns the strike
+            // loop. Everyone else does reactive `DefendSelf` (Bite is
+            // a Hunt-internal beat now and can't be proposed directly).
+            let is_predator = self_concept == Some(Concept::Wolf);
+            let (attack_action, intent) = if is_predator {
+                (ActionType::InitiateHunt, Intent::SatisfyHunger)
+            } else {
+                (ActionType::DefendSelf, Intent::SatisfySafety)
+            };
             let action = action_registry.get(attack_action)?;
             let proposal_urgency = (FIGHT_RESPONSE_BASE_URGENCY
                 + commitment * FIGHT_RESPONSE_COMMITMENT_MULTIPLIER)
@@ -784,7 +790,7 @@ fn appraise_threat_proposal(
                 brain: BrainType::Emotional,
                 action: template,
                 urgency: proposal_urgency,
-                intent: Intent::SatisfySafety,
+                intent,
                 reasoning: format!("Threat appraisal → Fight (commitment {commitment:.2})"),
             })
         }
