@@ -5,7 +5,7 @@ paths:
 
 # Module Documentation
 
-Every module file (`src/agent/brains.rs`, `src/agent/mind.rs`, etc.) must have a `//!` doc comment at the top with:
+A **system or subsystem file** — anything that reads or writes simulation state, or that other modules depend on for data flow — must have a `//!` doc comment at the top with:
 
 1. One-line description of what the module does
 2. `Reads:` — what data/components this module consumes
@@ -14,6 +14,8 @@ Every module file (`src/agent/brains.rs`, `src/agent/mind.rs`, etc.) must have a
 5. `Downstream:` — which modules consume this one's output
 
 Keep it under 6 lines. Describe connections, not implementation.
+
+**Not every file under `src/` needs this.** Pure-data files (static tables, palette/silhouette specs), pure utility helpers (math, formatting), and entry points (`main.rs`) are exempt — a plain one-line `//!` description is enough, or nothing if the filename already says it. The test: if you cannot fill in a meaningful `Reads:` or `Writes:` line, the file is not a data-flow node and does not need the full header.
 
 When modifying a module, check that its `//!` header still reflects reality. Update if not.
 
