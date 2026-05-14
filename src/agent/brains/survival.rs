@@ -39,8 +39,13 @@ pub fn survival_brain_propose(
 ) -> Vec<BrainProposal> {
     // While sleeping, the sleep/wake gate owns the decision — either stay
     // asleep or transition through WakeUp. No other proposals are generated.
-    if let Some(proposal) = check_sleep_wake(&context, active, action_registry) {
-        return vec![proposal];
+    // The Sleep engagement (#746) keeps the Sleep beat in `active` for the
+    // whole duration; the only valid survival proposal during it is WakeUp
+    // when an emergency trigger fires or wakefulness has restored.
+    if active.contains(ActionType::Sleep) {
+        return check_sleep_wake(&context, active, action_registry)
+            .map(|p| vec![p])
+            .unwrap_or_default();
     }
 
     // One proposal per active survival urgency. Arbitration picks the winner
@@ -140,7 +145,7 @@ fn propose_for_source(
             }
         }
         UrgencySource::Fear => {
-            if let Some(action) = action_registry.get(ActionType::Flee) {
+            if let Some(action) = action_registry.get(ActionType::InitiateFlee) {
                 return Some(BrainProposal {
                     brain: BrainType::Survival,
                     action: escalated(action, context.most_feared_entity),
@@ -151,7 +156,7 @@ fn propose_for_source(
             }
         }
         UrgencySource::Sleepiness => {
-            if let Some(action) = action_registry.get(ActionType::Sleep)
+            if let Some(action) = action_registry.get(ActionType::InitiateSleep)
                 && action.is_plan_time_viable(Some(context.physical), Some(inventory))
             {
                 return Some(BrainProposal {
@@ -214,17 +219,11 @@ fn check_sleep_wake(
         return Some(wake_proposal(90.0, format!("Emergency wake: {source:?}")));
     }
 
-    // Still tired, nothing urgent — stay asleep.
-    let sleep_urgency = (1.0 - wakefulness) * 100.0;
-    action_registry
-        .get(ActionType::Sleep)
-        .map(|action| BrainProposal {
-            brain: BrainType::Survival,
-            action: action.to_template(None),
-            urgency: sleep_urgency,
-            intent: Intent::SatisfySleepiness,
-            reasoning: format!("Still tired... wakefulness {wakefulness:.2}, aerobic {aerobic:.0}"),
-        })
+    // Still tired, nothing urgent — let the Sleep engagement keep running.
+    // Pre-migration this re-proposed `Sleep` every tick to keep the
+    // single-action slot occupied; with the engagement primitive the
+    // SleepPlugin owns continuation, and `Sleep` is beat-only.
+    None
 }
 
 #[cfg(test)]
@@ -602,9 +601,12 @@ mod tests {
         let registry = sleeping_agent_registry();
 
         let proposals = survival_brain_propose(context, &inventory, &active, &ontology, &registry);
+        // Post-#746 migration: the SleepPlugin owns continuation, so the
+        // survival brain stops re-proposing Sleep tick after tick. The
+        // Sleep beat already in `active_actions` keeps the agent down.
         assert!(
-            find_proposal(&proposals, ActionType::Sleep).is_some(),
-            "sleeping agent should keep sleeping; got {proposals:?}"
+            find_proposal(&proposals, ActionType::Sleep).is_none(),
+            "Sleep beat is plugin-owned now; brain should not re-propose it: {proposals:?}"
         );
         assert!(find_proposal(&proposals, ActionType::WakeUp).is_none());
     }
@@ -702,10 +704,11 @@ mod tests {
         let active = ActiveActions::default();
 
         let mut registry = crate::agent::actions::ActionRegistry::default();
-        registry.register_def(&crate::agent::actions::action::FLEE_DEF);
+        registry.register_def(&crate::agent::actions::action::INITIATE_FLEE_DEF);
 
         let proposals = survival_brain_propose(context, &inventory, &active, &ontology, &registry);
-        let proposal = find_proposal(&proposals, ActionType::Flee).expect("should propose Flee");
+        let proposal = find_proposal(&proposals, ActionType::InitiateFlee)
+            .expect("should propose InitiateFlee");
 
         assert!(
             matches!(proposal.action.behavior.intensity, IntensityPolicy::Maximal),

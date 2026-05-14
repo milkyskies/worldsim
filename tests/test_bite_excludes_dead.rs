@@ -86,7 +86,7 @@ fn wolf_does_not_bite_freshly_killed_deer_corpse() {
                     },
                 ..
             } if *agent == wolf
-                && *action == ActionType::Bite
+                && *action == ActionType::InitiateHunt
                 && *target == Some(deer)
                 && *tick >= death_tick =>
             {

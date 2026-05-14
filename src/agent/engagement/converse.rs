@@ -8,6 +8,7 @@ use bevy::prelude::*;
 use std::collections::HashSet;
 
 use super::component::{Engaged, EngagementEndReason, EngagementId, EngagementKind};
+use super::markers::EngagedConverse;
 use super::registry::EngagementRegistry;
 use crate::agent::Agent;
 use crate::agent::actions::registry::{ActionState, ActiveActions};
@@ -405,13 +406,15 @@ pub fn process_initiate_conversation(
             (id, true)
         };
 
-        commands
-            .entity(initiator)
-            .insert(Engaged::new(EngagementKind::Converse, engagement_id));
+        commands.entity(initiator).insert((
+            Engaged::new(EngagementKind::Converse, engagement_id),
+            EngagedConverse(engagement_id),
+        ));
         if is_new {
-            commands
-                .entity(partner)
-                .insert(Engaged::new(EngagementKind::Converse, engagement_id));
+            commands.entity(partner).insert((
+                Engaged::new(EngagementKind::Converse, engagement_id),
+                EngagedConverse(engagement_id),
+            ));
         }
 
         if let Ok((_, mut active)) = active_actions.get_mut(initiator) {
@@ -1301,7 +1304,10 @@ pub fn evaluate_conversation_continuation(
                 }
             }
 
-            commands.entity(*leaver).remove::<Engaged>();
+            commands
+                .entity(*leaver)
+                .remove::<Engaged>()
+                .remove::<EngagedConverse>();
             commands.entity(*leaver).queue(RemoveConverseMarker);
             conv.remove_participant(*leaver);
         }
@@ -1332,7 +1338,10 @@ pub fn evaluate_conversation_continuation(
                 },
             ));
             for entity in &conv.participants {
-                commands.entity(*entity).remove::<Engaged>();
+                commands
+                    .entity(*entity)
+                    .remove::<Engaged>()
+                    .remove::<EngagedConverse>();
                 commands.entity(*entity).queue(RemoveConverseMarker);
             }
         }

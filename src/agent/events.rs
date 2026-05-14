@@ -38,6 +38,39 @@ pub enum EngagementBeatPayload {
         content_count: usize,
         expects_response: bool,
     },
+    Hunt {
+        #[serde(serialize_with = "crate::core::entity_serde::serialize_entity")]
+        predator: Entity,
+        #[serde(serialize_with = "crate::core::entity_serde::serialize_entity")]
+        prey: Entity,
+        strike_index: u32,
+    },
+    Devour {
+        #[serde(serialize_with = "crate::core::entity_serde::serialize_entity")]
+        participant: Entity,
+        #[serde(serialize_with = "crate::core::entity_serde::serialize_entity")]
+        corpse: Entity,
+        bite_index: u32,
+    },
+    Harvest {
+        #[serde(serialize_with = "crate::core::entity_serde::serialize_entity")]
+        harvester: Entity,
+        #[serde(serialize_with = "crate::core::entity_serde::serialize_entity")]
+        source: Entity,
+        yield_index: u32,
+    },
+    Flee {
+        #[serde(serialize_with = "crate::core::entity_serde::serialize_entity")]
+        fleer: Entity,
+        #[serde(serialize_with = "crate::core::entity_serde::serialize_entity")]
+        threat: Entity,
+        step_index: u32,
+    },
+    Sleep {
+        #[serde(serialize_with = "crate::core::entity_serde::serialize_entity")]
+        sleeper: Entity,
+        beat_index: u32,
+    },
 }
 
 #[derive(Event, Message, Debug, Clone, Reflect)]

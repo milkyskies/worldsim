@@ -100,19 +100,38 @@ pub enum ActionType {
     /// Body-channel marker for being in a conversation. Inserted and removed
     /// by the ConversePlugin — never proposed by brains directly.
     Converse,
+    /// Walk-to-prey marker proposed by brains to start a hunt engagement.
+    /// Owned by the HuntPlugin — on arrival within strike range the plugin
+    /// installs `EngagedHunt` and starts the strike loop.
+    InitiateHunt,
+    /// Walk-to-corpse marker proposed by brains to start a devour engagement.
+    /// Owned by the DevourPlugin — on arrival the plugin installs
+    /// `EngagedDevour` and starts the bite loop.
+    InitiateDevour,
+    /// Walk-to-bush marker proposed by brains to start a harvest engagement.
+    /// Owned by the HarvestPlugin — on arrival the plugin installs
+    /// `EngagedHarvest` and starts the per-yield loop.
+    InitiateHarvest,
+    /// Marker proposed by emotional/survival brain when fear urgency
+    /// crosses threshold. Owned by the FleePlugin — installs `EngagedFlee`
+    /// and tracks the threat target across ticks.
+    InitiateFlee,
+    /// Marker proposed by survival brain when sleepiness crosses threshold.
+    /// Owned by the SleepPlugin — picks a sleep spot, walks there, then
+    /// installs `EngagedSleep` for the duration.
+    InitiateSleep,
     Attack,
-    /// Jaws-as-weapon attack. Requires `Channel::Bite`, so only species
-    /// whose anatomy provides it (wolves, future crocodiles, snakes) can
-    /// perform it. Distinct from `Attack`, which needs `Manipulation` and
-    /// covers hands / weapons / grapples.
+    /// Jaws-as-weapon strike. Engagement-internal beat owned by the
+    /// HuntPlugin — never proposed directly by brains. The 30-tick
+    /// duration is the strike cooldown within a hunt, not a stationary
+    /// action duration.
     Bite,
-    /// Predator/scavenger feeding from a corpse. Tears meat off the
-    /// target's ItemSlots in place — no Harvest hop into personal
-    /// inventory. Multiple agents can devour the same corpse on the
-    /// same tick (pack feeding). Distinct from `Eat` (eat-from-own-
-    /// inventory) so the species split stays clean: humans Eat, wolves
-    /// Devour.
+    /// Predator/scavenger feeding from a corpse. Engagement-internal beat
+    /// owned by the DevourPlugin — never proposed directly. Multiple
+    /// agents can devour the same corpse on the same tick (pack feeding).
     Devour,
+    /// Per-tick flight beat owned by the FleePlugin. Tracks the threat
+    /// target's current position, not a snapshot. Never proposed by brains.
     Flee,
     /// Counterattack against a `Dangerous` target — the non-prey
     /// counterpart of `Attack`. Proposed by the emotional brain when
@@ -183,6 +202,11 @@ impl ActionType {
             ActionType::Observe => "Watching",
             ActionType::Wave => "Waving at",
             ActionType::InitiateConversation => "Approaching",
+            ActionType::InitiateHunt => "Closing on",
+            ActionType::InitiateDevour => "Approaching corpse",
+            ActionType::InitiateHarvest => "Approaching",
+            ActionType::InitiateFlee => "Bolting from",
+            ActionType::InitiateSleep => "Settling down",
             ActionType::Converse => "Talking to",
             ActionType::Attack => "Attacking",
             ActionType::Bite => "Biting",
@@ -231,6 +255,11 @@ impl ActionType {
             ActionType::Observe => "Observe",
             ActionType::Wave => "Wave",
             ActionType::InitiateConversation => "InitiateConversation",
+            ActionType::InitiateHunt => "InitiateHunt",
+            ActionType::InitiateDevour => "InitiateDevour",
+            ActionType::InitiateHarvest => "InitiateHarvest",
+            ActionType::InitiateFlee => "InitiateFlee",
+            ActionType::InitiateSleep => "InitiateSleep",
             ActionType::Converse => "Converse",
             ActionType::Attack => "Attack",
             ActionType::Bite => "Bite",
@@ -245,5 +274,39 @@ impl ActionType {
             ActionType::Dance => "Dance",
             ActionType::Mourn => "Mourn",
         }
+    }
+
+    /// True for engagement-internal beats that may only be inserted into
+    /// `ActiveActions` by an engagement plugin — never proposed by a
+    /// brain. Brain-side validation rejects any proposal of a beat.
+    ///
+    /// `Harvest` and `Devour` remain dual-classified during the
+    /// migration: they are owned by their engagements (HarvestPlugin,
+    /// DevourPlugin) but the rational brain's planner still emits them
+    /// as plan steps in chains (`Walk → Harvest → Eat`). Those planner
+    /// callsites move onto `InitiateHarvest`/`InitiateDevour` in a
+    /// follow-up; until then the beat classifier excludes them so the
+    /// debug-assert in arbitration doesn't fire on legitimate planner
+    /// proposals.
+    pub fn is_beat(self) -> bool {
+        matches!(
+            self,
+            ActionType::Converse | ActionType::Bite | ActionType::Flee | ActionType::Sleep
+        )
+    }
+
+    /// True for the "InitiateX" entry-point actions that brains propose
+    /// to start an engagement. The matching engagement plugin consumes
+    /// the initiate action and installs its kind-specific marker.
+    pub fn is_engagement_initiator(self) -> bool {
+        matches!(
+            self,
+            ActionType::InitiateConversation
+                | ActionType::InitiateHunt
+                | ActionType::InitiateDevour
+                | ActionType::InitiateHarvest
+                | ActionType::InitiateFlee
+                | ActionType::InitiateSleep
+        )
     }
 }

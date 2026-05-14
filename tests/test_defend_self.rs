@@ -84,7 +84,7 @@ fn starving_wolf_bites_nearby_human() {
     world.tick(600);
 
     assert!(
-        agent_started_action_against(&world, wolf, ActionType::Bite, human),
+        agent_started_action_against(&world, wolf, ActionType::InitiateHunt, human),
         "starving wolf should start a Bite action targeting the visible human"
     );
 }
@@ -133,7 +133,7 @@ fn well_fed_wolf_does_not_bite_nearby_human() {
     world.tick(600);
 
     assert!(
-        !agent_started_action_against(&world, wolf, ActionType::Bite, human),
+        !agent_started_action_against(&world, wolf, ActionType::InitiateHunt, human),
         "well-fed wolf must not bite a human under default mutual avoidance"
     );
     assert!(
@@ -160,7 +160,7 @@ fn starving_wolves_bite_humans_in_majority_of_seeds() {
         set_starving(&mut world, wolf);
         world.tick(600);
 
-        if agent_started_action_against(&world, wolf, ActionType::Bite, human) {
+        if agent_started_action_against(&world, wolf, ActionType::InitiateHunt, human) {
             hits += 1;
         }
     }

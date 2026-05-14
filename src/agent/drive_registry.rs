@@ -165,7 +165,9 @@ pub const DRIVE_REGISTRY: &[DriveEntry] = &[
         urgency: UrgencySource::Sleepiness,
         need_kind: Some(NeedKind::Sleep),
         intent: Intent::SatisfySleepiness,
-        satisfier: Some(ActionType::Sleep),
+        // The Sleep beat is engagement-owned (#746); the proposable
+        // entry point is InitiateSleep.
+        satisfier: Some(ActionType::InitiateSleep),
         satiation_threshold: 0.95,
         survival_weight: 80.0,
         is_deprivation: false,

@@ -418,9 +418,14 @@ fn arbitration_admits_walk_and_converse_in_parallel() {
             )],
             priority: 0.6,
         },
+        // Post-#743 `Converse` is an engagement-owned beat and can't be
+        // a rational plan step. `Wave` is the channel-equivalent stand-in:
+        // posture-agnostic, non-Locomotion channels, so it still exercises
+        // the "admit two channel-compatible actions in parallel with Walk"
+        // path this test cares about.
         steps: vec![ActionTemplate {
-            name: "Converse".into(),
-            action_type: ActionType::Converse,
+            name: "Wave".into(),
+            action_type: ActionType::Wave,
             target_entity: None,
             target_position: None,
             preconditions: vec![],
@@ -464,9 +469,8 @@ fn arbitration_admits_walk_and_converse_in_parallel() {
         .map(|p| p.action.action_type)
         .collect();
     assert!(
-        admitted_kinds.contains(&ActionType::Walk)
-            && admitted_kinds.contains(&ActionType::Converse),
-        "arbitration should admit Walk + Converse in parallel (different channels), got {admitted_kinds:?}"
+        admitted_kinds.contains(&ActionType::Walk) && admitted_kinds.contains(&ActionType::Wave),
+        "arbitration should admit Walk + Wave in parallel (different channels), got {admitted_kinds:?}"
     );
     assert!(
         result.rejected.is_empty(),

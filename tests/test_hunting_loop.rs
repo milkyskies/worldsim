@@ -161,13 +161,14 @@ fn hungry_wolf_kills_and_eats_nearby_deer() {
         .expect("wolf still has needs")
         .hunger_urgency();
 
+    // Post-#716 the wolf spawns on the deer's tile, so the proximity
+    // precondition is already satisfied and the planner injects no Walk
+    // step — the Hunt engagement only drives a pursue-Walk when the prey
+    // is out of strike range. The meaningful assertion is that the Hunt
+    // engagement was initiated.
     assert!(
-        agent_started_action(&world, wolf, ActionType::Walk),
-        "wolf should have walked toward the deer"
-    );
-    assert!(
-        agent_started_action(&world, wolf, ActionType::Bite),
-        "wolf should have bitten the deer"
+        agent_started_action(&world, wolf, ActionType::InitiateHunt),
+        "wolf should have initiated a Hunt engagement against the deer"
     );
     assert!(
         agent_started_action(&world, wolf, ActionType::Eat),

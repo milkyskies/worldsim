@@ -658,7 +658,7 @@ fn evaluate_entity_emotions(
 
     if fear > threshold
         && fear > FEAR_ENTITY_THRESHOLD
-        && let Some(action) = action_registry.get(ActionType::Flee)
+        && let Some(action) = action_registry.get(ActionType::InitiateFlee)
     {
         let mut template = action.to_template(Some(entity));
         template.escalate_intensity(fear);
@@ -733,7 +733,7 @@ fn appraise_threat_proposal(
 
     match response {
         ThreatResponse::Flee { urgency } => {
-            let action = action_registry.get(ActionType::Flee)?;
+            let action = action_registry.get(ActionType::InitiateFlee)?;
             let proposal_urgency = urgency * FLEE_RESPONSE_URGENCY_MULTIPLIER;
             if proposal_urgency <= best_urgency {
                 return None;
@@ -765,9 +765,17 @@ fn appraise_threat_proposal(
             })
         }
         ThreatResponse::Fight { commitment } => {
-            let attack_action = match self_concept {
-                Some(Concept::Wolf) => ActionType::Bite,
-                _ => ActionType::DefendSelf,
+            // Post-#743/#716 the Fight response splits by capability:
+            // a predator with jaws (Bite channel) commits to a Hunt
+            // engagement against the target — `InitiateHunt` walks it
+            // into strike range and the HuntPlugin owns the strike
+            // loop. Everyone else does reactive `DefendSelf` (Bite is
+            // a Hunt-internal beat now and can't be proposed directly).
+            let is_predator = self_concept == Some(Concept::Wolf);
+            let (attack_action, intent) = if is_predator {
+                (ActionType::InitiateHunt, Intent::SatisfyHunger)
+            } else {
+                (ActionType::DefendSelf, Intent::SatisfySafety)
             };
             let action = action_registry.get(attack_action)?;
             let proposal_urgency = (FIGHT_RESPONSE_BASE_URGENCY
@@ -782,7 +790,7 @@ fn appraise_threat_proposal(
                 brain: BrainType::Emotional,
                 action: template,
                 urgency: proposal_urgency,
-                intent: Intent::SatisfySafety,
+                intent,
                 reasoning: format!("Threat appraisal → Fight (commitment {commitment:.2})"),
             })
         }
@@ -808,7 +816,7 @@ fn check_general_fear(
 
     let fear_urgency = fear_level * FEAR_GENERAL_URGENCY_MULTIPLIER;
     if fear_urgency > best_urgency
-        && let Some(action) = action_registry.get(ActionType::Flee)
+        && let Some(action) = action_registry.get(ActionType::InitiateFlee)
     {
         let mut template = action.to_template(None);
         template.escalate_intensity(fear_level);
@@ -843,7 +851,7 @@ mod tests {
         let visible = VisibleObjects::default();
 
         let mut registry = crate::agent::actions::ActionRegistry::default();
-        registry.register_def(&crate::agent::actions::action::FLEE_DEF);
+        registry.register_def(&crate::agent::actions::action::INITIATE_FLEE_DEF);
 
         let proposal = emotional_brain_propose(&EmotionalInputs {
             emotions: &state,
@@ -873,7 +881,7 @@ mod tests {
         assert!(proposal.is_some());
         let prop = proposal.unwrap();
         assert_eq!(prop.brain, BrainType::Emotional);
-        assert_eq!(prop.action.name, "Flee");
+        assert_eq!(prop.action.name, "InitiateFlee");
         assert!(prop.urgency > 60.0);
     }
 
@@ -895,7 +903,7 @@ mod tests {
         let visible_positions = [(entity, Vec2::ZERO)];
 
         let mut registry = crate::agent::actions::ActionRegistry::default();
-        registry.register_def(&crate::agent::actions::action::FLEE_DEF);
+        registry.register_def(&crate::agent::actions::action::INITIATE_FLEE_DEF);
 
         let proposal = emotional_brain_propose(&EmotionalInputs {
             emotions: &state,
@@ -1023,7 +1031,7 @@ mod tests {
         let visible = VisibleObjects::default();
 
         let mut registry = crate::agent::actions::ActionRegistry::default();
-        registry.register_def(&crate::agent::actions::action::FLEE_DEF);
+        registry.register_def(&crate::agent::actions::action::INITIATE_FLEE_DEF);
 
         let proposal = emotional_brain_propose(&EmotionalInputs {
             emotions: &state,

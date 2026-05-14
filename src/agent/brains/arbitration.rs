@@ -177,7 +177,25 @@ pub fn arbitrate_parallel(
 ) -> ArbitrationResult {
     use crate::agent::actions::channel::ChannelLoad;
 
-    let collected: Vec<BrainProposal> = proposals.iter().flatten().cloned().collect();
+    // #743 typesafety: brains may not propose engagement-internal beats
+    // (Bite, Devour, Sleep, Harvest, Flee, Converse). The kind-specific
+    // engagement plugin owns those; brains route through the matching
+    // `InitiateX` action. In debug builds, panic on violation to surface
+    // the bug; in release, drop the proposal silently.
+    let collected: Vec<BrainProposal> = proposals
+        .iter()
+        .flatten()
+        .filter(|p| {
+            let is_beat = p.action.action_type.is_beat();
+            debug_assert!(
+                !is_beat,
+                "Brain {:?} proposed beat-only action {:?} — must route through an InitiateX",
+                p.brain, p.action.action_type,
+            );
+            !is_beat
+        })
+        .cloned()
+        .collect();
     let deduped = deduplicate_by_intent(collected, powers, registry);
 
     let mut scored: Vec<(f32, BrainProposal)> = deduped
@@ -214,13 +232,25 @@ pub fn arbitrate_parallel(
         // Engagement-as-commitment gate. Movement-class proposals
         // outside the kind's own action set are rejected unless their
         // urgency crosses ENGAGEMENT_BREAK_URGENCY (acute fear / pain).
-        if let Some(guard) = engagement
-            && !guard.kind.owns_action(proposal.action.action_type)
-            && action_def.kind().is_movement_like()
-            && proposal.urgency < ENGAGEMENT_BREAK_URGENCY
-        {
-            rejected.push(proposal);
-            continue;
+        if let Some(guard) = engagement {
+            // Reject the engagement's own InitiateX once the engagement
+            // has installed itself. Otherwise the brain would keep
+            // proposing it tick after tick, the start_log would print
+            // each time, and the resulting Movement admission would
+            // evict the engagement's own beat via channel conflict.
+            if proposal.action.action_type.is_engagement_initiator()
+                && guard.kind.owns_action(proposal.action.action_type)
+            {
+                rejected.push(proposal);
+                continue;
+            }
+            if !guard.kind.owns_action(proposal.action.action_type)
+                && action_def.kind().is_movement_like()
+                && proposal.urgency < ENGAGEMENT_BREAK_URGENCY
+            {
+                rejected.push(proposal);
+                continue;
+            }
         }
 
         let kind = action_def.kind();
@@ -380,7 +410,7 @@ mod tests {
         );
         let flee = make_proposal(
             BrainType::Emotional,
-            ActionType::Flee,
+            ActionType::InitiateFlee,
             50.0,
             Intent::SatisfySafety,
         );
@@ -390,7 +420,7 @@ mod tests {
         assert_eq!(deduped.len(), 2);
         let kinds: Vec<_> = deduped.iter().map(|p| p.action.action_type).collect();
         assert!(kinds.contains(&ActionType::Walk));
-        assert!(kinds.contains(&ActionType::Flee));
+        assert!(kinds.contains(&ActionType::InitiateFlee));
     }
 
     #[test]
@@ -645,7 +675,7 @@ mod tests {
         );
         let flee = make_proposal(
             BrainType::Survival,
-            ActionType::Flee,
+            ActionType::InitiateFlee,
             90.0,
             Intent::SatisfySafety,
         );
@@ -662,7 +692,7 @@ mod tests {
         );
         assert_eq!(
             admitted[0].action.action_type,
-            ActionType::Flee,
+            ActionType::InitiateFlee,
             "Survival Flee at critical urgency should be the top-ranked winner"
         );
     }
@@ -715,7 +745,7 @@ mod tests {
     fn flee_proposal(urgency: f32) -> BrainProposal {
         make_proposal(
             BrainType::Emotional,
-            ActionType::Flee,
+            ActionType::InitiateFlee,
             urgency,
             Intent::SatisfySafety,
         )
@@ -786,6 +816,9 @@ mod tests {
             1,
             "Flee above ENGAGEMENT_BREAK_URGENCY must displace the engagement"
         );
-        assert_eq!(result.admitted[0].action.action_type, ActionType::Flee);
+        assert_eq!(
+            result.admitted[0].action.action_type,
+            ActionType::InitiateFlee
+        );
     }
 }
