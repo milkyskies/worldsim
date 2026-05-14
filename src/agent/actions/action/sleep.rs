@@ -57,10 +57,12 @@ pub static SLEEP_DEF: ActionDefinition = ActionDefinition {
     satiation: Some(SatiationGate::WakefulnessValue),
     completion: CompletionPredicate::Never,
     on_complete_ops: &[],
-    hooks: Hooks {
-        location_preference: Some(score_sleep_spot),
-        ..Hooks::EMPTY
-    },
+    // The location-preference scorer lives on `InitiateSleep` (the
+    // proposable trigger), not on this beat — the beat is inserted
+    // directly by the SleepPlugin and never flows through the
+    // action-prep pass. `score_sleep_spot` stays in this module since
+    // it's conceptually sleep-spot logic; InitiateSleep references it.
+    hooks: Hooks::EMPTY,
     recipe: None,
 };
 
@@ -74,7 +76,7 @@ pub static SLEEP_DEF: ActionDefinition = ActionDefinition {
 /// Emergency override: if the agent is about to pass out, return
 /// uniformly-zero scores so the prep pass's hysteresis check blocks any
 /// swap and Sleep fires wherever the agent stands.
-fn score_sleep_spot(ctx: &PreferenceContext, tiles: &[IVec2]) -> Vec<f32> {
+pub fn score_sleep_spot(ctx: &PreferenceContext, tiles: &[IVec2]) -> Vec<f32> {
     if (1.0 - ctx.physical.wakefulness.value) >= EMERGENCY_SLEEPINESS {
         return vec![0.0; tiles.len()];
     }

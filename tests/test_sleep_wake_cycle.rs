@@ -66,7 +66,6 @@ fn tick_until_wake(world: &mut TestWorld, sleeper: bevy::prelude::Entity, max_ti
     false
 }
 
-#[ignore = "TODO #716/#744/#746: needs follow-up to migrate behavior to engagement-driven path"]
 #[test]
 fn exhausted_agent_sleeps_and_then_wakes_once_rested() {
     // Regression for #352. Phase 1: low stamina drives the agent into Sleep.
@@ -95,7 +94,6 @@ fn exhausted_agent_sleeps_and_then_wakes_once_rested() {
 
 /// #357: extreme hunger (starvation) must rouse a sleeping agent even before
 /// stamina recovers. The wake threshold is config-driven in `DriveConfig`.
-#[ignore = "TODO #716/#744/#746: needs follow-up to migrate behavior to engagement-driven path"]
 #[test]
 fn starving_wakes_sleeping_agent() {
     let (mut world, sleeper) = tired_sleeper();
@@ -133,7 +131,6 @@ fn starving_wakes_sleeping_agent() {
 
 /// #357 negative: moderate hunger must NOT wake a sleeping agent. This is
 /// what protects normal sleep against casual interruption.
-#[ignore = "TODO #716/#744/#746: needs follow-up to migrate behavior to engagement-driven path"]
 #[test]
 fn moderate_hunger_does_not_wake_sleeping_agent() {
     let (mut world, sleeper) = tired_sleeper();
@@ -170,7 +167,6 @@ fn moderate_hunger_does_not_wake_sleeping_agent() {
 /// rouse them through the fear wake pathway. Exercises the full integration
 /// — perception raises Fear emotion, urgency generation flags the trigger,
 /// the brain's sleep gate proposes WakeUp.
-#[ignore = "TODO #716/#744/#746: needs follow-up to migrate behavior to engagement-driven path"]
 #[test]
 fn nearby_wolf_wakes_sleeping_agent() {
     let (mut world, sleeper) = tired_sleeper();
@@ -198,7 +194,6 @@ fn nearby_wolf_wakes_sleeping_agent() {
 
 /// #357: significant injury pain must rouse a sleeping agent. Mirrors the
 /// real-life nociceptive wake pathway.
-#[ignore = "TODO #716/#744/#746: needs follow-up to migrate behavior to engagement-driven path"]
 #[test]
 fn pain_wakes_sleeping_agent() {
     let (mut world, sleeper) = tired_sleeper();
@@ -249,7 +244,6 @@ fn pain_wakes_sleeping_agent() {
 ///
 /// This test fails if any two consecutive `ActionStarted Sleep` events for
 /// the sleeper aren't separated by a terminating Sleep event.
-#[ignore = "TODO #716/#744/#746: needs follow-up to migrate behavior to engagement-driven path"]
 #[test]
 fn sleep_start_always_has_matching_terminator() {
     let (mut world, sleeper) = tired_sleeper();
