@@ -1,3 +1,4 @@
+pub mod adventure_menu;
 pub mod camera;
 pub mod hud;
 pub mod overlays;
@@ -46,6 +47,7 @@ impl Plugin for UiPlugin {
             .add_plugins(status_icons::StatusIconPlugin)
             .add_plugins(character_sheet::CharacterSheetPlugin)
             .add_plugins(perf_overlay::PerfOverlayPlugin)
+            .add_plugins(adventure_menu::AdventureMenuPlugin)
             .init_resource::<UiState>()
             .init_resource::<DebugUiEnabled>()
             .init_resource::<debug_knowledge::KnowledgeInspectorState>()

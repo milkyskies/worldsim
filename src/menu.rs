@@ -31,6 +31,10 @@ pub enum SimMode {
     #[default]
     Debug,
     Game,
+    /// Single-character POV: the standard Debug population spawns, then one
+    /// human is marked `PlayerControlled` so input drives them while the AI
+    /// keeps running everyone else. Adventure mode (#766).
+    Adventure,
 }
 
 impl SimMode {
@@ -38,6 +42,7 @@ impl SimMode {
         match self {
             SimMode::Debug => "Debug",
             SimMode::Game => "Game",
+            SimMode::Adventure => "Adventure",
         }
     }
 }
@@ -272,6 +277,7 @@ fn main_menu_screen(
     state: Res<State<AppState>>,
     mut next_state: ResMut<NextState<AppState>>,
     mut quit: ResMut<QuitRequested>,
+    mut form: ResMut<CreateWorldForm>,
 ) {
     let Ok(mut egui_ctx) = contexts.single_mut() else {
         return;
@@ -287,6 +293,14 @@ fn main_menu_screen(
             let button_size = egui::vec2(220.0, 48.0);
             if sized_button(ui, button_size, "New Simulation") {
                 next_state.set(AppState::ModePicker);
+            }
+            ui.add_space(8.0);
+            // Adventure Mode short-circuits the mode picker — there's only
+            // one variant of "control one human in the sandbox," so we
+            // jump straight to the create-world form with the mode set.
+            if sized_button(ui, button_size, "Adventure Mode") {
+                form.selected_mode = SimMode::Adventure;
+                next_state.set(AppState::CreateWorld);
             }
             ui.add_space(8.0);
             if sized_button(ui, button_size, "Quit") {
@@ -505,6 +519,25 @@ mod tests {
 
         let state = app.world().resource::<State<AppState>>();
         assert_eq!(*state.get(), AppState::InSim);
+        assert!(app.world().get_resource::<GameModeMarker>().is_none());
+    }
+
+    #[test]
+    fn start_simulation_adventure_mode_writes_matching_config() {
+        // Adventure shares the InSim plumbing with Debug — what differs is
+        // only the `SimMode` carried in `SimConfig`, which downstream
+        // systems (spawner, future HUD) read to decide whether to mark a
+        // player and surface adventure-only UI.
+        let app = drive_start_simulation(CreateWorldForm {
+            name: "Hero Land".into(),
+            seed_input: "11".into(),
+            selected_mode: SimMode::Adventure,
+        });
+        let config = app.world().resource::<SimConfig>();
+        assert_eq!(config.mode, SimMode::Adventure);
+        assert_eq!(config.world_name, "Hero Land");
+        // Adventure is *not* a Game-mode run — the GameModeMarker is
+        // gated on Game and must not bleed through.
         assert!(app.world().get_resource::<GameModeMarker>().is_none());
     }
 
