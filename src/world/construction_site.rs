@@ -22,9 +22,18 @@ use crate::agent::inventory::EntityType;
 use crate::agent::item_slots::{ItemSlots, Slot};
 use crate::agent::mind::knowledge::Concept;
 use crate::constants::actions::construct::INTERACTION_DISTANCE;
+use crate::palette::{Palette, PaletteColor};
 use crate::world::becomes::{Becomes, BecomesTrigger};
+use crate::world::map::TILE_SIZE;
 use crate::world::property::BuiltBy;
 use bevy::prelude::*;
+
+/// Marker for the placeholder visual sprite attached to a construction
+/// site. Lets the sync system track which sites already have a visual
+/// without re-spawning one every frame.
+#[derive(Component, Reflect, Default)]
+#[reflect(Component)]
+pub struct ConstructionSiteVisual;
 
 /// Marker for construction site entities. Lets queries narrow to "sites only"
 /// without having to read `EntityType` and compare against `ConstructionSite`.
@@ -96,6 +105,12 @@ pub fn spawn_construction_site_headless(
         crate::world::Physical,
         Transform::from_translation(position.extend(1.0)),
         GlobalTransform::default(),
+        // Visibility plumbing so the placeholder sprite the visual
+        // sync system attaches as a child actually renders. Without
+        // these the child sprites are silently culled.
+        Visibility::default(),
+        InheritedVisibility::default(),
+        ViewVisibility::default(),
         item_slots,
         Becomes::new(target, trigger, started_tick),
     ));
@@ -117,4 +132,52 @@ pub fn spawn_construction_site_headless(
     }
 
     entity_cmd.id()
+}
+
+/// Attach a placeholder visual to any construction site that doesn't
+/// have one yet. Sites are spawned headless (no Sprite) by the action
+/// pipeline, then this Update-time pass walks through and gives each
+/// new site a sandy outlined square so the player can actually see
+/// where they placed it. When the site transforms into the finished
+/// entity (lean-to / house / chest) the visual is despawned with its
+/// parent, so no cleanup needed here.
+pub fn sync_construction_site_visuals(
+    mut commands: Commands,
+    palette: Res<Palette>,
+    sites: Query<(Entity, &Children), With<ConstructionSiteMarker>>,
+    existing_visuals: Query<&ConstructionSiteVisual>,
+) {
+    let footprint = Vec2::new(TILE_SIZE * 1.2, TILE_SIZE * 1.0);
+    let body_color = palette.srgb(PaletteColor::SkinDeep);
+    let outline_color = palette.srgb(PaletteColor::LeafForest);
+
+    for (site_entity, children) in sites.iter() {
+        // Skip if any child is already a visual.
+        if children.iter().any(|c| existing_visuals.contains(c)) {
+            continue;
+        }
+        commands.entity(site_entity).with_children(|parent| {
+            // Outline rim — slightly larger box behind the fill so the
+            // edge reads at small zoom levels.
+            parent.spawn((
+                ConstructionSiteVisual,
+                Sprite {
+                    color: outline_color,
+                    custom_size: Some(footprint + Vec2::splat(2.0)),
+                    ..default()
+                },
+                Transform::from_translation(Vec3::new(0.0, 0.0, -0.05)),
+            ));
+            // Sandy fill — represents the "in-progress" feel.
+            parent.spawn((
+                ConstructionSiteVisual,
+                Sprite {
+                    color: body_color,
+                    custom_size: Some(footprint),
+                    ..default()
+                },
+                Transform::from_translation(Vec3::new(0.0, 0.0, 0.0)),
+            ));
+        });
+    }
 }

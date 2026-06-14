@@ -7,7 +7,6 @@
 
 use bevy::prelude::*;
 
-use crate::agent::actions::ActionType;
 use crate::agent::body::metabolism::Metabolism;
 use crate::agent::body::need::Need;
 
@@ -116,28 +115,6 @@ impl Stamina {
             self.aerobic -= 0.005 * ticks;
         }
         self.clamp();
-    }
-
-    /// Apply recovery for a rest-style action. Anaerobic always refills fast
-    /// at low intensity; aerobic recovers at a rate that depends on how real
-    /// the rest is (Sleep > Sit/Rest > Walk/Wander > other).
-    ///
-    /// Intensity is the ongoing activity intensity — recovery only applies
-    /// when it's below the `0.3` low-intensity threshold.
-    pub fn recover(&mut self, action: ActionType, intensity: f32, dt: f32) {
-        if intensity >= 0.3 {
-            return;
-        }
-        let ticks = dt * 60.0;
-        self.anaerobic = (self.anaerobic + 0.5 * ticks).min(self.anaerobic_max);
-
-        let aerobic_rate = match action {
-            ActionType::Sleep => 0.3,
-            ActionType::Idle => 0.05,
-            ActionType::Walk | ActionType::Wander => 0.01,
-            _ => 0.0,
-        };
-        self.aerobic = (self.aerobic + aerobic_rate * ticks).min(self.aerobic_max);
     }
 
     /// Restore both pools to maximum. Sleep and eat bursts do this.
@@ -526,71 +503,6 @@ mod tests {
         );
     }
 
-    /// Anaerobic refills fast at low intensity — the "huff for 30 seconds and
-    /// resume sprinting" behaviour.
-    #[test]
-    fn anaerobic_refills_fast_at_low_intensity() {
-        let mut s = Stamina {
-            anaerobic: 0.0,
-            aerobic: 100.0,
-            ..Default::default()
-        };
-        // Half a second of idle rest.
-        s.recover(ActionType::Idle, 0.0, 0.5);
-        assert!(
-            s.anaerobic > 10.0,
-            "anaerobic should refill quickly at rest, got {}",
-            s.anaerobic
-        );
-    }
-
-    /// High-intensity activity does NOT refill anaerobic — recovery is gated
-    /// on intensity < 0.3.
-    #[test]
-    fn anaerobic_does_not_refill_during_exertion() {
-        let mut s = Stamina {
-            anaerobic: 50.0,
-            ..Default::default()
-        };
-        s.recover(ActionType::Walk, 0.8, 1.0);
-        assert_eq!(
-            s.anaerobic, 50.0,
-            "anaerobic must not refill while exerting hard"
-        );
-    }
-
-    /// Aerobic recovers slow and only with real rest. Sleep > Idle > Walk.
-    #[test]
-    fn aerobic_recovery_rate_depends_on_action() {
-        let drain = 30.0;
-        let mut sleeping = Stamina {
-            aerobic: 100.0 - drain,
-            ..Default::default()
-        };
-        let mut idling = Stamina {
-            aerobic: 100.0 - drain,
-            ..Default::default()
-        };
-        let mut walking = Stamina {
-            aerobic: 100.0 - drain,
-            ..Default::default()
-        };
-        sleeping.recover(ActionType::Sleep, 0.0, 1.0);
-        idling.recover(ActionType::Idle, 0.0, 1.0);
-        walking.recover(ActionType::Walk, 0.2, 1.0);
-        let sleep_gain = sleeping.aerobic - (100.0 - drain);
-        let idle_gain = idling.aerobic - (100.0 - drain);
-        let walk_gain = walking.aerobic - (100.0 - drain);
-        assert!(
-            sleep_gain > idle_gain,
-            "sleep should recover aerobic faster than idle"
-        );
-        assert!(
-            idle_gain > walk_gain,
-            "idle should recover aerobic faster than walking"
-        );
-    }
-
     /// Sleep restores BOTH pools to full via `restore_full`. This is the
     /// "wake refreshed" behaviour.
     #[test]
@@ -629,40 +541,6 @@ mod tests {
         s.drain(1.0, 100.0);
         assert!(s.anaerobic >= 0.0, "anaerobic clamped, got {}", s.anaerobic);
         assert!(s.aerobic >= 0.0, "aerobic clamped, got {}", s.aerobic);
-    }
-
-    /// Repeated long sprint-rest cycles show diminishing aerobic (acceptance
-    /// criterion). Each sprint fully depletes anaerobic and then falls
-    /// through to the aerobic penalty branch, which is expensive. Rest
-    /// refills anaerobic completely but only slowly restores aerobic, so
-    /// the ratchet compounds across cycles.
-    #[test]
-    fn repeated_sprint_rest_cycles_erode_aerobic_diminishingly() {
-        let mut s = Stamina::default();
-        // Four sprint-rest cycles. Sprint is 10s at full intensity — long
-        // enough to empty anaerobic (~8s) and spend 2s on aerobic.
-        for _ in 0..4 {
-            s.drain(1.0, 10.0);
-            // Rest: 5s idle — plenty of time to fully refill anaerobic
-            // (100 at 30/s = ~3.3s) and recover a modest amount of aerobic
-            // (5 * 3 = 15 aerobic per cycle).
-            s.recover(ActionType::Idle, 0.0, 5.0);
-        }
-        assert!(
-            s.aerobic < 100.0,
-            "aerobic should erode across sprint-rest cycles, got {}",
-            s.aerobic
-        );
-        assert!(
-            s.aerobic < 80.0,
-            "aerobic should meaningfully erode after 4 long sprints, got {}",
-            s.aerobic
-        );
-        assert!(
-            s.anaerobic > 90.0,
-            "anaerobic should bounce back during rests, got {}",
-            s.anaerobic
-        );
     }
 }
 

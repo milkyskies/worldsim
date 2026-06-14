@@ -1,9 +1,21 @@
+use crate::agent::player::{PlayerControlled, follow_position};
 use crate::ui::UiState;
 use bevy::input::gestures::PinchGesture;
 use bevy::input::mouse::{MouseMotion, MouseWheel};
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 use bevy_egui::{EguiContext, PrimaryEguiContext, egui};
+
+/// Per-frame catch-up factor for adventure-mode camera follow. Tuned so a
+/// player teleporting across the map snaps to the new position in ~1 second
+/// at 60 FPS while normal walk steps look glued to the camera.
+const FOLLOW_ALPHA: f32 = 0.15;
+
+/// Orthographic scale to use when entering Adventure mode. Smaller = more
+/// zoomed in. Default scale in Bevy is 1.0; 0.5 doubles the apparent
+/// detail, which matches the closer-in feel a single-character POV wants
+/// (you care about your immediate surroundings, not a 50×50 overview).
+const ADVENTURE_DEFAULT_ZOOM: f32 = 0.5;
 
 /// Should the camera respond to a gesture at this cursor position?
 ///
@@ -52,10 +64,66 @@ impl Plugin for CameraPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(
             Update,
-            (camera_zoom, camera_drag, touchpad_pinch_zoom, touchpad_pan)
+            (
+                camera_zoom,
+                camera_drag,
+                touchpad_pinch_zoom,
+                touchpad_pan,
+                // Follow runs after the manual pan/zoom systems so a held
+                // middle-click still wins the frame; releasing the button
+                // lets the lerp pull the camera back toward the player.
+                camera_follow_player.after(camera_drag).after(touchpad_pan),
+            )
                 .run_if(crate::menu::sim_interactive),
+        )
+        .add_systems(
+            OnEnter(crate::menu::AppState::InSim),
+            apply_adventure_default_zoom.run_if(in_adventure_mode),
         );
     }
+}
+
+fn in_adventure_mode(sim_config: Option<Res<crate::menu::SimConfig>>) -> bool {
+    sim_config
+        .map(|c| matches!(c.mode, crate::menu::SimMode::Adventure))
+        .unwrap_or(false)
+}
+
+/// Pin the orthographic camera scale to `ADVENTURE_DEFAULT_ZOOM` when
+/// entering Adventure mode. Subsequent scroll-wheel/pinch input still
+/// adjusts from this starting point — we just bias the initial framing
+/// toward the player's immediate surroundings instead of the full map.
+fn apply_adventure_default_zoom(mut cameras: Query<&mut Projection, With<Camera>>) {
+    for mut projection in cameras.iter_mut() {
+        if let Projection::Orthographic(ref mut ortho) = *projection {
+            ortho.scale = ADVENTURE_DEFAULT_ZOOM;
+        }
+    }
+}
+
+/// Lerp the 2D camera toward the possessed agent's transform each frame.
+/// Suspended while the user is mid middle-click drag so manual panning
+/// works as before — releasing the button hands control back to the
+/// follow lerp.
+fn camera_follow_player(
+    buttons: Res<ButtonInput<MouseButton>>,
+    player_q: Query<&Transform, (With<PlayerControlled>, Without<Camera>)>,
+    mut camera_q: Query<&mut Transform, With<Camera>>,
+) {
+    if buttons.pressed(MouseButton::Middle) {
+        return;
+    }
+    let Ok(player) = player_q.single() else {
+        return;
+    };
+    let Ok(mut camera) = camera_q.single_mut() else {
+        return;
+    };
+    let target = player.translation.truncate();
+    let current = camera.translation.truncate();
+    let next = follow_position(current, target, FOLLOW_ALPHA);
+    camera.translation.x = next.x;
+    camera.translation.y = next.y;
 }
 
 // Scroll Wheel Zoom (mouse only - skips trackpad pixel scrolling)
